@@ -7,7 +7,7 @@ import { KUROCMS_VERSION } from "./api";
 import type { Env } from "./types";
 
 // Version-pinned release base. NOT `latest/download` — that path is CDN-stale.
-const RELEASE_BASE = `https://github.com/Kuro-Boo/KuroCMS-releases/releases/download/v${KUROCMS_VERSION}`;
+const RELEASE_BASE = `https://github.com/Kuro-Boo/KuroCMS/releases/download/v${KUROCMS_VERSION}`;
 const ASSET_RE = /^(admin-app|ke|ke-content)\.[a-z0-9.]+\.(js|css)$/;
 const KV_PREFIX = "admin:asset:";
 const IMMUTABLE = "public, max-age=31536000, immutable";
