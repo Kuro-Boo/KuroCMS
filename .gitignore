@@ -21,6 +21,7 @@
 !/README.md
 !/LICENSE.txt
 !/SECURITY.md
+!/docs/
 
 # 5) 許可フォルダ内に紛れるゴミを無視
 .DS_Store
