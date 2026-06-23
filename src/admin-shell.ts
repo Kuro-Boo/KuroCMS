@@ -251,6 +251,19 @@ export function adminHtml(
       button.artSlugCode { width: auto !important; box-shadow: none !important; font-weight: 400 !important; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; text-align: left; cursor: copy; }
       button.artSlugCode:hover { color: var(--accent) !important; border-color: var(--accent) !important; background: var(--surface-3) !important; }
       button.artSlugCode:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+      .artTypeCats { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; margin-top: 6px; min-height: 20px; }
+      .artListType { display: inline-flex; align-items: center; max-width: 160px; padding: 2px 7px; border-radius: 5px; background: var(--surface-3); color: var(--muted); font-size: 11px; font-weight: 700; line-height: 1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .artListCat { display: inline-flex; align-items: center; max-width: 180px; padding: 2px 8px; border-radius: 12px; background: rgba(21,122,110,.10); color: var(--accent); font-size: 11px; font-weight: 700; line-height: 1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .snsStatusList { display: grid; gap: 3px; min-width: 118px; }
+      .snsStatusLine { display: grid; grid-template-columns: 58px max-content; align-items: center; gap: 7px; font-size: 11px; line-height: 1.3; }
+      .snsStatusName { color: var(--muted); font-weight: 800; }
+      .snsStatusValue { font-weight: 800; }
+      .snsStatusLine.posted .snsStatusValue { color: var(--accent); }
+      .snsStatusLine.unposted .snsStatusValue { color: var(--muted); }
+      button.snsPostBtn { padding: 2px 12px !important; font-size: 11px !important; font-weight: 800; border-radius: 999px; background: var(--accent); color: #fff; border: 0; cursor: pointer; line-height: 1.4; justify-self: start; }
+      button.snsPostBtn:hover { filter: brightness(0.95); }
+      button.snsPostBtn:disabled { opacity: 0.5; cursor: not-allowed; }
+      .snsStatusMobile { margin: 8px 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-2); }
       .catTag { display: inline-flex; align-items: center; gap: 3px; background: rgba(21,122,110,.10); color: var(--accent); border-radius: 12px; padding: 2px 8px 2px 10px; font-size: 12px; font-weight: 600; }
       .catTag button { display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; background: rgba(220,38,38,.65); border: none; border-radius: 50%; color: #fff; cursor: pointer; font-size: 9px; line-height: 1; padding: 0; flex-shrink: 0; }
       .catTag button:hover { background: rgb(220,38,38); }

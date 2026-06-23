@@ -464,11 +464,21 @@ async function newArticle(editDid: Dynamic) {
       escapeHtml(t("coverImageLabel")) +
       "</span>" +
       (r2Ok
-        ? "<button type='button' id='arCoverPickBtn' style='font-size:12px;padding:4px 12px'" +
+        ? "<div style='display:flex;gap:6px;align-items:center'>" +
+          "<button type='button' id='arCoverPickBtn' style='font-size:12px;padding:4px 12px'" +
           dis +
           ">&#128444; " +
           escapeHtml(t("selectCoverBtn")) +
-          "</button>"
+          "</button>" +
+          // Specify a cover by image id ([[img-xxx]]); resolves on blur.
+          "<input id='arCoverMidInput' placeholder='[[img-xxx]]' value='" +
+          escapeHtml(art.coverMid) +
+          "'" +
+          dis +
+          " title='" +
+          escapeHtml(t("coverMidHint")) +
+          "' style='font-size:12px;padding:4px 8px;width:150px;font-family:ui-monospace,monospace' />" +
+          "</div>"
         : "") +
       "</div>" +
       "<div id='arCoverPreview' class='articleCoverBox" +
@@ -1068,6 +1078,47 @@ async function newArticle(editDid: Dynamic) {
 
     byId("arCoverPickBtn")?.addEventListener("click", function () {
       fileInput?.click();
+    });
+
+    // Specify the cover by image id ([[img-xxx]] or img-xxx). On blur, resolve
+    // the id to its stored image and show it in the cover area. Uploading via
+    // file/drop re-renders with value=art.coverMid, so the field auto-fills.
+    function applyCover(mid: string, path: string) {
+      readFields(); // preserve in-progress body/title edits before re-render
+      art.coverMid = mid;
+      art.coverPath = path;
+      markDirty();
+      renderPage();
+      bindAllArticleEvents();
+      refreshDynamicFields();
+      mountBodyEditor();
+    }
+    const midInput = byId("arCoverMidInput") as HTMLInputElement | null;
+    midInput?.addEventListener("blur", async function () {
+      let mid = (midInput.value || "").trim();
+      if (mid.startsWith("[[")) mid = mid.slice(2).trim();
+      if (mid.endsWith("]]")) mid = mid.slice(0, -2).trim();
+      if (mid === art.coverMid) return; // unchanged
+      if (!mid) {
+        if (art.coverMid) applyCover("", ""); // cleared → remove cover
+        return;
+      }
+      try {
+        const res = await api("/api/media/asset/" + encodeURIComponent(mid));
+        const item = res.item;
+        if (!item || item.kind !== "image") {
+          throw new Error(t("coverMidNotFound"));
+        }
+        applyCover(item.id, item.publicPath);
+      } catch (err) {
+        toast(
+          err instanceof Error && err.message
+            ? err.message
+            : t("coverMidNotFound"),
+          true,
+        );
+        midInput.value = art.coverMid; // revert to current
+      }
     });
 
     fileInput?.addEventListener("change", function () {

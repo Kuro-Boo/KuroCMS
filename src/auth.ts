@@ -261,10 +261,16 @@ async function trySessionUser(
 // Public auth API
 // ---------------------------------------------------------------------------
 
-export async function requireAuth(
+/**
+ * Resolve the authenticated user if present, else null (does not throw).
+ * Used where an endpoint must behave differently for authenticated vs
+ * anonymous callers — e.g. passkey registration distinguishing "add a device
+ * to my account" (session) from bootstrap/invitation flows.
+ */
+export async function tryAuth(
   env: Env,
   request: Request,
-): Promise<AuthUser> {
+): Promise<AuthUser | null> {
   const localUser = await tryLocalDevUser(env, request);
   if (localUser) return localUser;
 
@@ -273,6 +279,16 @@ export async function requireAuth(
 
   const sessionUser = await trySessionUser(env, request);
   if (sessionUser) return sessionUser;
+
+  return null;
+}
+
+export async function requireAuth(
+  env: Env,
+  request: Request,
+): Promise<AuthUser> {
+  const user = await tryAuth(env, request);
+  if (user) return user;
 
   throw new HttpError(401, "missing_auth", "Authentication is required.");
 }
