@@ -1,0 +1,1 @@
+ALTER TABLE page_templates ADD COLUMN user_modified INTEGER NOT NULL DEFAULT 0;

@@ -1,0 +1,926 @@
+// KuroCMS admin screen module. Concatenated by scripts/build-admin.js.
+
+async function dashboard() {
+  shell(
+    t("dashboard"),
+    "<div class='stack' style='gap:20px'>" +
+      // Top row: compact stats + version card
+      "<div class='split' style='align-items:start'>" +
+      // Stats grid
+      "<div class='panel'>" +
+      "<div class='sectionLabel' style='margin-bottom:14px'>" +
+      escapeHtml(t("overview")) +
+      "</div>" +
+      "<div class='grid'>" +
+      "<div style='background:var(--surface-2);border:1px solid var(--line);border-radius:var(--radius);padding:20px 16px;text-align:center'>" +
+      "<div style='font-size:48px;font-weight:800;color:var(--accent);line-height:1' id='statDocs'>…</div>" +
+      "<div style='font-size:12px;color:var(--muted);font-weight:600;margin-top:10px'>" +
+      escapeHtml(t("registeredDocuments")) +
+      "</div>" +
+      "</div>" +
+      "<div style='background:var(--surface-2);border:1px solid var(--line);border-radius:var(--radius);padding:20px 16px;text-align:center'>" +
+      "<div style='font-size:48px;font-weight:800;color:var(--accent);line-height:1' id='statPub'>…</div>" +
+      "<div style='font-size:12px;color:var(--muted);font-weight:600;margin-top:10px'>" +
+      escapeHtml(t("publishedDocuments")) +
+      "</div>" +
+      "</div>" +
+      "<div style='background:var(--surface-2);border:1px solid var(--line);border-radius:var(--radius);padding:20px 16px;text-align:center'>" +
+      "<div style='font-size:48px;font-weight:800;color:var(--accent);line-height:1' id='statMedia'>…</div>" +
+      "<div style='font-size:12px;color:var(--muted);font-weight:600;margin-top:10px'>" +
+      escapeHtml(t("mediaLabel")) +
+      "</div>" +
+      "</div>" +
+      "</div>" +
+      "</div>" +
+      // Version card
+      "<div class='panel'>" +
+      "<div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:10px'>" +
+      "<span style='font-weight:700;font-size:14px'>KuroCMS</span>" +
+      "</div>" +
+      "<div style='border-top:1px solid var(--line);padding-top:10px;display:flex;flex-direction:column;gap:6px'>" +
+      "<div class='versionRow'><span class='versionLabel'>" +
+      escapeHtml(t("installedVersionLabel")) +
+      "</span><span class='versionVal' id='versionCurrent'>v—</span></div>" +
+      "<div class='versionRow'><span class='versionLabel'>" +
+      escapeHtml(t("latestVersionLabel")) +
+      "</span><span class='versionVal' id='versionLatest'>" +
+      escapeHtml(t("checking")) +
+      "</span></div>" +
+      "</div>" +
+      "<div style='margin-top:12px'>" +
+      "<div class='updateBtnWrap'>" +
+      "<button id='btnUpdate' style='width:100%'>" +
+      escapeHtml(t("checkForUpdate")) +
+      "</button>" +
+      "<span class='updateBadge' id='updateBadge' style='display:none'></span>" +
+      "</div>" +
+      "</div>" +
+      "</div>" +
+      "</div>" +
+      // Storage gauges
+      "<div class='panel stack'>" +
+      "<h3>" +
+      escapeHtml(t("storageFreeUsage")) +
+      "</h3>" +
+      "<div class='storageGrid' id='storageGrid'><div class='muted' style='font-size:12px'>" +
+      escapeHtml(t("loading")) +
+      "</div></div>" +
+      "</div>" +
+      "</div>",
+  );
+
+  // Article stats
+  try {
+    const data = await api(
+      "/api/documents?lang=" + encodeURIComponent(state.uiLang),
+    );
+    const docs = data.documents || [];
+    const published = docs.filter((d: Dynamic) => d.mode === 1);
+    if (byId("statDocs")) byId("statDocs")!.textContent = String(docs.length);
+    if (byId("statPub"))
+      byId("statPub")!.textContent = String(published.length);
+  } catch (err) {
+    toast(errorMessage(err), true);
+  }
+
+  // Storage stats
+  try {
+    const s = await api("/api/system/storage");
+    const imgCount = s.media?.image?.count || 0;
+    const vidCount = s.media?.video?.count || 0;
+    const audCount = s.media?.audio?.count || 0;
+    const mediaTotal = Object.values(
+      (s.media || {}) as Record<string, { bytes?: number }>,
+    ).reduce((sum, m) => sum + (m.bytes || 0), 0);
+    // s.docs is keyed by tid (per-collection counts) plus a "total" entry, so
+    // sum only the per-collection values to avoid double-counting "total".
+    const docCount = Object.entries(
+      (s.docs || {}) as Record<string, number>,
+    ).reduce((sum, [k, c]) => (k === "total" ? sum : sum + c), 0);
+    // Per-language document counts for the article card detail line.
+    let langDocsHtml = "";
+    try {
+      const langData = await api("/api/languages");
+      // Show every registered language (including those with 0 documents) so the
+      // breakdown reflects all configured languages, not only the ones in use.
+      const langRows = (langData.languages || []) as Dynamic[];
+      if (langRows.length) {
+        langDocsHtml =
+          "<br>" +
+          langRows
+            .map(
+              (l: Dynamic) =>
+                escapeHtml(l.displayName || l.lang) +
+                " " +
+                (l.usage?.documents || 0),
+            )
+            .join(" / ");
+      }
+    } catch {
+      /* languages optional */
+    }
+    if (byId("statMedia"))
+      byId("statMedia")!.textContent = String(imgCount + vidCount + audCount);
+    const grid = byId("storageGrid");
+    if (grid) {
+      const r2Avail = !!s.r2Available;
+      const unavailWrap = function (inner: Dynamic) {
+        return (
+          "<div style='display:flex;flex-direction:column;gap:6px'>" +
+          "<div class='storageUnavailable'>" +
+          escapeHtml(t("r2Unavailable")) +
+          "</div>" +
+          inner +
+          "</div>"
+        );
+      };
+      const r2Card = r2Avail
+        ? makePieChart(
+            s.r2.pct,
+            t("r2Media"),
+            fmtBytes(s.r2.usedBytes),
+            "10 GB",
+          )
+        : unavailWrap(
+            "<div class='storageCard unavailable'>" +
+              "<div class='storageCardTitle'>" +
+              escapeHtml(t("r2Media")) +
+              "</div>" +
+              "<div class='pieWrap'><svg viewBox='0 0 100 100'><circle class='pieBg' cx='50' cy='50' r='36'/></svg>" +
+              "<div class='piePct' style='color:var(--muted)'>—</div></div>" +
+              "<div class='storageDetail'>" +
+              escapeHtml(t("freeLimitLabel")) +
+              "10 GB</div></div>",
+          );
+      const mediaCard = r2Avail
+        ? "<div class='storageCard'><div class='storageCardTitle'>" +
+          escapeHtml(t("mediaLabel")) +
+          "</div>" +
+          "<div style='font-size:32px;font-weight:800;color:var(--accent)'>" +
+          (imgCount + vidCount + audCount) +
+          "</div>" +
+          "<div class='storageDetail'>" +
+          escapeHtml(t("imageTypeLabel")) +
+          " " +
+          imgCount +
+          " / " +
+          escapeHtml(t("videoTypeLabel")) +
+          " " +
+          vidCount +
+          " / " +
+          escapeHtml(t("audioTypeLabel")) +
+          " " +
+          audCount +
+          "<br>" +
+          fmtBytes(mediaTotal) +
+          "</div>" +
+          "</div>"
+        : unavailWrap(
+            "<div class='storageCard unavailable'><div class='storageCardTitle'>" +
+              escapeHtml(t("mediaLabel")) +
+              "</div>" +
+              "<div style='font-size:32px;font-weight:800;color:var(--muted)'>—</div>" +
+              "<div class='storageDetail'>" +
+              t("r2MediaUnavailMsg") +
+              "</div></div>",
+          );
+      // KV daily operations (writes are the constrained Free-plan resource).
+      const ops = s.kvOps as
+        | {
+            available: boolean;
+            writes: number;
+            reads: number;
+            maxWrites: number;
+            maxReads: number;
+            writesPct: number;
+            resetUtc: string;
+          }
+        | undefined;
+      const fmtReset = function (iso: Dynamic) {
+        if (!iso) return "";
+        try {
+          return new Date(iso).toLocaleString(undefined, {
+            month: "numeric",
+            day: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+          });
+        } catch {
+          return "";
+        }
+      };
+      let kvOpsCard = "";
+      if (ops) {
+        const wpct = Math.min(100, ops.writesPct || 0);
+        const cls = wpct < 70 ? "ok" : wpct < 90 ? "warn" : "danger";
+        const color =
+          wpct < 70
+            ? "var(--accent)"
+            : wpct < 90
+              ? "var(--accent-3)"
+              : "var(--danger)";
+        const r = 36,
+          circ = 2 * Math.PI * r,
+          filled = Math.min(1, wpct / 100) * circ;
+        const pieVal = ops.available
+          ? wpct.toFixed(1) + "<span style='font-size:10px'>%</span>"
+          : "—";
+        const sub = ops.available
+          ? ops.writes + " / " + ops.maxWrites
+          : escapeHtml(t("kvOpsUnavailable"));
+        kvOpsCard =
+          "<div class='storageCard" +
+          (wpct >= 50 ? " storage-alert" : "") +
+          "'><div class='storageCardTitle'>" +
+          escapeHtml(t("kvWritesToday")) +
+          "</div><div class='pieWrap'><svg viewBox='0 0 100 100'>" +
+          "<circle class='pieBg' cx='50' cy='50' r='" +
+          r +
+          "'/>" +
+          (ops.available
+            ? "<circle class='pieArc " +
+              cls +
+              "' cx='50' cy='50' r='" +
+              r +
+              "' stroke-dasharray='" +
+              filled.toFixed(1) +
+              " " +
+              circ.toFixed(1) +
+              "'/>"
+            : "") +
+          "</svg><div class='piePct' style='color:" +
+          color +
+          "'>" +
+          pieVal +
+          "<div class='piePctSub'>" +
+          sub +
+          "</div></div></div><div class='storageDetail'>" +
+          (ops.available
+            ? escapeHtml(t("kvReadsLabel")) +
+              " " +
+              ops.reads +
+              " / " +
+              ops.maxReads +
+              "<br>"
+            : "") +
+          escapeHtml(t("kvResetLabel")) +
+          " " +
+          escapeHtml(fmtReset(ops.resetUtc)) +
+          "</div></div>";
+      }
+      grid.innerHTML =
+        makePieChart(
+          s.d1.pct,
+          t("d1Database"),
+          fmtBytes(s.d1.usedBytes),
+          "5 GB",
+        ) +
+        r2Card +
+        makePieChart(s.kv.pct, t("kvPages"), fmtBytes(s.kv.usedBytes), "1 GB") +
+        kvOpsCard +
+        "<div class='storageCard'><div class='storageCardTitle'>" +
+        escapeHtml(t("articleCountTitle")) +
+        "</div>" +
+        "<div style='font-size:32px;font-weight:800;color:var(--accent)'>" +
+        docCount +
+        "</div>" +
+        "<div class='storageDetail'>" +
+        escapeHtml(t("collectionArticleCount")) +
+        langDocsHtml +
+        "</div>" +
+        "</div>" +
+        mediaCard;
+    }
+    setStorageAlertBadge(
+      s.d1.pct >= 50 || (s.r2Available && s.r2.pct >= 50) || s.kv.pct >= 50,
+    );
+  } catch {
+    /* storage API optional */
+  }
+
+  // Version card setup
+  function applyVersionResult(v: Dynamic) {
+    const cur = byId("versionCurrent");
+    const lat = byId("versionLatest");
+    const badge = byId("updateBadge");
+    if (cur) cur.textContent = "v" + v.current;
+    if (lat) {
+      lat.textContent = "v" + v.latest;
+      lat.className = "versionVal" + (v.hasUpdate ? " has-update" : "");
+    }
+    if (badge) badge.style.display = v.hasUpdate ? "" : "none";
+    const btn = byId("btnUpdate");
+    if (btn)
+      btn.textContent = v.hasUpdate ? t("updateNow") : t("checkForUpdate");
+  }
+
+  async function checkVersion() {
+    try {
+      applyVersionResult(await api("/api/system/version"));
+    } catch {
+      /* ignore */
+    }
+  }
+
+  // Check the version once when the dashboard opens (result is only shown here;
+  // background polling would be pointless). Manual re-check via the button.
+  checkVersion();
+
+  const btnUpdate = byId("btnUpdate");
+  if (btnUpdate) {
+    // Always allow manual check/update click
+    btnUpdate.addEventListener("click", async () => {
+      // If no update info yet, just check version first
+      const badge = byId("updateBadge");
+      const hasUpdate = badge && badge.style.display !== "none";
+      if (!hasUpdate) {
+        // First click = "check for update". Runs the version check; if an update
+        // is found, applyVersionResult flips the label to "今すぐ更新" so the next
+        // click performs the update.
+        btnUpdate.disabled = true;
+        btnUpdate.textContent = t("checking");
+        let ok = false;
+        try {
+          applyVersionResult(await api("/api/system/version"));
+          ok = true;
+        } catch {
+          /* ignore */
+        }
+        btnUpdate.disabled = false;
+        if (!ok) {
+          btnUpdate.textContent = t("checkForUpdate");
+        } else {
+          const after = byId("updateBadge");
+          if (!after || after.style.display === "none")
+            toast(t("alreadyLatest"));
+        }
+        return;
+      }
+      if (!confirm(t("updateConfirm"))) return;
+      btnUpdate.disabled = true;
+      btnUpdate.textContent = t("updating");
+      try {
+        await api("/api/system/update", { method: "POST" });
+        toast(t("updateSuccessReload"));
+        setTimeout(() => location.reload(), 2000);
+      } catch (err) {
+        toast(errorMessage(err), true, btnUpdate);
+        btnUpdate.disabled = false;
+        btnUpdate.textContent = t("updateNow");
+      }
+    });
+  }
+}
+
+async function articles() {
+  shell(
+    t("articles"),
+    "<div class='artsToolbar' style='margin-bottom:12px'>" +
+      "<label style='display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--muted);flex-shrink:0'>" +
+      escapeHtml(t("sortOrder")) +
+      "<select id='sortOrder' style='width:auto;max-width:180px;padding:8px 10px;border-radius:8px;border:1px solid var(--line);background:var(--surface-2);color:var(--ink);font:inherit;font-size:13px'>" +
+      "<option value='publish_desc' selected>" +
+      escapeHtml(t("sortPublishDesc")) +
+      "</option>" +
+      "<option value='updated_desc'>" +
+      escapeHtml(t("sortUpdatedDesc")) +
+      "</option>" +
+      "<option value='updated_asc'>" +
+      escapeHtml(t("sortUpdatedAsc")) +
+      "</option>" +
+      "<option value='publish_asc'>" +
+      escapeHtml(t("sortPublishAsc")) +
+      "</option>" +
+      "<option value='title_asc'>" +
+      escapeHtml(t("sortTitleAsc")) +
+      "</option>" +
+      "</select>" +
+      "</label>" +
+      "<label style='display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--muted);flex-shrink:0'>" +
+      escapeHtml(t("categoryFilter")) +
+      "<select id='catFilter' style='width:auto;max-width:180px;padding:8px 10px;border-radius:8px;border:1px solid var(--line);background:var(--surface-2);color:var(--ink);font:inherit;font-size:13px'>" +
+      "<option value=''>" +
+      escapeHtml(t("allCategories")) +
+      "</option>" +
+      "</select>" +
+      "</label>" +
+      "<input id='q' placeholder='" +
+      escapeHtml(t("searchPlaceholder")) +
+      "' style='flex:1;min-width:120px' />" +
+      "<button id='searchBtn' style='flex-shrink:0;white-space:nowrap'>" +
+      escapeHtml(t("search")) +
+      "</button>" +
+      "</div>" +
+      "<div id='list'>" +
+      escapeHtml(t("loading")) +
+      "</div>" +
+      "<div id='listPager'></div>",
+  );
+
+  // Build bar (fixed bottom)
+  const buildBar = document.createElement("div");
+  buildBar.className = "articleBottomBar";
+  buildBar.id = "artsBuildBar";
+  buildBar.innerHTML =
+    "<div style='display:flex;align-items:center;gap:8px;min-width:0'>" +
+    "<label for='artsBuildMode' style='font-size:12px;font-weight:700;color:var(--muted);white-space:nowrap'>" +
+    escapeHtml(t("buildModeLabel")) +
+    "</label>" +
+    // .buildModeSelect opts out of the global select{width:100%} and the native
+    // arrow so the box auto-sizes to its widest option in any language.
+    "<select id='artsBuildMode' class='buildModeSelect'>" +
+    "<option value='manual'>" +
+    escapeHtml(t("buildModeManual")) +
+    "</option>" +
+    "<option value='auto'>" +
+    escapeHtml(t("buildModeAuto")) +
+    "</option>" +
+    "<option value='always'>" +
+    escapeHtml(t("buildModeAlways")) +
+    "</option>" +
+    "</select>" +
+    "</div>" +
+    "<div style='display:flex;align-items:center;gap:12px'>" +
+    "<button type='button' id='artsBuildBtn'>&#9654; " +
+    escapeHtml(t("buildNow")) +
+    "</button>" +
+    "<a id='artsOpenPublicBtn' target='_blank' rel='noopener' style='padding:6px 14px;font-size:12px;font-weight:600;border:1px solid var(--line);border-radius:8px;color:var(--muted);text-decoration:none;white-space:nowrap;opacity:0.4;pointer-events:none'>&#8594; " +
+    escapeHtml(t("openPublicPage")) +
+    "</a>" +
+    "</div>";
+  document.body.appendChild(buildBar);
+  byId("artsBuildBtn")?.addEventListener("click", function () {
+    runBuildWithProgress();
+  });
+  // Build scheduling mode selector (manual / auto / always), persisted in KV.
+  const buildModeSel = byId("artsBuildMode") as HTMLSelectElement | null;
+  if (buildModeSel) {
+    let lastMode = "manual";
+    api("/api/build/mode")
+      .then(function (d) {
+        if (d && typeof d.mode === "string") {
+          lastMode = d.mode;
+          buildModeSel.value = d.mode;
+        }
+      })
+      .catch(function () {});
+    buildModeSel.addEventListener("change", function () {
+      const mode = buildModeSel.value;
+      const prev = lastMode;
+      buildModeSel.disabled = true;
+      // Only persist the mode. Building always happens via the build button —
+      // changing the selector never triggers a build on its own.
+      api("/api/build/mode", {
+        method: "PUT",
+        body: JSON.stringify({ mode }),
+      })
+        .then(function () {
+          lastMode = mode;
+        })
+        .catch(function () {
+          buildModeSel.value = prev; // revert on failure
+        })
+        .finally(function () {
+          buildModeSel.disabled = false;
+        });
+    });
+  }
+  api("/api/settings")
+    .then(function (d) {
+      const url = (d && d.settings && d.settings.publicDomain) || "";
+      const a = byId("artsOpenPublicBtn");
+      if (a && url) {
+        a.setAttribute("href", url);
+        a.style.opacity = "1";
+        a.style.pointerEvents = "";
+        a.style.color = "var(--accent)";
+      }
+      const templateId = (d && d.settings && d.settings.templateId) || "";
+      const buildBtn = byId("artsBuildBtn") as HTMLButtonElement | null;
+      if (!templateId && buildBtn) {
+        buildBtn.disabled = true;
+        buildBtn.style.opacity = "0.45";
+        buildBtn.style.cursor = "not-allowed";
+        const wrapper = document.createElement("span");
+        wrapper.title =
+          t("buildNoTemplateHint") || "テンプレートを選択してください。";
+        wrapper.style.cssText = "display:inline-block;cursor:not-allowed";
+        buildBtn.parentNode?.insertBefore(wrapper, buildBtn);
+        wrapper.appendChild(buildBtn);
+      }
+    })
+    .catch(function () {});
+  function sortDocs(docs: Dynamic, order: Dynamic) {
+    const arr = [...docs];
+    switch (order) {
+      case "updated_asc":
+        return arr.sort((a, b) =>
+          (a.updated_at || "").localeCompare(b.updated_at || ""),
+        );
+      case "publish_desc":
+        return arr.sort((a, b) =>
+          (b.publish_at || "").localeCompare(a.publish_at || ""),
+        );
+      case "publish_asc":
+        return arr.sort((a, b) =>
+          (a.publish_at || "").localeCompare(b.publish_at || ""),
+        );
+      case "title_asc":
+        return arr.sort((a, b) => (a.title || "").localeCompare(b.title || ""));
+      default:
+        return arr.sort((a, b) =>
+          (b.updated_at || "").localeCompare(a.updated_at || ""),
+        );
+    }
+  }
+  let allDocs: Dynamic[] = [];
+  // Strapi-style pagination: configurable "entries per page" (persisted) + page
+  // navigation. Pure client-side over the loaded set (server returns up to 1000).
+  const PAGE_SIZE_KEY = "kurocms_list_page_size";
+  const PAGE_SIZE_OPTS = [10, 20, 50, 100];
+  let pageSize = 50;
+  try {
+    const saved = parseInt(localStorage.getItem(PAGE_SIZE_KEY) || "", 10);
+    if (PAGE_SIZE_OPTS.indexOf(saved) !== -1) pageSize = saved;
+  } catch {
+    /* localStorage unavailable */
+  }
+  let currentPage = 1;
+
+  async function load() {
+    const q = byId("q")?.value.trim();
+    const data = await api(
+      "/api/documents?lang=" +
+        encodeURIComponent(state.uiLang) +
+        (q ? "&q=" + encodeURIComponent(q) : ""),
+    );
+    allDocs = data.documents || [];
+    currentPage = 1;
+    renderList();
+  }
+  function renderPager(total: Dynamic, page: Dynamic, size: Dynamic) {
+    const pages = Math.max(1, Math.ceil(total / size));
+    const sizeOpts = PAGE_SIZE_OPTS.map(function (n) {
+      return (
+        "<option value='" +
+        n +
+        "'" +
+        (n === size ? " selected" : "") +
+        ">" +
+        n +
+        "</option>"
+      );
+    }).join("");
+    function pagerPages(totalPages: number, current: number): number[] {
+      const count = Math.min(4, totalPages);
+      let start = Math.max(1, current - Math.floor((count - 1) / 2));
+      let end = start + count - 1;
+      if (end > totalPages) {
+        end = totalPages;
+        start = Math.max(1, end - count + 1);
+      }
+      const out: number[] = [];
+      for (let n = start; n <= end; n++) out.push(n);
+      return out;
+    }
+    let nums = "";
+    let last = 0;
+    pagerPages(pages, page).forEach(function (n) {
+      if (n - last > 1) nums += "<span class='pagerEllipsis'>…</span>";
+      nums +=
+        "<button type='button' class='pagerBtn" +
+        (n === page ? " active" : "") +
+        "' data-page='" +
+        n +
+        "'>" +
+        n +
+        "</button>";
+      last = n;
+    });
+    return (
+      "<div class='listPager'>" +
+      "<label class='pageSizeWrap'>" +
+      "<select id='pageSizeSel'>" +
+      sizeOpts +
+      "</select>" +
+      escapeHtml(t("entriesPerPage")) +
+      "</label>" +
+      "<div class='pagerNav'>" +
+      "<button type='button' class='pagerBtn' data-page='" +
+      (page - 1) +
+      "'" +
+      (page <= 1 ? " disabled" : "") +
+      ">&#8249;</button>" +
+      nums +
+      "<button type='button' class='pagerBtn' data-page='" +
+      (page + 1) +
+      "'" +
+      (page >= pages ? " disabled" : "") +
+      ">&#8250;</button>" +
+      "</div>" +
+      "</div>"
+    );
+  }
+  function renderList() {
+    const order = byId("sortOrder")?.value || "publish_desc";
+    const cat = (byId("catFilter") as Dynamic)?.value || "";
+    const base = cat
+      ? allDocs.filter(function (d: Dynamic) {
+          return (
+            String(d.category_ids || "")
+              .split(",")
+              .indexOf(cat) !== -1
+          );
+        })
+      : allDocs;
+    const sorted = sortDocs(base, order);
+    const pages = Math.max(1, Math.ceil(sorted.length / pageSize));
+    if (currentPage > pages) currentPage = pages;
+    if (currentPage < 1) currentPage = 1;
+    const start = (currentPage - 1) * pageSize;
+    const el = byId("list");
+    if (el)
+      el.innerHTML = renderArticleTable(sorted.slice(start, start + pageSize));
+    const pager = byId("listPager");
+    if (pager)
+      pager.innerHTML = sorted.length
+        ? renderPager(sorted.length, currentPage, pageSize)
+        : "";
+  }
+  byId("searchBtn")?.addEventListener("click", () =>
+    load().catch((err) => toast(errorMessage(err), true)),
+  );
+  byId("sortOrder")?.addEventListener("change", function () {
+    currentPage = 1;
+    renderList();
+  });
+  byId("catFilter")?.addEventListener("change", function () {
+    currentPage = 1;
+    renderList();
+  });
+  // Populate the category filter from the category list (client-side filter).
+  api("/api/categories")
+    .then(function (d: Dynamic) {
+      const sel = byId("catFilter") as Dynamic;
+      if (!sel || !d || !Array.isArray(d.categories)) return;
+      sel.insertAdjacentHTML(
+        "beforeend",
+        d.categories
+          .map(function (c: Dynamic) {
+            return (
+              "<option value='" +
+              escapeHtml(c.cid) +
+              "'>" +
+              escapeHtml(c.name || c.cid) +
+              "</option>"
+            );
+          })
+          .join(""),
+      );
+    })
+    .catch(function () {});
+  byId("listPager")?.addEventListener("click", function (e: Dynamic) {
+    const btn = e.target.closest(".pagerBtn[data-page]");
+    if (!btn || btn.disabled) return;
+    const p = parseInt(btn.dataset.page, 10);
+    if (!isNaN(p)) {
+      currentPage = p;
+      renderList();
+    }
+  });
+  byId("listPager")?.addEventListener("change", function (e: Dynamic) {
+    const sel = e.target.closest("#pageSizeSel");
+    if (!sel) return;
+    pageSize = parseInt(sel.value, 10) || 50;
+    try {
+      localStorage.setItem(PAGE_SIZE_KEY, String(pageSize));
+    } catch {
+      /* ignore */
+    }
+    currentPage = 1;
+    renderList();
+  });
+  let resizeTimer: Dynamic = null;
+  window.addEventListener("resize", function () {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(renderList, 150);
+  });
+  byId("list")?.addEventListener("click", async function (e: Dynamic) {
+    const slugButton = e.target.closest("[data-copy-slug]");
+    if (slugButton) {
+      try {
+        await navigator.clipboard.writeText(slugButton.dataset.copySlug || "");
+        toast(t("copySuccess"), false, slugButton);
+      } catch {
+        toast(t("copyFailed"), true, slugButton);
+      }
+      return;
+    }
+    const btn = e.target.closest("[data-did][data-mode]");
+    if (!btn) return;
+    const did = btn.dataset.did;
+    const mode = parseInt(btn.dataset.mode, 10);
+    if (!did || isNaN(mode)) return;
+    btn.disabled = true;
+    try {
+      await api("/api/documents/" + did, {
+        method: "PUT",
+        body: JSON.stringify({ mode }),
+      });
+      const doc: Dynamic = allDocs.find(function (d) {
+        return d.did === did;
+      });
+      if (doc) doc.mode = mode;
+      renderList();
+      toast(mode === 1 ? t("publishedToast") : t("unpublishedToast"), false);
+    } catch (err) {
+      toast(errorMessage(err), true);
+      btn.disabled = false;
+    }
+  });
+  await load().catch((err) => toast(errorMessage(err), true));
+}
+
+function formatDateShort(value: Dynamic) {
+  if (!value) return "-";
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? value : d.toLocaleDateString();
+}
+
+function renderArticleTable(documents: Dynamic) {
+  if (!documents || !documents.length)
+    return "<div class='emptyState'>" + escapeHtml(t("noDocuments")) + "</div>";
+  const isMobile = window.innerWidth <= 860;
+
+  const items = documents.map(function (doc: Dynamic) {
+    const modeClass =
+      doc.mode === 1
+        ? "statusPublished"
+        : doc.mode === 2
+          ? "statusHidden"
+          : "statusDraft";
+    const modeLbl = modeLabel(doc.mode);
+    const isPublished = doc.mode === 1;
+    const actionLabel = isPublished ? t("unpublishAction") : t("publishAction");
+    const nextMode = isPublished ? 0 : 1;
+    const langs = (doc.languages || "")
+      .split(",")
+      .map(function (l: Dynamic) {
+        return l.trim();
+      })
+      .filter(Boolean);
+    const baseLang = doc.initial_lang || langs[0] || "-";
+    const otherCount = langs.filter(function (l: Dynamic) {
+      return l !== baseLang;
+    }).length;
+    const langExtra =
+      otherCount > 0
+        ? " <span class='artMeta2'>+" +
+          otherCount +
+          escapeHtml(t("langsSuffix")) +
+          "</span>"
+        : "";
+    const pubDate = formatDateShort(doc.publish_at);
+    const updText = doc.updated_at
+      ? "<span class='artMeta2'>(" +
+        formatDateShort(doc.updated_at) +
+        " " +
+        escapeHtml(t("updatedSuffix")) +
+        ")</span>"
+      : "";
+    const editHref = adminHref("/articles/" + escapeHtml(doc.did));
+    const modeBtnStyle = isPublished
+      ? "background:rgba(120,120,120,.1);color:var(--muted);border:1px solid var(--line)"
+      : "";
+
+    if (isMobile) {
+      // Card layout for mobile
+      return (
+        "<div class='artCard' style='border-bottom:1px solid var(--line);padding:12px;background:var(--surface)'>" +
+        // Title (wrap OK)
+        "<a href='" +
+        editHref +
+        "' style='font-weight:700;font-size:14px;color:var(--ink);text-decoration:none;display:block;line-height:1.4;margin-bottom:3px'>" +
+        escapeHtml(doc.title || t("untitled")) +
+        "</a>" +
+        "<button type='button' class='artSlugCode' data-copy-slug='" +
+        escapeHtml(doc.slug) +
+        "' title='" +
+        escapeHtml(t("copy")) +
+        "' style='margin-bottom:8px;white-space:normal;word-break:break-all'>" +
+        escapeHtml(doc.slug) +
+        "</button>" +
+        // Meta row: type / lang / date
+        "<div style='display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:8px;font-size:12px'>" +
+        "<span style='background:var(--surface-3);padding:1px 7px;border-radius:4px;color:var(--muted)'>" +
+        escapeHtml(doc.tid) +
+        "</span>" +
+        "<span style='color:var(--muted)'>" +
+        escapeHtml(baseLang) +
+        langExtra +
+        "</span>" +
+        "<span style='color:var(--muted)'>" +
+        escapeHtml(pubDate) +
+        "</span>" +
+        (updText ? "<span class='artMeta2'>" + updText + "</span>" : "") +
+        "</div>" +
+        // Status + action
+        "<div style='display:flex;align-items:center;gap:8px'>" +
+        "<span class='badge " +
+        modeClass +
+        "'>" +
+        escapeHtml(modeLbl) +
+        "</span>" +
+        "<button class='artModeBtn' data-did='" +
+        escapeHtml(doc.did) +
+        "' data-mode='" +
+        nextMode +
+        "' style='" +
+        modeBtnStyle +
+        "'>" +
+        escapeHtml(actionLabel) +
+        "</button>" +
+        "</div>" +
+        "</div>"
+      );
+    }
+
+    // Table row for desktop
+    return (
+      "<tr>" +
+      "<td class='flexible'>" +
+      "<a href='" +
+      editHref +
+      "' class='artTitleLink'>" +
+      escapeHtml(doc.title || t("untitled")) +
+      "</a>" +
+      "<button type='button' class='artSlugCode' data-copy-slug='" +
+      escapeHtml(doc.slug) +
+      "' title='" +
+      escapeHtml(t("copy")) +
+      "'>" +
+      escapeHtml(doc.slug) +
+      "</button>" +
+      "</td>" +
+      "<td>" +
+      escapeHtml(doc.tid) +
+      "</td>" +
+      "<td>" +
+      "<span class='badge " +
+      modeClass +
+      "' style='display:block;margin-bottom:3px'>" +
+      escapeHtml(modeLbl) +
+      "</span>" +
+      "<button class='artModeBtn' data-did='" +
+      escapeHtml(doc.did) +
+      "' data-mode='" +
+      nextMode +
+      "' style='width:100%" +
+      (isPublished ? ";" + modeBtnStyle : "") +
+      "'>" +
+      escapeHtml(actionLabel) +
+      "</button>" +
+      "</td>" +
+      "<td>" +
+      escapeHtml(baseLang) +
+      (otherCount > 0
+        ? "<br><span class='artMeta2'>+" +
+          otherCount +
+          " " +
+          escapeHtml(t("langsSuffix")) +
+          "</span>"
+        : "") +
+      "</td>" +
+      "<td>" +
+      escapeHtml(pubDate) +
+      (updText ? "<br>" + updText : "") +
+      "</td>" +
+      "</tr>"
+    );
+  });
+
+  if (isMobile) {
+    return (
+      "<div style='border:1px solid var(--line);border-radius:var(--radius);overflow:hidden'>" +
+      items.join("") +
+      "</div>"
+    );
+  }
+  return (
+    "<div class='tableScroll'><table class='tableCompact'><thead><tr>" +
+    "<th class='flexible'>" +
+    escapeHtml(t("titleSlugHeader")) +
+    "</th><th>" +
+    escapeHtml(t("type")) +
+    "</th><th>" +
+    escapeHtml(t("statusActionsHeader")) +
+    "</th><th>" +
+    escapeHtml(t("languages")) +
+    "</th><th>" +
+    escapeHtml(t("publishAt")) +
+    "</th>" +
+    "</tr></thead><tbody>" +
+    items.join("") +
+    "</tbody></table></div>"
+  );
+}
