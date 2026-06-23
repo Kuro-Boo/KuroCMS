@@ -1,0 +1,1 @@
+-- Builtin template seeds removed; templates are provided via community library
