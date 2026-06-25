@@ -207,9 +207,9 @@ function loadMediaList(apiPath: Dynamic) {
         escapeHtml(t("mediaTableMid")) +
         "</th><th style='width:52px'></th><th class='flexible'>" +
         escapeHtml(t("mediaTableFile")) +
-        "</th><th style='width:80px'>" +
+        "</th><th style='width:90px'>" +
         escapeHtml(t("mediaTableSize")) +
-        "</th><th style='width:60px'></th></tr></thead><tbody>" +
+        "</th><th style='width:104px'></th></tr></thead><tbody>" +
         items
           .map(function (item: Dynamic) {
             const mid = escapeHtml(item.id || "");
