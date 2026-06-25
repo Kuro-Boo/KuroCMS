@@ -332,6 +332,46 @@ export async function verifyRegistration(
   };
 }
 
+/**
+ * Convert a DER-encoded ECDSA signature (ASN.1 SEQUENCE of two INTEGERs) to the
+ * raw IEEE-P1363 form (r||s, 32 bytes each for P-256) that WebCrypto's ECDSA
+ * verify requires. WebAuthn ES256 assertions are DER-encoded; passing DER bytes
+ * straight to crypto.subtle.verify silently fails ("signature verification
+ * failed") for every passkey login.
+ */
+function derToRawEcdsaSignature(sig: Uint8Array): Uint8Array {
+  // Already raw P1363 (no DER SEQUENCE tag) — pass through.
+  if (sig.length === 64 && sig[0] !== 0x30) return sig;
+  if (sig[0] !== 0x30) {
+    throw new Error("WebAuthn: malformed ECDSA signature (no SEQUENCE)");
+  }
+  let i = 2; // SEQUENCE tag + short-form length
+  if (sig[1] & 0x80) i = 2 + (sig[1] & 0x7f); // long-form length (defensive)
+  const readInt = (): Uint8Array => {
+    if (sig[i] !== 0x02) {
+      throw new Error("WebAuthn: malformed ECDSA signature (no INTEGER)");
+    }
+    const len = sig[i + 1];
+    const val = sig.slice(i + 2, i + 2 + len);
+    i += 2 + len;
+    return val;
+  };
+  const r = readInt();
+  const s = readInt();
+  const pad32 = (b: Uint8Array): Uint8Array => {
+    let j = 0;
+    while (j < b.length - 1 && b[j] === 0) j++; // strip DER leading zero(s)
+    const t = b.subarray(j);
+    const out = new Uint8Array(32);
+    out.set(t.subarray(Math.max(0, t.length - 32)), Math.max(0, 32 - t.length));
+    return out;
+  };
+  const raw = new Uint8Array(64);
+  raw.set(pad32(r), 0);
+  raw.set(pad32(s), 32);
+  return raw;
+}
+
 export async function verifyAuthentication(
   challenge: string,
   rpId: string,
@@ -410,7 +450,8 @@ export async function verifyAuthentication(
   sigBase.set(authDataBytes, 0);
   sigBase.set(clientDataHash, authDataBytes.length);
 
-  const sigBytes = b64uDecode(response.signature);
+  // WebAuthn ES256 signatures are DER-encoded; WebCrypto needs raw r||s.
+  const sigBytes = derToRawEcdsaSignature(b64uDecode(response.signature));
   const valid = await crypto.subtle.verify(
     { name: "ECDSA", hash: "SHA-256" },
     publicKey,
