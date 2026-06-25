@@ -1016,6 +1016,11 @@ async function newArticle(editDid: Dynamic) {
       ke.mmenu.style.display = "none";
     }
     ke.wysiwyg.addEventListener("input", markDirty);
+    // Also track edits made in the editor's HTML (source) mode. KuroEditor exposes
+    // two edit surfaces; the source <textarea> fires its own native input that the
+    // WYSIWYG listener above never sees, so HTML-mode edits would stay undetected
+    // (never marked dirty / saved) and be lost on the next re-render.
+    ke.sourceArea.addEventListener("input", markDirty);
     const verEl = document.createElement("div");
     verEl.id = "kuroEditorVer";
     verEl.style.cssText =

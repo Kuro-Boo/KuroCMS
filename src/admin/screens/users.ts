@@ -45,6 +45,9 @@ async function loadUsersPanel() {
       "<th style='padding:10px 14px;font-weight:700;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em'>" +
       escapeHtml(t("registeredDate")) +
       "</th>" +
+      "<th style='padding:10px 14px;font-weight:700;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em'>" +
+      escapeHtml(t("lastLoginDate")) +
+      "</th>" +
       "<th style='padding:10px 14px'></th>" +
       "</tr></thead>" +
       "<tbody>" +
@@ -67,6 +70,9 @@ async function loadUsersPanel() {
               escapeHtml(t("active")) +
               "</span>";
           const date = u.created_at ? u.created_at.slice(0, 10) : "—";
+          const lastLogin = u.last_login_at
+            ? u.last_login_at.slice(0, 10)
+            : "—";
           return (
             "<tr style='border-bottom:1px solid var(--line)'>" +
             "<td style='padding:12px 14px'><span style='font-weight:600'>" +
@@ -88,6 +94,9 @@ async function loadUsersPanel() {
             "</td>" +
             "<td style='padding:12px 14px;color:var(--muted)'>" +
             date +
+            "</td>" +
+            "<td style='padding:12px 14px;color:var(--muted)'>" +
+            lastLogin +
             "</td>" +
             "<td style='padding:12px 14px;text-align:right'>" +
             "<div style='display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap'>" +
