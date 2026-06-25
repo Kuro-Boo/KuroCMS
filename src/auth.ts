@@ -41,6 +41,7 @@ interface SessionUserRow {
   is_author: number;
   disabled_at: string | null;
   expires_at: string;
+  credential_id: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -73,14 +74,18 @@ export function clearSessionCookieHeader(secure: boolean): string {
 // Session management
 // ---------------------------------------------------------------------------
 
-export async function createSession(env: Env, uid: string): Promise<string> {
+export async function createSession(
+  env: Env,
+  uid: string,
+  credentialId: string | null = null,
+): Promise<string> {
   const sessionId = "sess_" + randomToken();
   const now = nowIso();
   const expiresAt = new Date(Date.now() + SESSION_DURATION_MS).toISOString();
   await env.DB.prepare(
-    `INSERT INTO sessions (session_id, uid, expires_at, created_at, last_active_at) VALUES (?, ?, ?, ?, ?)`,
+    `INSERT INTO sessions (session_id, uid, expires_at, created_at, last_active_at, credential_id) VALUES (?, ?, ?, ?, ?, ?)`,
   )
-    .bind(sessionId, uid, expiresAt, now, now)
+    .bind(sessionId, uid, expiresAt, now, now, credentialId)
     .run();
   return sessionId;
 }
@@ -213,6 +218,7 @@ async function trySessionUser(
       sessions.session_id,
       sessions.uid,
       sessions.expires_at,
+      sessions.credential_id,
       users.email,
       users.is_admin,
       users.is_author,
@@ -253,6 +259,7 @@ async function trySessionUser(
     isAdmin: row.is_admin === 1,
     isAuthor: row.is_author === 1,
     sessionId,
+    currentCredentialId: row.credential_id,
     authSource: "session",
   };
 }
