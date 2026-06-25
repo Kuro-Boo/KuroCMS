@@ -19,7 +19,7 @@ import type { Env } from "./types";
 // can't see (e.g. the <head> content-CSS <link>, template-model shape). The
 // build salts every page hash with this, so cached builds are invalidated and
 // all pages regenerate even when their underlying content is unchanged.
-const RENDER_FORMAT_VERSION = "12";
+const RENDER_FORMAT_VERSION = "13";
 
 /** Cheap, synchronous string hash (FNV-1a, base36) for cache keys. Not crypto. */
 function cheapHash(s: string): string {
@@ -170,18 +170,6 @@ async function countPublishedArticles(
      WHERE mode = 1 ${liveWindowSql("", includeFuture)}`,
   ).first<{ cnt: number }>();
   return row?.cnt ?? 0;
-}
-
-async function countArticlesByTid(
-  env: Env,
-  includeFuture = false,
-): Promise<Map<string, number>> {
-  const rows = await env.DB.prepare(
-    `SELECT d.tid, COUNT(*) AS cnt FROM documents d
-     WHERE d.mode = 1 ${liveWindowSql("d.", includeFuture)}
-     GROUP BY d.tid`,
-  ).all<{ tid: string; cnt: number }>();
-  return new Map((rows.results ?? []).map((r) => [r.tid, r.cnt]));
 }
 
 async function countArticlesByTypeSlug(
@@ -833,6 +821,317 @@ async function fetchArticlesByType(
   return rows.results ?? [];
 }
 
+// ─── Scoped article fetch (latest / month archives) ──────────────────────────
+// The home/type/category listing queries above share one large SELECT and the
+// same translation-fallback joins; only the scope JOIN, the extra WHERE (live
+// window / month), and the ORDER/LIMIT differ. The helpers below factor that
+// out so the "latest view" and "/monthly/YYYY/MM/" archives reuse exactly the
+// same column/fallback logic. Subquery aliases (dcx/tix) are chosen to never
+// collide with any scope's outer aliases (d/ti/dc/dt_*).
+const ARTICLE_COLS = `d.did, d.slug, d.tid, d.publish_at, d.updated_at,
+  COALESCE(NULLIF(NULLIF(dt_req.title, ''), d.slug), NULLIF(NULLIF(dt_en.title, ''), d.slug), NULLIF(NULLIF(dt_fb.title, ''), d.slug), NULLIF(NULLIF(dt_init.title, ''), d.slug), NULLIF(NULLIF(dt_site.title, ''), d.slug), NULLIF(NULLIF(dt_any.title, ''), d.slug)) AS title,
+  COALESCE(NULLIF(dt_req.summary, ''), NULLIF(dt_en.summary, ''), NULLIF(dt_fb.summary, ''), NULLIF(dt_init.summary, ''), NULLIF(dt_site.summary, ''), NULLIF(dt_any.summary, '')) AS summary,
+  COALESCE(NULLIF(dt_req.body_html, ''), NULLIF(dt_en.body_html, ''), NULLIF(dt_fb.body_html, ''), NULLIF(dt_init.body_html, ''), NULLIF(dt_site.body_html, ''), NULLIF(dt_any.body_html, '')) AS body_html,
+  COALESCE(NULLIF(NULLIF(dt_req.seo_json, ''), '{}'), NULLIF(NULLIF(dt_en.seo_json, ''), '{}'), NULLIF(NULLIF(dt_fb.seo_json, ''), '{}'), NULLIF(NULLIF(dt_init.seo_json, ''), '{}'), NULLIF(NULLIF(dt_site.seo_json, ''), '{}'), NULLIF(NULLIF(dt_any.seo_json, ''), '{}')) AS seo_json,
+  (SELECT json_group_array(json_object('id',tix.id,'name',tix.name,'slug',COALESCE(tix.slug,tix.id),'count',0))
+   FROM document_categories dcx JOIN categories tix ON tix.id=dcx.cid
+   WHERE dcx.did=d.did ORDER BY tix.name) AS categories_json`;
+
+// Two binds, in order: (1) requested lang, (2) site/default lang.
+const ARTICLE_TR_JOINS = `LEFT JOIN document_translations dt_req ON dt_req.did = d.did AND dt_req.lang = ?
+  LEFT JOIN document_translations dt_fb ON dt_fb.did = d.did AND dt_fb.lang = d.fallback_lang
+  LEFT JOIN document_translations dt_init ON dt_init.did = d.did AND dt_init.lang = d.initial_lang
+  LEFT JOIN document_translations dt_site ON dt_site.did = d.did AND dt_site.lang = ?
+  LEFT JOIN document_translations dt_en ON dt_en.did = d.did AND dt_en.lang = 'en'
+  LEFT JOIN document_translations dt_any ON dt_any.did = d.did AND dt_any.lang = (
+    SELECT dt2.lang FROM document_translations dt2 WHERE dt2.did = d.did ORDER BY dt2.updated_at DESC LIMIT 1
+  )`;
+
+export type ArticleScope =
+  | { kind: "home" }
+  | { kind: "type"; slug: string }
+  | { kind: "category"; slug: string };
+
+const LATEST_WINDOW_DAYS = 30;
+const LATEST_MIN = 30;
+
+function scopeFromSql(scope: ArticleScope): { sql: string; binds: string[] } {
+  if (scope.kind === "type")
+    return {
+      sql: `JOIN taxonomy_items ti ON ti.id = d.tid AND ti.kind = 'type' AND (COALESCE(ti.slug, ti.id) = ? OR ti.id = ?)`,
+      binds: [scope.slug, scope.slug],
+    };
+  if (scope.kind === "category")
+    return {
+      sql: `JOIN document_categories dc ON dc.did = d.did JOIN categories ti ON ti.id = dc.cid AND (ti.slug = ? OR ti.id = ?)`,
+      binds: [scope.slug, scope.slug],
+    };
+  return { sql: "", binds: [] };
+}
+
+async function fetchArticlesScoped(
+  env: Env,
+  scope: ArticleScope,
+  lang: string,
+  defaultLang: string,
+  opts: {
+    extraWhere?: string;
+    extraBinds?: (string | number)[];
+    limit?: number;
+    offset?: number;
+    includeFuture?: boolean;
+  } = {},
+): Promise<ArticleRow[]> {
+  const {
+    extraWhere = "",
+    extraBinds = [],
+    limit,
+    offset = 0,
+    includeFuture = false,
+  } = opts;
+  const sc = scopeFromSql(scope);
+  const limitSql = limit != null ? " LIMIT ? OFFSET ?" : "";
+  const sql =
+    `SELECT ${ARTICLE_COLS} FROM documents d ${sc.sql} ${ARTICLE_TR_JOINS} ` +
+    `WHERE d.mode = 1 ${liveWindowSql("d.", includeFuture)} ${extraWhere} ` +
+    `ORDER BY d.publish_at DESC, d.did DESC${limitSql}`;
+  const binds: (string | number)[] = [
+    ...sc.binds,
+    lang,
+    defaultLang || lang,
+    ...extraBinds,
+  ];
+  if (limit != null) binds.push(limit, offset);
+  const rows = await env.DB.prepare(sql)
+    .bind(...binds)
+    .all<ArticleRow>();
+  return rows.results ?? [];
+}
+
+/**
+ * Latest view: articles published in the last 30 days (no upper cap). When that
+ * window holds fewer than 30, fall back to the 30 most recent so the listing is
+ * never sparse. See plan: time-drift is accepted (build-time refresh only).
+ */
+async function fetchArticlesLatest(
+  env: Env,
+  scope: ArticleScope,
+  lang: string,
+  defaultLang = "",
+  includeFuture = false,
+): Promise<ArticleRow[]> {
+  const windowed = await fetchArticlesScoped(env, scope, lang, defaultLang, {
+    extraWhere: `AND datetime(d.publish_at) >= datetime('now','-${LATEST_WINDOW_DAYS} days')`,
+    includeFuture,
+  });
+  if (windowed.length >= LATEST_MIN) return windowed;
+  return fetchArticlesScoped(env, scope, lang, defaultLang, {
+    limit: LATEST_MIN,
+    includeFuture,
+  });
+}
+
+/** All articles published within a single calendar month (month = 'YYYY-MM'). */
+async function fetchArticlesByMonth(
+  env: Env,
+  scope: ArticleScope,
+  month: string,
+  lang: string,
+  defaultLang = "",
+  includeFuture = false,
+): Promise<ArticleRow[]> {
+  return fetchArticlesScoped(env, scope, lang, defaultLang, {
+    extraWhere: `AND strftime('%Y-%m', datetime(d.publish_at)) = ?`,
+    extraBinds: [month],
+    includeFuture,
+  });
+}
+
+/**
+ * Completed months (descending) that have at least one published article in the
+ * scope. The current month is excluded — its posts live in the latest view and
+ * never get a (mutable) archive page.
+ */
+async function fetchDistinctMonths(
+  env: Env,
+  scope: ArticleScope,
+  includeFuture = false,
+): Promise<string[]> {
+  const sc = scopeFromSql(scope);
+  const rows = await env.DB.prepare(
+    `SELECT DISTINCT strftime('%Y-%m', datetime(d.publish_at)) AS ym FROM documents d ${sc.sql} ` +
+      `WHERE d.mode = 1 ${liveWindowSql("d.", includeFuture)} ` +
+      `AND strftime('%Y-%m', datetime(d.publish_at)) < strftime('%Y-%m', 'now') ` +
+      `ORDER BY ym DESC`,
+  )
+    .bind(...sc.binds)
+    .all<{ ym: string }>();
+  return (rows.results ?? []).map((r) => r.ym).filter(Boolean);
+}
+
+/** Live article count per category slug — for the single shared counts KV value. */
+async function fetchAllCategoryCounts(
+  env: Env,
+): Promise<Record<string, number>> {
+  const rows = await env.DB.prepare(
+    `SELECT COALESCE(ti.slug, ti.id) AS slug, COUNT(DISTINCT dc.did) AS count
+     FROM categories ti
+     LEFT JOIN document_categories dc ON dc.cid = ti.id
+     LEFT JOIN documents d ON d.did = dc.did AND d.mode = 1
+     GROUP BY ti.id`,
+  ).all<{ slug: string; count: number }>();
+  const out: Record<string, number> = {};
+  for (const r of rows.results ?? []) out[r.slug] = r.count;
+  return out;
+}
+
+// Single shared KV value holding live nav counts for ALL types AND categories.
+// Read by the `/_counts.js` asset and filled into the nav client-side, so a
+// count change rewrites ONE KV value instead of rebuilding every page that
+// shows a count. Shape: { type: {slug:n}, category: {slug:n}, _v }.
+const NAV_COUNTS_KEY = "_cfg/nav_counts";
+
+/** Live nav counts for both kinds (for the single shared counts KV value). */
+async function fetchNavCounts(
+  env: Env,
+): Promise<{ type: Record<string, number>; category: Record<string, number> }> {
+  const [types, category] = await Promise.all([
+    fetchTypesWithCounts(env),
+    fetchAllCategoryCounts(env),
+  ]);
+  const type: Record<string, number> = {};
+  for (const t of types) type[t.slug] = t.count ?? 0;
+  return { type, category };
+}
+
+/** Recompute and persist the shared nav-counts KV value. */
+async function writeNavCounts(env: Env): Promise<void> {
+  if (!env.PUBLIC_PAGES) return;
+  const counts = await fetchNavCounts(env);
+  await env.PUBLIC_PAGES.put(
+    NAV_COUNTS_KEY,
+    JSON.stringify({ ...counts, _v: Date.now() }),
+  );
+}
+
+/**
+ * `/_counts.js` body: exposes live nav counts as `window.__kuroCounts` AND fills
+ * them in, so the nav never bakes fluctuating numbers into (cacheable) page HTML.
+ * Templates only need a `data-kuro-count="type:{slug}"` / `"category:{slug}"`
+ * element (text) or `data-kuro-count-bar="..."` (CSS width) plus one script tag.
+ * Falls back to a live DB read when the KV value is missing (pre-first-build).
+ */
+export async function buildCountsJs(env: Env): Promise<string> {
+  let json = "{}";
+  try {
+    const raw = env.PUBLIC_PAGES
+      ? await env.PUBLIC_PAGES.get(NAV_COUNTS_KEY)
+      : null;
+    json = raw || JSON.stringify(await fetchNavCounts(env));
+  } catch {
+    /* keep empty object */
+  }
+  return (
+    `window.__kuroCounts=${json};` +
+    `(function(){var c=window.__kuroCounts||{};` +
+    `function g(k){var i=k.indexOf(":");if(i<0)return;var m=c[k.slice(0,i)]||{};return m[k.slice(i+1)];}` +
+    `function run(){` +
+    `document.querySelectorAll("[data-kuro-count]").forEach(function(e){var n=g(e.getAttribute("data-kuro-count"));if(n!=null)e.textContent=n;});` +
+    `document.querySelectorAll("[data-kuro-count-bar]").forEach(function(e){var n=g(e.getAttribute("data-kuro-count-bar"));if(n!=null)e.style.width=(Number(n)*10)+"%";});` +
+    `}` +
+    `if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",run);else run();})();`
+  );
+}
+
+// ─── Archives dropdown widget (replaces the page/N pagination) ────────────────
+function escHtml(s: string): string {
+  return String(s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+// "Latest" label for the first dropdown option. Site/UI chrome (not authored
+// content), so a compact built-in map keeps it localized without new site-text
+// keys; unknown langs fall back to English.
+const ARCHIVE_LATEST_LABEL: Record<string, string> = {
+  en: "Latest",
+  ja: "最新",
+  de: "Aktuell",
+  fr: "Récents",
+  it: "Recenti",
+  es: "Recientes",
+  zh: "最新",
+  ko: "최신",
+  uk: "Останні",
+};
+function archiveLatestLabel(lang: string): string {
+  return (
+    ARCHIVE_LATEST_LABEL[lang] ||
+    ARCHIVE_LATEST_LABEL[lang.split("-")[0]] ||
+    ARCHIVE_LATEST_LABEL.en
+  );
+}
+
+/** Localized "YYYY年MM月" / "Month YYYY" label for a 'YYYY-MM' archive entry. */
+function monthLabel(ym: string, lang: string): string {
+  const [y, m] = ym.split("-").map(Number);
+  if (!y || !m) return ym;
+  try {
+    return new Intl.DateTimeFormat(lang, {
+      year: "numeric",
+      month: "long",
+    }).format(new Date(Date.UTC(y, m - 1, 1)));
+  } catch {
+    return `${y}-${String(m).padStart(2, "0")}`;
+  }
+}
+
+/**
+ * Build the `<select>` archive switcher string injected via `[[html:archives]]`.
+ * First option = the latest view (scope root); the rest = completed months,
+ * descending. Returns "" when there is nothing to switch between.
+ */
+function buildArchivesWidget(opts: {
+  scope: ArticleScope;
+  months: string[];
+  currentMonth: string | null;
+  basePath: string;
+  lang: string;
+}): string {
+  const { scope, months, currentMonth, basePath, lang } = opts;
+  let rootUrl: string;
+  let monthBase: string;
+  if (scope.kind === "type") {
+    rootUrl = `${basePath}/${scope.slug}/`;
+    monthBase = `${basePath}/${scope.slug}/monthly/`;
+  } else if (scope.kind === "category") {
+    rootUrl = `${basePath}/category/${scope.slug}/`;
+    monthBase = `${basePath}/category/${scope.slug}/monthly/`;
+  } else {
+    rootUrl = `${basePath}/`;
+    monthBase = `${basePath}/monthly/`;
+  }
+  if (months.length === 0) return ""; // only the latest view exists → no switcher
+
+  const opt = (value: string, label: string, selected: boolean): string =>
+    `<option value="${escHtml(value)}"${selected ? " selected" : ""}>${escHtml(label)}</option>`;
+  const options = [
+    opt(rootUrl, archiveLatestLabel(lang), currentMonth == null),
+  ];
+  for (const ym of months) {
+    const [y, m] = ym.split("-");
+    options.push(
+      opt(`${monthBase}${y}/${m}/`, monthLabel(ym, lang), currentMonth === ym),
+    );
+  }
+  return (
+    `<select class="kuro-archives" aria-label="${escHtml(archiveLatestLabel(lang))}" ` +
+    `onchange="if(this.value)window.location.href=this.value">${options.join("")}</select>`
+  );
+}
+
 // ─── Data assembly ────────────────────────────────────────────────────────────
 
 function toArticleCard(r: ArticleRow, basePath: string): ArticleCardData {
@@ -930,8 +1229,13 @@ async function buildRenderContext(
   }
 
   content["_site-name"] = settings.site_name || "";
-  content["_nav-types"] = JSON.stringify(types);
-  content["_nav-categories"] = JSON.stringify(categories);
+  // Nav lists carry NO counts: counts fluctuate on every publish, so baking them
+  // into page HTML would either go stale or force rebuilds. The nav shows names
+  // only; live counts are filled client-side from the shared `__kuroCounts`.
+  content["_nav-types"] = JSON.stringify(types.map(({ count: _c, ...t }) => t));
+  content["_nav-categories"] = JSON.stringify(
+    categories.map(({ count: _c, ...c }) => c),
+  );
   content["_bluesky-handle"] = settings.bluesky_handle || "";
   content["_bluesky-show-feed"] = settings.bluesky_show_feed || "false";
   content["_bluesky-feed-position"] = settings.bluesky_feed_position || "left";
@@ -996,82 +1300,112 @@ async function buildRenderContext(
       coverUrl: articleCover,
       date: formatCardDate(r.publish_at).date,
     };
-  } else if (params.category) {
-    const page = parseInt(params.page || "1", 10);
-    const [rows, total] = await Promise.all([
-      fetchArticlesByCategory(
-        env,
-        params.category,
-        lang,
-        defaultLang,
-        page,
-        LIMIT,
-        includeFuture,
-      ),
-      countArticlesByCategory(env, params.category, includeFuture),
+  }
+
+  // Listing scopes (home / type / category) share the same shape: a "latest"
+  // view (`/`, `/{type}/`, `/category/{slug}/`) or a `/monthly/YYYY/MM/` archive,
+  // plus the archives `<select>`. Legacy `/page/N/` requests (un-migrated
+  // templates) keep the old paginated behaviour — served on-demand only.
+  const fillListScope = async (scope: ArticleScope): Promise<void> => {
+    if (params.page != null) {
+      const page = parseInt(params.page || "1", 10);
+      const baseUrl =
+        scope.kind === "category"
+          ? `${basePath}/category/${scope.slug}/`
+          : scope.kind === "type"
+            ? `${basePath}/${scope.slug}/`
+            : `${basePath}/`;
+      const [rows, total] = await Promise.all([
+        scope.kind === "category"
+          ? fetchArticlesByCategory(
+              env,
+              scope.slug,
+              lang,
+              defaultLang,
+              page,
+              LIMIT,
+              includeFuture,
+            )
+          : scope.kind === "type"
+            ? fetchArticlesByType(
+                env,
+                scope.slug,
+                lang,
+                defaultLang,
+                page,
+                LIMIT,
+                includeFuture,
+              )
+            : fetchPublishedArticles(
+                env,
+                lang,
+                defaultLang,
+                page,
+                LIMIT,
+                includeFuture,
+              ),
+        scope.kind === "category"
+          ? countArticlesByCategory(env, scope.slug, includeFuture)
+          : scope.kind === "type"
+            ? countArticlesByTypeSlug(env, scope.slug, includeFuture)
+            : countPublishedArticles(env, includeFuture),
+      ]);
+      content["_articles"] = JSON.stringify(
+        rows.map((r) => toArticleCard(r, basePath)),
+      );
+      content["_pagination"] = JSON.stringify(
+        buildPagination(page, total, LIMIT, baseUrl),
+      );
+      return;
+    }
+    const month = params.month || null;
+    const [rows, months] = await Promise.all([
+      month
+        ? fetchArticlesByMonth(
+            env,
+            scope,
+            month,
+            lang,
+            defaultLang,
+            includeFuture,
+          )
+        : fetchArticlesLatest(env, scope, lang, defaultLang, includeFuture),
+      fetchDistinctMonths(env, scope, includeFuture),
     ]);
-    const catItem = categories.find(
-      (c) => c.slug === params.category || c.id === params.category,
-    );
-    const pagination = buildPagination(
-      page,
-      total,
-      LIMIT,
-      `${basePath}/category/${params.category}/`,
-    );
-    content["_category-name"] = catItem?.name || params.category;
     content["_articles"] = JSON.stringify(
       rows.map((r) => toArticleCard(r, basePath)),
     );
-    content["_pagination"] = JSON.stringify(pagination);
+    content["_archives-html"] = buildArchivesWidget({
+      scope,
+      months,
+      currentMonth: month,
+      basePath,
+      lang,
+    });
+  };
+
+  if (article) {
+    // article detail already filled above — no listing
+  } else if (params.category) {
+    const catItem = categories.find(
+      (c) => c.slug === params.category || c.id === params.category,
+    );
+    content["_category-name"] = catItem?.name || params.category;
+    await fillListScope({ kind: "category", slug: params.category });
   } else if (params.type) {
-    const page = parseInt(params.page || "1", 10);
     const typeItem = types.find(
       (t) => t.slug === params.type || t.id === params.type,
     );
     if (!typeItem) return null;
-    const [rows, total] = await Promise.all([
-      fetchArticlesByType(
-        env,
-        params.type,
-        lang,
-        defaultLang,
-        page,
-        LIMIT,
-        includeFuture,
-      ),
-      countArticlesByTypeSlug(env, params.type, includeFuture),
-    ]);
-    const pagination = buildPagination(
-      page,
-      total,
-      LIMIT,
-      `${basePath}/${params.type}/`,
-    );
     content["_type-name"] = typeItem.name;
-    content["_articles"] = JSON.stringify(
-      rows.map((r) => toArticleCard(r, basePath)),
-    );
-    content["_pagination"] = JSON.stringify(pagination);
-  } else if (path === "/" || path === "" || params.page != null) {
-    // Home page (including paginated)
-    const page = parseInt(params.page || "1", 10);
-    const [rows, total] = await Promise.all([
-      fetchPublishedArticles(
-        env,
-        lang,
-        defaultLang,
-        page,
-        LIMIT,
-        includeFuture,
-      ),
-      countPublishedArticles(env, includeFuture),
-    ]);
-    const pagination = buildPagination(page, total, LIMIT, `${basePath}/`);
-    content["_articles"] = JSON.stringify(
-      rows.map((r) => toArticleCard(r, basePath)),
-    );
-    content["_pagination"] = JSON.stringify(pagination);
+    await fillListScope({ kind: "type", slug: params.type });
+  } else if (
+    path === "/" ||
+    path === "" ||
+    params.page != null ||
+    params.month != null
+  ) {
+    await fillListScope({ kind: "home" });
   }
   // else: static template page (e.g. /about/) — no article injection needed
 
@@ -1739,7 +2073,7 @@ async function saveBuildCache(
 /** Generate and store pages for a single published document (called on publish). */
 export async function buildDocumentPages(env: Env, did: string): Promise<void> {
   const row = await env.DB.prepare(
-    `SELECT d.slug, d.tid, d.mode,
+    `SELECT d.slug, d.tid, d.mode, d.publish_at,
             GROUP_CONCAT(DISTINCT CASE
               WHEN NULLIF(dt.body_html, '') IS NOT NULL
                 OR NULLIF(dt.summary, '') IS NOT NULL
@@ -1758,6 +2092,7 @@ export async function buildDocumentPages(env: Env, did: string): Promise<void> {
       slug: string;
       tid: string;
       mode: number;
+      publish_at: string | null;
       langs: string | null;
       template_id: string | null;
     }>();
@@ -1765,19 +2100,12 @@ export async function buildDocumentPages(env: Env, did: string): Promise<void> {
   if (!row) return;
 
   const includeFuture = (await getBuildMode(env)) === "always";
-  const [settings, homeTotalCount, typeTotalCount] = await Promise.all([
-    fetchSettings(env),
-    countPublishedArticles(env, includeFuture),
-    countArticlesByTypeSlug(env, row.tid, includeFuture),
-  ]);
+  const settings = await fetchSettings(env);
   const template = await loadTemplate(env, row.template_id);
   const docLangs = (row.langs || settings.default_lang || "en")
     .split(",")
     .filter(Boolean);
   const published = row.mode === 1;
-  const LIMIT = 30;
-  const homeTotalPages = Math.max(1, Math.ceil(homeTotalCount / LIMIT));
-  const typeTotalPages = Math.max(1, Math.ceil(typeTotalCount / LIMIT));
 
   // Pre-fetch shared data once for all pages in this document build
   const [docTypes, docCategories] = await Promise.all([
@@ -1854,20 +2182,29 @@ export async function buildDocumentPages(env: Env, did: string): Promise<void> {
       article: row.slug,
     });
   }
-  for (let p = 1; p <= homeTotalPages; p++) {
-    await writeBundle(
-      p === 1 ? "/" : `/page/${p}/`,
-      allLangs,
-      p === 1 ? {} : { page: String(p) },
-    );
+
+  // Latest views are always refreshed (the new/removed post may enter or leave
+  // the rolling 30-day window). `/page/N/` is no longer pre-built — it is served
+  // on-demand for un-migrated templates.
+  await writeBundle("/", allLangs, {});
+  await writeBundle(`/${row.tid}/`, allLangs, { type: row.tid });
+
+  // Completed-month archives are immutable, so they only need rebuilding when the
+  // affected post belongs to a PAST month (a back-dated publish or an unpublish).
+  // Current-month posts live only in the latest view above.
+  const artMonth = (row.publish_at || "").slice(0, 7); // 'YYYY-MM'
+  const curMonth = new Date().toISOString().slice(0, 7);
+  if (artMonth && artMonth < curMonth) {
+    const [y, m] = artMonth.split("-");
+    await writeBundle(`/monthly/${y}/${m}/`, allLangs, { month: artMonth });
+    await writeBundle(`/${row.tid}/monthly/${y}/${m}/`, allLangs, {
+      type: row.tid,
+      month: artMonth,
+    });
   }
-  for (let p = 1; p <= typeTotalPages; p++) {
-    await writeBundle(
-      p === 1 ? `/${row.tid}/` : `/${row.tid}/page/${p}/`,
-      allLangs,
-      p === 1 ? { type: row.tid } : { type: row.tid, page: String(p) },
-    );
-  }
+
+  // One shared KV value for all type+category nav counts (filled client-side).
+  await writeNavCounts(env);
 }
 
 /** Rebuild all public pages for all registered languages, with caching and progress events. */
@@ -1994,38 +2331,53 @@ export async function buildAllPublicPages(
   // 3. Load existing page_build_cache
   const cache = await loadBuildCache(env);
 
-  // 4. Fetch all categories (for category index pages)
+  // Categories are no longer pre-built as pages, but the nav still lists their
+  // names (counts are filled client-side), so the prefetch needs them.
   const categories = await fetchCategoriesWithCounts(env);
 
-  // 5. Article counts for pagination
-  const PAGINATE_LIMIT = 30;
-  const [homeTotalCount, tidCountMap] = await Promise.all([
-    countPublishedArticles(env, includeFuture),
-    countArticlesByTid(env, includeFuture),
-  ]);
-  const homeTotalPages = Math.max(
-    1,
-    Math.ceil(homeTotalCount / PAGINATE_LIMIT),
+  // 4. Completed-month archive signatures (home aggregate + per type). Each month
+  // is an immutable `/monthly/YYYY/MM/` page; its hash depends only on that month's
+  // articles, so a new (current-month) post never rebuilds past months. The current
+  // month is excluded — its posts live in the latest view ("/", "/{type}/").
+  const monthRows = await env.DB.prepare(
+    `SELECT d.tid AS tid, strftime('%Y-%m', datetime(d.publish_at)) AS ym,
+            COUNT(*) AS cnt, COALESCE(MAX(d.updated_at), '') AS ts
+     FROM documents d
+     WHERE d.mode = 1 ${liveWindowSql("d.", includeFuture)}
+       AND strftime('%Y-%m', datetime(d.publish_at)) < strftime('%Y-%m', 'now')
+     GROUP BY d.tid, ym`,
+  ).all<{ tid: string; ym: string; cnt: number; ts: string }>();
+  // Per-type: tid → (ym → signature). Home: ym → aggregated signature.
+  const typeMonthSig = new Map<string, Map<string, string>>();
+  const homeMonthAgg = new Map<string, { cnt: number; ts: string }>();
+  for (const r of monthRows.results ?? []) {
+    if (!r.ym) continue;
+    let tm = typeMonthSig.get(r.tid);
+    if (!tm) {
+      tm = new Map();
+      typeMonthSig.set(r.tid, tm);
+    }
+    tm.set(r.ym, `${r.cnt}:${r.ts}`);
+    const h = homeMonthAgg.get(r.ym);
+    if (h) {
+      h.cnt += r.cnt;
+      if (r.ts > h.ts) h.ts = r.ts;
+    } else {
+      homeMonthAgg.set(r.ym, { cnt: r.cnt, ts: r.ts });
+    }
+  }
+  const homeMonths = Array.from(homeMonthAgg.keys()).sort().reverse();
+  const typeMonthTotal = Array.from(typeMonthSig.values()).reduce(
+    (s, m) => s + m.size,
+    0,
   );
-  // Extra home pages = homeTotalPages - 1 (page 1 = "/" already counted)
-  const extraHomePages = Math.max(0, homeTotalPages - 1);
-  // Extra type pages per type
-  const typeExtraPages = types.map((t) => {
-    const cnt = tidCountMap.get(t.id) ?? 0;
-    return Math.max(0, Math.ceil(cnt / PAGINATE_LIMIT) - 1);
-  });
-  const totalTypeExtraPages = typeExtraPages.reduce((s, n) => s + n, 0);
 
   // ── Compute total page count ──────────────────────────────────────────────
   // One bundle per page (all langs in one KV value) → count pages, NOT pages×langs.
-  // home + about + type-indexes + category-indexes + paginated pages + articles.
+  // home + about + type-indexes + month archives (home + per type) + articles.
+  // Categories are NOT pre-built (served on-demand), so they are excluded here.
   const total =
-    2 +
-    types.length +
-    categories.length +
-    extraHomePages +
-    totalTypeExtraPages +
-    articleCount;
+    2 + types.length + homeMonths.length + typeMonthTotal + articleCount;
   onEvent?.({
     type: "start",
     total,
@@ -2185,16 +2537,20 @@ export async function buildAllPublicPages(
           includeFuture,
         ),
     );
-    for (let p = 2; p <= homeTotalPages; p++) {
+    // Home completed-month archives: /monthly/YYYY/MM/ (immutable; per-month hash).
+    for (const ym of homeMonths) {
+      const [y, m] = ym.split("-");
+      const sig = homeMonthAgg.get(ym);
+      const monthHash = `${sig?.cnt ?? 0}:${sig?.ts ?? ""}:${tplId}`;
       await processPageBundle(
-        `/page/${p}/`,
+        `/monthly/${y}/${m}/`,
         allLangs,
-        () => siteHash,
+        () => monthHash,
         (lang) =>
           generatePage(
             env,
-            `/page/${p}/`,
-            { page: String(p) },
+            `/monthly/${y}/${m}/`,
+            { month: ym },
             lang,
             template,
             settings,
@@ -2221,10 +2577,6 @@ export async function buildAllPublicPages(
     for (let ti = 0; ti < types.length; ti++) {
       const t = types[ti];
       const typeHash = `${typeMaxTs.get(t.id) || ""}:${contentTs}:${tplId}:${typeLiveSig.get(t.id) || "0:"}`;
-      const typeTotalPages = Math.max(
-        1,
-        Math.ceil((tidCountMap.get(t.id) ?? 0) / PAGINATE_LIMIT),
-      );
       await processPageBundle(
         `/${t.slug}/`,
         allLangs,
@@ -2241,43 +2593,34 @@ export async function buildAllPublicPages(
             includeFuture,
           ),
       );
-      for (let p = 2; p <= typeTotalPages; p++) {
-        await processPageBundle(
-          `/${t.slug}/page/${p}/`,
-          allLangs,
-          () => typeHash,
-          (lang) =>
-            generatePage(
-              env,
-              `/${t.slug}/page/${p}/`,
-              { type: t.slug, page: String(p) },
-              lang,
-              template,
-              settings,
-              buildPrefetch,
-              includeFuture,
-            ),
-        );
+      // Per-type completed-month archives: /{type}/monthly/YYYY/MM/ (immutable).
+      const tMonths = typeMonthSig.get(t.id);
+      if (tMonths) {
+        for (const ym of Array.from(tMonths.keys()).sort().reverse()) {
+          const [y, m] = ym.split("-");
+          const monthHash = `${tMonths.get(ym) || "0:"}:${tplId}`;
+          await processPageBundle(
+            `/${t.slug}/monthly/${y}/${m}/`,
+            allLangs,
+            () => monthHash,
+            (lang) =>
+              generatePage(
+                env,
+                `/${t.slug}/monthly/${y}/${m}/`,
+                { type: t.slug, month: ym },
+                lang,
+                template,
+                settings,
+                buildPrefetch,
+                includeFuture,
+              ),
+          );
+        }
       }
     }
-    for (const cat of categories) {
-      await processPageBundle(
-        `/category/${cat.slug}/`,
-        allLangs,
-        () => siteHash,
-        (lang) =>
-          generatePage(
-            env,
-            `/category/${cat.slug}/`,
-            { category: cat.slug },
-            lang,
-            template,
-            settings,
-            buildPrefetch,
-            includeFuture,
-          ),
-      );
-    }
+    // Category pages are NOT pre-built — served on-demand by handlePublicRoute
+    // (KV miss → generate + edge-cache), so a category-count change never fans
+    // out into a build. The shared counts KV is refreshed at the end.
 
     // ── Article pages: one bundle per article, only langs that have a translation ──
     const artGroups = new Map<
@@ -2316,6 +2659,10 @@ export async function buildAllPublicPages(
     if (e !== BUILD_BUDGET_REACHED) throw e;
     more = true; // budget spent — more pages remain; client resumes
   }
+
+  // Refresh the shared nav-counts KV value (one write, filled into the nav
+  // client-side). Cheap and independent of the per-page build budget.
+  await writeNavCounts(env);
 
   onEvent?.({ type: "done", built, skipped, errors, more });
   return {
@@ -2519,6 +2866,31 @@ export async function buildSitemapXml(env: Env): Promise<string> {
     entries.push({ path: `/${t.slug}/`, langs: registered });
   for (const c of categories)
     entries.push({ path: `/category/${c.slug}/`, langs: registered });
+  // Completed-month archives (home + per type). Category month pages are served
+  // on-demand and omitted to avoid enumerating non-pre-built URLs.
+  const homeMonths = await fetchDistinctMonths(
+    env,
+    { kind: "home" },
+    includeFuture,
+  );
+  for (const ym of homeMonths) {
+    const [y, m] = ym.split("-");
+    entries.push({ path: `/monthly/${y}/${m}/`, langs: registered });
+  }
+  for (const t of types) {
+    const tMonths = await fetchDistinctMonths(
+      env,
+      { kind: "type", slug: t.slug },
+      includeFuture,
+    );
+    for (const ym of tMonths) {
+      const [y, m] = ym.split("-");
+      entries.push({
+        path: `/${t.slug}/monthly/${y}/${m}/`,
+        langs: registered,
+      });
+    }
+  }
   for (const g of artGroups.values())
     entries.push({
       path: `/${g.tid}/${g.slug}/`,
@@ -2752,9 +3124,15 @@ const PUBLIC_RESERVED = new Set([
 export function isPublicPath(pathname: string): boolean {
   if (pathname === "/") return true;
   if (new RegExp("^/category/[^/]").test(pathname)) return true;
-  // Paginated home: /page/N/
+  // Month archives: /monthly/YYYY/MM/ and /:type/monthly/YYYY/MM/
+  if (new RegExp("^/monthly/[0-9]{4}/[0-9]{2}/?$").test(pathname)) return true;
+  if (
+    new RegExp("^/[a-zA-Z0-9_-]+/monthly/[0-9]{4}/[0-9]{2}/?$").test(pathname)
+  )
+    return true;
+  // Legacy paginated home/type (served on-demand for un-migrated templates):
+  // /page/N/ and /:type/page/N/
   if (new RegExp("^/page/[0-9]+/?$").test(pathname)) return true;
-  // Paginated type index: /:type/page/N/
   if (new RegExp("^/[a-zA-Z0-9_-]+/page/[0-9]+/?$").test(pathname)) return true;
   // /{type-slug} or /{type-slug}/{article-slug} — any slug not in reserved set
   const m = pathname.match(new RegExp("^/([a-zA-Z0-9_-]+)(/[^/]*)?/?$"));
@@ -2801,29 +3179,40 @@ export async function handlePublicRoute(
   const edgeCached = await edgeCache.match(edgeCacheKey);
   if (edgeCached) return edgeCached;
 
-  // KV lookup — one bundle per page holds every language variant.
-  const { html: cached, kvLangs } = await kvGetPage(env, pathname, lang);
-  if (cached) {
-    const res = new Response(cached, {
-      headers: {
-        "Content-Type": "text/html; charset=utf-8",
-        "Cache-Control": "public, max-age=60, s-maxage=300",
-        "X-KuroCMS-Source": "kv-static",
-      },
-    });
-    await edgeCache.put(edgeCacheKey, res.clone());
-    return res;
-  }
+  // Category and legacy /page/N/ paths are NOT pre-built into KV (categories are
+  // on-demand by design; /page/N/ is the un-migrated-template fallback). Old
+  // installs may still hold stale KV bundles for them from a previous version, so
+  // skip the KV read entirely and always regenerate (edge-cached) to stay fresh.
+  const onDemandOnly =
+    new RegExp("^/category/").test(pathname) ||
+    new RegExp("^/page/[0-9]+/?$").test(pathname) ||
+    new RegExp("^/[^/]+/page/[0-9]+/?$").test(pathname);
 
-  // The page is built but this language has no translation → "jump" (302) to a
-  // language the visitor can read: English first when the browser's primary
-  // language is non-Japanese and English exists, otherwise the base language.
-  if (kvLangs.length > 0 && !kvLangs.includes(lang)) {
-    const fallback = pickFallbackLang(request, kvLangs, siteLang);
-    if (fallback && fallback !== lang) {
-      const to = new URL(request.url);
-      to.searchParams.set("lang", fallback);
-      return Response.redirect(to.toString(), 302);
+  if (!onDemandOnly) {
+    // KV lookup — one bundle per page holds every language variant.
+    const { html: cached, kvLangs } = await kvGetPage(env, pathname, lang);
+    if (cached) {
+      const res = new Response(cached, {
+        headers: {
+          "Content-Type": "text/html; charset=utf-8",
+          "Cache-Control": "public, max-age=60, s-maxage=300",
+          "X-KuroCMS-Source": "kv-static",
+        },
+      });
+      await edgeCache.put(edgeCacheKey, res.clone());
+      return res;
+    }
+
+    // The page is built but this language has no translation → "jump" (302) to a
+    // language the visitor can read: English first when the browser's primary
+    // language is non-Japanese and English exists, otherwise the base language.
+    if (kvLangs.length > 0 && !kvLangs.includes(lang)) {
+      const fallback = pickFallbackLang(request, kvLangs, siteLang);
+      if (fallback && fallback !== lang) {
+        const to = new URL(request.url);
+        to.searchParams.set("lang", fallback);
+        return Response.redirect(to.toString(), 302);
+      }
     }
   }
 
@@ -2838,71 +3227,97 @@ export async function handlePublicRoute(
   } else if (pathname === "/about" || pathname === "/about/") {
     html = await generatePage(env, pathname, {}, lang, template, settings);
   } else {
-    const catM = pathname.match(new RegExp("^/category/([^/]+)/?$"));
-    if (catM) {
+    // Ordered matches: month archives (3+ segments) and category before the
+    // generic /:type/:article/ pattern. Categories are always served here (never
+    // pre-built); /page/N/ is the legacy paginated path kept for un-migrated
+    // templates.
+    let m: RegExpMatchArray | null;
+    if (
+      (m = pathname.match(new RegExp("^/monthly/([0-9]{4})/([0-9]{2})/?$")))
+    ) {
       html = await generatePage(
         env,
         pathname,
-        { category: catM[1] },
+        { month: `${m[1]}-${m[2]}` },
         lang,
         template,
         settings,
       );
-    } else {
-      // Paginated home: /page/N/
-      const homePageM = pathname.match(new RegExp("^/page/([0-9]+)/?$"));
-      if (homePageM) {
-        const page = parseInt(homePageM[1], 10);
-        if (page >= 2)
-          html = await generatePage(
-            env,
-            pathname,
-            { page: String(page) },
-            lang,
-            template,
-            settings,
-          );
-      } else {
-        // Paginated type index: /:type/page/N/ — must check before /:type/:article/
-        const typePageM = pathname.match(
-          new RegExp("^/([^/]+)/page/([0-9]+)/?$"),
+    } else if (
+      (m = pathname.match(
+        new RegExp("^/category/([^/]+)/monthly/([0-9]{4})/([0-9]{2})/?$"),
+      ))
+    ) {
+      html = await generatePage(
+        env,
+        pathname,
+        { category: m[1], month: `${m[2]}-${m[3]}` },
+        lang,
+        template,
+        settings,
+      );
+    } else if ((m = pathname.match(new RegExp("^/category/([^/]+)/?$")))) {
+      html = await generatePage(
+        env,
+        pathname,
+        { category: m[1] },
+        lang,
+        template,
+        settings,
+      );
+    } else if (
+      (m = pathname.match(
+        new RegExp("^/([^/]+)/monthly/([0-9]{4})/([0-9]{2})/?$"),
+      ))
+    ) {
+      html = await generatePage(
+        env,
+        pathname,
+        { type: m[1], month: `${m[2]}-${m[3]}` },
+        lang,
+        template,
+        settings,
+      );
+    } else if ((m = pathname.match(new RegExp("^/page/([0-9]+)/?$")))) {
+      const page = parseInt(m[1], 10);
+      if (page >= 2)
+        html = await generatePage(
+          env,
+          pathname,
+          { page: String(page) },
+          lang,
+          template,
+          settings,
         );
-        if (typePageM) {
-          const page = parseInt(typePageM[2], 10);
-          if (page >= 2)
-            html = await generatePage(
-              env,
-              pathname,
-              { type: typePageM[1], page: String(page) },
-              lang,
-              template,
-              settings,
-            );
-        } else {
-          const artM = pathname.match(new RegExp("^/([^/]+)/([^/]+)/?$"));
-          if (artM) {
-            html = await generatePage(
-              env,
-              pathname,
-              { type: artM[1], article: artM[2] },
-              lang,
-              template,
-              settings,
-            );
-          } else {
-            const typeM = pathname.match(new RegExp("^/([^/]+)/?$"));
-            if (typeM)
-              html = await generatePage(
-                env,
-                pathname,
-                { type: typeM[1] },
-                lang,
-                template,
-                settings,
-              );
-          }
-        }
-      }
+    } else if ((m = pathname.match(new RegExp("^/([^/]+)/page/([0-9]+)/?$")))) {
+      const page = parseInt(m[2], 10);
+      if (page >= 2)
+        html = await generatePage(
+          env,
+          pathname,
+          { type: m[1], page: String(page) },
+          lang,
+          template,
+          settings,
+        );
+    } else if ((m = pathname.match(new RegExp("^/([^/]+)/([^/]+)/?$")))) {
+      html = await generatePage(
+        env,
+        pathname,
+        { type: m[1], article: m[2] },
+        lang,
+        template,
+        settings,
+      );
+    } else if ((m = pathname.match(new RegExp("^/([^/]+)/?$")))) {
+      html = await generatePage(
+        env,
+        pathname,
+        { type: m[1] },
+        lang,
+        template,
+        settings,
+      );
     }
   }
 

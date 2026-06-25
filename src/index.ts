@@ -4,6 +4,7 @@ import { serveFont } from "./fonts";
 import { handleApi } from "./api";
 import { html, notFound } from "./http";
 import {
+  buildCountsJs,
   buildRobotsTxt,
   buildRssXml,
   buildSitemapXml,
@@ -145,6 +146,16 @@ export default {
       }
       if (publicPath === "/rss.xml") {
         return new Response(await buildRssXml(env), { headers: xmlHeaders });
+      }
+      // Live category counts for the nav (filled client-side). Edge-cached only;
+      // the underlying KV value is rewritten by the build, never by serving.
+      if (publicPath === "/_counts.js") {
+        return new Response(await buildCountsJs(env), {
+          headers: {
+            "Content-Type": "application/javascript; charset=utf-8",
+            "Cache-Control": "public, max-age=60, s-maxage=300",
+          },
+        });
       }
       // Per-type feed: /{type}-rss.xml
       const rssM = publicPath.match(

@@ -97,6 +97,7 @@ export function adminHtml(
       .initialLoaderSpinner { width: 38px; height: 38px; border: 3px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: kcmsSpinInit 0.75s linear infinite; }
       .initialLoaderLabel { font-size: 13px; color: var(--muted); font-weight: 600; letter-spacing: 0.04em; }
       @keyframes kcmsSpinInit { to { transform: rotate(360deg); } }
+      .btnSpinner { display: inline-block; width: 13px; height: 13px; border: 2px solid rgba(255,255,255,0.4); border-top-color: #fff; border-radius: 50%; animation: kcmsSpinInit 0.7s linear infinite; vertical-align: -2px; margin-right: 7px; }
       header { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; margin-bottom: 28px; padding: 0; border: 0; background: transparent; }
       h2 { margin: 0; font-size: 32px; letter-spacing: -0.02em; line-height: 1.1; color: var(--heading); font-weight: 800; }
       h3 { margin: 0 0 12px; color: var(--heading); font-size: 18px; font-weight: 750; }

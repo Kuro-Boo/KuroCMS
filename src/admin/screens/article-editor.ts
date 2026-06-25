@@ -127,6 +127,13 @@ async function newArticle(editDid: Dynamic) {
     body: "",
     dirty: false,
     saving: false,
+    // Autosave is gated on `ready`: it stays false from (re)load start until the
+    // editor is fully mounted AND the language's content is on screen. While a
+    // language switch is in flight `switching` blocks any save outright. Together
+    // they stop a pending/periodic autosave from writing the wrong language's (or
+    // half-loaded) body during the switch — the critical data-loss bug.
+    ready: false,
+    switching: false,
   };
   // Map of lang code → display name, filled when the language list loads.
   const langNames: Record<string, string> = {};
@@ -225,6 +232,10 @@ async function newArticle(editDid: Dynamic) {
   }
   let allCategories: Dynamic[] = [];
   let autoSaveTimer: Dynamic = null;
+  // Autosave debounce / KuroEditor periodic-autosave interval. The right value
+  // differs per app; the article editor uses ~10s and passes the same value to
+  // KuroEditor's built-in autosave so the two stay aligned.
+  const AUTOSAVE_INTERVAL_MS = 10000;
   // Monotonically tracks edits so a save that started earlier cannot clear a
   // newer category/text edit when its requests finish.
   let editRevision = 0;
@@ -293,7 +304,13 @@ async function newArticle(editDid: Dynamic) {
   function readFields() {
     art.tid = byId("arType")?.value || "";
     art.slug = (byId("arSlug")?.value || "").trim();
-    art.lang = byId("arLang")?.value || "";
+    // CRITICAL: do NOT read art.lang from the #arLang select here. That select is
+    // a language SWITCHER — its value flips to the target the instant the user
+    // picks it, BEFORE the editor content is reloaded for that language. Reading
+    // it during a save (the switch's own save, or a pending autosave) would write
+    // the CURRENT (old-language) body under the newly-selected language and
+    // overwrite that translation. art.lang is owned by the load flow (newArticle)
+    // and always reflects the language of the content currently in the editor.
     art.pubDate = byId("arPubDate")?.value || "";
     art.pubTime = byId("arPubTime")?.value || "";
     art.hashtag = byId("arHashtag")?.value || "";
@@ -306,7 +323,11 @@ async function newArticle(editDid: Dynamic) {
   }
 
   async function doSave() {
-    if (art.saving) return;
+    // Never autosave while a switch is in flight or before the editor has fully
+    // loaded the current language's content (would persist the wrong language /
+    // a half-loaded body). Explicit saves go through here too and are correctly
+    // blocked during a switch — switchToLanguage saves BEFORE setting `switching`.
+    if (art.saving || art.switching || !art.ready) return;
     readFields();
     if (!art.tid) {
       setSaveStatus(t("typeNotSelectedErr"), "err");
@@ -395,17 +416,34 @@ async function newArticle(editDid: Dynamic) {
     updateSaveButtons();
     if (art.dirty && editRevision !== saveRevision) {
       clearTimeout(autoSaveTimer);
-      autoSaveTimer = setTimeout(doSave, 3000);
+      autoSaveTimer = setTimeout(doSave, AUTOSAVE_INTERVAL_MS);
     }
   }
 
   function markDirty() {
+    // Suppressed until the editor is ready / not mid-switch, so the programmatic
+    // setContent() that loads a language (which fires the editor's input event)
+    // can't schedule a save before the content is actually the current language.
+    if (!art.ready || art.switching) return;
     editRevision += 1;
     art.dirty = true;
     setSaveStatus(t("saveStatusUnsaved"));
     updateSaveButtons();
     clearTimeout(autoSaveTimer);
-    autoSaveTimer = setTimeout(doSave, 3000);
+    autoSaveTimer = setTimeout(doSave, AUTOSAVE_INTERVAL_MS);
+  }
+
+  // Called once the editor is mounted AND the language's content is on screen:
+  // the autosave counter starts fresh from here (a prefilled new translation is
+  // dirty, so kick off its first autosave now).
+  function markReady() {
+    art.switching = false;
+    art.ready = true;
+    clearTimeout(autoSaveTimer);
+    if (art.dirty) {
+      editRevision += 1;
+      autoSaveTimer = setTimeout(doSave, AUTOSAVE_INTERVAL_MS);
+    }
   }
 
   function renderPage() {
@@ -923,13 +961,22 @@ async function newArticle(editDid: Dynamic) {
     destroyArticleEditor();
     const ke = new KE(ta, {
       modalToolbar: byId("arKeToolbar") || undefined,
+      // KuroEditor's built-in periodic autosave interval (per-app tunable).
+      autoSaveInterval: AUTOSAVE_INTERVAL_MS,
       urlResolver: function (slug: string) {
         if (slug.startsWith("http")) return slug;
         return bodyMidUrlCache[slug] || slug;
       },
+      // KuroEditor calls onSave from its toolbar Save button AND its periodic
+      // autosave. Persist NOW (not via the input debounce, which the periodic
+      // fire would otherwise keep resetting and starving) when there are real
+      // unsaved edits and the editor is ready / not mid-switch.
       onSave: function (html: string) {
         art.body = html;
-        markDirty();
+        if (art.ready && !art.switching && !art.saving && art.dirty) {
+          clearTimeout(autoSaveTimer);
+          doSave();
+        }
       },
       onMediaUpload: r2Ok
         ? async function (file: File) {
@@ -980,6 +1027,7 @@ async function newArticle(editDid: Dynamic) {
     // re-mounts the cache is already warm, so render immediately.
     if (bodyMediaLoaded) {
       ke.setContent(art.body);
+      markReady();
     } else {
       Promise.all([
         api("/api/media/images").catch(function () {
@@ -1005,9 +1053,11 @@ async function newArticle(editDid: Dynamic) {
           });
           bodyMediaLoaded = true;
           ke.setContent(art.body);
+          markReady();
         })
         .catch(function () {
           ke.setContent(art.body);
+          markReady();
         });
     }
 
@@ -1268,6 +1318,10 @@ async function newArticle(editDid: Dynamic) {
   // Language dropdown change → switch to / create that translation.
   async function switchToLanguage(target: Dynamic) {
     const sel = byId("arLang");
+    // Cancel any pending debounced autosave: it would otherwise fire mid-switch
+    // and read the (shared) editor / DOM that is being rebuilt for the new
+    // language while still believing it is the old one.
+    clearTimeout(autoSaveTimer);
     // The base language must exist (have a did) before adding translations.
     if (!art.did) {
       await doSave();
@@ -1278,7 +1332,11 @@ async function newArticle(editDid: Dynamic) {
     }
     if (art.existingLangs.indexOf(target) !== -1) {
       // Existing translation: persist current edits, then reload that language.
+      // doSave() here still targets the CURRENT language (art.lang is owned by
+      // the load flow, never the switcher), so it can't mislabel the body.
       if (art.dirty) await doSave();
+      // From here until the new language is fully on screen, block every save.
+      art.switching = true;
       pendingArticleLoad = { lang: target };
       newArticle(art.did);
     } else {

@@ -40,6 +40,7 @@ import {
   familyStack,
 } from "./templates/font-catalog";
 import type { AuthUser, Env, JsonValue } from "./types";
+import { handleMcp } from "./mcp";
 
 interface DocumentRow {
   did: string;
@@ -116,7 +117,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.7.8";
+export const KUROCMS_VERSION = "1.7.20";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -191,11 +192,14 @@ export async function handleApi(
               "POST /api/me/tokens/:tokenId/revoke",
             ],
             content: [
-              "GET|POST /api/documents",
-              "GET|PUT /api/documents/:did",
-              "PUT /api/documents/:did/timestamps",
-              "GET|PUT|DELETE /api/documents/:did/translations/:lang",
-              "PUT /api/documents/:did/translations/:lang/timestamps",
+              "GET|POST /api/documents (POST=create; 409 if slug exists)",
+              "GET|PUT|DELETE /api/documents/:id (:id = did or globally-unique slug)",
+              "GET|PUT|DELETE /api/documents/:id/translations/:lang (PUT upserts)",
+              "GET|PUT /api/documents/:id/categories",
+              "PUT /api/documents/:id/timestamps",
+              "PUT /api/documents/:id/translations/:lang/timestamps",
+              "POST /api/documents/:id/build",
+              "POST /api/mcp (MCP server, Streamable HTTP / JSON-RPC; PAT auth)",
               "GET|POST /api/types",
               "PUT|DELETE /api/types/:tid",
               "GET|POST /api/categories",
@@ -284,6 +288,12 @@ export async function handleApi(
     );
     if (request.method === "GET" && thumbPublicMatch) {
       return siteTemplateServeThumbnail(env, thumbPublicMatch[1]);
+    }
+
+    // MCP server (Streamable HTTP, JSON-RPC). Authenticates internally with the
+    // same PAT, then dispatches each tool call back through handleApi.
+    if (path === "/api/mcp") {
+      return handleMcp(request, env, ctx);
     }
 
     const user = await requireAuth(env, request);
@@ -489,6 +499,10 @@ export async function handleApi(
       return withJsonHeaders(await documents(request, env, user, url));
     }
 
+    // Every `/api/documents/:id/...` route below accepts EITHER a did
+    // (`doc_<hex>`) or the globally-unique slug as `:id` — resolveDid() maps a
+    // slug to its did (404 if none), so clients can read/update an article by
+    // slug without first knowing its did.
     const documentTranslationTimestampsMatch = path.match(
       /^\/api\/documents\/([^/]+)\/translations\/([^/]+)\/timestamps$/,
     );
@@ -498,7 +512,7 @@ export async function handleApi(
           request,
           env,
           user,
-          documentTranslationTimestampsMatch[1],
+          await resolveDid(env, documentTranslationTimestampsMatch[1]),
           documentTranslationTimestampsMatch[2],
         ),
       );
@@ -513,7 +527,7 @@ export async function handleApi(
           request,
           env,
           user,
-          documentTranslationMatch[1],
+          await resolveDid(env, documentTranslationMatch[1]),
           documentTranslationMatch[2],
         ),
       );
@@ -528,7 +542,7 @@ export async function handleApi(
           request,
           env,
           user,
-          documentCategoriesMatch[1],
+          await resolveDid(env, documentCategoriesMatch[1]),
         ),
       );
     }
@@ -542,7 +556,7 @@ export async function handleApi(
           request,
           env,
           user,
-          documentTimestampsMatch[1],
+          await resolveDid(env, documentTimestampsMatch[1]),
         ),
       );
     }
@@ -550,7 +564,13 @@ export async function handleApi(
     const documentMatch = path.match(/^\/api\/documents\/([^/]+)$/);
     if (documentMatch) {
       return withJsonHeaders(
-        await documentDetail(request, env, user, documentMatch[1], ctx),
+        await documentDetail(
+          request,
+          env,
+          user,
+          await resolveDid(env, documentMatch[1]),
+          ctx,
+        ),
       );
     }
 
@@ -4073,6 +4093,33 @@ async function updateContentTimestamps(
   });
 }
 
+/** Resolve a globally-unique slug to its did (404 when no such document). */
+async function resolveDidBySlug(env: Env, slug: string): Promise<string> {
+  const row = await env.DB.prepare("SELECT did FROM documents WHERE slug = ?")
+    .bind(decodeURIComponent(slug))
+    .first<{ did: string }>();
+  if (!row) {
+    throw new HttpError(
+      404,
+      "document_not_found",
+      `No document with slug "${slug}".`,
+    );
+  }
+  return row.did;
+}
+
+// A did is `doc_` + 12 hex (see makeId). Slugs can never contain `_`
+// (requireSlug = [a-z0-9-] only), so a path segment matching this is
+// unambiguously a did, otherwise it is a slug. This lets `/api/documents/:id`
+// accept EITHER a did or a slug with zero ambiguity.
+const DID_RE = /^doc_[0-9a-f]{12}$/;
+
+/** Resolve a `:id` path segment (did OR globally-unique slug) to a did. */
+async function resolveDid(env: Env, idOrSlug: string): Promise<string> {
+  if (DID_RE.test(idOrSlug)) return idOrSlug;
+  return resolveDidBySlug(env, idOrSlug);
+}
+
 async function documents(
   request: Request,
   env: Env,
@@ -4127,10 +4174,20 @@ async function documents(
       requireString(body, "slug", { min: 1, max: 120 }),
       "slug",
     );
+    // Reserve the did shape (`doc_<hex>`) so a slug can never be mistaken for a
+    // did in the did-OR-slug routing. requireSlug already forbids `_`, so this is
+    // defense-in-depth that keeps the routing disambiguation valid even if the
+    // slug rules ever loosen.
+    if (DID_RE.test(slug) || slug.startsWith("doc_")) {
+      throw new HttpError(
+        400,
+        "slug_reserved",
+        'Slug must not start with "doc_" (reserved for document IDs).',
+      );
+    }
     const initialLang = requireString(body, "initialLang", { min: 2, max: 20 });
     const fallbackLang = optionalString(body, "fallbackLang") ?? initialLang;
-    const publishAt = optionalString(body, "publishAt") ?? nowIso();
-    const unpublishAt = optionalString(body, "unpublishAt");
+    const unpublishAt = optionalString(body, "unpublishAt") ?? null;
     const requestedCreatedAt = optionalIsoTimestamp(body, "createdAt");
     const requestedUpdatedAt = optionalIsoTimestamp(body, "updatedAt");
 
@@ -4149,16 +4206,34 @@ async function documents(
       );
     }
 
-    const did = makeId("doc");
-    const now = nowIso();
-    const createdAt = requestedCreatedAt ?? now;
-    const updatedAt = requestedUpdatedAt ?? createdAt;
+    // POST is CREATE-ONLY: slug is globally unique, so an existing slug is a
+    // conflict (409). Updates go through PUT /api/documents/:slug (and
+    // .../translations/:lang), which accept the slug directly.
+    const existing = await env.DB.prepare(
+      "SELECT did FROM documents WHERE slug = ?",
+    )
+      .bind(slug)
+      .first<{ did: string }>();
+    if (existing) {
+      throw new HttpError(
+        409,
+        "slug_exists",
+        `Slug "${slug}" is already in use. Use PUT /api/documents/${slug} to update it.`,
+      );
+    }
 
-    // Create the document and auto-register its base/fallback languages so a
-    // REST-created article is immediately representable (strong retention).
+    const now = nowIso();
+    // Auto-register the base/fallback languages so a REST-posted article is
+    // immediately representable (idempotent — DO NOTHING on conflict).
     const langStmts = [registerLanguageStatement(env, initialLang, now)];
     if (fallbackLang && fallbackLang !== initialLang)
       langStmts.push(registerLanguageStatement(env, fallbackLang, now));
+
+    // Create a fresh draft document (mode 0).
+    const did = makeId("doc");
+    const createdAt = requestedCreatedAt ?? now;
+    const updatedAt = requestedUpdatedAt ?? createdAt;
+    const publishAt = optionalString(body, "publishAt") ?? now;
     await env.DB.batch([
       env.DB.prepare(
         `INSERT INTO documents
@@ -4196,6 +4271,7 @@ async function documents(
         unpublishAt,
         createdAt,
         updatedAt,
+        created: true,
       },
       { status: 201 },
     );
@@ -4401,6 +4477,16 @@ async function documentTranslations(
   did: string,
   lang?: string,
 ): Promise<Response> {
+  // Mutations MUST target an explicit language. Never fall back to the base
+  // language on a forgotten `:lang` — that would silently overwrite/delete the
+  // base translation. (GET without :lang is the valid "list translations" call.)
+  if ((request.method === "PUT" || request.method === "DELETE") && !lang) {
+    throw new HttpError(
+      400,
+      "lang_required",
+      "Language is required: use /api/documents/:id/translations/{lang}.",
+    );
+  }
   if (request.method === "GET" && !lang) {
     const result = await env.DB.prepare(
       "SELECT lang, title, summary, updated_at FROM document_translations WHERE did = ? ORDER BY lang",
@@ -4870,10 +4956,17 @@ async function setSitePublished(
   requireAdmin(user);
   const body = await readJson(request);
   const published = body.published === true ? 1 : 0;
+  // IMPORTANT: do NOT touch updated_at here. `site_is_published` is a serving
+  // kill-switch and does not change any page's HTML, but `updated_at` feeds
+  // `contentTs`, which is folded into the build hash of home/type/about/article
+  // pages. The build marks the site published on EVERY successful run, so
+  // bumping updated_at here made contentTs advance every build → the next build
+  // needlessly rebuilt every content page. Keeping updated_at out decouples the
+  // publish flag from content versioning.
   await env.DB.prepare(
-    "UPDATE site_settings SET site_is_published = ?, updated_at = ? WHERE id = 1",
+    "UPDATE site_settings SET site_is_published = ? WHERE id = 1",
   )
-    .bind(published, nowIso())
+    .bind(published)
     .run();
   return json({ ok: true, siteIsPublished: published === 1 });
 }

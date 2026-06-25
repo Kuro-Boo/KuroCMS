@@ -226,6 +226,9 @@ function buildTemplateModel(ctx: RenderContext): TemplateObject {
     ctx.content["_pagination"],
     null,
   );
+  // Pre-rendered <select> archive switcher (latest + completed months). Output
+  // raw via [[html:archives]]; empty string when there is nothing to switch.
+  const archives = ctx.content["_archives-html"] || "";
   const content = Object.fromEntries(
     Object.entries(ctx.content)
       .filter(([key]) => !key.startsWith("_"))
@@ -260,6 +263,7 @@ function buildTemplateModel(ctx: RenderContext): TemplateObject {
         }
       : null,
     pagination,
+    archives,
     type: {
       id: ctx.params.type || "",
       name: ctx.content["_type-name"] || ctx.params.type || "",

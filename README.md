@@ -28,7 +28,7 @@ Cloudflare's free tier**.
 - 🌐 **Multilingual by design** — one shared article identity, per‑language static output, AI‑friendly translation API.
 - ✍️ **Rich WYSIWYG editor (KuroEditor)** — callouts, round boxes, tables, media — with **passkey (WebAuthn)** sign‑in and multi‑device recovery.
 - 🎨 **Community templates** — pick a shareable template and make it yours.
-- 🤖 **AI‑ready REST API** — clean JSON endpoints for automation and translation.
+- 🤖 **AI‑ready REST API + MCP server** — clean JSON endpoints, plus a built‑in **MCP (Model Context Protocol)** server at `/api/mcp` so Claude / Claude Code can create, update, publish, and build content conversationally (PAT‑authenticated, same permissions as REST).
 - 🔑 **Zero runtime dependencies** — vanilla TypeScript on the Workers runtime.
 
 ## 🚀 Get started

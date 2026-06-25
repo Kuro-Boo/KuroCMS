@@ -108,6 +108,8 @@ async function help() {
     { key: "types", label: t("types"), divider: false },
     { key: "siteManagement", label: t("siteManagement"), divider: true },
     { key: "settings", label: t("settings"), divider: false },
+    { key: "users", label: t("userManager"), divider: false },
+    { key: "backup", label: t("backup"), divider: false },
     { key: "profile", label: t("profile"), divider: false },
     { key: "faq", label: "Q&A", divider: true },
   ];

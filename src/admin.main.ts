@@ -2642,18 +2642,15 @@ async function applyEditorFont() {
 
     let style = byId("kuroEditorFont") as Dynamic;
     if (baseStack) {
-      const skip =
-        ':not(code):not(pre):not(kbd):not(samp):not(tt):not([class*="icon" i]):not([class*="fa-" i])';
+      // Mirror the public render (fonts.ts → baseFontStyle): a TEMPLATE-PRIORITY
+      // default, NOT a forced override. :where() carries zero specificity and we
+      // drop !important, so the base font only fills in where nothing else is set
+      // — and any inline font-family KuroEditor writes (e.g. the 明朝 picker's
+      // <span style="font-family:…">) wins via the normal cascade. Children
+      // inherit from the container; code/kbd keep their own monospace rule from
+      // ke-content.css, so no blanket descendant selector is needed.
       const css =
-        ".kuro-body,.kuro-content{font-family:" +
-        baseStack +
-        " !important}.kuro-body *" +
-        skip +
-        ",.kuro-content *" +
-        skip +
-        "{font-family:" +
-        baseStack +
-        " !important}";
+        ":where(.kuro-body,.kuro-content){font-family:" + baseStack + "}";
       if (!style) {
         style = document.createElement("style");
         style.id = "kuroEditorFont";
@@ -2721,6 +2718,7 @@ function shell(title: Dynamic, body: Dynamic) {
     [t("settings")]: "settings",
     [t("profile")]: "profile",
     [t("userManager")]: "users",
+    [t("backup")]: "backup",
   };
   const helpKey = helpKeyMap[title];
   const helpBtn = helpKey
@@ -2936,7 +2934,31 @@ function openEntryDialog(
   if (form) {
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
-      await onSubmit(form, close);
+      // Show a spinner on the submit button while onSubmit runs. Many dialogs do
+      // external network calls (SNS post, community publish, …) whose duration is
+      // invisible; the spinner makes the wait obvious. On success onSubmit calls
+      // close() and the node is gone; if it left the dialog open (e.g. a
+      // validation error) we restore the button so it stays usable.
+      const submitBtn = form.querySelector<AdminElement>(
+        "button[type='submit']",
+      );
+      const prevHtml = submitBtn ? submitBtn.innerHTML : "";
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = "<span class='btnSpinner'></span>" + prevHtml;
+      }
+      if (cancelBtn) cancelBtn.disabled = true;
+      try {
+        await onSubmit(form, close);
+      } finally {
+        if (document.body.contains(backdrop)) {
+          if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = prevHtml;
+          }
+          if (cancelBtn) cancelBtn.disabled = false;
+        }
+      }
     });
   }
 }
@@ -3317,17 +3339,17 @@ const helpContent: Record<string, Dynamic> = {
     title: "KuroCMS 基本ガイド",
     role: "KuroCMS は Cloudflare Workers + D1 上で動作する個人用ヘッドレス CMS です。記事・メディア・設定を Web ブラウザから管理し、公開ページを KV キャッシュ経由で高速配信します。PC 不要で、すべての管理作業をブラウザのみで完結できます。",
     canDo:
-      "記事の作成・多言語対応・公開管理 / 画像・動画・音楽のアップロード（R2 必須）/ カテゴリ・タイプ・言語の管理 / テーマカラーのカスタマイズ / SNS 外部連動設定 / バックアップの作成 / REST API 経由での記事登録（PAT 使用）",
+      "記事の作成・多言語対応・公開管理 / 画像・動画・音楽のアップロード（R2 必須）/ カテゴリ・タイプ・言語の管理 / デザインテンプレートの選択・編集とフォント設定 / Bluesky への記事投稿 / 複数ユーザーの招待・管理 / バックアップの作成・復元 / REST API 経由での記事登録（PAT 使用）",
     notes:
-      "D1（5GB）・R2（10GB）・KV（1GB）の CF 無料枠を超えると課金が発生します。容量はダッシュボードで確認してください。R2 を利用するにはクレジットカードの登録が必要です（無料枠内は課金なし）。パスキーのバックアップを複数デバイスで設定しておくことを強く推奨します。",
+      "D1（5GB）・R2（10GB）・KV（1 日あたりの書き込み回数）などの Cloudflare 無料枠を超えると課金が発生します。使用状況はダッシュボードで確認してください。R2 を利用するにはクレジットカードの登録が必要です（無料枠内は課金なし）。パスキーは複数のデバイスに登録しておくことを強く推奨します。",
   },
   dashboard: {
     title: "ダッシュボード",
     role: "サイト全体の状態を一目で把握するホーム画面です。ストレージ使用量・記事数・メディア数などの統計をグラフと数値で表示します。",
     canDo:
-      "D1（データベース）・R2（メディア）・KV（ページキャッシュ）の使用量を円グラフで確認 / 公開済み・下書き・非公開の記事数を確認 / 画像・動画・音楽の登録件数と合計容量を確認",
+      "D1（データベース）・R2（メディア）の使用量と KV（ページキャッシュ）の 1 日あたり書き込み回数を円グラフで確認 / 公開済み・下書き・非公開の記事数を確認 / 画像・動画・音楽の登録件数と合計容量を確認 / ビルド設定（手動／自動／常時）の切り替え",
     notes:
-      "容量が 70% を超えると黄色、90% を超えると赤で警告表示されます。赤になる前に不要データを削除してください。R2 使用量はアップロードされたファイルの合計サイズです。D1 の使用量は推定値です。",
+      "使用量が 70% を超えると黄色、90% を超えると赤で警告表示されます。赤になる前に不要なデータを削除してください。R2 使用量はアップロードされたファイルの合計サイズ、D1 の使用量は推定値です。KV はページキャッシュの 1 日あたり書き込み回数で、Cloudflare 無料枠の上限を超えると公開ビルドに失敗することがあります。",
   },
   articles: {
     title: "記事管理",
@@ -3393,19 +3415,19 @@ const helpContent: Record<string, Dynamic> = {
   },
   settings: {
     title: "設定",
-    role: "サイト全体の設定を管理する画面です。基本・デザイン・SNS・ライセンス・Strapi インポート・KuroCMS 読込の 6 タブ構成です。",
+    role: "サイト全体の設定を管理する画面です。基本・SNS・ライセンス・インポートの 4 タブ構成です（インポートタブ内で Strapi と KuroCMS を切り替えます）。",
     canDo:
-      "サイト名・公開ドメインの設定 / 基本言語・初期作成言語・有効言語の設定 / テーマカラーのカスタマイズ / SNS 外部連動（Bluesky 等）の設定 / ライセンス表示の確認 / Strapi からの記事インポート / KuroCMS データの読み込み",
+      "公開ドメイン・独自ドメイン（Cloudflare）・R2 の設定 / 基本言語の設定 / SNS 外部連動（Bluesky）の設定 / ライセンス表示の確認 / Strapi からの記事インポート / 他の KuroCMS からのデータ読み込み",
     notes:
-      "管理画面 URL・Worker 名・D1 名は bootstrap スクリプトで設定します。この画面からは変更できません。SNS 連動（記事公開時の自動投稿）は将来実装予定です。現在は接続情報の保存のみ対応しています。Strapi インポートは Strapi v4/v5 の REST API に対応しています。",
+      "サイト名はサイト管理画面、テーマ（デザイン）はテンプレートで設定します。管理画面 URL・Worker 名・D1 名は bootstrap スクリプトで設定し、この画面からは変更できません。Bluesky への投稿は記事一覧の投稿ボタンから手動で行えます（他 SNS は順次対応）。Strapi インポートは Strapi v4/v5 の REST API に対応しています。",
   },
   siteManagement: {
     title: "サイト管理",
-    role: "公開サイトのテンプレートと固定コンテンツを管理する画面です。テンプレート表示・テンプレート選択・テンプレート編集・サイト文字編集の 4 タブ構成です。",
+    role: "公開サイトのテンプレート・固定コンテンツ・フォント・計測を管理する画面です。テンプレート表示・テンプレート選択・テンプレート編集・サイト文字編集・フォント管理・計測の 6 タブ構成です。",
     canDo:
-      "テンプレート表示：PC・スマホ表示のプレビュー確認 / テンプレート選択：デザインテンプレートの選択と適用 / テンプレート編集：テンプレートの HTML ソースを直接編集 / サイト文字編集：ヒーローテキスト・About 情報などの固定文字を編集 / テンプレート公開ボタンで選択・編集内容を公開サイトに反映",
+      "テンプレート表示：PC・スマホ表示のプレビュー確認とテンプレート公開 / テンプレート選択：ローカル・公開テンプレートの選択と適用 / テンプレート編集：テンプレートの HTML ソースを直接編集 / サイト文字編集：サイト名と多言語の固定コンテンツを編集 / フォント管理：Web フォントの読み込みと基本フォントの指定 / 計測：GA4 計測 ID と SEO 用サイト説明文の設定",
     notes:
-      "テンプレートを変更した後は「テンプレート表示」タブの「テンプレート公開」ボタンで反映してください。固定コンテンツの変更後は下部の「今すぐビルド」ボタンが必要です。テンプレート編集は HTML の知識が必要です。テンプレート公開ボタンはテンプレートを選択または編集した後に有効になります。",
+      "テンプレートを変更した後は「テンプレート表示」タブの「テンプレート公開」ボタンで反映してください。サイト文字・フォント・計測の変更後は下部の「今すぐビルド」ボタンで公開サイトに反映します。テンプレート編集には HTML の知識が必要です。テンプレート公開ボタンはテンプレートを選択または編集した後に有効になります。",
   },
   profile: {
     title: "プロフィール",
@@ -3417,18 +3439,26 @@ const helpContent: Record<string, Dynamic> = {
   },
   users: {
     title: "ユーザー管理",
-    role: "管理者が複数のユーザー（管理者・編集者）を招待・管理する画面です。",
+    role: "管理者が複数のユーザー（管理者・投稿者）を招待・管理する画面です。管理者専用です。",
     canDo:
-      "招待リンクの発行によるユーザー追加 / 権限（管理者・編集者）の設定 / ユーザーの削除",
+      "招待リンクの発行によるユーザー追加 / 権限（管理者・投稿者）の設定 / ユーザーの削除",
     notes:
-      "権限は管理者と編集者の2種類で、両方を持たせることもできます。招待リンクは第三者に共有しないでください。管理者は最低1名必要です。",
+      "権限は管理者と投稿者の2種類で、管理者は投稿者の権限も兼ねます。招待リンクは第三者に共有しないでください。管理者は最低1名必要です。",
+  },
+  backup: {
+    title: "バックアップ",
+    role: "サイト全体のデータを ZIP ファイルとして書き出し、復元する画面です。管理者専用で、バックアップ・復元の 2 タブ構成です。",
+    canDo:
+      "記事・タクソノミー・設定・メディアを含む ZIP バックアップの作成 / ZIP ファイルからの復元（レストア）",
+    notes:
+      "バックアップ ZIP には SNS 連携トークンや Bluesky のパスワード等の機密情報が含まれます。ファイルは厳重に保管してください。復元は既存データを上書きする可能性があるため、実行前に内容をよく確認してください。バックアップ・復元はすべてブラウザ内で処理されます。",
   },
   faq: {
     title: "よくある質問 (Q&A)",
     faqs: [
       {
         q: "別のドメイン（インスタンス）に引っ越したい",
-        a: "KuroCMS から KuroCMS へのエクスポート/インポート機能を開発中です。完成後は、旧インスタンスからデータをエクスポートし、新インスタンスで bootstrap.sh を実行してからインポートする手順で移行できます。Worker・D1・R2 のバインドも bootstrap スクリプトが自動で行います。",
+        a: "サイドバーの「バックアップ」から ZIP を書き出し、新しいインスタンスで bootstrap.sh を実行した後、同画面の「レストア」で復元します。設定の「インポート」タブから、稼働中の別 KuroCMS のデータを直接読み込むこともできます。Worker・D1・R2 のバインドは bootstrap スクリプトが自動で行います。",
       },
       {
         q: "Strapi からインポートした記事を上書きしたい",
@@ -3456,7 +3486,7 @@ const helpContent: Record<string, Dynamic> = {
       },
       {
         q: "複数ユーザーで使えますか？",
-        a: "複数ユーザーの登録に対応しています。管理者は「ユーザー管理」画面から招待リンクを発行してユーザーを追加できます。権限は管理者と編集者の2種類で、両方の権限を持つユーザーも設定可能です。",
+        a: "複数ユーザーの登録に対応しています。管理者は「ユーザー管理」画面から招待リンクを発行してユーザーを追加できます。権限は管理者と投稿者の2種類で、管理者は投稿者の権限も兼ねます。",
       },
     ],
   },
@@ -3467,17 +3497,17 @@ const helpContentEn: Record<string, Dynamic> = {
     title: "KuroCMS Getting Started Guide",
     role: "KuroCMS is a personal headless CMS running on Cloudflare Workers + D1. Manage articles, media, and settings from any web browser and deliver public pages fast via KV cache. No PC required — all admin tasks can be completed entirely in the browser.",
     canDo:
-      "Create & manage articles with multilingual support / Upload images, video, and audio (R2 required) / Manage categories, types, and languages / Customize theme colors / Configure SNS integrations / Create backups / Register articles via REST API (PAT authentication)",
+      "Create & manage articles with multilingual support / Upload images, video, and audio (R2 required) / Manage categories, types, and languages / Choose and edit design templates and fonts / Post articles to Bluesky / Invite and manage multiple users / Create and restore backups / Register articles via REST API (PAT authentication)",
     notes:
-      "Cloudflare free tier limits: D1 (5 GB), R2 (10 GB), KV (1 GB). Exceeding these limits will incur charges. Monitor usage on the Dashboard. R2 requires a credit card on file (no charge within free tier). Strongly recommended: register passkeys on multiple devices.",
+      "Cloudflare free tier limits: D1 (5 GB), R2 (10 GB), KV (daily write operations). Exceeding these limits will incur charges. Monitor usage on the Dashboard. R2 requires a credit card on file (no charge within free tier). Strongly recommended: register passkeys on multiple devices.",
   },
   dashboard: {
     title: "Dashboard",
     role: "The home screen for a quick overview of your entire site. Displays storage usage, article counts, and media statistics in charts and numbers.",
     canDo:
-      "Check D1 (database), R2 (media), and KV (page cache) usage in pie charts / View published, draft, and hidden article counts / Check image, video, and audio counts with total storage",
+      "Check D1 (database) and R2 (media) usage plus KV (page cache) daily write operations in pie charts / View published, draft, and hidden article counts / Check image, video, and audio counts with total storage / Switch build mode (manual / auto / always)",
     notes:
-      "Usage above 70% shows a yellow warning; above 90% shows red. Delete unnecessary data before it turns red. R2 usage reflects total uploaded file size. D1 usage is an estimate.",
+      "Usage above 70% shows a yellow warning; above 90% shows red. Delete unnecessary data before it turns red. R2 usage reflects total uploaded file size; D1 usage is an estimate. KV is shown as daily page-cache write operations — exceeding the Cloudflare free-tier limit can cause site builds to fail.",
   },
   articles: {
     title: "Article Manager",
@@ -3543,19 +3573,19 @@ const helpContentEn: Record<string, Dynamic> = {
   },
   settings: {
     title: "Settings",
-    role: "Manage site-wide settings. Organized into 6 tabs: Basic, Design, SNS, License, Import from Strapi, and Import from KuroCMS.",
+    role: "Manage site-wide settings. Organized into 4 tabs: Basic, SNS, License, and Import (the Import tab toggles between Strapi and KuroCMS).",
     canDo:
-      "Set site name and public domain / Configure default language, initial authoring language, and enabled languages / Customize theme colors / Set up SNS integrations (Bluesky, etc.) / View license / Import articles from Strapi / Load KuroCMS data",
+      "Set public domain, custom domain (Cloudflare), and R2 / Configure the default language / Set up SNS integrations (Bluesky) / View license / Import articles from Strapi / Load data from another KuroCMS",
     notes:
-      "The admin URL, Worker name, and D1 name are set by the bootstrap script and cannot be changed here. Automatic posting on article publish is planned for a future release. Strapi import supports Strapi v4/v5 REST API.",
+      "Site name is set in Site Manager, and theme (design) is set per template. The admin URL, Worker name, and D1 name are set by the bootstrap script and cannot be changed here. Bluesky posting is available manually via the post button in the article list (other SNS to follow). Strapi import supports Strapi v4/v5 REST API.",
   },
   siteManagement: {
     title: "Site Manager",
-    role: "Manage templates and static content for the public site. 4 tabs: Template Preview, Select Template, Edit Template, and Edit Site Text.",
+    role: "Manage templates, static content, fonts, and analytics for the public site. 6 tabs: Template Preview, Select Template, Edit Template, Edit Site Text, Font Management, and Analytics.",
     canDo:
-      "Template Preview: check desktop and mobile previews / Select Template: choose and apply a design template / Edit Template: edit the template HTML source directly / Edit Site Text: edit hero text, About info, and other fixed content / Publish template to reflect changes on the public site",
+      "Template Preview: check desktop/mobile previews and publish the template / Select Template: choose and apply a local or community template / Edit Template: edit the template HTML source directly / Edit Site Text: edit the site name and multilingual fixed content / Font Management: load web fonts and pick a base font / Analytics: set the GA4 measurement ID and SEO site description",
     notes:
-      'After changing a template, click "Publish Template" in the Template Preview tab to apply. After editing site text, click "Build Now". Editing templates requires HTML knowledge. The publish button activates after selecting or editing a template.',
+      'After changing a template, click "Publish Template" in the Template Preview tab to apply. After editing site text, fonts, or analytics, click "Build Now" to reflect changes on the public site. Editing templates requires HTML knowledge. The publish button activates after selecting or editing a template.',
   },
   profile: {
     title: "Profile",
@@ -3567,18 +3597,26 @@ const helpContentEn: Record<string, Dynamic> = {
   },
   users: {
     title: "User Management",
-    role: "Screen for admins to invite and manage multiple users (admins / editors).",
+    role: "Admin-only screen to invite and manage multiple users (admins / authors).",
     canDo:
-      "Add users via invite links / Set roles (admin / editor) / Remove users",
+      "Add users via invite links / Set roles (admin / author) / Remove users",
     notes:
-      "There are two roles, admin and editor, and a user can hold both. Do not share invite links with third parties. At least one admin is required.",
+      "There are two roles, admin and author; an admin also has author privileges. Do not share invite links with third parties. At least one admin is required.",
+  },
+  backup: {
+    title: "Backup",
+    role: "Admin-only screen to export the entire site as a ZIP file and restore it. Two tabs: Backup and Restore.",
+    canDo:
+      "Create a ZIP backup including articles, taxonomy, settings, and media / Restore from a ZIP file",
+    notes:
+      "The backup ZIP contains sensitive data such as SNS integration tokens and your Bluesky password — store the file securely. Restore may overwrite existing data, so review the contents before running it. Backup and restore are processed entirely in the browser.",
   },
   faq: {
     title: "FAQ (Q&A)",
     faqs: [
       {
         q: "I want to migrate to a different domain (instance)",
-        a: "KuroCMS-to-KuroCMS export/import is under development. Once complete, you will be able to export data from the old instance, run bootstrap.sh on the new instance, and then import. The bootstrap script will automatically configure Worker, D1, and R2 bindings.",
+        a: "Export a ZIP from the Backup screen in the sidebar, run bootstrap.sh on the new instance, then restore it from the same screen. You can also load data directly from another running KuroCMS via the Import tab in Settings. The bootstrap script automatically configures Worker, D1, and R2 bindings.",
       },
       {
         q: "I want to overwrite articles imported from Strapi",
@@ -3606,7 +3644,7 @@ const helpContentEn: Record<string, Dynamic> = {
       },
       {
         q: "Can multiple users share KuroCMS?",
-        a: "Yes, multiple users are supported. Administrators can invite users from the User Manager screen. There are two roles: Admin and Author, and a user can have both.",
+        a: "Yes, multiple users are supported. Administrators can invite users from the User Manager screen. There are two roles: Admin and Author; an admin also has author privileges.",
       },
     ],
   },
