@@ -1001,7 +1001,13 @@ async function newArticle(editDid: Dynamic) {
               body: fd,
             });
             const data = await resp.json();
-            if (!resp.ok) throw new Error(data.error || resp.statusText);
+            if (!resp.ok)
+              throw new Error(
+                data.error?.message ||
+                  data.error?.code ||
+                  (typeof data.error === "string" ? data.error : "") ||
+                  resp.statusText,
+              );
             bodyMidUrlCache[data.mid] = publicBase + data.publicPath;
             return data.mid;
           }
@@ -1117,7 +1123,15 @@ async function newArticle(editDid: Dynamic) {
           body: fd,
         });
         const json = await resp.json();
-        if (!resp.ok) throw new Error(json.error || resp.statusText);
+        // The API returns errors as { error: { code, message } }; passing that
+        // object straight to new Error() yields "[object Object]".
+        if (!resp.ok)
+          throw new Error(
+            json.error?.message ||
+              json.error?.code ||
+              (typeof json.error === "string" ? json.error : "") ||
+              resp.statusText,
+          );
         readFields(); // preserve in-progress body/title edits before re-render
         art.coverMid = json.mid;
         art.coverPath = json.publicPath;
