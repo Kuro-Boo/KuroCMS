@@ -1,3 +1,3 @@
-// Shared server-to-server secret for KuroMailer's KuroCMS send endpoint.
-// REDACTED in the public mirror — the real value is embedded at build time.
+// Shared KuroMailer send-endpoint secret — REDACTED in the public mirror.
+// The real value is embedded into worker.js at build time.
 export const KUROMAILER_SHARED_SECRET = "";

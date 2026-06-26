@@ -2152,7 +2152,13 @@ async function siteManagement() {
             body: fd,
           });
           const data = await resp.json();
-          if (!resp.ok) throw new Error(data.error || resp.statusText);
+          if (!resp.ok)
+            throw new Error(
+              data.error?.message ||
+                data.error?.code ||
+                (typeof data.error === "string" ? data.error : "") ||
+                resp.statusText,
+            );
           midUrlCache[data.mid] = publicBase + data.publicPath;
           return data.mid;
         },

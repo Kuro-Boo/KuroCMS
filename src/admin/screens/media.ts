@@ -500,7 +500,13 @@ function uploadFiles(files: Dynamic, kind: Dynamic, apiPath: Dynamic) {
         headers: { Authorization: "Bearer " + state.token },
       });
       const json = await resp.json();
-      if (!resp.ok) throw new Error(json.error || resp.statusText);
+      if (!resp.ok)
+        throw new Error(
+          json.error?.message ||
+            json.error?.code ||
+            (typeof json.error === "string" ? json.error : "") ||
+            resp.statusText,
+        );
       setStatus(t("uploadComplete"), true);
       setTimeout(function () {
         row.remove();
