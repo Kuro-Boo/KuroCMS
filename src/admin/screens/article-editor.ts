@@ -1141,7 +1141,10 @@ async function newArticle(editDid: Dynamic) {
         refreshDynamicFields();
         mountBodyEditor();
       } catch (err) {
-        toast(err instanceof Error ? errorMessage(err) : String(err), true);
+        // Logs the full object + stack so a post-upload render failure (which is
+        // caught here too, not just the upload itself) is diagnosable.
+        console.error("cover upload/render failed", err);
+        toast(errorMessage(err), true);
       }
     }
 
