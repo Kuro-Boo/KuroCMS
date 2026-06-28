@@ -102,6 +102,16 @@ async function newArticle(editDid: Dynamic) {
   document.getElementById("artsBuildBar")?.remove();
   setSidebarMode("normal");
   setActiveNav();
+  // Edit mode fetches the document below, which can take ~2s. Render a spinner
+  // into the workspace immediately so the list → editor transition shows it is
+  // loading instead of leaving the previous screen on screen (looks frozen).
+  if (editDid) {
+    app.innerHTML =
+      "<div class='initialLoader'><div class='initialLoaderSpinner'></div>" +
+      "<div class='initialLoaderLabel'>" +
+      escapeHtml(t("articleLoading")) +
+      "</div></div>";
+  }
   // Consume any pending language-switch request for this (re)load.
   const pending = pendingArticleLoad;
   pendingArticleLoad = null;
