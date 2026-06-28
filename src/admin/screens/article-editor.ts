@@ -661,10 +661,19 @@ async function newArticle(editDid: Dynamic) {
       "<input id='arSlug' placeholder='my-article-slug' value='" +
       escapeHtml(art.slug) +
       "'" +
-      (art.did ? " readonly" : dis) +
+      // Existing docs: slug is locked, but clicking it copies the slug.
+      (art.did
+        ? " readonly style='cursor:pointer' title='" +
+          escapeHtml(t("slugCopyHint")) +
+          "'"
+        : dis) +
       " />" +
       "<span style='font-size:11px;color:var(--muted)'>" +
-      escapeHtml(art.did ? t("slugReadonly") : t("slugHint")) +
+      escapeHtml(
+        art.did
+          ? t("slugReadonly") + " ・ " + t("slugCopyHint")
+          : t("slugHint"),
+      ) +
       "</span>" +
       "</label>" +
       "</div>" +
@@ -1381,6 +1390,20 @@ async function newArticle(editDid: Dynamic) {
 
   function bindAllArticleEvents() {
     bindCoverPicker();
+    // Existing docs: the slug is read-only, so a click copies it to the clipboard.
+    if (art.did) {
+      byId("arSlug")?.addEventListener("click", async function () {
+        const el = byId("arSlug");
+        const slug = (el as unknown as HTMLInputElement | null)?.value || "";
+        if (!slug) return;
+        try {
+          await navigator.clipboard.writeText(slug);
+          toast(t("copySuccess"), false, el);
+        } catch {
+          toast(t("copyFailed"), true, el);
+        }
+      });
+    }
     byId("arSummary")?.addEventListener("input", function (e: Dynamic) {
       const cnt = byId("arSummaryCount");
       if (cnt) cnt.textContent = String(e.target.value.length);
