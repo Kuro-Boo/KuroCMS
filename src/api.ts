@@ -117,7 +117,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.7.30";
+export const KUROCMS_VERSION = "1.7.31";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -6754,6 +6754,7 @@ const SETTINGS_COLS = new Set([
   "kurocms_import_pat",
   "fonts_json",
   "base_font",
+  "font_configs_json",
 ]);
 
 async function saveSettings(
@@ -6783,21 +6784,90 @@ interface FontConfigItem {
   weights: number[];
 }
 
+interface LanguageFontConfig {
+  fonts: FontConfigItem[];
+  base: string;
+}
+
+type FontConfigMap = Record<string, LanguageFontConfig>;
+
 /** Read the persisted font config (ordered loaded fonts + base font id). */
 async function readFontConfig(
   env: Env,
-): Promise<{ loaded: FontConfigItem[]; base: string }> {
+  lang = "",
+): Promise<{
+  loaded: FontConfigItem[];
+  base: string;
+  configs: FontConfigMap;
+}> {
   const row = await env.DB.prepare(
-    "SELECT fonts_json, base_font FROM site_settings WHERE id = 1",
-  ).first<{ fonts_json: string; base_font: string }>();
-  let loaded: FontConfigItem[] = [];
+    "SELECT fonts_json, base_font, font_configs_json FROM site_settings WHERE id = 1",
+  ).first<{
+    fonts_json: string;
+    base_font: string;
+    font_configs_json: string;
+  }>();
+  const fallback = normalizeFontConfig(
+    parseJsonValue(row?.fonts_json || "[]"),
+    row?.base_font || "",
+  );
+  const configs = parseFontConfigMap(row?.font_configs_json || "{}");
+  const selected = lang && configs[lang] ? configs[lang] : fallback;
+  return { loaded: selected.fonts, base: selected.base, configs };
+}
+
+function parseJsonValue(raw: string): unknown {
   try {
-    const parsed = JSON.parse(row?.fonts_json || "[]");
-    if (Array.isArray(parsed)) loaded = parsed as FontConfigItem[];
+    return JSON.parse(raw || "null");
   } catch {
-    /* ignore */
+    return null;
   }
-  return { loaded, base: row?.base_font || "" };
+}
+
+function normalizeFontConfig(
+  input: unknown,
+  baseInput: unknown,
+): LanguageFontConfig {
+  const rawFonts =
+    input && typeof input === "object" && !Array.isArray(input)
+      ? (input as { fonts?: unknown }).fonts
+      : input;
+  const rawBase =
+    input && typeof input === "object" && !Array.isArray(input)
+      ? (input as { base?: unknown }).base
+      : baseInput;
+  const fonts: FontConfigItem[] = [];
+  const seen = new Set<string>();
+  if (Array.isArray(rawFonts)) {
+    for (const item of rawFonts) {
+      const rec =
+        item && typeof item === "object"
+          ? (item as { family?: unknown; weights?: unknown })
+          : {};
+      const family = String(rec.family || "");
+      if (!family || seen.has(family) || !findCatalogEntry(family)) continue;
+      seen.add(family);
+      fonts.push({ family, weights: sanitizeWeights(rec.weights, family) });
+    }
+  }
+  const base = typeof rawBase === "string" ? rawBase : "";
+  return {
+    fonts,
+    base: base && (findSystemFont(base) || seen.has(base)) ? base : "",
+  };
+}
+
+function parseFontConfigMap(raw: string): FontConfigMap {
+  const parsed = parseJsonValue(raw || "{}");
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+  const out: FontConfigMap = {};
+  for (const [lang, value] of Object.entries(
+    parsed as Record<string, unknown>,
+  )) {
+    if (!/^[a-z][a-z0-9-]{1,19}$/i.test(lang)) continue;
+    out[lang.toLowerCase()] = normalizeFontConfig(value, "");
+  }
+  return out;
 }
 
 /** Resolve a base-font id (catalog family or system stack id) to a CSS stack. */
@@ -6826,11 +6896,10 @@ function sanitizeWeights(input: unknown, family: string): number[] {
 }
 
 /**
- * GET  /api/fonts → { catalog, systemFonts, loaded, base }
- * PUT  /api/fonts  { fonts: [{family, weights}], base } → save order + base font.
+ * GET  /api/fonts?lang=ja → { catalog, systemFonts, loaded, base }
+ * PUT  /api/fonts  { lang, fonts: [{family, weights}], base }
+ * saves the order + base font for the selected language.
  *
- * On PUT, newly added (or re-weighted) catalog fonts are ingested into KV
- * (rewritten Google CSS cached); removed fonts have their cached CSS dropped.
  * The base font may be "" (template default), a system stack id, or a loaded
  * catalog family.
  */
@@ -6842,12 +6911,17 @@ async function fonts(
   requireAdmin(user);
 
   if (request.method === "GET") {
-    const { loaded, base } = await readFontConfig(env);
+    const url = new URL(request.url);
+    const lang = (url.searchParams.get("lang") || "").trim().toLowerCase();
+    if (lang) validateLanguage(lang, "lang");
+    const { loaded, base, configs } = await readFontConfig(env, lang);
     return json({
       catalog: FONT_CATALOG as unknown as JsonValue,
       systemFonts: SYSTEM_FONTS as unknown as JsonValue,
       loaded: loaded as unknown as JsonValue,
       base,
+      lang,
+      configs: configs as unknown as JsonValue,
       // Resolved CSS font-family for the base font (catalog family or system
       // stack). The admin uses it to render the editor body in the site font.
       baseStack: resolveBaseFontStack(base),
@@ -6856,22 +6930,11 @@ async function fonts(
 
   if (request.method === "PUT") {
     const body = await readJson(request);
-    const rawFonts = Array.isArray(body.fonts) ? body.fonts : [];
-    // Validate + normalize the requested loaded list (catalog families only).
-    const next: FontConfigItem[] = [];
-    const seen = new Set<string>();
-    for (const item of rawFonts) {
-      const rec =
-        item && typeof item === "object"
-          ? (item as { family?: unknown; weights?: unknown })
-          : {};
-      const family = String(rec.family || "");
-      if (!family || seen.has(family) || !findCatalogEntry(family)) continue;
-      seen.add(family);
-      next.push({ family, weights: sanitizeWeights(rec.weights, family) });
-    }
-
-    const base = typeof body.base === "string" ? body.base : "";
+    const lang = optionalString(body, "lang")?.trim().toLowerCase() || "";
+    if (lang) validateLanguage(lang, "lang");
+    const next = normalizeFontConfig(body.fonts, body.base);
+    const seen = new Set(next.fonts.map((f) => f.family));
+    const base = typeof body.base === "string" ? body.base : next.base;
     // Base must be empty, a system stack, or one of the loaded families.
     if (base && !findSystemFont(base) && !seen.has(base)) {
       throw new HttpError(
@@ -6881,14 +6944,20 @@ async function fonts(
       );
     }
 
-    // Fonts are delivered directly from the Google CDN for now (no KV ingest),
-    // so saving just persists the selection + base font.
-    await saveSettings(env, {
-      fonts_json: JSON.stringify(next),
-      base_font: base,
-    });
+    const settingsToSave: Record<string, string> = {};
+    const current = await readFontConfig(env);
+    if (lang) {
+      const configs = { ...current.configs };
+      configs[lang] = { fonts: next.fonts, base };
+      settingsToSave.font_configs_json = JSON.stringify(configs);
+    } else {
+      settingsToSave.fonts_json = JSON.stringify(next.fonts);
+      settingsToSave.base_font = base;
+    }
+    await saveSettings(env, settingsToSave);
     await logActivity(env, user, "settings.update", "settings", "fonts", {
-      fonts: next.map((f) => f.family),
+      lang,
+      fonts: next.fonts.map((f) => f.family),
       base,
     });
     return json({ ok: true, updatedAt: nowIso() });

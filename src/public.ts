@@ -112,6 +112,7 @@ interface SettingsMap {
   default_lang?: string;
   fonts_json?: string;
   base_font?: string;
+  font_configs_json?: string;
 }
 
 // ─── DB fetchers ──────────────────────────────────────────────────────────────
@@ -121,7 +122,7 @@ async function fetchSettings(env: Env): Promise<SettingsMap> {
     `SELECT site_name, site_description, public_domain, ga4_measurement_id,
             bluesky_handle, bluesky_show_feed,
             bluesky_feed_position, bluesky_sid, template_id, default_lang,
-            fonts_json, base_font
+            fonts_json, base_font, font_configs_json
      FROM site_settings WHERE id = 1`,
   ).first<{
     site_name: string;
@@ -136,6 +137,7 @@ async function fetchSettings(env: Env): Promise<SettingsMap> {
     default_lang: string;
     fonts_json: string;
     base_font: string;
+    font_configs_json: string;
   }>();
   let basePath = "";
   try {
@@ -158,6 +160,7 @@ async function fetchSettings(env: Env): Promise<SettingsMap> {
     default_lang: row?.default_lang || "en",
     fonts_json: row?.fonts_json || "[]",
     base_font: row?.base_font || "",
+    font_configs_json: row?.font_configs_json || "{}",
   };
 }
 
@@ -1491,7 +1494,7 @@ export async function generatePage(
   }
   const adminBase = adminAssetBase(env);
   let html = injectContentStyles(renderTemplate(sourceHtml, ctx), adminBase);
-  html = injectFontHead(s, html);
+  html = injectFontHead(s, html, lang);
   html = injectSeoHead(html, s, ctx, pageLangs);
   html = injectGa4Head(html, s);
   return html;
@@ -1503,7 +1506,26 @@ export async function generatePage(
  * Fonts are configured in the admin "Font Management" tab; see src/fonts.ts.
  * No-op when no fonts are loaded and no base font is set.
  */
-function injectFontHead(settings: SettingsMap, html: string): string {
+function injectFontHead(
+  settings: SettingsMap,
+  html: string,
+  lang: string,
+): string {
+  const cfg = resolveFontConfig(settings, lang);
+  const loaded = cfg.loaded;
+  const baseFont = cfg.base;
+  if (!loaded.length && !baseFont) return html;
+  const head = buildFontHead(loaded, baseFont);
+  if (!head) return html;
+  return html.includes("</head>")
+    ? html.replace("</head>", head + "</head>")
+    : head + html;
+}
+
+function resolveFontConfig(
+  settings: SettingsMap,
+  lang: string,
+): { loaded: LoadedFont[]; base: string } {
   let loaded: LoadedFont[] = [];
   try {
     const parsed = JSON.parse(settings.fonts_json || "[]");
@@ -1511,13 +1533,20 @@ function injectFontHead(settings: SettingsMap, html: string): string {
   } catch {
     /* ignore malformed config */
   }
-  const baseFont = settings.base_font || "";
-  if (!loaded.length && !baseFont) return html;
-  const head = buildFontHead(loaded, baseFont);
-  if (!head) return html;
-  return html.includes("</head>")
-    ? html.replace("</head>", head + "</head>")
-    : head + html;
+  let base = settings.base_font || "";
+  try {
+    const configs = JSON.parse(settings.font_configs_json || "{}");
+    const selected =
+      configs && typeof configs === "object" ? configs[lang] : null;
+    if (selected && typeof selected === "object") {
+      if (Array.isArray(selected.fonts))
+        loaded = selected.fonts as LoadedFont[];
+      if (typeof selected.base === "string") base = selected.base;
+    }
+  } catch {
+    /* ignore malformed config */
+  }
+  return { loaded, base };
 }
 
 // ─── SEO / distribution <head> ────────────────────────────────────────────────
@@ -2230,7 +2259,10 @@ export async function buildAllPublicPages(
   // template (same id) invalidates every page's build hash and forces a rebuild
   // (the per-page hashes are `${ts}:${tplId}`, otherwise blind to template edits).
   // Also fold includeFuture in so toggling the mode rebuilds listings/details.
-  const tplId = `${template.id}:${cheapHash(template.sourceHtml)}:${includeFuture ? "F" : ""}`;
+  const fontHash = cheapHash(
+    `${settings.fonts_json || ""}:${settings.base_font || ""}:${settings.font_configs_json || ""}`,
+  );
+  const tplId = `${template.id}:${cheapHash(template.sourceHtml)}:${fontHash}:${includeFuture ? "F" : ""}`;
 
   // ── Resolve languages ─────────────────────────────────────────────────────
   const langRows = await env.DB.prepare(

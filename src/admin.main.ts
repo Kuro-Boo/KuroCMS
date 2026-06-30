@@ -946,7 +946,8 @@ const i18n = {
     fontTab: "Font Management",
     fontEditorTitle: "Site Fonts",
     fontEditorHint:
-      "Load web fonts so your site looks the same on every device, and pick one base font to apply across the whole site.",
+      "Load web fonts so your site looks the same on every device, and pick one base font for each site language. Template font-family rules take priority.",
+    fontLanguage: "Language",
     fontAvailable: "Available fonts",
     fontLoaded: "Loaded on site",
     fontAddBtn: "← Load",
@@ -957,6 +958,7 @@ const i18n = {
     fontBaseNone: "Template default",
     fontBaseRequired: "Select a base font (★) before saving.",
     fontSystemLocked: "Built-in (machine-dependent) — cannot be removed",
+    fontRecommended: "Recommended",
     fontSaveBtn: "Save fonts",
     fontSaved: "Fonts saved. Build the site to apply.",
     fontSaving: "Saving fonts…",
@@ -1799,7 +1801,8 @@ const i18n = {
     fontTab: "フォント管理",
     fontEditorTitle: "サイトのフォント",
     fontEditorHint:
-      "Web フォントを読み込むと、閲覧者の機種に依存せず同じ見た目になります。基本フォントを 1 つ選ぶとサイト全体のフォントを一括で切り替えられます。",
+      "Web フォントを読み込むと、閲覧者の機種に依存せず同じ見た目になります。サイトの対応言語ごとに基本フォントを選べます。テンプレート側の font-family 指定が優先されます。",
+    fontLanguage: "設定言語",
     fontAvailable: "読み込めるフォント",
     fontLoaded: "サイトに読み込むフォント",
     fontAddBtn: "← 読み込む",
@@ -1810,6 +1813,7 @@ const i18n = {
     fontBaseNone: "テンプレート既定",
     fontBaseRequired: "保存前に基本フォント（★）を選択してください。",
     fontSystemLocked: "組み込み（機種依存）— 外せません",
+    fontRecommended: "おすすめ",
     fontSaveBtn: "フォントを保存",
     fontSaved: "フォントを保存しました。ビルドで反映されます。",
     fontSaving: "保存中…",
@@ -2643,9 +2647,11 @@ async function loadTheme() {
 // configured site base font, so the editor is WYSIWYG with the published site.
 // Only the editor content (.kuro-body/.kuro-content) is touched — the admin
 // chrome keeps its system font. Web fonts come straight from the Google CDN.
-async function applyEditorFont() {
+async function applyEditorFont(lang = "") {
   try {
-    const data = await api("/api/fonts");
+    const data = await api(
+      "/api/fonts" + (lang ? "?lang=" + encodeURIComponent(lang) : ""),
+    );
     const loaded: Dynamic[] = data.loaded || [];
     const baseStack: string = data.baseStack || "";
 

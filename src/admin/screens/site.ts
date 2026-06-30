@@ -1226,6 +1226,10 @@ async function siteManagement() {
       escapeHtml(t("fontEditorHint")) +
       "</p>" +
       "</div>" +
+      "<label style='display:flex;align-items:center;gap:6px;flex-shrink:0;font-size:12px;color:var(--muted)'>" +
+      escapeHtml(t("fontLanguage")) +
+      "<select id='fontLangSelect' disabled style='min-width:120px;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg)'></select>" +
+      "</label>" +
       "<button type='button' id='fontSaveBtn' style='flex-shrink:0'>" +
       escapeHtml(t("fontSaveBtn")) +
       "</button>" +
@@ -1239,34 +1243,100 @@ async function siteManagement() {
     let systemFonts: Dynamic[] = [];
     let loaded: Dynamic[] = [];
     let base = "";
+    let fontLang = "";
+    let fontLangs: Dynamic[] = [];
     let selLeft = "";
     let selRight = "";
 
-    const preview = t("fontPreviewText");
-
     byId("fontSaveBtn")?.addEventListener("click", save);
 
-    api("/api/fonts")
-      .then(function (d: Dynamic) {
-        catalog = d.catalog || [];
-        systemFonts = d.systemFonts || [];
-        loaded = (d.loaded || []).filter(function (f: Dynamic) {
-          return catalog.some(function (c: Dynamic) {
-            return c.family === f.family;
-          });
+    Promise.all([api("/api/settings"), api("/api/languages")])
+      .then(function (results: Dynamic[]) {
+        const defaultLang = results[0]?.settings?.defaultLang || "en";
+        fontLangs = (results[1].languages || []).map(function (l: Dynamic) {
+          return {
+            code: l.lang,
+            label: localeNames[l.lang] || l.displayName || l.lang,
+          };
         });
-        // A base font must always be marked. When the site has no saved setting,
-        // default the ★ to the first system font (machine-dependent default) so
-        // one is selected from the start.
-        base =
-          d.base || (systemFonts[0] && systemFonts[0].id) || "__sys_sans__";
-        injectPreviewFonts();
-        render();
+        if (
+          !fontLangs.some(function (l: Dynamic) {
+            return l.code === defaultLang;
+          })
+        ) {
+          fontLangs.unshift({
+            code: defaultLang,
+            label: localeNames[defaultLang] || defaultLang,
+          });
+        }
+        fontLangs.sort(function (a: Dynamic, b: Dynamic) {
+          if (a.code === defaultLang) return -1;
+          if (b.code === defaultLang) return 1;
+          return a.code.localeCompare(b.code);
+        });
+        fontLang = fontLang || defaultLang || fontLangs[0]?.code || "en";
+        renderLangSelect();
+        return loadConfig(fontLang);
       })
       .catch(function () {
         const s = byId("fontShuttle");
         if (s) s.textContent = t("apiFailed") || "Failed";
       });
+
+    function loadConfig(lang: Dynamic) {
+      const s = byId("fontShuttle");
+      if (s) {
+        s.className = "emptyState";
+        s.textContent = t("loading");
+      }
+      selLeft = "";
+      selRight = "";
+      return api("/api/fonts?lang=" + encodeURIComponent(lang || ""))
+        .then(function (d: Dynamic) {
+          catalog = d.catalog || [];
+          systemFonts = d.systemFonts || [];
+          loaded = (d.loaded || []).filter(function (f: Dynamic) {
+            return catalog.some(function (c: Dynamic) {
+              return c.family === f.family;
+            });
+          });
+          // A base font must always be marked. When the site has no saved setting,
+          // default the ★ to the first system font (machine-dependent default) so
+          // one is selected from the start.
+          base =
+            d.base || (systemFonts[0] && systemFonts[0].id) || "__sys_sans__";
+          injectPreviewFonts();
+          render();
+        })
+        .catch(function () {
+          const s = byId("fontShuttle");
+          if (s) s.textContent = t("apiFailed") || "Failed";
+        });
+    }
+
+    function renderLangSelect() {
+      const select = byId("fontLangSelect") as HTMLSelectElement | null;
+      if (!select) return;
+      select.innerHTML = fontLangs
+        .map(function (l: Dynamic) {
+          return (
+            "<option value='" +
+            escapeHtml(l.code) +
+            "'" +
+            (l.code === fontLang ? " selected" : "") +
+            ">" +
+            escapeHtml(l.label || l.code) +
+            "</option>"
+          );
+        })
+        .join("");
+      select.disabled = fontLangs.length === 0;
+      select.onchange = function () {
+        fontLang = select.value || fontLang;
+        setStatus("");
+        loadConfig(fontLang);
+      };
+    }
 
     // Load all catalog families (regular weight) into the admin document so each
     // row previews in its own font. The admin page may depend on Google Fonts —
@@ -1305,13 +1375,78 @@ async function siteManagement() {
 
     // Header line of a row: [★] name … [right control]. The name cell shrinks
     // (min-width:0) so long names ellipsize instead of overflowing the column.
-    function rowHead(starHtml: Dynamic, name: Dynamic, rightHtml: Dynamic) {
+    function languageFontScript(lang: Dynamic) {
+      const code = String(lang || "en").toLowerCase();
+      if (code === "ja" || code.startsWith("ja-")) return "japanese";
+      if (code === "ko" || code.startsWith("ko-")) return "korean";
+      if (
+        code === "zh-tw" ||
+        code === "zh-hk" ||
+        code === "zh-hant" ||
+        code.startsWith("zh-hant")
+      )
+        return "chinese-traditional";
+      if (code === "zh" || code.startsWith("zh-")) return "chinese-simplified";
+      if (
+        ["ar", "fa", "ur", "ps", "sd", "ug", "ku", "ckb", "dv"].some(
+          function (prefix) {
+            return code === prefix || code.startsWith(prefix + "-");
+          },
+        )
+      )
+        return "arabic";
+      if (
+        ["ru", "uk", "bg", "be", "mk", "sr", "kk", "ky", "mn", "tg"].some(
+          function (prefix) {
+            return code === prefix || code.startsWith(prefix + "-");
+          },
+        )
+      )
+        return "cyrillic";
+      return "latin";
+    }
+
+    function previewTextForLang(lang: Dynamic) {
+      switch (languageFontScript(lang)) {
+        case "japanese":
+          return t("fontPreviewText");
+        case "chinese-simplified":
+          return "Aa 中文 汉字";
+        case "chinese-traditional":
+          return "Aa 中文 漢字";
+        case "korean":
+          return "Aa 한글 가나";
+        case "cyrillic":
+          return "Aa Бб Україна";
+        case "arabic":
+          return "Aa العربية";
+        default:
+          return "Aa The quick brown";
+      }
+    }
+
+    function isRecommendedFont(c: Dynamic) {
+      const scripts = Array.isArray(c.scripts) ? c.scripts : [];
+      return scripts.includes(languageFontScript(fontLang));
+    }
+
+    function rowHead(
+      starHtml: Dynamic,
+      name: Dynamic,
+      rightHtml: Dynamic,
+      recommended?: Dynamic,
+    ) {
       return (
         "<div style='display:flex;align-items:center;gap:8px'>" +
         (starHtml || "") +
         "<div style='flex:1;min-width:0;font-size:12px;font-weight:600;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap'>" +
         escapeHtml(name) +
         "</div>" +
+        (recommended
+          ? "<span style='flex-shrink:0;font-size:10px;font-weight:700;color:#fff;background:var(--accent);border-radius:999px;padding:2px 7px'>" +
+            escapeHtml(t("fontRecommended")) +
+            "</span>"
+          : "") +
         (rightHtml || "") +
         "</div>"
       );
@@ -1324,7 +1459,7 @@ async function siteManagement() {
         "<div style='font-family:" +
         ffCss +
         ";font-size:34px;line-height:1.2;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'>" +
-        escapeHtml(preview) +
+        escapeHtml(previewTextForLang(fontLang)) +
         "</div>"
       );
     }
@@ -1363,9 +1498,19 @@ async function siteManagement() {
       if (!shuttle) return;
       shuttle.className = "";
 
-      const available = catalog.filter(function (c: Dynamic) {
-        return !isLoaded(c.family);
-      });
+      const available = catalog
+        .filter(function (c: Dynamic) {
+          return !isLoaded(c.family);
+        })
+        .slice()
+        .sort(function (a: Dynamic, b: Dynamic) {
+          const ar = isRecommendedFont(a);
+          const br = isRecommendedFont(b);
+          if (ar !== br) return ar ? -1 : 1;
+          return String(a.label || a.family).localeCompare(
+            String(b.label || b.family),
+          );
+        });
 
       // Available catalog fonts (right column): name line + preview, selectable.
       const leftRows = available.length
@@ -1377,7 +1522,7 @@ async function siteManagement() {
                 "' style='" +
                 rowStyle(selLeft === c.family, false) +
                 "'>" +
-                rowHead("", c.label, "") +
+                rowHead("", c.label, "", isRecommendedFont(c)) +
                 previewLine('"' + c.family + '",sans-serif') +
                 "</div>"
               );
@@ -1423,6 +1568,7 @@ async function siteManagement() {
               baseBtn(f.family),
               c.label || f.family,
               removeBtn(f.family),
+              isRecommendedFont(c),
             ) +
             previewLine('"' + f.family + '",sans-serif') +
             "</div>"
@@ -1563,12 +1709,13 @@ async function siteManagement() {
             return { family: f.family, weights: f.weights };
           }),
           base: base,
+          lang: fontLang,
         }),
       })
         .then(function () {
           setStatus(t("fontSaved"));
           // Re-apply so the editor body reflects the new base font immediately.
-          applyEditorFont();
+          applyEditorFont(fontLang);
         })
         .catch(function (e: Dynamic) {
           setStatus((e && e.message) || t("apiFailed") || "Failed");
