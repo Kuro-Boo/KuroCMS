@@ -919,6 +919,7 @@ const i18n = {
     buildModeManual: "Manual build only",
     buildModeAuto: "Auto-build scheduled posts at their time",
     buildModeAlways: "Build future posts unconditionally",
+    buildModeForceAll: "Force full rebuild (all pages)",
     siteBuildBarHint: "Publish article, template, and content changes.",
     buildNow: "Build Now",
     buildNoTemplateHint: "Please select a template first.",
@@ -1773,6 +1774,7 @@ const i18n = {
     buildModeManual: "手動ビルドのみ",
     buildModeAuto: "公開予定記事をその時間に自動ビルド",
     buildModeAlways: "未来記事も無条件にビルド",
+    buildModeForceAll: "強制的に全件をビルド",
     siteBuildBarHint:
       "記事・テンプレート・文字情報の変更を公開サイトに反映します。",
     buildNow: "今すぐビルド",
@@ -3006,7 +3008,7 @@ function openEntryDialog(
   }
 }
 
-async function runBuildWithProgress() {
+async function runBuildWithProgress(force = false) {
   // Create progress dialog
   const overlay = document.createElement("div");
   overlay.className = "buildProgress";
@@ -3232,7 +3234,12 @@ async function runBuildWithProgress() {
         const res = await fetch(withBase("/api/build"), {
           method: "POST",
           headers: buildHeaders,
-          body: JSON.stringify({ lang: buildLang }),
+          // Force only on the first pass; resume passes rely on the build cache
+          // (rewritten as pages rebuild) to skip already-done pages.
+          body: JSON.stringify({
+            lang: buildLang,
+            force: force && passIndex === 1,
+          }),
           credentials: "include",
           signal: buildAbort.signal,
         });

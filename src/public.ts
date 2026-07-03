@@ -2242,6 +2242,7 @@ export async function buildAllPublicPages(
   requestedLang = "en",
   onEvent?: (event: BuildEvent) => void,
   maxBuilt = Number.POSITIVE_INFINITY,
+  force = false,
 ): Promise<{
   built: number;
   skipped: number;
@@ -2360,8 +2361,14 @@ export async function buildAllPublicPages(
     else articleLangsMap.set(k, [r.lang]);
   }
 
-  // 3. Load existing page_build_cache
-  const cache = await loadBuildCache(env);
+  // 3. Load existing page_build_cache. A forced full rebuild (`force`, sent only
+  // on the FIRST pass by the client) wipes it so every page's hash misses and
+  // rebuilds. Resume passes send force=false, so they skip already-rebuilt pages
+  // via the cache entries this pass writes — chunked resume stays intact.
+  if (force) {
+    await env.DB.prepare("DELETE FROM page_build_cache").run();
+  }
+  const cache = force ? new Map<string, string>() : await loadBuildCache(env);
 
   // Categories are no longer pre-built as pages, but the nav still lists their
   // names (counts are filled client-side), so the prefetch needs them.

@@ -116,7 +116,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.7.35";
+export const KUROCMS_VERSION = "1.7.36";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -822,6 +822,10 @@ export async function handleApi(
         () => ({}) as Record<string, unknown>,
       );
       const lang = (typeof body2.lang === "string" ? body2.lang : null) ?? "en";
+      // Force a full rebuild (ignore the page_build_cache skip). The client sends
+      // this ONLY on the first pass; resume passes omit it so chunked resume still
+      // skips already-rebuilt pages.
+      const force = body2.force === true;
       const enc = new TextEncoder();
       const { readable, writable } = new TransformStream<
         Uint8Array,
@@ -839,6 +843,7 @@ export async function handleApi(
               return writer.write(enc.encode(line));
             },
             BUILD_MAX_PER_INVOCATION,
+            force,
           );
         } catch (err) {
           const errLine =

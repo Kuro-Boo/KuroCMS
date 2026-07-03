@@ -438,6 +438,9 @@ async function articles() {
     "<option value='always'>" +
     escapeHtml(t("buildModeAlways")) +
     "</option>" +
+    "<option value='forceAll'>" +
+    escapeHtml(t("buildModeForceAll")) +
+    "</option>" +
     "</select>" +
     "</div>" +
     "<div style='display:flex;align-items:center;gap:12px'>" +
@@ -450,7 +453,11 @@ async function articles() {
     "</div>";
   document.body.appendChild(buildBar);
   byId("artsBuildBtn")?.addEventListener("click", function () {
-    runBuildWithProgress();
+    // "forceAll" is not a persisted scheduling mode — it is a one-shot directive
+    // to rebuild every page (ignore the build cache). Any other selection builds
+    // incrementally as before.
+    const sel = byId("artsBuildMode") as HTMLSelectElement | null;
+    runBuildWithProgress(sel?.value === "forceAll");
   });
   // Build scheduling mode selector (manual / auto / always), persisted in KV.
   const buildModeSel = byId("artsBuildMode") as HTMLSelectElement | null;
@@ -466,6 +473,10 @@ async function articles() {
       .catch(function () {});
     buildModeSel.addEventListener("change", function () {
       const mode = buildModeSel.value;
+      // "forceAll" is a one-shot build directive, not a scheduling mode — never
+      // persist it (the server only accepts manual/auto/always). Leave the real
+      // scheduling mode untouched; the build button reads this selection to force.
+      if (mode === "forceAll") return;
       const prev = lastMode;
       buildModeSel.disabled = true;
       // Only persist the mode. Building always happens via the build button —
