@@ -9,7 +9,6 @@ export interface Env {
   IMAGES?: ImagesBinding;
   DEBUG_LOG_ENABLED?: string;
   SITE_DEFAULT_LANG?: string;
-  LOCAL_DEV_ADMIN_EMAIL?: string;
   ACCESS_ADMIN_URL?: string;
   GITHUB_TOKEN?: string;
   GITHUB_REPO?: string;
@@ -34,7 +33,7 @@ export interface AuthUser {
   sessionId?: string;
   /** Passkey credential that authenticated the current session (if any). */
   currentCredentialId?: string | null;
-  authSource?: "local" | "pat" | "session";
+  authSource?: "pat" | "session";
 }
 
 export interface ApiErrorBody {

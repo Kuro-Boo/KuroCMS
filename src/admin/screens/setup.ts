@@ -324,45 +324,37 @@ async function setupScreen(
           initialLang: setupLang,
         }),
       });
-      if (
-        location.hostname === "localhost" ||
-        location.hostname === "127.0.0.1"
-      ) {
-        history.pushState(null, "", adminHref("") + "/");
-        render();
-      } else {
-        submitBtn.textContent = t("registeringPasskey");
-        const beginData = await api("/api/auth/passkey/register/begin", {
-          method: "POST",
-          body: JSON.stringify({ uid: setupResult.uid }),
-        });
-        const credential = await navigator.credentials.create({
-          publicKey: {
-            challenge: b64uDecode(beginData.challenge),
-            rp: beginData.rp,
-            user: {
-              id: b64uDecode(beginData.user.id),
-              name: beginData.user.name,
-              displayName: beginData.user.displayName,
-            },
-            pubKeyCredParams: beginData.pubKeyCredParams,
-            timeout: beginData.timeout,
-            attestation: beginData.attestation,
-            authenticatorSelection: beginData.authenticatorSelection,
+      submitBtn.textContent = t("registeringPasskey");
+      const beginData = await api("/api/auth/passkey/register/begin", {
+        method: "POST",
+        body: JSON.stringify({ uid: setupResult.uid }),
+      });
+      const credential = await navigator.credentials.create({
+        publicKey: {
+          challenge: b64uDecode(beginData.challenge),
+          rp: beginData.rp,
+          user: {
+            id: b64uDecode(beginData.user.id),
+            name: beginData.user.name,
+            displayName: beginData.user.displayName,
           },
-        });
-        await api("/api/auth/passkey/register/complete", {
-          method: "POST",
-          body: JSON.stringify({
-            challengeId: beginData.challengeId,
-            credential: serializeCredentialForRegistration(
-              credential as PublicKeyCredential,
-            ),
-          }),
-        });
-        history.pushState(null, "", adminHref("") + "/");
-        render();
-      }
+          pubKeyCredParams: beginData.pubKeyCredParams,
+          timeout: beginData.timeout,
+          attestation: beginData.attestation,
+          authenticatorSelection: beginData.authenticatorSelection,
+        },
+      });
+      await api("/api/auth/passkey/register/complete", {
+        method: "POST",
+        body: JSON.stringify({
+          challengeId: beginData.challengeId,
+          credential: serializeCredentialForRegistration(
+            credential as PublicKeyCredential,
+          ),
+        }),
+      });
+      history.pushState(null, "", adminHref("") + "/");
+      render();
     } catch (err) {
       submitBtn.disabled = false;
       submitBtn.textContent = originalText;

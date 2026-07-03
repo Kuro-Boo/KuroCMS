@@ -9,7 +9,6 @@ import {
   requireAuthor,
   sessionCookieHeader,
   tryAuth,
-  tryLocalDevUser,
 } from "./auth";
 import {
   buildDocumentPages,
@@ -117,9 +116,14 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.7.34";
+export const KUROCMS_VERSION = "1.7.35";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
+
+// Throttle for the unauthenticated POST /api/migrate (see handler). KV-backed so
+// it is shared across the isolate fleet; TTL just above the window bounds growth.
+const MIGRATE_THROTTLE_KEY = "system:migrate_last_run";
+const MIGRATE_THROTTLE_MS = 30_000;
 
 const jsonHeaders = {
   "access-control-allow-origin": "*",
@@ -158,7 +162,22 @@ export async function handleApi(
     // WorkerOps Contract: apply pending migrations after a guardian-driven deploy.
     // Public + idempotent (run-once tracking). WorkerOps calls this via the service
     // binding with no auth header; safe to call repeatedly (applied migrations skip).
+    // Because it is unauthenticated and each call triggers a GitHub manifest fetch,
+    // a short KV throttle bounds resource abuse from anonymous callers. WorkerOps
+    // issues a single post-deploy call, and the admin update path applies
+    // migrations directly (systemUpdate → applyPendingMigrations), so the throttle
+    // never blocks a legitimate migration.
     if (request.method === "POST" && path === "/api/migrate") {
+      const last = await env.PUBLIC_PAGES.get(MIGRATE_THROTTLE_KEY);
+      if (last && Date.now() - Number(last) < MIGRATE_THROTTLE_MS) {
+        return json(
+          { ok: true, applied: 0, throttled: true },
+          { headers: jsonHeaders },
+        );
+      }
+      await env.PUBLIC_PAGES.put(MIGRATE_THROTTLE_KEY, String(Date.now()), {
+        expirationTtl: 60,
+      });
       const applied = await applyPendingMigrations(env);
       return json({ ok: true, applied }, { headers: jsonHeaders });
     }
@@ -917,11 +936,16 @@ export async function handleApi(
         { status: error.status, headers: jsonHeaders },
       );
     }
+    // Unexpected (non-HttpError) failures: the full message + stack are already
+    // recorded via logDebugEvent above. Return a generic message so internal
+    // implementation details never leak to the client; the requestId lets the
+    // operator correlate the response with the logged detail.
     return json(
       {
         error: {
           code: "internal_error",
-          message: error instanceof Error ? error.message : "Unexpected error.",
+          message: "An unexpected error occurred.",
+          requestId,
         },
       },
       { status: 500, headers: jsonHeaders },
@@ -1011,18 +1035,6 @@ async function getSingle(
 // ---------------------------------------------------------------------------
 
 async function authSession(request: Request, env: Env): Promise<Response> {
-  // On localhost, auto-authenticate as local dev admin (bypasses Passkey)
-  const localUser = await tryLocalDevUser(env, request);
-  if (localUser) {
-    return json({
-      authenticated: true,
-      uid: localUser.uid,
-      email: localUser.email,
-      isAdmin: localUser.isAdmin,
-      isAuthor: localUser.isAuthor,
-    });
-  }
-
   // Read session id from cookie or sess_ Bearer token (read-only, no session extension)
   let sessionId: string | null = null;
 
@@ -1091,17 +1103,36 @@ async function authSession(request: Request, env: Env): Promise<Response> {
   });
 }
 
-async function getInviteInfo(env: Env, token: string): Promise<Response> {
-  const row = await env.DB.prepare(
-    `SELECT email, is_admin, is_author, expires_at FROM invitation_tokens WHERE token = ? AND used_at IS NULL`,
+interface InvitationRow {
+  token: string;
+  email: string;
+  is_admin: number;
+  is_author: number;
+  expires_at: string;
+}
+
+/**
+ * Resolve an unused invitation by its plaintext token. Invitations are stored as
+ * a SHA-256 hash (like recovery tokens / PATs); a legacy plaintext row is still
+ * matched for backward compatibility so outstanding invites keep working until
+ * they expire. Returns the stored PK value (`token`) so callers consume the exact
+ * row. Does NOT check expiry — each caller decides how to report it.
+ */
+async function lookupInvitationToken(
+  env: Env,
+  token: string,
+): Promise<InvitationRow | null> {
+  const tokenHash = await sha256Hex(token);
+  return await env.DB.prepare(
+    `SELECT token, email, is_admin, is_author, expires_at
+     FROM invitation_tokens WHERE token IN (?, ?) AND used_at IS NULL`,
   )
-    .bind(token)
-    .first<{
-      email: string;
-      is_admin: number;
-      is_author: number;
-      expires_at: string;
-    }>();
+    .bind(tokenHash, token)
+    .first<InvitationRow>();
+}
+
+async function getInviteInfo(env: Env, token: string): Promise<Response> {
+  const row = await lookupInvitationToken(env, token);
 
   if (!row) {
     throw new HttpError(
@@ -1162,7 +1193,7 @@ async function sendMail(
       "Email sending is not configured (missing KuroMailer shared secret).",
     );
   }
-  const base = (env.KUROMAILER_URL ?? "https://kuromailer.kuro.boo").replace(
+  const base = (env.KUROMAILER_URL ?? "https://mail.kuro.boo").replace(
     /\/+$/,
     "",
   );
@@ -1357,17 +1388,16 @@ async function passkeyRegisterBegin(
     resolvedUid = rec.uid;
     userEmail = rec.email;
   } else if (invitationToken) {
-    const invRow = await env.DB.prepare(
-      `SELECT email FROM invitation_tokens WHERE token = ? AND used_at IS NULL`,
-    )
-      .bind(invitationToken)
-      .first<{ email: string; expires_at: string }>();
+    const invRow = await lookupInvitationToken(env, invitationToken);
     if (!invRow) {
       throw new HttpError(
         404,
         "invite_not_found",
         "Invitation was not found or already used.",
       );
+    }
+    if (Date.parse(invRow.expires_at) <= Date.now()) {
+      throw new HttpError(400, "invite_expired", "Invitation has expired.");
     }
     userEmail = invRow.email;
     resolvedUid = null; // will be created at complete time
@@ -1514,17 +1544,7 @@ async function passkeyRegisterComplete(
         "invitationToken is required for new user registration.",
       );
     }
-    const invRow = await env.DB.prepare(
-      `SELECT token, email, is_admin, is_author, expires_at FROM invitation_tokens WHERE token = ? AND used_at IS NULL`,
-    )
-      .bind(invitationToken)
-      .first<{
-        token: string;
-        email: string;
-        is_admin: number;
-        is_author: number;
-        expires_at: string;
-      }>();
+    const invRow = await lookupInvitationToken(env, invitationToken);
 
     if (!invRow) {
       throw new HttpError(
@@ -1561,10 +1581,12 @@ async function passkeyRegisterComplete(
       )
       .run();
 
+    // Consume by the stored PK value (hash for new invites, legacy plaintext for
+    // old ones) — not the presented plaintext, which won't match a hashed row.
     await env.DB.prepare(
       "UPDATE invitation_tokens SET used_at = ? WHERE token = ?",
     )
-      .bind(now, invitationToken)
+      .bind(now, invRow.token)
       .run();
   } else {
     const userRow = await env.DB.prepare(
@@ -1822,7 +1844,11 @@ async function createInvitation(
   }
   const isAdmin = body.isAdmin === true;
   const isAuthor = body.isAuthor !== false; // default true
+  // Return the plaintext token to the admin (the invite-link value), but persist
+  // only its SHA-256 hash — same handling as recovery tokens and PATs, so a DB
+  // read never yields a usable invitation.
   const token = randomToken();
+  const tokenHash = await sha256Hex(token);
   const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
   const now = nowIso();
 
@@ -1831,7 +1857,7 @@ async function createInvitation(
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
   )
     .bind(
-      token,
+      tokenHash,
       email,
       isAdmin ? 1 : 0,
       isAuthor ? 1 : 0,
@@ -6140,6 +6166,15 @@ const ALLOWED_MEDIA: Record<
   },
 };
 
+// Per-kind upload size ceilings. Deliberately generous so normal media uploads
+// are unaffected; this only rejects abusive/accidental oversized uploads before
+// streaming them into R2.
+const MAX_MEDIA_BYTES: Record<"image" | "video" | "audio", number> = {
+  image: 25 * 1024 * 1024, //  25 MB
+  video: 300 * 1024 * 1024, // 300 MB
+  audio: 100 * 1024 * 1024, // 100 MB
+};
+
 async function uploadMediaFile(
   request: Request,
   env: Env,
@@ -6183,6 +6218,14 @@ async function uploadMediaFile(
     );
   }
   const sizeBytes = file.size;
+  const maxBytes = MAX_MEDIA_BYTES[kind];
+  if (sizeBytes > maxBytes) {
+    throw new HttpError(
+      413,
+      "file_too_large",
+      `File is too large for ${kind} (${Math.round(sizeBytes / 1048576)}MB). Limit: ${Math.round(maxBytes / 1048576)}MB.`,
+    );
+  }
   const width = kind === "image" ? Number(formData.get("width")) || null : null;
   const height =
     kind === "image" ? Number(formData.get("height")) || null : null;
@@ -6241,6 +6284,24 @@ async function createMediaAsset(
     requireString(body, "ext", { min: 2, max: 10 }).toLowerCase(),
     "ext",
   );
+  // Enforce the same media-type allowlist as the multipart upload path, so this
+  // JSON registration route can't introduce ext/mime combinations (e.g. svg/html)
+  // that the upload path deliberately rejects.
+  const allowed = ALLOWED_MEDIA[kind];
+  if (!allowed.exts.includes(ext)) {
+    throw new HttpError(
+      400,
+      "invalid_file_type",
+      `Unsupported file extension ".${ext}" for ${kind}. Allowed: ${allowed.exts.join(", ")}`,
+    );
+  }
+  if (!allowed.mimes.includes(mime)) {
+    throw new HttpError(
+      400,
+      "invalid_file_type",
+      `Unsupported MIME type "${mime}" for ${kind}.`,
+    );
+  }
   const sizeBytes = Number(body.sizeBytes ?? 0);
   const width =
     kind === "image" && body.width !== undefined ? Number(body.width) : null;
@@ -6445,6 +6506,19 @@ async function restoreTable(
     if (!cols.length) {
       throw new HttpError(400, "bad_row", "Empty row in restore payload.");
     }
+    // Column names are interpolated as SQL identifiers, so they must be a strict
+    // identifier charset. A key containing a double-quote would otherwise break
+    // out of the "..." quoting and inject SQL into the batch (admin-only, but the
+    // table name is already allowlisted — keep the column names just as strict).
+    for (const c of cols) {
+      if (!/^[A-Za-z0-9_]+$/.test(c)) {
+        throw new HttpError(
+          400,
+          "bad_column",
+          `Invalid column name in restore payload: ${c}`,
+        );
+      }
+    }
     const sql = `INSERT OR REPLACE INTO ${name} (${cols
       .map((c) => `"${c}"`)
       .join(",")}) VALUES (${cols.map(() => "?").join(",")})`;
@@ -6493,6 +6567,16 @@ async function restoreMedia(
     throw new HttpError(400, "missing_body", "No file body provided.");
   }
   const key = row.public_path.replace(/^\//, "");
+  // public_path comes from the restored media_assets row, which a crafted restore
+  // payload could set arbitrarily. Constrain the derived R2 write key to the known
+  // media namespaces so a malicious row can't redirect the write elsewhere.
+  if (!/^(images|videos|audios)\/[A-Za-z0-9._-]+$/.test(key)) {
+    throw new HttpError(
+      400,
+      "bad_media_path",
+      `Refusing to write media to an unexpected key: ${key}`,
+    );
+  }
   await (env.MEDIA_BUCKET as R2Bucket).put(key, request.body, {
     httpMetadata: { contentType: row.mime || "application/octet-stream" },
   });
