@@ -14,14 +14,6 @@ async function nextUserId(env: Env): Promise<string> {
 // Internal row types
 // ---------------------------------------------------------------------------
 
-interface UserRow {
-  uid: string;
-  email: string;
-  is_admin: number;
-  is_author: number;
-  disabled_at: string | null;
-}
-
 interface TokenUserRow {
   token_id: string;
   uid: string;
@@ -93,45 +85,6 @@ export async function createSession(
 // ---------------------------------------------------------------------------
 // Auth helpers
 // ---------------------------------------------------------------------------
-
-export async function tryLocalDevUser(
-  env: Env,
-  _request: Request,
-): Promise<AuthUser | null> {
-  if (!env.LOCAL_DEV_ADMIN_EMAIL) return null;
-  const email = env.LOCAL_DEV_ADMIN_EMAIL.trim().toLowerCase();
-  if (!email) return null;
-
-  const existing = await env.DB.prepare(
-    `SELECT uid, email, is_admin, is_author, disabled_at FROM users WHERE email = ?`,
-  )
-    .bind(email)
-    .first<UserRow>();
-
-  if (existing?.disabled_at) {
-    throw new HttpError(403, "user_disabled", "User is disabled.");
-  }
-
-  let uid = existing?.uid ?? "";
-  if (!uid) {
-    uid = await nextUserId(env);
-    const now = nowIso();
-    await env.DB.prepare(
-      `INSERT INTO users (uid, email, display_name, author_id, is_admin, is_author, created_at, updated_at)
-       VALUES (?, ?, ?, ?, 1, 1, ?, ?)`,
-    )
-      .bind(uid, email, null, makeId("author"), now, now)
-      .run();
-  }
-
-  return {
-    uid,
-    email: email,
-    isAdmin: true,
-    isAuthor: true,
-    authSource: "local",
-  };
-}
 
 async function tryPatUser(
   env: Env,
@@ -278,9 +231,6 @@ export async function tryAuth(
   env: Env,
   request: Request,
 ): Promise<AuthUser | null> {
-  const localUser = await tryLocalDevUser(env, request);
-  if (localUser) return localUser;
-
   const patUser = await tryPatUser(env, request);
   if (patUser) return patUser;
 
