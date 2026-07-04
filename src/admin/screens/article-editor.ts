@@ -417,9 +417,12 @@ async function newArticle(editDid: Dynamic) {
         });
         art.did = res.did;
       } else {
+        // tid included: the type is changeable on existing articles (draft
+        // mode). Server-side it is validated, mirrored to search_entries, and
+        // the old type's public pages are cleaned up when it changes.
         await api("/api/documents/" + art.did, {
           method: "PUT",
-          body: JSON.stringify({ mode: art.mode, publishAt }),
+          body: JSON.stringify({ mode: art.mode, publishAt, tid: art.tid }),
         });
       }
       const hashtags = art.hashtag
