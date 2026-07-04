@@ -116,7 +116,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.7.36";
+export const KUROCMS_VERSION = "1.7.37";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -4573,13 +4573,28 @@ async function documentTranslations(
     if (summary && summary.length > 200) {
       throw new HttpError(400, "invalid_field", "summary is too long.");
     }
-    const bodyHtml = requireString(body, "bodyHtml", { min: 1 });
+    // bodyHtml is OPTIONAL on updates: when omitted, the existing body is kept
+    // unchanged. This lets the admin editor autosave metadata (title/summary/
+    // hashtags/seo) without overwriting a body that another client (e.g. an AI
+    // via REST/MCP) edited while the article was open. Creating a translation
+    // still requires a body.
+    const bodyHtmlInput =
+      body.bodyHtml === undefined
+        ? null
+        : requireString(body, "bodyHtml", { min: 1 });
+    // Optimistic lock for body-including saves: SHA-256 hex of the body_html the
+    // client loaded (or last saved). When it no longer matches the stored body,
+    // someone else edited it in the meantime → 409 so the client can decide.
+    // Omitting baseBodyHash skips the check (existing REST/AI clients keep
+    // working unchanged, and it doubles as the explicit force-overwrite path).
+    const baseBodyHash = optionalString(body, "baseBodyHash");
     const seo = JSON.stringify((body.seo ?? {}) as JsonValue);
     const hashtags = JSON.stringify((body.hashtags ?? []) as JsonValue);
     const requestedCreatedAt = optionalIsoTimestamp(body, "createdAt");
     const requestedUpdatedAt = optionalIsoTimestamp(body, "updatedAt");
     const document = await env.DB.prepare(
-      `SELECT d.did, d.tid, dt.created_at AS translation_created_at
+      `SELECT d.did, d.tid, dt.created_at AS translation_created_at,
+              dt.body_html AS translation_body_html
        FROM documents d
        LEFT JOIN document_translations dt ON dt.did = d.did AND dt.lang = ?
        WHERE d.did = ?`,
@@ -4589,10 +4604,32 @@ async function documentTranslations(
         did: string;
         tid: string;
         translation_created_at: string | null;
+        translation_body_html: string | null;
       }>();
     if (!document) {
       throw new HttpError(404, "document_not_found", "Document was not found.");
     }
+    if (bodyHtmlInput === null && document.translation_body_html === null) {
+      throw new HttpError(
+        400,
+        "invalid_field",
+        "bodyHtml is required when creating a translation.",
+      );
+    }
+    if (
+      bodyHtmlInput !== null &&
+      baseBodyHash &&
+      document.translation_body_html !== null &&
+      (await sha256Hex(document.translation_body_html)) !== baseBodyHash
+    ) {
+      throw new HttpError(
+        409,
+        "body_conflict",
+        "The body was updated by another client after it was loaded. Reload it, or resend without baseBodyHash to overwrite (the current version is snapshotted to revision history).",
+      );
+    }
+    const bodyHtml =
+      bodyHtmlInput ?? (document.translation_body_html as string);
     const now = nowIso();
     const createdAt =
       requestedCreatedAt ?? document.translation_created_at ?? now;

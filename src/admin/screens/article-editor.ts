@@ -45,6 +45,21 @@ function localDateTimeInputToIso(dateValue: string, timeValue: string): string {
   return local.toISOString();
 }
 
+// SHA-256 hex of a string — must produce the same digest as the server's
+// sha256Hex (src/crypto.ts) because it feeds the translations PUT
+// baseBodyHash optimistic lock.
+async function sha256Hex(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(text),
+  );
+  return Array.from(new Uint8Array(digest))
+    .map(function (b) {
+      return b.toString(16).padStart(2, "0");
+    })
+    .join("");
+}
+
 function destroyArticleEditor() {
   if (state.articleEditor) {
     try {
@@ -136,6 +151,19 @@ async function newArticle(editDid: Dynamic) {
     summary: "",
     body: "",
     dirty: false,
+    // dirty is the OR of these two. Split so the periodic autosave can persist
+    // metadata without touching the body: the body is saved only when it was
+    // edited HERE (bodyDirty), never as a side effect — otherwise a stale local
+    // copy would overwrite body edits made by other clients (e.g. AI via
+    // REST/MCP) while the article is open.
+    bodyDirty: false,
+    metaDirty: false,
+    // True once a translation row for art.lang exists server-side. The first
+    // save of a language must include the body (the API requires it on create).
+    hasTranslation: false,
+    // body_html as loaded from (or last saved to) the server — the optimistic-
+    // lock base for body-including saves. null = nothing loaded/saved yet.
+    baseBody: null,
     saving: false,
     // Autosave is gated on `ready`: it stays false from (re)load start until the
     // editor is fully mounted AND the language's content is on screen. While a
@@ -194,6 +222,8 @@ async function newArticle(editDid: Dynamic) {
         art.coverMid = pf.coverMid || "";
         art.coverPath = pf.coverPath || "";
         art.dirty = true;
+        art.bodyDirty = true;
+        art.metaDirty = true;
       } else if (art.lang) {
         // Load the chosen language's translation (blank if it doesn't exist yet).
         const tData = await api(
@@ -205,6 +235,8 @@ async function newArticle(editDid: Dynamic) {
           art.title = tData.translation.title || "";
           art.summary = tData.translation.summary || "";
           art.body = tData.translation.body_html || "";
+          art.hasTranslation = true;
+          art.baseBody = art.body;
           try {
             const hj = JSON.parse(tData.translation.hashtag_json || "[]");
             art.hashtag = Array.isArray(hj)
@@ -332,13 +364,21 @@ async function newArticle(editDid: Dynamic) {
       : byId("arBody")?.value || "";
   }
 
-  async function doSave() {
+  // includeBody:
+  //   undefined → include the body only when it was edited here (art.bodyDirty).
+  //               This is what every explicit save path uses, so an untouched
+  //               local body can never overwrite server-side (AI) body edits.
+  //   false     → metadata-only (the periodic autosave).
+  //   true      → force body inclusion (the conflict-overwrite retry).
+  // Creating a translation always includes the body (the API requires it).
+  async function doSave(includeBody?: boolean) {
     // Never autosave while a switch is in flight or before the editor has fully
     // loaded the current language's content (would persist the wrong language /
     // a half-loaded body). Explicit saves go through here too and are correctly
     // blocked during a switch — switchToLanguage saves BEFORE setting `switching`.
     if (art.saving || art.switching || !art.ready) return;
     readFields();
+    const withBody = (includeBody ?? art.bodyDirty) || !art.hasTranslation;
     if (!art.tid) {
       setSaveStatus(t("typeNotSelectedErr"), "err");
       toast(t("selectTypeMsg"), true, byId("arType"));
@@ -388,28 +428,53 @@ async function newArticle(editDid: Dynamic) {
           return h.trim().replace(/^#/, "");
         })
         .filter(Boolean);
-      const bodyHtml = art.body || "<p></p>";
       const seo = art.coverMid
         ? { coverMid: art.coverMid, coverPath: art.coverPath }
         : {};
+      const payload: Dynamic = {
+        title: art.title,
+        summary: art.summary,
+        hashtags,
+        seo,
+      };
+      if (withBody) {
+        payload.bodyHtml = art.body || "<p></p>";
+        // Optimistic lock: hash of the body we loaded / last saved. The server
+        // 409s when someone else (e.g. an AI client) changed the body since.
+        // baseBody === null means either a fresh translation (nothing to
+        // protect) or an explicit overwrite after a conflict prompt.
+        if (art.hasTranslation && art.baseBody !== null) {
+          payload.baseBodyHash = await sha256Hex(art.baseBody);
+        }
+      }
       await api("/api/documents/" + art.did + "/translations/" + art.lang, {
         method: "PUT",
-        body: JSON.stringify({
-          title: art.title,
-          summary: art.summary,
-          bodyHtml,
-          hashtags,
-          seo,
-        }),
+        body: JSON.stringify(payload),
       });
       await api("/api/documents/" + art.did + "/categories", {
         method: "PUT",
         body: JSON.stringify({ categories: art.categories }),
       });
+      art.hasTranslation = true;
+      if (withBody) {
+        // The server now holds exactly what we sent — update the lock base even
+        // when newer local edits arrived while the request was in flight.
+        art.baseBody = payload.bodyHtml;
+      }
       if (editRevision === saveRevision) {
-        art.dirty = false;
-        setSaveStatus(t("saveStatusSaved"), "ok");
-        toast(t("articleSavedToast"), false);
+        // Only clear the flags when nothing changed mid-flight; otherwise the
+        // dirty state of those newer edits would be silently dropped.
+        art.metaDirty = false;
+        if (withBody) art.bodyDirty = false;
+        art.dirty = art.bodyDirty;
+        if (art.dirty) {
+          // Metadata persisted, body intentionally left out — keep the user
+          // aware that their body edits still need an explicit save.
+          setSaveStatus(t("saveStatusBodyUnsaved"));
+        } else {
+          setSaveStatus(t("saveStatusSaved"), "ok");
+          toast(t("articleSavedToast"), false);
+        }
       } else {
         // A category or field changed while this save was in flight. Keep the
         // buttons active and let the follow-up autosave persist the newer state.
@@ -417,30 +482,67 @@ async function newArticle(editDid: Dynamic) {
         setSaveStatus(t("saveStatusUnsaved"));
       }
     } catch (err) {
-      setSaveStatus(
-        t("saveStatusFailed") + (errorMessage(err) || t("error")),
-        "err",
-      );
+      if ((err as Dynamic)?.code === "body_conflict") {
+        // The server body changed after we loaded it (e.g. an AI client).
+        setSaveStatus(t("saveStatusFailed") + t("bodyConflictMsg"), "err");
+        if (window.confirm(t("bodyConflictConfirm"))) {
+          // Force-overwrite: drop the lock base and retry once with the body.
+          // The server snapshots the other version into revision history
+          // before overwriting, so nothing is lost irrecoverably.
+          art.baseBody = null;
+          art.saving = false;
+          updateSaveButtons();
+          return doSave(true);
+        }
+      } else {
+        setSaveStatus(
+          t("saveStatusFailed") + (errorMessage(err) || t("error")),
+          "err",
+        );
+      }
     }
     art.saving = false;
     updateSaveButtons();
     if (art.dirty && editRevision !== saveRevision) {
       clearTimeout(autoSaveTimer);
-      autoSaveTimer = setTimeout(doSave, AUTOSAVE_INTERVAL_MS);
+      autoSaveTimer = setTimeout(autoSaveTick, AUTOSAVE_INTERVAL_MS);
     }
   }
 
+  // The periodic autosave persists METADATA ONLY (title/summary/dates/hashtags/
+  // cover/categories). The body is deliberately excluded — see doSave.
+  function autoSaveTick() {
+    doSave(false);
+  }
+
+  // Metadata edits (title/summary/dates/hashtags/cover/categories) — schedules
+  // the periodic autosave, which persists metadata only (see autoSaveTick).
   function markDirty() {
     // Suppressed until the editor is ready / not mid-switch, so the programmatic
     // setContent() that loads a language (which fires the editor's input event)
     // can't schedule a save before the content is actually the current language.
     if (!art.ready || art.switching) return;
     editRevision += 1;
+    art.metaDirty = true;
     art.dirty = true;
     setSaveStatus(t("saveStatusUnsaved"));
     updateSaveButtons();
     clearTimeout(autoSaveTimer);
-    autoSaveTimer = setTimeout(doSave, AUTOSAVE_INTERVAL_MS);
+    autoSaveTimer = setTimeout(autoSaveTick, AUTOSAVE_INTERVAL_MS);
+  }
+
+  // Body edits — mark unsaved but do NOT schedule the periodic autosave. The
+  // body is persisted only by an explicit save, or by KuroEditor's own autosave
+  // while its 自動保存 checkbox is ON (arriving via onSave → doSave with
+  // bodyDirty set). This keeps the admin from silently overwriting body edits
+  // other clients (e.g. AI via REST/MCP) made while the article was open.
+  function markBodyDirty() {
+    if (!art.ready || art.switching) return;
+    editRevision += 1;
+    art.bodyDirty = true;
+    art.dirty = true;
+    setSaveStatus(t("saveStatusUnsaved"));
+    updateSaveButtons();
   }
 
   // Called once the editor is mounted AND the language's content is on screen:
@@ -452,7 +554,7 @@ async function newArticle(editDid: Dynamic) {
     clearTimeout(autoSaveTimer);
     if (art.dirty) {
       editRevision += 1;
-      autoSaveTimer = setTimeout(doSave, AUTOSAVE_INTERVAL_MS);
+      autoSaveTimer = setTimeout(autoSaveTick, AUTOSAVE_INTERVAL_MS);
     }
   }
 
@@ -956,7 +1058,7 @@ async function newArticle(editDid: Dynamic) {
     autoGrow(bodyTa);
     bodyTa.addEventListener("input", function () {
       autoGrow(bodyTa);
-      markDirty();
+      markBodyDirty();
     });
   }
 
@@ -987,9 +1089,11 @@ async function newArticle(editDid: Dynamic) {
         return bodyMidUrlCache[slug] || slug;
       },
       // KuroEditor calls onSave from its toolbar Save button AND its periodic
-      // autosave. Persist NOW (not via the input debounce, which the periodic
-      // fire would otherwise keep resetting and starving) when there are real
-      // unsaved edits and the editor is ready / not mid-switch.
+      // autosave (which only runs while the editor's 自動保存 checkbox is ON —
+      // this is the ONLY path that autosaves the body, so the checkbox really
+      // controls body autosave). doSave() without an argument includes the body
+      // exactly when it was edited here (bodyDirty), so an untouched body never
+      // overwrites server-side (AI) edits.
       onSave: function (html: string) {
         art.body = html;
         if (art.ready && !art.switching && !art.saving && art.dirty) {
@@ -1040,12 +1144,12 @@ async function newArticle(editDid: Dynamic) {
       ke.wysiwyg.contentEditable = "false";
       ke.mmenu.style.display = "none";
     }
-    ke.wysiwyg.addEventListener("input", markDirty);
+    ke.wysiwyg.addEventListener("input", markBodyDirty);
     // Also track edits made in the editor's HTML (source) mode. KuroEditor exposes
     // two edit surfaces; the source <textarea> fires its own native input that the
     // WYSIWYG listener above never sees, so HTML-mode edits would stay undetected
     // (never marked dirty / saved) and be lost on the next re-render.
-    ke.sourceArea.addEventListener("input", markDirty);
+    ke.sourceArea.addEventListener("input", markBodyDirty);
     const verEl = document.createElement("div");
     verEl.id = "kuroEditorVer";
     verEl.style.cssText =
@@ -1376,6 +1480,13 @@ async function newArticle(editDid: Dynamic) {
       // doSave() here still targets the CURRENT language (art.lang is owned by
       // the load flow, never the switcher), so it can't mislabel the body.
       if (art.dirty) await doSave();
+      if (art.dirty) {
+        // The save failed (validation error or body conflict left unresolved).
+        // Abort the switch — proceeding would rebuild the editor and silently
+        // discard the unsaved edits.
+        if (sel) sel.value = art.lang;
+        return;
+      }
       // From here until the new language is fully on screen, block every save.
       art.switching = true;
       pendingArticleLoad = { lang: target };
