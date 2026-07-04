@@ -154,7 +154,7 @@ const TOOLS: ToolDef[] = [
   {
     name: "set_article_status",
     description:
-      "Set publish state. mode: 0=draft, 1=published, 2=hidden. Publishing/unpublishing triggers a background build.",
+      "Set publish state. mode: 0=draft, 1=published, 2=hidden. Publishing/unpublishing triggers a background build. Omitted publishAt/unpublishAt/tid keep their stored values. tid moves the article to another registered type (its public URL changes; old pages are cleaned up automatically).",
     inputSchema: {
       type: "object",
       properties: {
@@ -162,13 +162,17 @@ const TOOLS: ToolDef[] = [
         mode: { type: "integer", enum: [0, 1, 2] },
         publishAt: { type: "string", description: "ISO 8601." },
         unpublishAt: { type: "string", description: "ISO 8601." },
+        tid: {
+          type: "string",
+          description: "Registered type id to move the article to.",
+        },
       },
       required: ["id", "mode"],
     },
     build: (a) => ({
       method: "PUT",
       path: `/api/documents/${seg(a, "id")}`,
-      body: pick(a, ["mode", "publishAt", "unpublishAt"]),
+      body: pick(a, ["mode", "publishAt", "unpublishAt", "tid"]),
     }),
   },
   {

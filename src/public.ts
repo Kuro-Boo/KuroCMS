@@ -2099,44 +2099,29 @@ async function saveBuildCache(
 
 // ─── Build helpers ────────────────────────────────────────────────────────────
 
-/** Generate and store pages for a single published document (called on publish). */
-export async function buildDocumentPages(env: Env, did: string): Promise<void> {
-  const row = await env.DB.prepare(
-    `SELECT d.slug, d.tid, d.mode, d.publish_at,
-            GROUP_CONCAT(DISTINCT CASE
-              WHEN NULLIF(dt.body_html, '') IS NOT NULL
-                OR NULLIF(dt.summary, '') IS NOT NULL
-                OR (NULLIF(dt.title, '') IS NOT NULL AND dt.title <> d.slug)
-              THEN dt.lang
-            END) AS langs,
-            s.template_id
-     FROM documents d
-     LEFT JOIN document_translations dt ON dt.did = d.did
-     LEFT JOIN site_settings s ON s.id = 1
-     WHERE d.did = ?
-     GROUP BY d.did`,
-  )
-    .bind(did)
-    .first<{
-      slug: string;
-      tid: string;
-      mode: number;
-      publish_at: string | null;
-      langs: string | null;
-      template_id: string | null;
-    }>();
-
-  if (!row) return;
-
+/** Shared setup for the incremental (re)builds triggered by one document's
+ *  lifecycle (publish / unpublish / type change / delete): prefetch the render
+ *  data once and return a writeBundle() that renders one path in the given
+ *  langs and stores it as ONE KV bundle (1 write/page). `articleLangs` seeds
+ *  the per-article language map (empty for pure index rebuilds); `extraLangs`
+ *  folds a document's translation langs into allLangs. */
+async function createPageWriter(
+  env: Env,
+  settings: SettingsMap,
+  articleLangs: Map<string, string[]>,
+  extraLangs: string[] = [],
+): Promise<{
+  writeBundle: (
+    path: string,
+    langs: string[],
+    params: Record<string, string>,
+  ) => Promise<void>;
+  allLangs: string[];
+}> {
   const includeFuture = (await getBuildMode(env)) === "always";
-  const settings = await fetchSettings(env);
-  const template = await loadTemplate(env, row.template_id);
-  const docLangs = (row.langs || settings.default_lang || "en")
-    .split(",")
-    .filter(Boolean);
-  const published = row.mode === 1;
+  const template = await loadTemplate(env, settings.template_id);
 
-  // Pre-fetch shared data once for all pages in this document build
+  // Pre-fetch shared data once for all pages in this build
   const [docTypes, docCategories] = await Promise.all([
     fetchTypesWithCounts(env),
     fetchCategoriesWithCounts(env),
@@ -2155,7 +2140,7 @@ export async function buildDocumentPages(env: Env, did: string): Promise<void> {
   // their own translation langs.
   const allLangs = Array.from(
     new Set(
-      [docDefLang, ...docAvailLangs.map((l) => l.code), ...docLangs].filter(
+      [docDefLang, ...docAvailLangs.map((l) => l.code), ...extraLangs].filter(
         Boolean,
       ),
     ),
@@ -2179,7 +2164,7 @@ export async function buildDocumentPages(env: Env, did: string): Promise<void> {
     templateContent: docTemplateContent,
     externalConnections: docExtConns,
     availableLangs: docAvailLangs,
-    articleLangs: new Map([[`${row.tid}/${row.slug}`, docLangs]]),
+    articleLangs,
   };
 
   // Render a page for the given langs and store as ONE bundle (1 write/page).
@@ -2204,6 +2189,56 @@ export async function buildDocumentPages(env: Env, did: string): Promise<void> {
     }
     if (Object.keys(bundle).length) await kvPutBundle(env, path, bundle);
   };
+  return { writeBundle, allLangs };
+}
+
+/** Generate and store pages for a single published document (called on publish).
+ *  `extraTids` = additional type indexes to refresh — on a type change, pass the
+ *  PREVIOUS tid so the article disappears from its old type's listings. */
+export async function buildDocumentPages(
+  env: Env,
+  did: string,
+  extraTids: string[] = [],
+): Promise<void> {
+  const row = await env.DB.prepare(
+    `SELECT d.slug, d.tid, d.mode, d.publish_at,
+            GROUP_CONCAT(DISTINCT CASE
+              WHEN NULLIF(dt.body_html, '') IS NOT NULL
+                OR NULLIF(dt.summary, '') IS NOT NULL
+                OR (NULLIF(dt.title, '') IS NOT NULL AND dt.title <> d.slug)
+              THEN dt.lang
+            END) AS langs
+     FROM documents d
+     LEFT JOIN document_translations dt ON dt.did = d.did
+     WHERE d.did = ?
+     GROUP BY d.did`,
+  )
+    .bind(did)
+    .first<{
+      slug: string;
+      tid: string;
+      mode: number;
+      publish_at: string | null;
+      langs: string | null;
+    }>();
+
+  if (!row) return;
+
+  const settings = await fetchSettings(env);
+  const docLangs = (row.langs || settings.default_lang || "en")
+    .split(",")
+    .filter(Boolean);
+  const published = row.mode === 1;
+  const otherTids = Array.from(
+    new Set(extraTids.filter((t) => t && t !== row.tid)),
+  );
+
+  const { writeBundle, allLangs } = await createPageWriter(
+    env,
+    settings,
+    new Map([[`${row.tid}/${row.slug}`, docLangs]]),
+    docLangs,
+  );
 
   if (published) {
     await writeBundle(`/${row.tid}/${row.slug}/`, docLangs, {
@@ -2216,7 +2251,9 @@ export async function buildDocumentPages(env: Env, did: string): Promise<void> {
   // the rolling 30-day window). `/page/N/` is no longer pre-built — it is served
   // on-demand for un-migrated templates.
   await writeBundle("/", allLangs, {});
-  await writeBundle(`/${row.tid}/`, allLangs, { type: row.tid });
+  for (const t of [row.tid, ...otherTids]) {
+    await writeBundle(`/${t}/`, allLangs, { type: t });
+  }
 
   // Completed-month archives are immutable, so they only need rebuilding when the
   // affected post belongs to a PAST month (a back-dated publish or an unpublish).
@@ -2226,14 +2263,78 @@ export async function buildDocumentPages(env: Env, did: string): Promise<void> {
   if (artMonth && artMonth < curMonth) {
     const [y, m] = artMonth.split("-");
     await writeBundle(`/monthly/${y}/${m}/`, allLangs, { month: artMonth });
-    await writeBundle(`/${row.tid}/monthly/${y}/${m}/`, allLangs, {
-      type: row.tid,
-      month: artMonth,
-    });
+    for (const t of [row.tid, ...otherTids]) {
+      await writeBundle(`/${t}/monthly/${y}/${m}/`, allLangs, {
+        type: t,
+        month: artMonth,
+      });
+    }
   }
 
   // One shared KV value for all type+category nav counts (filled client-side).
   await writeNavCounts(env);
+}
+
+/** Refresh the index pages after a document is REMOVED entirely (deleted): the
+ *  home page, the given type indexes, and — when the article lived in a
+ *  completed month — the month archives. buildDocumentPages can't be used here
+ *  because the document row is already gone. */
+export async function rebuildIndexPages(
+  env: Env,
+  tids: string[],
+  publishAt?: string | null,
+): Promise<void> {
+  const settings = await fetchSettings(env);
+  const { writeBundle, allLangs } = await createPageWriter(
+    env,
+    settings,
+    new Map(),
+  );
+  const uniqueTids = Array.from(new Set(tids.filter(Boolean)));
+  await writeBundle("/", allLangs, {});
+  for (const t of uniqueTids) {
+    await writeBundle(`/${t}/`, allLangs, { type: t });
+  }
+  const artMonth = (publishAt || "").slice(0, 7); // 'YYYY-MM'
+  const curMonth = new Date().toISOString().slice(0, 7);
+  if (artMonth && artMonth < curMonth) {
+    const [y, m] = artMonth.split("-");
+    await writeBundle(`/monthly/${y}/${m}/`, allLangs, { month: artMonth });
+    for (const t of uniqueTids) {
+      await writeBundle(`/${t}/monthly/${y}/${m}/`, allLangs, {
+        type: t,
+        month: artMonth,
+      });
+    }
+  }
+  await writeNavCounts(env);
+}
+
+/** Remove a (formerly) published article's detail page from KV so the old URL
+ *  stops being served. Serving prefers the KV bundle over D1, so unpublish /
+ *  delete / type change MUST delete the stale page — nothing overwrites it
+ *  otherwise. Clears the bundle key, the legacy per-language fallback keys,
+ *  and the page's page_build_cache rows. */
+export async function deleteArticlePages(
+  env: Env,
+  tid: string,
+  slug: string,
+): Promise<void> {
+  const kv = requirePublicPages(env);
+  const path = `/${tid}/${slug}/`;
+  await kv.delete(kvKeyBundle(path));
+  const langRows = await env.DB.prepare(
+    `SELECT id FROM taxonomy_items WHERE kind = 'language'`,
+  )
+    .all<{ id: string }>()
+    .catch(() => ({ results: [] as { id: string }[] }));
+  for (const r of langRows.results ?? []) {
+    await kv.delete(kvKey(path, r.id)).catch(() => {});
+  }
+  await env.DB.prepare("DELETE FROM page_build_cache WHERE path = ?")
+    .bind(path)
+    .run()
+    .catch(() => {});
 }
 
 /** Rebuild all public pages for all registered languages, with caching and progress events. */

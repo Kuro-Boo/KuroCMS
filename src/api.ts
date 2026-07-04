@@ -13,8 +13,10 @@ import {
 import {
   buildDocumentPages,
   buildAllPublicPages,
+  deleteArticlePages,
   generatePage,
   getBuildMode,
+  rebuildIndexPages,
   setBuildMode,
   type BuildMode,
 } from "./public";
@@ -116,7 +118,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.7.37";
+export const KUROCMS_VERSION = "1.7.38";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -4400,26 +4402,88 @@ async function documentDetail(
     if (typeof modeValue !== "number" || ![0, 1, 2].includes(modeValue)) {
       throw new HttpError(400, "invalid_mode", "mode must be 0, 1, or 2.");
     }
-    const publishAt = optionalString(body, "publishAt");
-    const unpublishAt = optionalString(body, "unpublishAt");
-    await env.DB.prepare(
-      `UPDATE documents
-       SET mode = ?, publish_at = COALESCE(?, publish_at), unpublish_at = ?, updated_at = ?, updated_by = ?
-       WHERE did = ?`,
+    const existing = await env.DB.prepare(
+      "SELECT tid, slug, mode, unpublish_at FROM documents WHERE did = ?",
     )
-      .bind(modeValue, publishAt, unpublishAt, nowIso(), user.uid, did)
-      .run();
+      .bind(did)
+      .first<{
+        tid: string;
+        slug: string;
+        mode: number;
+        unpublish_at: string | null;
+      }>();
+    if (!existing) {
+      throw new HttpError(404, "document_not_found", "Document was not found.");
+    }
+    const publishAt = optionalString(body, "publishAt");
+    // unpublishAt is PARTIAL like publishAt: omitted = keep the stored value
+    // (so an editor save can never wipe an expiry set via REST/MCP); explicit
+    // null/"" = clear it.
+    const unpublishAt =
+      body.unpublishAt === undefined
+        ? existing.unpublish_at
+        : optionalString(body, "unpublishAt");
+    // tid is optional (the article type). A change is validated against the
+    // registered types, mirrored into search_entries, and the OLD type's pages
+    // are cleaned up/rebuilt below (the article's public URL contains the tid).
+    const inputTid = optionalString(body, "tid");
+    let tid = existing.tid;
+    if (inputTid && inputTid !== existing.tid) {
+      tid = requireSlug(inputTid, "tid");
+      const typeRow = await env.DB.prepare(
+        "SELECT id FROM taxonomy_items WHERE id = ? AND kind = 'type'",
+      )
+        .bind(tid)
+        .first();
+      if (!typeRow) {
+        throw new HttpError(
+          400,
+          "invalid_type",
+          `Type "${tid}" is not registered.`,
+        );
+      }
+    }
+    const tidChanged = tid !== existing.tid;
+    const statements = [
+      env.DB.prepare(
+        `UPDATE documents
+         SET tid = ?, mode = ?, publish_at = COALESCE(?, publish_at), unpublish_at = ?, updated_at = ?, updated_by = ?
+         WHERE did = ?`,
+      ).bind(tid, modeValue, publishAt, unpublishAt, nowIso(), user.uid, did),
+    ];
+    if (tidChanged) {
+      statements.push(
+        env.DB.prepare("UPDATE search_entries SET tid = ? WHERE did = ?").bind(
+          tid,
+          did,
+        ),
+      );
+    }
+    await env.DB.batch(statements);
     await logActivity(env, user, "document.update", "document", did, {
       mode: modeValue,
+      ...(tidChanged ? { tid, previousTid: existing.tid } : {}),
     });
     // Trigger static page generation when publishing (mode 1) or unpublishing
     // (mode 2). Run it AFTER the response via waitUntil: page generation
     // (esp. multi-language index rebuilds) can be heavy and must never block or
     // fail the publish request itself. Final reflection is guaranteed by the
     // full "Build now" (buildAllPublicPages).
-    if (modeValue === 1 || modeValue === 2) {
+    //
+    // When a published article's detail page URL becomes stale — the type
+    // changed (URL contains the tid) or the article left mode 1 (draft/hidden)
+    // — the old KV page must be DELETED, not just left behind: serving prefers
+    // KV, so a stale bundle would keep the old URL alive forever.
+    const wasPublished = existing.mode === 1;
+    const detailPageStale = wasPublished && (tidChanged || modeValue !== 1);
+    if (modeValue === 1 || modeValue === 2 || detailPageStale) {
       ctx.waitUntil(
-        buildDocumentPages(env, did).catch(() => {
+        (async () => {
+          if (detailPageStale) {
+            await deleteArticlePages(env, existing.tid, existing.slug);
+          }
+          await buildDocumentPages(env, did, tidChanged ? [existing.tid] : []);
+        })().catch(() => {
           /* non-fatal: full build will reconcile */
         }),
       );
@@ -4432,6 +4496,18 @@ async function documentDetail(
 
   if (request.method === "DELETE") {
     requireAdmin(user);
+    // Read the row BEFORE deleting: the public page cleanup below needs the
+    // tid/slug (the URL) and publish info, and the row is gone afterwards.
+    const doc = await env.DB.prepare(
+      "SELECT tid, slug, mode, publish_at FROM documents WHERE did = ?",
+    )
+      .bind(did)
+      .first<{
+        tid: string;
+        slug: string;
+        mode: number;
+        publish_at: string | null;
+      }>();
     await env.DB.batch([
       env.DB.prepare("DELETE FROM document_categories WHERE did = ?").bind(did),
       env.DB.prepare("DELETE FROM search_entries WHERE did = ?").bind(did),
@@ -4444,6 +4520,22 @@ async function documentDetail(
       env.DB.prepare("DELETE FROM documents WHERE did = ?").bind(did),
     ]);
     await logActivity(env, user, "document.delete", "document", did, {});
+    // Remove the article's static page from KV (serving prefers KV, so a stale
+    // bundle would keep the deleted article's URL alive) and refresh the index
+    // pages it appeared on. Non-fatal: a full build reconciles the indexes,
+    // though only this cleanup removes the detail page itself.
+    if (doc) {
+      ctx.waitUntil(
+        (async () => {
+          await deleteArticlePages(env, doc.tid, doc.slug);
+          if (doc.mode === 1) {
+            await rebuildIndexPages(env, [doc.tid], doc.publish_at);
+          }
+        })().catch(() => {
+          /* non-fatal */
+        }),
+      );
+    }
     return json({ ok: true });
   }
 
