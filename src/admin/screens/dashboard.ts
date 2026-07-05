@@ -727,6 +727,35 @@ async function articles() {
       }
       return;
     }
+    const snsClearEl = e.target.closest("[data-sns-clear]");
+    if (snsClearEl) {
+      if (state.preview) return;
+      const clearDid = snsClearEl.dataset.snsClear;
+      if (!clearDid) return;
+      openEntryDialog(
+        t("snsClearTitle"),
+        "<p class='muted'>" + escapeHtml(t("snsClearConfirm")) + "</p>",
+        t("snsClearBtn"),
+        async function (_: Dynamic, close: Dynamic) {
+          try {
+            await api("/api/documents/" + clearDid + "/sns", {
+              method: "PUT",
+              body: JSON.stringify({ bsky: false }),
+            });
+            const doc: Dynamic = allDocs.find(function (d) {
+              return d.did === clearDid;
+            });
+            if (doc) doc.sns_bsky_posted_at = null;
+            close();
+            renderList();
+            toast(t("snsClearDone"), false);
+          } catch (err) {
+            toast(errorMessage(err), true);
+          }
+        },
+      );
+      return;
+    }
     const snsBtn = e.target.closest("[data-sns-post]");
     if (snsBtn) {
       if (state.preview) return;
@@ -896,6 +925,9 @@ function renderArticleTable(documents: Dynamic) {
     // shows a green "投稿" button; other services stay as an unposted label.
     function snsLine(label: string, postedAt: Dynamic, canPost: boolean) {
       const posted = Boolean(postedAt);
+      // A posted (and postable) line is clickable: it opens the clear-flag
+      // dialog (PUT /sns {bsky:false}) so the "投稿" button can come back.
+      const clearable = posted && canPost && !state.preview;
       const value =
         !posted && canPost
           ? "<button type='button' class='snsPostBtn' data-sns-post='" +
@@ -905,7 +937,17 @@ function renderArticleTable(documents: Dynamic) {
             ">" +
             escapeHtml(t("snsPostBtn")) +
             "</button>"
-          : "<span class='snsStatusValue'>" +
+          : "<span class='snsStatusValue" +
+            (clearable ? " snsClearable" : "") +
+            "'" +
+            (clearable
+              ? " data-sns-clear='" +
+                escapeHtml(doc.did) +
+                "' title='" +
+                escapeHtml(t("snsClearHint")) +
+                "'"
+              : "") +
+            ">" +
             escapeHtml(posted ? t("snsPublished") : t("snsUnpublished")) +
             "</span>";
       return (

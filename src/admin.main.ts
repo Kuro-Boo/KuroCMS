@@ -941,6 +941,12 @@ const i18n = {
     snsMarkOnlyHelp:
       "Sets the posted flag without actually posting — for articles already announced on Bluesky (e.g. after re-creating an article).",
     snsMarkOnlyDone: "Marked as posted (no post sent).",
+    snsClearTitle: "Clear posted flag — Bluesky",
+    snsClearConfirm:
+      "Clear the Bluesky posted flag? The actual post on Bluesky is NOT deleted; the Post button will reappear for this article.",
+    snsClearBtn: "Clear flag",
+    snsClearDone: "Posted flag cleared.",
+    snsClearHint: "Click to clear the posted flag",
     statusActionsHeader: "Status / Actions",
     langsSuffix: " lang(s)",
     updatedSuffix: " updated",
@@ -1806,6 +1812,12 @@ const i18n = {
     snsMarkOnlyHelp:
       "実際には投稿せず、投稿済みフラグだけをONにします（記事の差し替えなどで既にBluesky投稿済みの場合に）。",
     snsMarkOnlyDone: "投稿済みに設定しました（投稿は送信していません）。",
+    snsClearTitle: "投稿済みフラグの解除 — Bluesky",
+    snsClearConfirm:
+      "Bluesky の投稿済みフラグを解除しますか？（Bluesky 上の実際の投稿は削除されません。解除するとこの記事に「投稿」ボタンが再表示されます）",
+    snsClearBtn: "フラグ解除",
+    snsClearDone: "投稿済みフラグを解除しました。",
+    snsClearHint: "クリックで投稿済みフラグを解除",
     statusActionsHeader: "状態 / 操作",
     langsSuffix: "言語",
     updatedSuffix: "更新",
