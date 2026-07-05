@@ -17,6 +17,90 @@ async function siteManagement() {
     else loadContentPanel(panel);
   }
 
+  // ── Static Tailwind CSS compile (Play-CDN JIT in a hidden iframe) ────────
+  // The JIT engine only needs the class NAMES: the server extracts them from
+  // the template source (GET /tw-tokens), we render them as bare divs in an
+  // iframe that loads the template's own Tailwind CDN URL (same plugins), and
+  // harvest the generated <style> content. Runs after template save/activate
+  // and self-heals when the site screen opens; failures are non-fatal because
+  // public pages fall back to the CDN script until a compile succeeds.
+  function compileTwCss(tokens: Dynamic, cdnUrl: string): Promise<string> {
+    return new Promise(function (resolve) {
+      const iframe = document.createElement("iframe");
+      iframe.style.cssText =
+        "position:fixed;width:10px;height:10px;left:-9999px;top:0;visibility:hidden";
+      let bodyHtml = "";
+      for (let i = 0; i < tokens.length; i += 200) {
+        const chunk = tokens
+          .slice(i, i + 200)
+          .join(" ")
+          .replace(new RegExp("&", "g"), "&amp;")
+          .replace(new RegExp("<", "g"), "&lt;")
+          .replace(new RegExp('"', "g"), "&quot;");
+        bodyHtml += '<div class="' + chunk + '"></div>';
+      }
+      // "</script>" is split so this file stays safe even if it is ever
+      // inlined into an HTML <script> block.
+      iframe.srcdoc =
+        '<!doctype html><html><head><script src="' +
+        cdnUrl.replace(new RegExp('"', "g"), "&quot;") +
+        '"></scr' +
+        "ipt></head><body>" +
+        bodyHtml +
+        "</body></html>";
+      document.body.appendChild(iframe);
+      const started = Date.now();
+      let lastLen = -1;
+      const timer = setInterval(function () {
+        let css = "";
+        try {
+          iframe.contentDocument?.querySelectorAll("style").forEach(function (
+            st: Dynamic,
+          ) {
+            css += st.textContent || "";
+          });
+        } catch {
+          /* ignore */
+        }
+        // The JIT is done when the output is non-trivial and stable.
+        if (css.length > 1000 && css.length === lastLen) {
+          clearInterval(timer);
+          iframe.remove();
+          resolve(css);
+          return;
+        }
+        lastLen = css.length;
+        if (Date.now() - started > 15000) {
+          clearInterval(timer);
+          iframe.remove();
+          resolve("");
+        }
+      }, 300);
+    });
+  }
+
+  async function ensureTwCss(tmplId: Dynamic) {
+    if (!tmplId) return;
+    try {
+      const info = await api(
+        "/api/v1/templates/" + encodeURIComponent(tmplId) + "/tw-tokens",
+      );
+      // Already covered, or the template doesn't use the Tailwind CDN at all.
+      if (!info || info.covered || !info.cdnUrl) return;
+      const tokens = info.tokens || [];
+      if (!tokens.length) return;
+      const css = await compileTwCss(tokens, info.cdnUrl);
+      if (!css) return;
+      await api(
+        "/api/v1/templates/" + encodeURIComponent(tmplId) + "/compiled-css",
+        { method: "PUT", body: JSON.stringify({ css, tokens }) },
+      );
+      toast(t("twCssCompiled"), false);
+    } catch {
+      /* non-fatal: public pages keep the CDN script fallback */
+    }
+  }
+
   shell(
     t("siteManagement"),
     "<div class='settingsTabBar'>" +
@@ -119,6 +203,9 @@ async function siteManagement() {
         activeTmplId = (active && active.id) || null;
         activeTmplName = (active && active.name) || "";
         renderPublishToggle();
+        // Self-heal: compile the static Tailwind CSS if the active template
+        // has none yet (or a REST-side edit added new classes).
+        ensureTwCss(activeTmplId);
       })
       .catch(function () {});
 
@@ -685,6 +772,7 @@ async function siteManagement() {
                 { method: "PUT" },
               );
               toast(t("templateSelected"));
+              ensureTwCss(tmplId);
               loadAll();
             } catch (err) {
               btn.disabled = false;
@@ -1032,6 +1120,7 @@ async function siteManagement() {
         setSaveEnabled(false);
         setEditStatus(t("tmplSaved"), !htmlChanged);
         if (htmlChanged) {
+          ensureTwCss(currentTmplId);
           captureAndSaveThumbnail(currentTmplId)
             .then(function () {
               setEditStatus(t("tmplSavedAndPreview"), true);

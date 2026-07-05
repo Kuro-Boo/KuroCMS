@@ -19,10 +19,10 @@ import type { Env } from "./types";
 // can't see (e.g. the <head> content-CSS <link>, template-model shape). The
 // build salts every page hash with this, so cached builds are invalidated and
 // all pages regenerate even when their underlying content is unchanged.
-const RENDER_FORMAT_VERSION = "16";
+const RENDER_FORMAT_VERSION = "17";
 
 /** Cheap, synchronous string hash (FNV-1a, base36) for cache keys. Not crypto. */
-function cheapHash(s: string): string {
+export function cheapHash(s: string): string {
   let h = 0x811c9dc5;
   for (let i = 0; i < s.length; i++) {
     h ^= s.charCodeAt(i);
@@ -47,6 +47,10 @@ function liveWindowSql(alias: string, includeFuture: boolean): string {
 interface StoredTemplate {
   id: string;
   sourceHtml: string;
+  /** JSON array of class tokens the static Tailwind CSS was compiled from. */
+  compiledTokens?: string | null;
+  /** cheapHash(compiled_css) — versions the /_tw/{id}.{hash}.css URL. */
+  compiledHash?: string | null;
 }
 
 async function loadTemplate(
@@ -55,15 +59,25 @@ async function loadTemplate(
 ): Promise<StoredTemplate> {
   if (!templateId) throw new Error("No active template is configured.");
   const row = await env.DB.prepare(
-    "SELECT id, source_html FROM page_templates WHERE id = ?",
+    "SELECT id, source_html, compiled_tokens, compiled_hash FROM page_templates WHERE id = ?",
   )
     .bind(templateId)
-    .first<{ id: string; source_html: string | null }>();
+    .first<{
+      id: string;
+      source_html: string | null;
+      compiled_tokens: string | null;
+      compiled_hash: string | null;
+    }>();
   if (!row) throw new Error(`Template not found: ${templateId}`);
   if (!isKuroCmsHtmlTemplate(row.source_html)) {
     throw new Error(`Template is not a KuroCMS HTML template: ${templateId}`);
   }
-  return { id: row.id, sourceHtml: row.source_html! };
+  return {
+    id: row.id,
+    sourceHtml: row.source_html!,
+    compiledTokens: row.compiled_tokens,
+    compiledHash: row.compiled_hash,
+  };
 }
 
 // ─── DB row types ─────────────────────────────────────────────────────────────
@@ -1522,6 +1536,7 @@ export async function generatePage(
   }
   const adminBase = adminAssetBase(env);
   let html = injectContentStyles(renderTemplate(sourceHtml, ctx), adminBase);
+  html = applyCompiledTailwind(html, template, adminBase);
   html = injectFontHead(s, html, lang);
   html = injectSeoHead(html, s, ctx, pageLangs);
   html = injectGa4Head(html, s);
@@ -2044,6 +2059,111 @@ function injectContentStyles(html: string, basePath: string): string {
   return html.includes("</head>")
     ? html.replace("</head>", link + "</head>")
     : link + html;
+}
+
+// ─── Static Tailwind CSS (replaces cdn.tailwindcss.com on public pages) ──────
+
+/**
+ * Class tokens injected by CMS widget HTML. Today this is empty on purpose:
+ * every CMS-generated snippet (pagination data, archives select, byline,
+ * Bluesky widget, language switcher) uses kuro-* classes or inline styles,
+ * never Tailwind utilities. RULE: if a future widget emits a Tailwind class,
+ * add it here so existing templates keep full coverage without a recompile.
+ */
+export const TW_WIDGET_SAFELIST: string[] = [];
+
+/**
+ * Extract the class-candidate tokens the template's static Tailwind CSS is
+ * compiled from: every class="..." attribute value, plus quoted string
+ * literals inside inline <script> blocks (classList toggles). Junk tokens are
+ * harmless — the JIT compiler ignores anything that isn't a real utility.
+ * Used identically at compile time (via the tw-tokens API) and at build time
+ * (coverage check), so the two can never disagree.
+ */
+export function extractTwTokens(sourceHtml: string): string[] {
+  const src = String(sourceHtml || "");
+  const tokens = new Set<string>(TW_WIDGET_SAFELIST);
+  const addAll = (s: string) => {
+    for (const t of s.split(/\s+/)) if (t) tokens.add(t);
+  };
+  for (const m of src.matchAll(/\bclass\s*=\s*(?:"([^"]*)"|'([^']*)')/gi))
+    addAll(m[1] ?? m[2] ?? "");
+  for (const s of src.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)) {
+    for (const q of (s[1] || "").matchAll(/(["'`])((?:\\.|(?!\1)[^\\])*?)\1/g))
+      addAll(q[2] || "");
+  }
+  return [...tokens].sort();
+}
+
+const TW_CDN_SCRIPT_RE =
+  /<script[^>]*\bsrc\s*=\s*["'](https:\/\/cdn\.tailwindcss\.com[^"']*)["'][^>]*>\s*<\/script>/i;
+
+/** The Tailwind Play-CDN URL a template loads ("" when it doesn't use it). */
+export function findTwCdnUrl(sourceHtml: string): string {
+  const m = String(sourceHtml || "").match(TW_CDN_SCRIPT_RE);
+  return m ? m[1] : "";
+}
+
+// Coverage result cached per loaded-template object (one build / one serve).
+const twCoverage = new WeakMap<StoredTemplate, boolean>();
+
+function compiledTwCovers(template: StoredTemplate): boolean {
+  if (!template.compiledHash || !template.compiledTokens) return false;
+  let ok = twCoverage.get(template);
+  if (ok === undefined) {
+    try {
+      const have = new Set(JSON.parse(template.compiledTokens) as string[]);
+      ok = extractTwTokens(template.sourceHtml).every((t) => have.has(t));
+    } catch {
+      ok = false;
+    }
+    twCoverage.set(template, ok);
+  }
+  return ok;
+}
+
+/**
+ * Swap the render-blocking cdn.tailwindcss.com runtime compiler for the
+ * pre-compiled static stylesheet (immutable, hash-versioned). Falls back to
+ * the CDN script whenever the compiled token set doesn't cover the current
+ * source (e.g. a REST-side template edit added new classes and the admin
+ * hasn't recompiled yet) — slower but always renders correctly; the admin
+ * screen self-heals it on the next visit.
+ */
+function applyCompiledTailwind(
+  html: string,
+  template: StoredTemplate,
+  adminBase: string,
+): string {
+  if (!compiledTwCovers(template)) return html;
+  return html.replace(
+    TW_CDN_SCRIPT_RE,
+    `<link rel="stylesheet" href="${adminBase}/_tw/${template.id}.${template.compiledHash}.css">`,
+  );
+}
+
+/** GET {base}/_tw/{id}.{hash}.css — the compiled per-template Tailwind CSS. */
+export async function serveTemplateCss(
+  env: Env,
+  id: string,
+  hash: string,
+): Promise<Response> {
+  const row = await env.DB.prepare(
+    "SELECT compiled_css, compiled_hash FROM page_templates WHERE id = ?",
+  )
+    .bind(id)
+    .first<{ compiled_css: string | null; compiled_hash: string | null }>()
+    .catch(() => null);
+  if (!row?.compiled_css || row.compiled_hash !== hash) {
+    return new Response("Not found", { status: 404 });
+  }
+  return new Response(row.compiled_css, {
+    headers: {
+      "Content-Type": "text/css; charset=utf-8",
+      // Hash-versioned URL — safe to cache forever.
+      "Cache-Control": "public, max-age=31536000, immutable",
+    },
+  });
 }
 
 // ─── KV storage ───────────────────────────────────────────────────────────────

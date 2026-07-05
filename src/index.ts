@@ -13,6 +13,7 @@ import {
   isPublicPath,
   resolveFaviconPath,
   runScheduledAutoBuild,
+  serveTemplateCss,
 } from "./public";
 import type { Env } from "./types";
 
@@ -214,6 +215,15 @@ export default {
     // Self-hosted web fonts: {base}/_fonts/<key>.woff2 → KV read-through cache.
     if (pathname.startsWith("/_fonts/")) {
       return serveFont(pathname.slice("/_fonts/".length), env, ctx);
+    }
+
+    // Compiled per-template Tailwind CSS: {base}/_tw/{id}.{hash}.css
+    // (immutable; replaces the cdn.tailwindcss.com script on public pages).
+    const twCssMatch = pathname.match(
+      new RegExp("^/_tw/([a-zA-Z0-9_-]+)\\.([a-z0-9]+)\\.css$"),
+    );
+    if (twCssMatch) {
+      return serveTemplateCss(env, twCssMatch[1], twCssMatch[2]);
     }
 
     if (pathname.startsWith("/api/")) {

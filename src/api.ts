@@ -13,7 +13,10 @@ import {
 import {
   buildDocumentPages,
   buildAllPublicPages,
+  cheapHash,
   deleteArticlePages,
+  extractTwTokens,
+  findTwCdnUrl,
   generatePage,
   getBuildMode,
   rebuildIndexPages,
@@ -118,7 +121,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.7.44";
+export const KUROCMS_VERSION = "1.7.45";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -702,6 +705,34 @@ export async function handleApi(
     if (request.method === "PUT" && tmplSourceMatch) {
       return withJsonHeaders(
         await siteTemplateSaveSource(request, env, user, tmplSourceMatch[1]),
+      );
+    }
+    // Static Tailwind CSS: token list for the admin-browser compile, and the
+    // upload/clear of the compiled stylesheet (served at {base}/_tw/…).
+    const tmplTwTokensMatch = path.match(
+      new RegExp("^/api/v1/templates/([^/]+)/tw-tokens$"),
+    );
+    if (request.method === "GET" && tmplTwTokensMatch) {
+      return withJsonHeaders(
+        await siteTemplateTwTokens(env, user, tmplTwTokensMatch[1]),
+      );
+    }
+    const tmplTwCssMatch = path.match(
+      new RegExp("^/api/v1/templates/([^/]+)/compiled-css$"),
+    );
+    if (request.method === "PUT" && tmplTwCssMatch) {
+      return withJsonHeaders(
+        await siteTemplateSaveCompiledCss(
+          request,
+          env,
+          user,
+          tmplTwCssMatch[1],
+        ),
+      );
+    }
+    if (request.method === "DELETE" && tmplTwCssMatch) {
+      return withJsonHeaders(
+        await siteTemplateClearCompiledCss(env, user, tmplTwCssMatch[1]),
       );
     }
     const tmplThumbMatch = path.match(
@@ -6090,6 +6121,120 @@ async function siteTemplateSaveSource(
     .run();
   await logActivity(env, user, "template.edit_source", "template", id, {});
   return json({ ok: true });
+}
+
+// ── Static Tailwind CSS (compiled in the admin browser, served at /_tw/) ────
+
+/**
+ * Token list + compile state for a template. The admin client compiles CSS
+ * from exactly these tokens (Play-CDN JIT in a hidden iframe) and PUTs it
+ * back; `covered` tells it whether a recompile is needed at all — with a
+ * stable class set this stays true across ordinary template edits.
+ */
+async function siteTemplateTwTokens(
+  env: Env,
+  user: AuthUser,
+  id: string,
+): Promise<Response> {
+  requireAdmin(user);
+  const row = await env.DB.prepare(
+    "SELECT id, source_html, compiled_tokens, compiled_hash FROM page_templates WHERE id = ?",
+  )
+    .bind(id)
+    .first<{
+      id: string;
+      source_html: string | null;
+      compiled_tokens: string | null;
+      compiled_hash: string | null;
+    }>();
+  if (!row) throw new HttpError(404, "not_found", "Template not found.");
+  const tokens = extractTwTokens(row.source_html || "");
+  const cdnUrl = findTwCdnUrl(row.source_html || "");
+  let covered = false;
+  if (row.compiled_hash && row.compiled_tokens) {
+    try {
+      const have = new Set(JSON.parse(row.compiled_tokens) as string[]);
+      covered = tokens.every((t) => have.has(t));
+    } catch {
+      covered = false;
+    }
+  }
+  return json({
+    id: row.id,
+    cdnUrl,
+    covered,
+    compiledHash: row.compiled_hash ?? null,
+    tokens,
+  });
+}
+
+async function siteTemplateSaveCompiledCss(
+  request: Request,
+  env: Env,
+  user: AuthUser,
+  id: string,
+): Promise<Response> {
+  requireAdmin(user);
+  const row = await env.DB.prepare("SELECT id FROM page_templates WHERE id = ?")
+    .bind(id)
+    .first();
+  if (!row) throw new HttpError(404, "not_found", "Template not found.");
+  const body = await readJson(request);
+  const css = requireString(body, "css", { min: 1, max: 512 * 1024 });
+  // Store the token list the client ACTUALLY compiled from (echoed back from
+  // GET /tw-tokens), so (css, tokens) stay consistent even if the source was
+  // edited between the GET and this PUT — the coverage check then correctly
+  // falls back to the CDN script for the changed source.
+  const rawTokens = Array.isArray(body.tokens) ? body.tokens : [];
+  const tokens = rawTokens
+    .filter((t): t is string => typeof t === "string" && t.length > 0)
+    .slice(0, 20000);
+  if (!tokens.length) {
+    throw new HttpError(
+      400,
+      "invalid_field",
+      "tokens must be a non-empty array.",
+    );
+  }
+  const tokensJson = JSON.stringify(tokens);
+  if (tokensJson.length > 256 * 1024) {
+    throw new HttpError(400, "invalid_field", "tokens is too large.");
+  }
+  const hash = cheapHash(css);
+  await env.DB.prepare(
+    "UPDATE page_templates SET compiled_css = ?, compiled_tokens = ?, compiled_hash = ? WHERE id = ?",
+  )
+    .bind(css, tokensJson, hash, id)
+    .run();
+  await logActivity(env, user, "template.compiled_css", "template", id, {
+    bytes: css.length,
+    tokenCount: tokens.length,
+    hash,
+  });
+  return json({ id, hash, bytes: css.length, tokenCount: tokens.length });
+}
+
+/** Clear the compiled CSS — public pages fall back to the CDN script. */
+async function siteTemplateClearCompiledCss(
+  env: Env,
+  user: AuthUser,
+  id: string,
+): Promise<Response> {
+  requireAdmin(user);
+  await env.DB.prepare(
+    "UPDATE page_templates SET compiled_css = NULL, compiled_tokens = NULL, compiled_hash = NULL WHERE id = ?",
+  )
+    .bind(id)
+    .run();
+  await logActivity(
+    env,
+    user,
+    "template.compiled_css_clear",
+    "template",
+    id,
+    {},
+  );
+  return json({ id, cleared: true });
 }
 
 async function siteTemplateUpdateMeta(
