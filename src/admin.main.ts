@@ -939,14 +939,26 @@ const i18n = {
     snsPostDone: "Posted to Bluesky.",
     snsMarkOnlyBtn: "Mark done without posting",
     snsMarkOnlyHelp:
-      "Sets the posted flag without actually posting — for articles already announced on Bluesky (e.g. after re-creating an article).",
+      "Sets the posted flag without actually posting — for articles already announced on this SNS (e.g. after re-creating an article).",
     snsMarkOnlyDone: "Marked as posted (no post sent).",
-    snsClearTitle: "Clear posted flag — Bluesky",
+    snsClearTitle: "Clear posted flag",
     snsClearConfirm:
-      "Clear the Bluesky posted flag? The actual post on Bluesky is NOT deleted; the Post button will reappear for this article.",
+      "Clear the posted flag? The actual post on the SNS is NOT deleted; the Post button will reappear for this article.",
     snsClearBtn: "Clear flag",
     snsClearDone: "Posted flag cleared.",
     snsClearHint: "Click to clear the posted flag",
+    snsPostConfirmX:
+      "Post this article to X now? Parent post = cover image + text; the article link is sent as a reply (or in the post body, per Settings → SNS).",
+    xSettingsTitle: "X (Twitter) Auto-Post",
+    xCredsHelp:
+      "Enter the four credentials issued in the X Developer Portal (the app needs Read and write permission). Values are stored server-side and never shown again.",
+    xApiKey: "API Key (Consumer Key)",
+    xApiSecret: "API Key Secret (Consumer Secret)",
+    xAccessToken: "Access Token",
+    xAccessSecret: "Access Token Secret",
+    xLinkInReply: "Send the article link as a reply (2 posts)",
+    xLinkInReplyHelp:
+      "On X's API pricing, posts containing a link can be billed at a higher rate. When ON, each article is posted as a parent post (image + text) plus a reply carrying the link — roughly $0.015 + $0.015 ≈ $0.03 per article. When OFF, a single post includes the link in the body.",
     statusActionsHeader: "Status / Actions",
     langsSuffix: " lang(s)",
     updatedSuffix: " updated",
@@ -1812,14 +1824,26 @@ const i18n = {
     snsPostDone: "Bluesky に投稿しました。",
     snsMarkOnlyBtn: "実際に投稿せず完了とする",
     snsMarkOnlyHelp:
-      "実際には投稿せず、投稿済みフラグだけをONにします（記事の差し替えなどで既にBluesky投稿済みの場合に）。",
+      "実際には投稿せず、投稿済みフラグだけをONにします（記事の差し替えなどで既に投稿済みの場合に）。",
     snsMarkOnlyDone: "投稿済みに設定しました（投稿は送信していません）。",
-    snsClearTitle: "投稿済みフラグの解除 — Bluesky",
+    snsClearTitle: "投稿済みフラグの解除",
     snsClearConfirm:
-      "Bluesky の投稿済みフラグを解除しますか？（Bluesky 上の実際の投稿は削除されません。解除するとこの記事に「投稿」ボタンが再表示されます）",
+      "投稿済みフラグを解除しますか？（SNS上の実際の投稿は削除されません。解除するとこの記事に「投稿」ボタンが再表示されます）",
     snsClearBtn: "フラグ解除",
     snsClearDone: "投稿済みフラグを解除しました。",
     snsClearHint: "クリックで投稿済みフラグを解除",
+    snsPostConfirmX:
+      "この記事を X に投稿しますか？（親ポスト=カバー画像＋本文。記事リンクは設定に応じてリプライまたは本文で送信されます）",
+    xSettingsTitle: "X (Twitter) 自動投稿",
+    xCredsHelp:
+      "X Developer Portal で発行した4つの認証情報を入力します（アプリの権限は Read and write が必要）。値はサーバー側に保存され、再表示されません。",
+    xApiKey: "API Key（Consumer Key）",
+    xApiSecret: "API Key Secret（Consumer Secret）",
+    xAccessToken: "Access Token",
+    xAccessSecret: "Access Token Secret",
+    xLinkInReply: "リンクはリプライで投稿（2通に分割）",
+    xLinkInReplyHelp:
+      "X APIでは本文にリンクを含む投稿は高い料金区分になる場合があります。ONにすると親ポスト（画像＋本文）→リプライ（記事リンク）の2通に分けて投稿し、費用を抑えます（目安: $0.015＋$0.015＝約$0.03/記事・約5円）。OFFにすると1通の本文にリンクを含めて投稿します。",
     statusActionsHeader: "状態 / 操作",
     langsSuffix: "言語",
     updatedSuffix: "更新",

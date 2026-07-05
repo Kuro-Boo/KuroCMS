@@ -121,7 +121,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.7.46";
+export const KUROCMS_VERSION = "1.7.47";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -613,6 +613,15 @@ export async function handleApi(
     if (request.method === "POST" && documentSnsPostMatch) {
       return withJsonHeaders(
         await postDocumentToBluesky(env, user, documentSnsPostMatch[1]),
+      );
+    }
+    // On-demand post to X (parent tweet + link-reply; see postToX).
+    const documentSnsXPostMatch = path.match(
+      /^\/api\/documents\/([^/]+)\/sns\/x\/post$/,
+    );
+    if (request.method === "POST" && documentSnsXPostMatch) {
+      return withJsonHeaders(
+        await postDocumentToX(env, user, documentSnsXPostMatch[1]),
       );
     }
 
@@ -2917,6 +2926,11 @@ async function settings(
           (row?.bluesky_feed_position as string | undefined) ?? "left",
         blueskySid: (row?.bluesky_sid as string | undefined) ?? "",
         blueskyTokenSet: !!(row?.bluesky_token as string | undefined),
+        xApiKeySet: !!(row?.x_api_key as string | undefined),
+        xApiSecretSet: !!(row?.x_api_secret as string | undefined),
+        xAccessTokenSet: !!(row?.x_access_token as string | undefined),
+        xAccessSecretSet: !!(row?.x_access_secret as string | undefined),
+        xLinkInReply: (row?.x_link_in_reply as number | undefined) !== 0,
         threadsHandle: (row?.threads_handle as string | undefined) ?? "",
         threadsShowFeed: row?.threads_show_feed === 1,
         siteIsPublished: (row?.site_is_published as number | undefined) === 1,
@@ -2967,6 +2981,14 @@ async function settings(
     // the form without re-typing the password keeps the stored one.
     const blueskyToken = optionalString(body, "blueskyToken") ?? "";
     const hasBlueskyToken = "blueskyToken" in body && blueskyToken !== "";
+    // X (Twitter) OAuth 1.0a credentials: same only-when-non-empty rule.
+    const xApiKey = optionalString(body, "xApiKey") ?? "";
+    const xApiSecret = optionalString(body, "xApiSecret") ?? "";
+    const xAccessToken = optionalString(body, "xAccessToken") ?? "";
+    const xAccessSecret = optionalString(body, "xAccessSecret") ?? "";
+    const hasXLinkInReply = "xLinkInReply" in body;
+    const xLinkInReply =
+      body.xLinkInReply === true || body.xLinkInReply === "true";
     // threads_* are NOT sent by the current settings form (Threads/X/etc. are
     // managed via external_connections). Like ga4/siteDescription, only update
     // them when explicitly present so a settings save doesn't reset them.
@@ -3020,6 +3042,11 @@ async function settings(
     if (hasThreadsShowFeed)
       settingsToSave.threads_show_feed = threadsShowFeed ? 1 : 0;
     if (hasBlueskyToken) settingsToSave.bluesky_token = blueskyToken;
+    if (xApiKey) settingsToSave.x_api_key = xApiKey;
+    if (xApiSecret) settingsToSave.x_api_secret = xApiSecret;
+    if (xAccessToken) settingsToSave.x_access_token = xAccessToken;
+    if (xAccessSecret) settingsToSave.x_access_secret = xAccessSecret;
+    if (hasXLinkInReply) settingsToSave.x_link_in_reply = xLinkInReply ? 1 : 0;
     await saveSettings(env, settingsToSave);
 
     await logActivity(env, user, "settings.update", "settings", "site", {
@@ -3111,6 +3138,77 @@ type BlueskyPostResult =
     };
 
 /**
+ * Prepare an article's cover image for an SNS post. Uses an already-small
+ * compatible R2 object directly; oversized/AVIF/GIF assets are normalized from
+ * R2 by the Images binding immediately before posting. Never falls through to
+ * an image-less post when the article HAS a cover but preparation failed —
+ * that case returns ok:false. Shared by the Bluesky and X post paths.
+ */
+async function prepareSnsCoverImage(
+  env: Env,
+  did: string,
+  seoJsonRaw: string | null,
+  logEvent: string,
+): Promise<
+  | { ok: true; image: { bytes: ArrayBuffer; mime: string } | null }
+  | { ok: false }
+> {
+  let image: { bytes: ArrayBuffer; mime: string } | null = null;
+  let hasCover: boolean;
+  try {
+    const seo = seoJsonRaw ? JSON.parse(seoJsonRaw) : {};
+    const coverPath =
+      seo && typeof seo.coverPath === "string" ? seo.coverPath : "";
+    hasCover = Boolean(coverPath);
+    if (coverPath && env.MEDIA_BUCKET) {
+      const key = coverPath.replace(/^\//, "").split("?")[0];
+      const obj = await (env.MEDIA_BUCKET as R2Bucket).get(key);
+      if (obj) {
+        const mime = (obj.httpMetadata?.contentType || "image/jpeg")
+          .split(";", 1)[0]
+          .trim()
+          .toLowerCase();
+        if (
+          obj.size > 0 &&
+          obj.size <= BSKY_IMAGE_MAX_BYTES &&
+          BSKY_IMAGE_MIMES.has(mime)
+        ) {
+          const buf = await obj.arrayBuffer();
+          image = {
+            bytes: buf,
+            mime,
+          };
+        } else {
+          image =
+            (await transformBlueskyCover(env, key, 1200, 72)) ??
+            (await transformBlueskyCover(env, key, 800, 55));
+        }
+      }
+    }
+  } catch (error) {
+    console.warn(
+      JSON.stringify({
+        event: logEvent,
+        did,
+        error: error instanceof Error ? error.message : String(error),
+      }),
+    );
+    return { ok: false };
+  }
+  if (hasCover && !image) {
+    console.warn(
+      JSON.stringify({
+        event: logEvent,
+        did,
+        error: "cover could not be reduced below the size limit",
+      }),
+    );
+    return { ok: false };
+  }
+  return { ok: true, image };
+}
+
+/**
  * Build and post a single article to Bluesky, returning a discriminated result
  * (no throwing for expected conditions). Used by the on-demand "投稿" button
  * (postDocumentToBluesky). Requires Bluesky credentials, a public_domain, the
@@ -3165,62 +3263,14 @@ async function postBlueskyForDoc(
   const summary = (tl?.summary ?? "").trim();
   const url = `${origin}/${doc.tid}/${doc.slug}/`;
 
-  // Cover image: use an already-small compatible R2 object directly. Existing
-  // oversized/AVIF/GIF assets are normalized directly from R2 by the Images
-  // binding immediately before posting. Never fall through to an image-less post
-  // when an article has a cover but its image preparation failed.
-  let image: { bytes: ArrayBuffer; mime: string } | null = null;
-  let hasCover: boolean;
-  try {
-    const seo = tl?.seo_json ? JSON.parse(tl.seo_json) : {};
-    const coverPath =
-      seo && typeof seo.coverPath === "string" ? seo.coverPath : "";
-    hasCover = Boolean(coverPath);
-    if (coverPath && env.MEDIA_BUCKET) {
-      const key = coverPath.replace(/^\//, "").split("?")[0];
-      const obj = await (env.MEDIA_BUCKET as R2Bucket).get(key);
-      if (obj) {
-        const mime = (obj.httpMetadata?.contentType || "image/jpeg")
-          .split(";", 1)[0]
-          .trim()
-          .toLowerCase();
-        if (
-          obj.size > 0 &&
-          obj.size <= BSKY_IMAGE_MAX_BYTES &&
-          BSKY_IMAGE_MIMES.has(mime)
-        ) {
-          const buf = await obj.arrayBuffer();
-          image = {
-            bytes: buf,
-            mime,
-          };
-        } else {
-          image =
-            (await transformBlueskyCover(env, key, 1200, 72)) ??
-            (await transformBlueskyCover(env, key, 800, 55));
-        }
-      }
-    }
-  } catch (error) {
-    console.warn(
-      JSON.stringify({
-        event: "bsky_cover_prepare_failed",
-        did,
-        error: error instanceof Error ? error.message : String(error),
-      }),
-    );
-    return { ok: false, code: "cover_failed" };
-  }
-  if (hasCover && !image) {
-    console.warn(
-      JSON.stringify({
-        event: "bsky_cover_prepare_failed",
-        did,
-        error: "cover could not be reduced below the Bluesky size limit",
-      }),
-    );
-    return { ok: false, code: "cover_failed" };
-  }
+  const cover = await prepareSnsCoverImage(
+    env,
+    did,
+    tl?.seo_json ?? null,
+    "bsky_cover_prepare_failed",
+  );
+  if (!cover.ok) return { ok: false, code: "cover_failed" };
+  const image = cover.image;
 
   try {
     await postToBluesky(handle, password, title, summary, url, image);
@@ -3372,6 +3422,328 @@ async function postToBluesky(
   }
 }
 
+// ─── X (Twitter) auto-post ────────────────────────────────────────────────────
+// OAuth 1.0a user-context signing (HMAC-SHA1). Only the oauth_* params enter
+// the signature base string: the tweet body is JSON and the media upload is
+// multipart/form-data, neither of which is signed per the OAuth 1.0a spec.
+
+interface XCreds {
+  apiKey: string;
+  apiSecret: string;
+  accessToken: string;
+  accessSecret: string;
+}
+
+/** RFC 3986 percent-encoding (encodeURIComponent + the five extra chars). */
+function oauthPctEncode(s: string): string {
+  return encodeURIComponent(s).replace(
+    /[!'()*]/g,
+    (c) => "%" + c.charCodeAt(0).toString(16).toUpperCase(),
+  );
+}
+
+async function oauth1Header(
+  method: string,
+  url: string,
+  creds: XCreds,
+): Promise<string> {
+  const oauth: Record<string, string> = {
+    oauth_consumer_key: creds.apiKey,
+    oauth_nonce: crypto.randomUUID().replace(/-/g, ""),
+    oauth_signature_method: "HMAC-SHA1",
+    oauth_timestamp: String(Math.floor(Date.now() / 1000)),
+    oauth_token: creds.accessToken,
+    oauth_version: "1.0",
+  };
+  const paramStr = Object.keys(oauth)
+    .sort()
+    .map((k) => `${oauthPctEncode(k)}=${oauthPctEncode(oauth[k])}`)
+    .join("&");
+  const base = [
+    method.toUpperCase(),
+    oauthPctEncode(url),
+    oauthPctEncode(paramStr),
+  ].join("&");
+  const signingKey = `${oauthPctEncode(creds.apiSecret)}&${oauthPctEncode(creds.accessSecret)}`;
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(signingKey),
+    { name: "HMAC", hash: "SHA-1" },
+    false,
+    ["sign"],
+  );
+  const sig = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    new TextEncoder().encode(base),
+  );
+  oauth.oauth_signature = btoa(String.fromCharCode(...new Uint8Array(sig)));
+  return (
+    "OAuth " +
+    Object.keys(oauth)
+      .sort()
+      .map((k) => `${oauthPctEncode(k)}="${oauthPctEncode(oauth[k])}"`)
+      .join(", ")
+  );
+}
+
+/**
+ * X's weighted character count: code points in the official "light" ranges
+ * (0–4351, 8192–8205, 8208–8223, 8242–8247) weigh 1, everything else (CJK,
+ * emoji, …) weighs 2. The limit per tweet is 280 weight units; any URL is
+ * always counted as 23 (t.co wrapping) regardless of its length.
+ */
+function xCharWeight(cp: number): number {
+  const light =
+    cp <= 0x10ff ||
+    (cp >= 0x2000 && cp <= 0x200d) ||
+    (cp >= 0x2010 && cp <= 0x201f) ||
+    (cp >= 0x2032 && cp <= 0x2037);
+  return light ? 1 : 2;
+}
+
+function xWeightedLength(s: string): number {
+  let n = 0;
+  for (const ch of s) n += xCharWeight(ch.codePointAt(0) ?? 0);
+  return n;
+}
+
+/** Trim to the weighted budget, appending "…" when anything was cut. */
+function xTrimToWeight(s: string, maxWeight: number): string {
+  if (xWeightedLength(s) <= maxWeight) return s;
+  let out = "";
+  let n = 0;
+  for (const ch of s) {
+    const w = xCharWeight(ch.codePointAt(0) ?? 0);
+    if (n + w > maxWeight - 2) break; // reserve 2 for the ellipsis
+    out += ch;
+    n += w;
+  }
+  return out.replace(/\s+$/, "") + "…";
+}
+
+const X_UPLOAD_URL = "https://upload.twitter.com/1.1/media/upload.json";
+const X_TWEET_URL = "https://api.x.com/2/tweets";
+const X_URL_WEIGHT = 23;
+
+/**
+ * Post an article to X: parent tweet = cover image + title/summary text;
+ * the article URL goes into a REPLY tweet by default (`linkInReply`) — on X's
+ * API pricing a link-bearing post is billed higher, so splitting parent
+ * ($0.015) + reply ($0.015) is the cheaper shape. With linkInReply=false the
+ * URL is appended to the parent text instead (single tweet).
+ */
+async function postToX(
+  creds: XCreds,
+  title: string,
+  summary: string,
+  url: string,
+  image: { bytes: ArrayBuffer; mime: string } | null,
+  linkInReply: boolean,
+): Promise<void> {
+  let mediaId = "";
+  if (image) {
+    const form = new FormData();
+    form.append(
+      "media",
+      new Blob([image.bytes], { type: image.mime }),
+      "cover",
+    );
+    const res = await fetch(X_UPLOAD_URL, {
+      method: "POST",
+      headers: {
+        Authorization: await oauth1Header("POST", X_UPLOAD_URL, creds),
+      },
+      body: form,
+    });
+    if (!res.ok) {
+      throw new Error(
+        `x media upload failed: ${res.status} ${(await res.text()).slice(0, 300)}`,
+      );
+    }
+    const j = (await res.json()) as { media_id_string?: string };
+    mediaId = j.media_id_string || "";
+    if (!mediaId) throw new Error("x media upload returned no media_id");
+  }
+
+  let budget = 280;
+  if (!linkInReply) budget -= X_URL_WEIGHT + 2; // "\n\n" + wrapped URL
+  let text = summary ? `${title}\n\n${summary}` : title;
+  text = xTrimToWeight(text, budget);
+  if (!linkInReply) text = `${text}\n\n${url}`;
+
+  const parentBody: Record<string, unknown> = { text };
+  if (mediaId) parentBody.media = { media_ids: [mediaId] };
+  const parentRes = await fetch(X_TWEET_URL, {
+    method: "POST",
+    headers: {
+      Authorization: await oauth1Header("POST", X_TWEET_URL, creds),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(parentBody),
+  });
+  if (!parentRes.ok) {
+    throw new Error(
+      `x tweet failed: ${parentRes.status} ${(await parentRes.text()).slice(0, 300)}`,
+    );
+  }
+  const parent = (await parentRes.json()) as { data?: { id?: string } };
+  const parentId = parent.data?.id || "";
+
+  if (linkInReply) {
+    if (!parentId) throw new Error("x tweet returned no id for the reply");
+    const replyRes = await fetch(X_TWEET_URL, {
+      method: "POST",
+      headers: {
+        Authorization: await oauth1Header("POST", X_TWEET_URL, creds),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        text: url,
+        reply: { in_reply_to_tweet_id: parentId },
+      }),
+    });
+    if (!replyRes.ok) {
+      throw new Error(
+        `x reply failed: ${replyRes.status} ${(await replyRes.text()).slice(0, 300)}`,
+      );
+    }
+  }
+}
+
+type XPostResult =
+  | { ok: true; postedAt: string }
+  | {
+      ok: false;
+      code:
+        | "not_configured"
+        | "no_public_domain"
+        | "not_published"
+        | "already_posted"
+        | "cover_failed"
+        | "post_failed";
+    };
+
+/** X twin of postBlueskyForDoc — same guards, sns_x_posted_at flag. */
+async function postXForDoc(env: Env, did: string): Promise<XPostResult> {
+  const s = await env.DB.prepare(
+    "SELECT x_api_key, x_api_secret, x_access_token, x_access_secret, x_link_in_reply, public_domain FROM site_settings WHERE id = 1",
+  ).first<{
+    x_api_key: string | null;
+    x_api_secret: string | null;
+    x_access_token: string | null;
+    x_access_secret: string | null;
+    x_link_in_reply: number | null;
+    public_domain: string | null;
+  }>();
+  const creds: XCreds = {
+    apiKey: (s?.x_api_key ?? "").trim(),
+    apiSecret: (s?.x_api_secret ?? "").trim(),
+    accessToken: (s?.x_access_token ?? "").trim(),
+    accessSecret: (s?.x_access_secret ?? "").trim(),
+  };
+  if (
+    !creds.apiKey ||
+    !creds.apiSecret ||
+    !creds.accessToken ||
+    !creds.accessSecret
+  ) {
+    return { ok: false, code: "not_configured" };
+  }
+  const linkInReply = (s?.x_link_in_reply ?? 1) !== 0;
+  let origin = "";
+  try {
+    if (s?.public_domain) origin = new URL(s.public_domain).origin;
+  } catch {
+    /* invalid public_domain */
+  }
+  if (!origin) return { ok: false, code: "no_public_domain" };
+
+  const doc = await env.DB.prepare(
+    "SELECT tid, slug, initial_lang, sns_x_posted_at FROM documents WHERE did = ? AND mode = 1",
+  )
+    .bind(did)
+    .first<{
+      tid: string;
+      slug: string;
+      initial_lang: string;
+      sns_x_posted_at: string | null;
+    }>();
+  if (!doc) return { ok: false, code: "not_published" };
+  if (doc.sns_x_posted_at) return { ok: false, code: "already_posted" };
+
+  const tl = await env.DB.prepare(
+    "SELECT title, summary, seo_json FROM document_translations WHERE did = ? AND lang = ?",
+  )
+    .bind(did, doc.initial_lang)
+    .first<{
+      title: string | null;
+      summary: string | null;
+      seo_json: string | null;
+    }>();
+  const title = (tl?.title ?? doc.slug).trim() || doc.slug;
+  const summary = (tl?.summary ?? "").trim();
+  const url = `${origin}/${doc.tid}/${doc.slug}/`;
+
+  const cover = await prepareSnsCoverImage(
+    env,
+    did,
+    tl?.seo_json ?? null,
+    "x_cover_prepare_failed",
+  );
+  if (!cover.ok) return { ok: false, code: "cover_failed" };
+
+  try {
+    await postToX(creds, title, summary, url, cover.image, linkInReply);
+  } catch (error) {
+    console.warn(
+      JSON.stringify({
+        event: "x_post_failed",
+        did,
+        error: error instanceof Error ? error.message : String(error),
+      }),
+    );
+    return { ok: false, code: "post_failed" };
+  }
+
+  const postedAt = nowIso();
+  await env.DB.prepare(
+    "UPDATE documents SET sns_x_posted_at = ? WHERE did = ? AND sns_x_posted_at IS NULL",
+  )
+    .bind(postedAt, did)
+    .run();
+  return { ok: true, postedAt };
+}
+
+/** On-demand "投稿" button for X (mirrors postDocumentToBluesky). */
+async function postDocumentToX(
+  env: Env,
+  user: AuthUser,
+  did: string,
+): Promise<Response> {
+  requireAuthor(user);
+  const result = await postXForDoc(env, did);
+  if (result.ok) {
+    await logActivity(env, user, "document.sns_post", "document", did, {
+      x: true,
+    });
+    return json({
+      did,
+      x: { posted: true, postedAt: result.postedAt },
+    });
+  }
+  const failures: Record<string, [number, string]> = {
+    not_configured: [400, "X is not configured in Settings → SNS."],
+    no_public_domain: [400, "Set the site's public domain first."],
+    not_published: [409, "Publish the article before posting to X."],
+    already_posted: [409, "This article was already posted to X."],
+    cover_failed: [502, "The cover image could not be prepared for X."],
+    post_failed: [502, "Posting to X failed. Check your credentials."],
+  };
+  const [status, message] = failures[result.code] ?? [500, "Posting failed."];
+  throw new HttpError(status, "x_" + result.code, message);
+}
+
 // REST: read / set the per-article Bluesky "already posted" flag.
 //   GET /api/documents/:did/sns        -> { did, bsky: { posted, postedAt } }
 //   PUT /api/documents/:did/sns {bsky}  -> bsky:true marks posted (so the "投稿"
@@ -3384,10 +3756,13 @@ async function documentSnsFlag(
 ): Promise<Response> {
   requireAuthor(user);
   const row = await env.DB.prepare(
-    "SELECT sns_bsky_posted_at FROM documents WHERE did = ?",
+    "SELECT sns_bsky_posted_at, sns_x_posted_at FROM documents WHERE did = ?",
   )
     .bind(did)
-    .first<{ sns_bsky_posted_at: string | null }>();
+    .first<{
+      sns_bsky_posted_at: string | null;
+      sns_x_posted_at: string | null;
+    }>();
   if (!row) {
     throw new HttpError(404, "document_not_found", "Document was not found.");
   }
@@ -3399,28 +3774,51 @@ async function documentSnsFlag(
         posted: !!row.sns_bsky_posted_at,
         postedAt: row.sns_bsky_posted_at ?? null,
       },
+      x: {
+        posted: !!row.sns_x_posted_at,
+        postedAt: row.sns_x_posted_at ?? null,
+      },
     });
   }
 
   if (request.method === "PUT") {
     const body = await readJson(request);
-    if (typeof body.bsky !== "boolean") {
+    const hasBsky = typeof body.bsky === "boolean";
+    const hasX = typeof body.x === "boolean";
+    if (!hasBsky && !hasX) {
       throw new HttpError(
         400,
         "invalid_field",
-        "bsky must be a boolean: true = mark posted, false = clear.",
+        "bsky or x must be a boolean: true = mark posted, false = clear.",
       );
     }
-    const postedAt = body.bsky ? nowIso() : null;
-    await env.DB.prepare(
-      "UPDATE documents SET sns_bsky_posted_at = ? WHERE did = ?",
-    )
-      .bind(postedAt, did)
-      .run();
+    let bskyAt = row.sns_bsky_posted_at;
+    let xAt = row.sns_x_posted_at;
+    if (hasBsky) {
+      bskyAt = body.bsky ? nowIso() : null;
+      await env.DB.prepare(
+        "UPDATE documents SET sns_bsky_posted_at = ? WHERE did = ?",
+      )
+        .bind(bskyAt, did)
+        .run();
+    }
+    if (hasX) {
+      xAt = body.x ? nowIso() : null;
+      await env.DB.prepare(
+        "UPDATE documents SET sns_x_posted_at = ? WHERE did = ?",
+      )
+        .bind(xAt, did)
+        .run();
+    }
     await logActivity(env, user, "document.sns_flag", "document", did, {
-      bsky: body.bsky,
+      ...(hasBsky ? { bsky: body.bsky === true } : {}),
+      ...(hasX ? { x: body.x === true } : {}),
     });
-    return json({ did, bsky: { posted: !!postedAt, postedAt } });
+    return json({
+      did,
+      bsky: { posted: !!bskyAt, postedAt: bskyAt },
+      x: { posted: !!xAt, postedAt: xAt },
+    });
   }
 
   throw new HttpError(405, "method_not_allowed", "Method is not allowed.");
@@ -7097,6 +7495,11 @@ const SETTINGS_COLS = new Set([
   "bluesky_feed_position",
   "bluesky_sid",
   "bluesky_token",
+  "x_api_key",
+  "x_api_secret",
+  "x_access_token",
+  "x_access_secret",
+  "x_link_in_reply",
   "sns_auto_post",
   "threads_handle",
   "threads_show_feed",

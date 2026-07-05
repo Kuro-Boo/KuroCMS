@@ -272,6 +272,34 @@ async function settings() {
       "<div class='muted'>" +
       escapeHtml(t("blueskyAppPasswordHelp")) +
       "</div><input id='blueskyToken' type='password' placeholder='xxxx-xxxx-xxxx-xxxx' /></label>" +
+      // ── X (Twitter) auto-post: OAuth 1.0a credentials + link mode ──
+      "<hr style='margin:18px 0;border:0;border-top:1px solid var(--line)' />" +
+      "<div class='sectionLabel' style='margin-bottom:6px'>" +
+      escapeHtml(t("xSettingsTitle")) +
+      "</div>" +
+      "<div class='muted' style='margin-bottom:10px'>" +
+      escapeHtml(t("xCredsHelp")) +
+      "</div>" +
+      "<label style='margin-bottom:10px'>" +
+      escapeHtml(t("xApiKey")) +
+      "<input id='xApiKey' type='password' autocomplete='off' /></label>" +
+      "<label style='margin-bottom:10px'>" +
+      escapeHtml(t("xApiSecret")) +
+      "<input id='xApiSecret' type='password' autocomplete='off' /></label>" +
+      "<label style='margin-bottom:10px'>" +
+      escapeHtml(t("xAccessToken")) +
+      "<input id='xAccessToken' type='password' autocomplete='off' /></label>" +
+      "<label style='margin-bottom:10px'>" +
+      escapeHtml(t("xAccessSecret")) +
+      "<input id='xAccessSecret' type='password' autocomplete='off' /></label>" +
+      "<label style='display:flex;align-items:center;gap:8px;margin:12px 0 4px;cursor:pointer'>" +
+      "<input id='xLinkInReply' type='checkbox' checked style='width:auto;margin:0' />" +
+      "<span>" +
+      escapeHtml(t("xLinkInReply")) +
+      "</span></label>" +
+      "<div class='muted' style='margin-bottom:6px'>" +
+      escapeHtml(t("xLinkInReplyHelp")) +
+      "</div>" +
       "<div style='margin-top:16px;display:flex;justify-content:flex-end'><button type='submit'>" +
       escapeHtml(t("saveSiteSettings")) +
       "</button></div>" +
@@ -729,6 +757,16 @@ async function settings() {
     if (s.blueskyTokenSet) {
       byId("blueskyToken")!.placeholder = "•••••••••••• ✓";
     }
+    // X credentials: never echoed back; show a "set" placeholder instead.
+    for (const [flag, inputId] of [
+      [s.xApiKeySet, "xApiKey"],
+      [s.xApiSecretSet, "xApiSecret"],
+      [s.xAccessTokenSet, "xAccessToken"],
+      [s.xAccessSecretSet, "xAccessSecret"],
+    ] as Array<[boolean, string]>) {
+      if (flag) byId(inputId)!.placeholder = "•••••••••••• ✓";
+    }
+    byId("xLinkInReply")!.checked = s.xLinkInReply !== false;
     // Auto-generate Bluesky SID if not set
     if (!s.blueskySid && s.blueskyHandle) {
       s.blueskySid = "sns-001";
@@ -1897,6 +1935,11 @@ async function settings() {
             blueskyHandle: (byId("blueskyHandle")?.value || "").trim(),
             blueskySid: bSid,
             blueskyToken: (byId("blueskyToken")?.value || "").trim(),
+            xApiKey: (byId("xApiKey")?.value || "").trim(),
+            xApiSecret: (byId("xApiSecret")?.value || "").trim(),
+            xAccessToken: (byId("xAccessToken")?.value || "").trim(),
+            xAccessSecret: (byId("xAccessSecret")?.value || "").trim(),
+            xLinkInReply: !!byId("xLinkInReply")?.checked,
             ...extraFields,
           }),
         });

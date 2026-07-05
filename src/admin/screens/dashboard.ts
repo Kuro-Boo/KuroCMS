@@ -727,25 +727,35 @@ async function articles() {
       }
       return;
     }
+    // Service helpers: "bsky" | "x" share the same flag/post plumbing.
+    function snsServiceLabel(service: string) {
+      return service === "x" ? "X" : "Bluesky";
+    }
+    function snsDocField(service: string) {
+      return service === "x" ? "sns_x_posted_at" : "sns_bsky_posted_at";
+    }
     const snsClearEl = e.target.closest("[data-sns-clear]");
     if (snsClearEl) {
       if (state.preview) return;
       const clearDid = snsClearEl.dataset.snsClear;
+      const clearSvc = snsClearEl.dataset.snsService || "bsky";
       if (!clearDid) return;
       openEntryDialog(
-        t("snsClearTitle"),
+        t("snsClearTitle") + " — " + snsServiceLabel(clearSvc),
         "<p class='muted'>" + escapeHtml(t("snsClearConfirm")) + "</p>",
         t("snsClearBtn"),
         async function (_: Dynamic, close: Dynamic) {
           try {
+            const body: Dynamic = {};
+            body[clearSvc] = false;
             await api("/api/documents/" + clearDid + "/sns", {
               method: "PUT",
-              body: JSON.stringify({ bsky: false }),
+              body: JSON.stringify(body),
             });
             const doc: Dynamic = allDocs.find(function (d) {
               return d.did === clearDid;
             });
-            if (doc) doc.sns_bsky_posted_at = null;
+            if (doc) doc[snsDocField(clearSvc)] = null;
             close();
             renderList();
             toast(t("snsClearDone"), false);
@@ -760,11 +770,12 @@ async function articles() {
     if (snsBtn) {
       if (state.preview) return;
       const snsDid = snsBtn.dataset.snsPost;
+      const snsSvc = snsBtn.dataset.snsService || "bsky";
       if (!snsDid) return;
       openEntryDialog(
-        t("snsPostBtn") + " — Bluesky",
+        t("snsPostBtn") + " — " + snsServiceLabel(snsSvc),
         "<p class='muted'>" +
-          escapeHtml(t("snsPostConfirm")) +
+          escapeHtml(t(snsSvc === "x" ? "snsPostConfirmX" : "snsPostConfirm")) +
           "</p>" +
           "<p class='muted' style='font-size:11px;margin-top:4px'>" +
           escapeHtml(t("snsMarkOnlyHelp")) +
@@ -774,15 +785,16 @@ async function articles() {
           snsBtn.disabled = true;
           try {
             const res = await api(
-              "/api/documents/" + snsDid + "/sns/bsky/post",
+              "/api/documents/" + snsDid + "/sns/" + snsSvc + "/post",
               { method: "POST" },
             );
             const doc: Dynamic = allDocs.find(function (d) {
               return d.did === snsDid;
             });
             if (doc)
-              doc.sns_bsky_posted_at =
-                res.bsky?.postedAt || new Date().toISOString();
+              doc[snsDocField(snsSvc)] =
+                (res[snsSvc] && res[snsSvc].postedAt) ||
+                new Date().toISOString();
             close();
             renderList();
             toast(t("snsPostDone"), false);
@@ -793,7 +805,7 @@ async function articles() {
         },
       );
       // "Mark done without posting": sets the posted flag via PUT /sns without
-      // actually posting — for articles already announced on Bluesky (e.g.
+      // actually posting — for articles already announced on that SNS (e.g.
       // after re-creating/swapping an article under a new did). Inserted into
       // the dialog's action row so all three choices sit side by side
       // (mark-only | cancel | post), with only "post" as the accent button.
@@ -808,16 +820,19 @@ async function articles() {
         markBtn.addEventListener("click", async function () {
           markBtn.disabled = true;
           try {
+            const body: Dynamic = {};
+            body[snsSvc] = true;
             const res = await api("/api/documents/" + snsDid + "/sns", {
               method: "PUT",
-              body: JSON.stringify({ bsky: true }),
+              body: JSON.stringify(body),
             });
             const doc: Dynamic = allDocs.find(function (d) {
               return d.did === snsDid;
             });
             if (doc)
-              doc.sns_bsky_posted_at =
-                res.bsky?.postedAt || new Date().toISOString();
+              doc[snsDocField(snsSvc)] =
+                (res[snsSvc] && res[snsSvc].postedAt) ||
+                new Date().toISOString();
             const backdrop = dlgForm.closest(".popupBackdrop");
             if (backdrop) backdrop.remove();
             renderList();
@@ -923,15 +938,22 @@ function renderArticleTable(documents: Dynamic) {
       "</div>";
     // canPost: only Bluesky has a real posting integration. Unposted + postable
     // shows a green "投稿" button; other services stay as an unposted label.
-    function snsLine(label: string, postedAt: Dynamic, canPost: boolean) {
+    function snsLine(
+      label: string,
+      postedAt: Dynamic,
+      canPost: boolean,
+      service?: string,
+    ) {
       const posted = Boolean(postedAt);
       // A posted (and postable) line is clickable: it opens the clear-flag
-      // dialog (PUT /sns {bsky:false}) so the "投稿" button can come back.
-      const clearable = posted && canPost && !state.preview;
+      // dialog (PUT /sns {bsky/x:false}) so the "投稿" button can come back.
+      const clearable = posted && canPost && !state.preview && !!service;
       const value =
-        !posted && canPost
+        !posted && canPost && service
           ? "<button type='button' class='snsPostBtn' data-sns-post='" +
             escapeHtml(doc.did) +
+            "' data-sns-service='" +
+            escapeHtml(service) +
             "'" +
             (state.preview ? " disabled" : "") +
             ">" +
@@ -943,6 +965,8 @@ function renderArticleTable(documents: Dynamic) {
             (clearable
               ? " data-sns-clear='" +
                 escapeHtml(doc.did) +
+                "' data-sns-service='" +
+                escapeHtml(service || "") +
                 "' title='" +
                 escapeHtml(t("snsClearHint")) +
                 "'"
@@ -962,9 +986,9 @@ function renderArticleTable(documents: Dynamic) {
     }
     const snsStatusHtml =
       "<div class='snsStatusList'>" +
-      snsLine("BSKY", doc.sns_bsky_posted_at, true) +
+      snsLine("BSKY", doc.sns_bsky_posted_at, true, "bsky") +
       snsLine("THREADS", doc.sns_threads_posted_at, false) +
-      snsLine("X", doc.sns_x_posted_at, false) +
+      snsLine("X", doc.sns_x_posted_at, true, "x") +
       "</div>";
     const editHref = adminHref("/articles/" + escapeHtml(doc.did));
     const modeBtnStyle = isPublished
