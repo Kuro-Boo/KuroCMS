@@ -121,7 +121,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.7.50";
+export const KUROCMS_VERSION = "1.7.51";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -3526,6 +3526,31 @@ const X_UPLOAD_URL = "https://upload.twitter.com/1.1/media/upload.json";
 const X_TWEET_URL = "https://api.x.com/2/tweets";
 const X_URL_WEIGHT = 23;
 
+/** "Read more" lead-in for the link reply, per article language. Non-English
+ *  posts append "(Read more)" so the reply is readable to everyone. */
+const X_READMORE_LABELS: Record<string, string> = {
+  ja: "詳細はこちら",
+  en: "Read more",
+  ko: "자세히 보기",
+  zh: "查看详情",
+  de: "Mehr erfahren",
+  fr: "En savoir plus",
+  it: "Scopri di più",
+  es: "Más información",
+  uk: "Детальніше",
+};
+
+function xReplyText(lang: string, url: string): string {
+  const label = X_READMORE_LABELS[lang] || X_READMORE_LABELS.en;
+  const en =
+    lang === "en"
+      ? ""
+      : lang === "ja" || lang === "zh"
+        ? "（Read more）"
+        : " (Read more)";
+  return `📖 ${label}${en}\n${url}`;
+}
+
 /**
  * Post an article to X: parent tweet = cover image + title/summary text;
  * the article URL goes into a REPLY tweet by default (`linkInReply`) — on X's
@@ -3540,6 +3565,7 @@ async function postToX(
   url: string,
   image: { bytes: ArrayBuffer; mime: string } | null,
   linkInReply: boolean,
+  lang: string,
 ): Promise<void> {
   let mediaId = "";
   if (image) {
@@ -3599,7 +3625,7 @@ async function postToX(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        text: url,
+        text: xReplyText(lang, url),
         reply: { in_reply_to_tweet_id: parentId },
       }),
     });
@@ -3694,7 +3720,15 @@ async function postXForDoc(env: Env, did: string): Promise<XPostResult> {
   if (!cover.ok) return { ok: false, code: "cover_failed" };
 
   try {
-    await postToX(creds, title, summary, url, cover.image, linkInReply);
+    await postToX(
+      creds,
+      title,
+      summary,
+      url,
+      cover.image,
+      linkInReply,
+      doc.initial_lang || "en",
+    );
   } catch (error) {
     console.warn(
       JSON.stringify({
