@@ -238,9 +238,15 @@ async function settings() {
       // ── SNS ──────────────────────────────────────────────────────────
       "<div id='panel-sns' class='settingsPanel' style='display:none'>" +
       "<div class='panel stack'>" +
-      "<div class='panelHead'><h3>" +
-      escapeHtml(t("settingsTabSns")) +
-      "</h3><div class='toolbar'><button type='button' id='addSnsBtn'>" +
+      // Head: no redundant "SNS連動" heading (the tab above already says it);
+      // instead a small Bluesky/X switcher so only one card shows at a time
+      // (stacked cards get missed when the page grows long).
+      "<div class='panelHead'>" +
+      "<div class='toolbar' style='gap:6px'>" +
+      "<button type='button' class='secondary snsSvcTab active' data-sns-svc-tab='bsky' style='padding:5px 14px;font-size:13px;font-weight:700'>🦋 Bluesky</button>" +
+      "<button type='button' class='secondary snsSvcTab' data-sns-svc-tab='x' style='padding:5px 14px;font-size:13px;font-weight:700'>𝕏 X (Twitter)</button>" +
+      "</div>" +
+      "<div class='toolbar'><button type='button' id='addSnsBtn'>" +
       escapeHtml(t("addRegister")) +
       "</button></div></div>" +
       "<div id='snsList'>" +
@@ -277,8 +283,9 @@ async function settings() {
       "</button></div>" +
       "</form>" +
       "</div>" +
-      // ── X (Twitter) auto-post card: OAuth 1.0a credentials + link mode ──
-      "<form class='snsCard' id='xAutoPostForm' style='margin-top:14px'>" +
+      // ── X (Twitter) auto-post card: OAuth 1.0a credentials + link mode.
+      // Hidden until the 𝕏 switcher tab is selected. ──
+      "<form class='snsCard' id='xAutoPostForm' style='display:none'>" +
       "<div class='snsCardHead'>" +
       "<div class='snsCardTitle'><span style='font-size:18px'>𝕏</span> " +
       escapeHtml(t("xSettingsTitle")) +
@@ -792,6 +799,24 @@ async function settings() {
       },
     );
     // Bluesky is always shown as initial registration
+
+    // Bluesky / X card switcher (one card visible at a time).
+    document
+      .querySelectorAll<AdminElement>("[data-sns-svc-tab]")
+      .forEach(function (tabBtn) {
+        tabBtn.addEventListener("click", function () {
+          const svc = tabBtn.dataset.snsSvcTab;
+          document
+            .querySelectorAll<AdminElement>("[data-sns-svc-tab]")
+            .forEach(function (o) {
+              o.classList.toggle("active", o === tabBtn);
+            });
+          const bc = byId("blueskyCard");
+          const xc = byId("xAutoPostForm");
+          if (bc) bc.style.display = svc === "bsky" ? "" : "none";
+          if (xc) xc.style.display = svc === "x" ? "" : "none";
+        });
+      });
 
     // Add SNS button — includes Bluesky when not already shown
     byId("addSnsBtn")?.addEventListener("click", () => {

@@ -266,6 +266,9 @@ export function adminHtml(
       button.snsPostBtn:disabled { opacity: 0.5; cursor: not-allowed; }
       .snsStatusValue.snsClearable { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
       .snsStatusValue.snsClearable:hover { opacity: 0.75; }
+      .snsSvcTab { opacity: .5; }
+      .snsSvcTab:hover { opacity: .8; }
+      .snsSvcTab.active { opacity: 1; border-color: var(--accent) !important; color: var(--accent); }
       .snsStatusMobile { margin: 8px 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-2); }
       .catTag { display: inline-flex; align-items: center; gap: 3px; background: rgba(21,122,110,.10); color: var(--accent); border-radius: 12px; padding: 2px 8px 2px 10px; font-size: 12px; font-weight: 600; }
       .catTag button { display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; background: rgba(220,38,38,.65); border: none; border-radius: 50%; color: #fff; cursor: pointer; font-size: 9px; line-height: 1; padding: 0; flex-shrink: 0; }
