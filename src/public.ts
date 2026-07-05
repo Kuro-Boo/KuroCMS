@@ -19,7 +19,7 @@ import type { Env } from "./types";
 // can't see (e.g. the <head> content-CSS <link>, template-model shape). The
 // build salts every page hash with this, so cached builds are invalidated and
 // all pages regenerate even when their underlying content is unchanged.
-const RENDER_FORMAT_VERSION = "15";
+const RENDER_FORMAT_VERSION = "16";
 
 /** Cheap, synchronous string hash (FNV-1a, base36) for cache keys. Not crypto. */
 function cheapHash(s: string): string {
@@ -79,6 +79,9 @@ interface ArticleRow {
   body_html: string | null;
   seo_json: string | null;
   categories_json: string | null;
+  /** Author display name (users.display_name via documents.created_by).
+   *  Only selected by fetchArticleDetail; list queries leave it undefined. */
+  author_name?: string | null;
 }
 
 type TemplateContent = Record<string, string>;
@@ -258,8 +261,10 @@ async function fetchArticleDetail(
             COALESCE(NULLIF(NULLIF(dt_req.seo_json, ''), '{}'), NULLIF(NULLIF(dt_en.seo_json, ''), '{}'), NULLIF(NULLIF(dt_fb.seo_json, ''), '{}'), NULLIF(NULLIF(dt_init.seo_json, ''), '{}'), NULLIF(NULLIF(dt_site.seo_json, ''), '{}'), NULLIF(NULLIF(dt_any.seo_json, ''), '{}')) AS seo_json,
             (SELECT json_group_array(json_object('id',ti.id,'name',ti.name,'slug',COALESCE(ti.slug,ti.id),'count',0))
              FROM document_categories dc JOIN categories ti ON ti.id=dc.cid
-             WHERE dc.did=d.did ORDER BY ti.name) AS categories_json
+             WHERE dc.did=d.did ORDER BY ti.name) AS categories_json,
+            u.display_name AS author_name
      FROM documents d
+     LEFT JOIN users u ON u.uid = d.created_by
      LEFT JOIN document_translations dt_req ON dt_req.did = d.did AND dt_req.lang = ?
      LEFT JOIN document_translations dt_fb ON dt_fb.did = d.did AND dt_fb.lang = d.fallback_lang
      LEFT JOIN document_translations dt_init ON dt_init.did = d.did AND dt_init.lang = d.initial_lang
@@ -1243,6 +1248,19 @@ async function buildRenderContext(
   content["_bluesky-show-feed"] = settings.bluesky_show_feed || "false";
   content["_bluesky-feed-position"] = settings.bluesky_feed_position || "left";
 
+  // Site-owner display name, for the About page's ProfilePage JSON-LD
+  // (earliest-created admin = the installer-created owner account).
+  if (path === "/about/" || path === "/about") {
+    const owner = await env.DB.prepare(
+      `SELECT display_name FROM users
+       WHERE is_admin = 1 AND TRIM(COALESCE(display_name, '')) != ''
+       ORDER BY created_at ASC LIMIT 1`,
+    )
+      .first<{ display_name: string }>()
+      .catch(() => null);
+    content["_author-name"] = (owner?.display_name || "").trim();
+  }
+
   const availableLangs =
     prefetch?.availableLangs ??
     (await env.DB.prepare(
@@ -1292,16 +1310,26 @@ async function buildRenderContext(
         /* ignore */
       }
     }
+    // CMS-appended byline (visible authorship for E-E-A-T; matches the
+    // Person author emitted in the article JSON-LD). Skipped when the
+    // creating user has no display name.
+    const authorName = (r.author_name || "").trim();
+    const bodyWithByline =
+      (expandedBody.body || "") +
+      (authorName
+        ? buildBylineHtml(authorName, basePath, lang, defaultLang)
+        : "");
     article = {
       slug: r.slug,
       type: r.tid,
       title: r.title || r.slug,
       summary: r.summary || "",
-      bodyHtml: wrapKuroContent(expandedBody.body || ""),
+      bodyHtml: wrapKuroContent(bodyWithByline),
       publishAt: r.publish_at,
       updatedAt: r.updated_at,
       coverUrl: articleCover,
       date: formatCardDate(r.publish_at).date,
+      authorName: authorName || null,
     };
   }
 
@@ -1791,11 +1819,22 @@ function injectSeoHead(
         ...(article.publishAt ? { datePublished: article.publishAt } : {}),
         ...(article.updatedAt ? { dateModified: article.updatedAt } : {}),
         ...(description ? { description } : {}),
-        ...(siteName
+        // Author: a named Person linking to the About page (E-E-A-T; pairs
+        // with the visible byline the CMS appends to the body). Falls back to
+        // the site Organization when the creating user has no display name.
+        ...(article.authorName
           ? {
-              author: { "@type": "Organization", name: siteName },
-              publisher: { "@type": "Organization", name: siteName },
+              author: {
+                "@type": "Person",
+                name: article.authorName,
+                url: `${siteBase}/about/`,
+              },
             }
+          : siteName
+            ? { author: { "@type": "Organization", name: siteName } }
+            : {}),
+        ...(siteName
+          ? { publisher: { "@type": "Organization", name: siteName } }
           : {}),
         ...(canonical
           ? { mainEntityOfPage: { "@type": "WebPage", "@id": canonical } }
@@ -1836,6 +1875,29 @@ function injectSeoHead(
           item: it.item,
         })),
       });
+    } else if (path === "/about/" || path === "/about") {
+      // About = the author profile page: ProfilePage with a Person entity.
+      // This is the page article JSON-LD author.url points at, closing the
+      // author-identity loop. sameAs strengthens the entity with the site's
+      // configured social profiles.
+      const ownerName = (ctx.content["_author-name"] || "").trim();
+      if (ownerName) {
+        const sameAs: string[] = [];
+        if (settings.bluesky_handle)
+          sameAs.push(
+            `https://bsky.app/profile/${encodeURIComponent(settings.bluesky_handle)}`,
+          );
+        jsonLd.push({
+          "@context": "https://schema.org",
+          "@type": "ProfilePage",
+          mainEntity: {
+            "@type": "Person",
+            name: ownerName,
+            url: `${siteBase}/about/`,
+            ...(sameAs.length ? { sameAs } : {}),
+          },
+        });
+      }
     } else if (path === "/" || path === "") {
       jsonLd.push({
         "@context": "https://schema.org",
@@ -1934,6 +1996,42 @@ function adminAssetBase(env: Env): string {
 function wrapKuroContent(html: string): string {
   const h = (html || "").trim();
   return h ? `<div class="kuro-content">${html}</div>` : "";
+}
+
+/** "Written by" label per site language (falls back to English). */
+const BYLINE_LABELS: Record<string, string> = {
+  ja: "筆者",
+  en: "Written by",
+  ko: "글쓴이",
+  zh: "作者",
+  de: "Autor",
+  fr: "Auteur",
+  it: "Autore",
+  es: "Autor",
+  uk: "Автор",
+};
+
+/**
+ * Author byline appended to the article body by the CMS (templates need not
+ * author it — same policy as injectSeoHead). Links to /about/ in the page's
+ * language so the visible byline matches the Person author in JSON-LD, which
+ * is what E-E-A-T evaluation cross-checks. Inline styles only — must render
+ * on non-Tailwind templates too.
+ */
+function buildBylineHtml(
+  authorName: string,
+  basePath: string,
+  lang: string,
+  defaultLang: string,
+): string {
+  const label = BYLINE_LABELS[lang] || BYLINE_LABELS.en;
+  const href =
+    `${basePath}/about/` +
+    (lang && lang !== defaultLang ? `?lang=${encodeURIComponent(lang)}` : "");
+  return (
+    `<div class="kuro-byline" style="margin-top:2.5rem;padding-top:.9rem;border-top:1px solid rgba(128,128,128,.3);font-size:.85rem;opacity:.85">` +
+    `${seoText(label)}: <a href="${seoAttr(href)}" rel="author">${seoText(authorName)}</a></div>`
+  );
 }
 
 function injectContentStyles(html: string, basePath: string): string {

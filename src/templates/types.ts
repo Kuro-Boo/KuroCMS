@@ -52,6 +52,9 @@ export interface ArticleData {
   coverUrl?: string | null;
   /** Build-time fallback date for the article header. */
   date?: string;
+  /** Author display name (users.display_name via documents.created_by).
+   *  Empty/undefined when the creating user has no display name. */
+  authorName?: string | null;
 }
 
 /**
