@@ -121,7 +121,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.7.51";
+export const KUROCMS_VERSION = "1.7.52";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -3566,6 +3566,7 @@ async function postToX(
   image: { bytes: ArrayBuffer; mime: string } | null,
   linkInReply: boolean,
   lang: string,
+  tags: string[],
 ): Promise<void> {
   let mediaId = "";
   if (image) {
@@ -3592,10 +3593,21 @@ async function postToX(
     if (!mediaId) throw new Error("x media upload returned no media_id");
   }
 
+  // Hashtags: up to 3 from the article's per-language hashtag list, appended
+  // to the parent post (X still uses them for search/topic grouping; more than
+  // a few reads as spam). They are reserved out of the weighted budget first.
+  const tagsText = tags
+    .map((t) => String(t || "").replace(/[\s#]+/g, ""))
+    .filter(Boolean)
+    .slice(0, 3)
+    .map((t) => `#${t}`)
+    .join(" ");
   let budget = 280;
   if (!linkInReply) budget -= X_URL_WEIGHT + 2; // "\n\n" + wrapped URL
+  if (tagsText) budget -= xWeightedLength(tagsText) + 2; // "\n\n" + tags
   let text = summary ? `${title}\n\n${summary}` : title;
   text = xTrimToWeight(text, budget);
+  if (tagsText) text = `${text}\n\n${tagsText}`;
   if (!linkInReply) text = `${text}\n\n${url}`;
 
   const parentBody: Record<string, unknown> = { text };
@@ -3699,17 +3711,26 @@ async function postXForDoc(env: Env, did: string): Promise<XPostResult> {
   if (doc.sns_x_posted_at) return { ok: false, code: "already_posted" };
 
   const tl = await env.DB.prepare(
-    "SELECT title, summary, seo_json FROM document_translations WHERE did = ? AND lang = ?",
+    "SELECT title, summary, seo_json, hashtag_json FROM document_translations WHERE did = ? AND lang = ?",
   )
     .bind(did, doc.initial_lang)
     .first<{
       title: string | null;
       summary: string | null;
       seo_json: string | null;
+      hashtag_json: string | null;
     }>();
   const title = (tl?.title ?? doc.slug).trim() || doc.slug;
   const summary = (tl?.summary ?? "").trim();
   const url = `${origin}/${doc.tid}/${doc.slug}/`;
+  let tags: string[] = [];
+  try {
+    const parsed = tl?.hashtag_json ? JSON.parse(tl.hashtag_json) : [];
+    if (Array.isArray(parsed))
+      tags = parsed.filter((t): t is string => typeof t === "string");
+  } catch {
+    /* ignore malformed hashtag_json */
+  }
 
   const cover = await prepareSnsCoverImage(
     env,
@@ -3728,6 +3749,7 @@ async function postXForDoc(env: Env, did: string): Promise<XPostResult> {
       cover.image,
       linkInReply,
       doc.initial_lang || "en",
+      tags,
     );
   } catch (error) {
     console.warn(
