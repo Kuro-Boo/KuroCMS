@@ -5,6 +5,7 @@ import { handleApi } from "./api";
 import { html, notFound } from "./http";
 import {
   buildCountsJs,
+  buildLlmsTxt,
   buildRobotsTxt,
   buildRssXml,
   buildSitemapXml,
@@ -138,6 +139,15 @@ export default {
       }
       if (publicPath === "/robots.txt") {
         return new Response(await buildRobotsTxt(env), {
+          headers: {
+            "Content-Type": "text/plain; charset=utf-8",
+            "Cache-Control": "public, max-age=300, s-maxage=600",
+          },
+        });
+      }
+      // llms.txt (llmstxt.org): curated markdown site index for AI crawlers.
+      if (publicPath === "/llms.txt") {
+        return new Response(await buildLlmsTxt(env), {
           headers: {
             "Content-Type": "text/plain; charset=utf-8",
             "Cache-Control": "public, max-age=300, s-maxage=600",

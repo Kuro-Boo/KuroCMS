@@ -3370,6 +3370,81 @@ export async function buildRobotsTxt(env: Env): Promise<string> {
 }
 
 /**
+ * llms.txt (https://llmstxt.org): a curated markdown site index for LLMs / AI
+ * crawlers — site name + description, then every published article per type
+ * with its summary, then utility pages. Complements robots.txt's
+ * ai-input=yes Content-Signal: the signal welcomes AI reading, llms.txt tells
+ * the AI what is worth reading. Article descriptions come from the existing
+ * per-language summary, so no extra authoring is needed. Served at /llms.txt;
+ * edge-cached only, never written to KV.
+ */
+export async function buildLlmsTxt(env: Env): Promise<string> {
+  const settings = await fetchSettings(env);
+  const origin = publicOrigin(settings);
+  const base = origin + (settings.base_path || "");
+  const lang = settings.default_lang || "en";
+  const siteName = settings.site_name || "KuroCMS";
+  const siteDesc = seoDescription(settings.site_description || "", 500);
+  const includeFuture = (await getBuildMode(env)) === "always";
+
+  const registered = await fetchRegisteredLangs(env);
+  const types = await fetchTypesWithCounts(env);
+
+  // Markdown-safe single line: collapse whitespace, escape link brackets.
+  const md = (s: string) =>
+    String(s || "")
+      .replace(/\s+/g, " ")
+      .replace(/([[\]])/g, "\\$1")
+      .trim();
+
+  const lines: string[] = [];
+  lines.push(`# ${md(siteName)}`);
+  lines.push("");
+  if (siteDesc) {
+    lines.push(`> ${md(siteDesc)}`);
+    lines.push("");
+  }
+  if (registered.length > 1) {
+    const others = registered.filter((l) => l && l !== lang);
+    lines.push(
+      `- Default language: ${lang}. Also available: ${others.join(", ")} (append ?lang=CODE to any URL).`,
+    );
+    lines.push("");
+  }
+
+  for (const t of types) {
+    const rows = await fetchArticlesByType(
+      env,
+      t.slug,
+      lang,
+      lang,
+      1,
+      100,
+      includeFuture,
+    );
+    if (!rows.length) continue;
+    lines.push(`## ${md(t.name || t.slug)}`);
+    lines.push("");
+    for (const r of rows) {
+      const link = `${base}/${r.tid}/${r.slug}/`;
+      const desc = seoDescription(r.summary || "", 200);
+      lines.push(
+        `- [${md(r.title || r.slug)}](${link})${desc ? `: ${md(desc)}` : ""}`,
+      );
+    }
+    lines.push("");
+  }
+
+  lines.push("## Pages");
+  lines.push("");
+  lines.push(`- [About](${base}/about/)`);
+  lines.push(`- [Sitemap](${base}/sitemap.xml)`);
+  lines.push(`- [RSS](${base}/rss.xml)`);
+  lines.push("");
+  return lines.join("\n");
+}
+
+/**
  * Resolve the site favicon to a servable media URL (basePath-prefixed,
  * cache-versioned), from the 'favicon' (preferred) or 'icon' site-text image.
  * Returns null when neither is set. Used by the /favicon.* redirect routes.
