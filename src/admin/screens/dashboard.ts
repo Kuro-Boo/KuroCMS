@@ -734,7 +734,15 @@ async function articles() {
       if (!snsDid) return;
       openEntryDialog(
         t("snsPostBtn") + " — Bluesky",
-        "<p class='muted'>" + escapeHtml(t("snsPostConfirm")) + "</p>",
+        "<p class='muted'>" +
+          escapeHtml(t("snsPostConfirm")) +
+          "</p>" +
+          "<button type='button' class='secondary' id='snsMarkOnlyBtn'>" +
+          escapeHtml(t("snsMarkOnlyBtn")) +
+          "</button>" +
+          "<p class='muted' style='font-size:11px;margin-top:4px'>" +
+          escapeHtml(t("snsMarkOnlyHelp")) +
+          "</p>",
         t("snsPostBtn"),
         async function (_: Dynamic, close: Dynamic) {
           snsBtn.disabled = true;
@@ -758,6 +766,34 @@ async function articles() {
           }
         },
       );
+      // "Mark as posted only": sets the posted flag via PUT /sns without
+      // actually posting — for articles already announced on Bluesky (e.g.
+      // after re-creating/swapping an article under a new did).
+      const markBtn = byId("snsMarkOnlyBtn");
+      if (markBtn)
+        markBtn.addEventListener("click", async function () {
+          markBtn.disabled = true;
+          try {
+            const res = await api("/api/documents/" + snsDid + "/sns", {
+              method: "PUT",
+              body: JSON.stringify({ bsky: true }),
+            });
+            const doc: Dynamic = allDocs.find(function (d) {
+              return d.did === snsDid;
+            });
+            if (doc)
+              doc.sns_bsky_posted_at =
+                res.bsky?.postedAt || new Date().toISOString();
+            const dlgForm = byId("entryDialogForm");
+            const backdrop = dlgForm && dlgForm.closest(".popupBackdrop");
+            if (backdrop) backdrop.remove();
+            renderList();
+            toast(t("snsMarkOnlyDone"), false);
+          } catch (err) {
+            toast(errorMessage(err), true);
+            markBtn.disabled = false;
+          }
+        });
       return;
     }
     const btn = e.target.closest("[data-did][data-mode]");

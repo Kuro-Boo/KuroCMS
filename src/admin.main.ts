@@ -937,6 +937,10 @@ const i18n = {
     snsPostConfirm:
       "Post this article to Bluesky now (title, link, cover image)?",
     snsPostDone: "Posted to Bluesky.",
+    snsMarkOnlyBtn: "Mark as posted only",
+    snsMarkOnlyHelp:
+      "Sets the posted flag without actually posting — for articles already announced on Bluesky (e.g. after re-creating an article).",
+    snsMarkOnlyDone: "Marked as posted (no post sent).",
     statusActionsHeader: "Status / Actions",
     langsSuffix: " lang(s)",
     updatedSuffix: " updated",
@@ -1798,6 +1802,10 @@ const i18n = {
     snsPostConfirm:
       "この記事を Bluesky に投稿しますか？（タイトル・リンク・カバー画像）",
     snsPostDone: "Bluesky に投稿しました。",
+    snsMarkOnlyBtn: "投稿完了だけ設定",
+    snsMarkOnlyHelp:
+      "実際には投稿せず、投稿済みフラグだけをONにします（記事の差し替えなどで既にBluesky投稿済みの場合に）。",
+    snsMarkOnlyDone: "投稿済みに設定しました（投稿は送信していません）。",
     statusActionsHeader: "状態 / 操作",
     langsSuffix: "言語",
     updatedSuffix: "更新",
