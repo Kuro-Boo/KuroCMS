@@ -957,6 +957,8 @@ const i18n = {
     xAccessToken: "Access Token",
     xAccessSecret: "Access Token Secret",
     xLinkInReply: "Send the article link as a reply (2 posts)",
+    snsXUseAutoPost:
+      'Posting credentials are configured in the "X (Twitter) Auto-Post" section above (API Key / Secret, Access Token / Secret). This card is only the handle + SID for feed display (planned).',
     xLinkInReplyHelp:
       "On X's API pricing, posts containing a link can be billed at a higher rate. When ON, each article is posted as a parent post (image + text) plus a reply carrying the link — roughly $0.015 + $0.015 ≈ $0.03 per article. When OFF, a single post includes the link in the body.",
     statusActionsHeader: "Status / Actions",
@@ -1842,6 +1844,8 @@ const i18n = {
     xAccessToken: "Access Token",
     xAccessSecret: "Access Token Secret",
     xLinkInReply: "リンクはリプライで投稿（2通に分割）",
+    snsXUseAutoPost:
+      "投稿用の認証情報は、上の「X (Twitter) 自動投稿」欄で設定します（API Key / Secret・Access Token / Secret の4つ）。このカードはハンドルとSID（フィード表示・将来対応）のみです。",
     xLinkInReplyHelp:
       "X APIでは本文にリンクを含む投稿は高い料金区分になる場合があります。ONにすると親ポスト（画像＋本文）→リプライ（記事リンク）の2通に分けて投稿し、費用を抑えます（目安: $0.015＋$0.015＝約$0.03/記事・約5円）。OFFにすると1通の本文にリンクを含めて投稿します。",
     statusActionsHeader: "状態 / 操作",

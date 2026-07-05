@@ -272,10 +272,17 @@ async function settings() {
       "<div class='muted'>" +
       escapeHtml(t("blueskyAppPasswordHelp")) +
       "</div><input id='blueskyToken' type='password' placeholder='xxxx-xxxx-xxxx-xxxx' /></label>" +
-      // ── X (Twitter) auto-post: OAuth 1.0a credentials + link mode ──
-      "<hr style='margin:18px 0;border:0;border-top:1px solid var(--line)' />" +
-      "<div class='sectionLabel' style='margin-bottom:6px'>" +
+      "<div style='margin-top:16px;display:flex;justify-content:flex-end'><button type='submit'>" +
+      escapeHtml(t("saveSiteSettings")) +
+      "</button></div>" +
+      "</form>" +
+      "</div>" +
+      // ── X (Twitter) auto-post card: OAuth 1.0a credentials + link mode ──
+      "<form class='snsCard' id='xAutoPostForm' style='margin-top:14px'>" +
+      "<div class='snsCardHead'>" +
+      "<div class='snsCardTitle'><span style='font-size:18px'>𝕏</span> " +
       escapeHtml(t("xSettingsTitle")) +
+      "</div>" +
       "</div>" +
       "<div class='muted' style='margin-bottom:10px'>" +
       escapeHtml(t("xCredsHelp")) +
@@ -304,7 +311,6 @@ async function settings() {
       escapeHtml(t("saveSiteSettings")) +
       "</button></div>" +
       "</form>" +
-      "</div>" +
       "<div id='extraSnsCards'></div>" +
       "</div>" +
       "</div>" +
@@ -850,21 +856,27 @@ async function settings() {
             "</div><input id='snsHandle_" +
             escapeHtml(svc) +
             "' placeholder='@yourname' /></label>" +
-            "<label style='margin-bottom:8px'><div class='muted' style='margin-bottom:4px'>" +
-            escapeHtml(t("snsAccessToken")) +
-            "</div><input id='snsToken_" +
-            escapeHtml(svc) +
-            "' type='password' placeholder='API token / App Password' /></label>" +
-            (svc === "mastodon"
-              ? "<label style='margin-bottom:8px'><div class='muted' style='margin-bottom:4px'>" +
-                escapeHtml(t("snsInstanceUrl")) +
-                "</div><input id='snsEndpoint_" +
+            // X: posting credentials live in the "X (Twitter) Auto-Post"
+            // section of the SNS form above — no token input here.
+            (svc === "x"
+              ? "<p class='muted' style='font-size:11px;margin-top:4px'>" +
+                escapeHtml(t("snsXUseAutoPost")) +
+                "</p>"
+              : "<label style='margin-bottom:8px'><div class='muted' style='margin-bottom:4px'>" +
+                escapeHtml(t("snsAccessToken")) +
+                "</div><input id='snsToken_" +
                 escapeHtml(svc) +
-                "' placeholder='https://mastodon.social' /></label>"
-              : "") +
-            "<p class='muted' style='font-size:11px;margin-top:4px'>" +
-            escapeHtml(t("snsApiComingSoon")) +
-            "</p>";
+                "' type='password' placeholder='API token / App Password' /></label>" +
+                (svc === "mastodon"
+                  ? "<label style='margin-bottom:8px'><div class='muted' style='margin-bottom:4px'>" +
+                    escapeHtml(t("snsInstanceUrl")) +
+                    "</div><input id='snsEndpoint_" +
+                    escapeHtml(svc) +
+                    "' placeholder='https://mastodon.social' /></label>"
+                  : "") +
+                "<p class='muted' style='font-size:11px;margin-top:4px'>" +
+                escapeHtml(t("snsApiComingSoon")) +
+                "</p>");
           card
             .querySelector<AdminElement>(".sns-copy-sid")
             ?.addEventListener("click", async function (e: Dynamic) {
@@ -1950,7 +1962,7 @@ async function settings() {
       }
     }
 
-    for (const formId of ["siteForm", "snsForm"]) {
+    for (const formId of ["siteForm", "snsForm", "xAutoPostForm"]) {
       byId(formId)?.addEventListener("submit", async (event: Dynamic) => {
         event.preventDefault();
         const btn =
