@@ -936,7 +936,7 @@ const i18n = {
     snsPostBtn: "Post",
     snsPostConfirm:
       "Post this article to Bluesky now (title, link, cover image)?",
-    snsPostDone: "Posted to Bluesky.",
+    snsPostDone: "Posted to {service}.",
     snsMarkOnlyBtn: "Mark done without posting",
     snsMarkOnlyHelp:
       "Sets the posted flag without actually posting — for articles already announced on this SNS (e.g. after re-creating an article).",
@@ -1823,7 +1823,7 @@ const i18n = {
     snsPostBtn: "投稿",
     snsPostConfirm:
       "この記事を Bluesky に投稿しますか？（タイトル・リンク・カバー画像）",
-    snsPostDone: "Bluesky に投稿しました。",
+    snsPostDone: "{service} に投稿しました。",
     snsMarkOnlyBtn: "実際に投稿せず完了とする",
     snsMarkOnlyHelp:
       "実際には投稿せず、投稿済みフラグだけをONにします（記事の差し替えなどで既に投稿済みの場合に）。",

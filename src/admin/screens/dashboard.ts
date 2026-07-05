@@ -797,7 +797,10 @@ async function articles() {
                 new Date().toISOString();
             close();
             renderList();
-            toast(t("snsPostDone"), false);
+            toast(
+              t("snsPostDone").replace("{service}", snsServiceLabel(snsSvc)),
+              false,
+            );
           } catch (err) {
             toast(errorMessage(err), true);
             snsBtn.disabled = false;
