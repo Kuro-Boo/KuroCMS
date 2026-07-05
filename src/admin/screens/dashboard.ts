@@ -737,9 +737,6 @@ async function articles() {
         "<p class='muted'>" +
           escapeHtml(t("snsPostConfirm")) +
           "</p>" +
-          "<button type='button' class='secondary' id='snsMarkOnlyBtn'>" +
-          escapeHtml(t("snsMarkOnlyBtn")) +
-          "</button>" +
           "<p class='muted' style='font-size:11px;margin-top:4px'>" +
           escapeHtml(t("snsMarkOnlyHelp")) +
           "</p>",
@@ -766,11 +763,19 @@ async function articles() {
           }
         },
       );
-      // "Mark as posted only": sets the posted flag via PUT /sns without
+      // "Mark done without posting": sets the posted flag via PUT /sns without
       // actually posting — for articles already announced on Bluesky (e.g.
-      // after re-creating/swapping an article under a new did).
-      const markBtn = byId("snsMarkOnlyBtn");
-      if (markBtn)
+      // after re-creating/swapping an article under a new did). Inserted into
+      // the dialog's action row so all three choices sit side by side
+      // (mark-only | cancel | post), with only "post" as the accent button.
+      const dlgForm = byId("entryDialogForm");
+      const dlgCancel = byId("entryDialogCancel");
+      if (dlgForm && dlgCancel) {
+        const markBtn = document.createElement("button");
+        markBtn.type = "button";
+        markBtn.className = "secondary";
+        markBtn.textContent = t("snsMarkOnlyBtn");
+        dlgCancel.parentNode?.insertBefore(markBtn, dlgCancel);
         markBtn.addEventListener("click", async function () {
           markBtn.disabled = true;
           try {
@@ -784,8 +789,7 @@ async function articles() {
             if (doc)
               doc.sns_bsky_posted_at =
                 res.bsky?.postedAt || new Date().toISOString();
-            const dlgForm = byId("entryDialogForm");
-            const backdrop = dlgForm && dlgForm.closest(".popupBackdrop");
+            const backdrop = dlgForm.closest(".popupBackdrop");
             if (backdrop) backdrop.remove();
             renderList();
             toast(t("snsMarkOnlyDone"), false);
@@ -794,6 +798,7 @@ async function articles() {
             markBtn.disabled = false;
           }
         });
+      }
       return;
     }
     const btn = e.target.closest("[data-did][data-mode]");
