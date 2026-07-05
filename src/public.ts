@@ -2044,6 +2044,8 @@ export type BuildEvent =
       skipped: number;
       errors: number;
       more?: boolean;
+      /** Orphan page keys removed by the post-build sweep (final pass only). */
+      swept?: number;
     };
 
 // Thrown by the build loop when the per-invocation build budget is reached, so
@@ -2337,6 +2339,66 @@ export async function deleteArticlePages(
     .catch(() => {});
 }
 
+/** Cap on KV deletes per sweep pass: the sweep runs inside the final build
+ *  pass's leftover subrequest budget, so a pathological backlog is spread
+ *  across successive full builds instead of risking the invocation ceiling. */
+const SWEEP_DELETE_MAX = 100;
+
+/** Mark-and-sweep for leftover page keys, run after a COMPLETED full build.
+ *  Deletes `pageb:` / legacy `page:` KV keys whose path is not in
+ *  `expectedPaths`, then prunes page_build_cache rows for no-longer-expected
+ *  paths (a stale row would otherwise let a later build skip a page that no
+ *  longer exists in KV). Strictly prefix-scoped: the namespace also holds
+ *  non-page keys (admin-asset cache, `_cfg/*`, fonts, version cache) that
+ *  must never be touched. Returns the number of KV keys deleted. */
+async function sweepOrphanPages(
+  env: Env,
+  expectedPaths: Set<string>,
+): Promise<number> {
+  const kv = requirePublicPages(env);
+  // Compare in normalized key form (kvKey/kvKeyBundle strip the trailing "/").
+  const expected = new Set<string>();
+  for (const p of expectedPaths) expected.add(normPath(p));
+  let deleted = 0;
+  outer: for (const prefix of ["pageb:", "page:"]) {
+    let cursor: string | undefined;
+    do {
+      const listed = await kv.list({ prefix, cursor });
+      for (const k of listed.keys) {
+        // pageb:<path> / legacy page:<lang>:<path>
+        const rest = k.name.slice(prefix.length);
+        const path =
+          prefix === "pageb:" ? rest : rest.slice(rest.indexOf(":") + 1);
+        if (expected.has(path)) continue;
+        if (deleted >= SWEEP_DELETE_MAX) break outer;
+        await kv.delete(k.name);
+        deleted++;
+      }
+      cursor = listed.list_complete
+        ? undefined
+        : ((listed as { cursor?: string }).cursor ?? undefined);
+    } while (cursor);
+  }
+  const cacheRows = await env.DB.prepare(
+    "SELECT DISTINCT path FROM page_build_cache",
+  )
+    .all<{ path: string }>()
+    .catch(() => ({ results: [] as { path: string }[] }));
+  const stale = (cacheRows.results ?? [])
+    .map((r) => r.path)
+    .filter((p) => !expected.has(normPath(p)));
+  for (let i = 0; i < stale.length; i += 50) {
+    const chunk = stale.slice(i, i + 50);
+    await env.DB.prepare(
+      `DELETE FROM page_build_cache WHERE path IN (${chunk.map(() => "?").join(",")})`,
+    )
+      .bind(...chunk)
+      .run()
+      .catch(() => {});
+  }
+  return deleted;
+}
+
 /** Rebuild all public pages for all registered languages, with caching and progress events. */
 export async function buildAllPublicPages(
   env: Env,
@@ -2351,6 +2413,8 @@ export async function buildAllPublicPages(
   langs: number;
   articles: number;
   more: boolean;
+  /** Orphan page keys removed by the post-build sweep (final pass only). */
+  swept: number;
 }> {
   const settings = await fetchSettings(env);
   const template = await loadTemplate(env, settings.template_id);
@@ -2511,6 +2575,32 @@ export async function buildAllPublicPages(
     (s, m) => s + m.size,
     0,
   );
+
+  // ── Expected page-path set (for the orphan sweep after a completed pass) ──
+  // Mirrors every path this build — or the per-document incremental builds —
+  // legitimately writes. Type paths are included under BOTH the taxonomy slug
+  // (full build) and the raw tid (buildDocumentPages); they usually coincide.
+  const expectedPaths = new Set<string>(["/", "/about/"]);
+  for (const ym of homeMonths) {
+    const [y, m] = ym.split("-");
+    expectedPaths.add(`/monthly/${y}/${m}/`);
+  }
+  for (const t of types) {
+    const tm = typeMonthSig.get(t.id);
+    for (const key of new Set([t.slug, t.id])) {
+      if (!key) continue;
+      expectedPaths.add(`/${key}/`);
+      if (tm) {
+        for (const ym of tm.keys()) {
+          const [y, m] = ym.split("-");
+          expectedPaths.add(`/${key}/monthly/${y}/${m}/`);
+        }
+      }
+    }
+  }
+  for (const r of artRows.results) {
+    expectedPaths.add(`/${r.tid}/${r.slug}/`);
+  }
 
   // ── Compute total page count ──────────────────────────────────────────────
   // One bundle per page (all langs in one KV value) → count pages, NOT pages×langs.
@@ -2800,16 +2890,33 @@ export async function buildAllPublicPages(
     more = true; // budget spent — more pages remain; client resumes
   }
 
+  // ── Orphan sweep (mark-and-sweep) ── only after a COMPLETED pass
+  // (more:false): expectedPaths is then authoritative, and any page key
+  // outside it is a leftover (a delete/unpublish/type change the incremental
+  // cleanup missed, or a page written by an older version, e.g. /category/,
+  // /page/N/). Serving prefers KV, so leftovers would otherwise be served
+  // forever. Non-fatal and capped per pass; the final pass of a chunked build
+  // has spent almost no budget (it mostly cache-skips), so the sweep fits.
+  let swept = 0;
+  if (!more) {
+    try {
+      swept = await sweepOrphanPages(env, expectedPaths);
+    } catch {
+      /* non-fatal: retried on the next full build */
+    }
+  }
+
   // Refresh the shared nav-counts KV value (one write, filled into the nav
   // client-side). Cheap and independent of the per-page build budget.
   await writeNavCounts(env);
 
-  onEvent?.({ type: "done", built, skipped, errors, more });
+  onEvent?.({ type: "done", built, skipped, errors, more, swept });
   return {
     built,
     skipped,
     errors,
     more,
+    swept,
     langs: allLangs.length,
     articles: articleCount,
   };

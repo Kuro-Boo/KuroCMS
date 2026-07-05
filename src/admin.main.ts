@@ -1106,6 +1106,7 @@ const i18n = {
     buildDonePrefix: "✓ Done — Built: ",
     buildDoneSkipped: " / Skipped: ",
     buildDoneErrors: " / Errors: ",
+    buildSweptPrefix: "🧹 Removed leftover pages: ",
     tmplEditorName: "Template Name",
     tmplEditorAuthor: "Author",
     tmplEditorSaveBtn: "Save",
@@ -1970,6 +1971,7 @@ const i18n = {
     buildDonePrefix: "✓ 完了 — ビルド ",
     buildDoneSkipped: " / スキップ ",
     buildDoneErrors: " / エラー ",
+    buildSweptPrefix: "🧹 不要ページを削除: ",
     tmplEditorName: "テンプレート名",
     tmplEditorAuthor: "作者",
     tmplEditorSaveBtn: "保存",
@@ -3095,7 +3097,8 @@ async function runBuildWithProgress(force = false) {
     total = 0,
     passIndex = 0,
     moreToCome = false,
-    fatalError = false;
+    fatalError = false,
+    sweptCount = 0;
   const donePaths = new Set<string>();
 
   function updateCounts() {
@@ -3172,6 +3175,8 @@ async function runBuildWithProgress(force = false) {
     } else if (ev.type === "done") {
       // Per-pass completion: `more` true ⇒ budget spent, another pass follows.
       moreToCome = !!ev.more;
+      // Orphan pages removed by the final pass's mark-and-sweep.
+      if (ev.swept) sweptCount += ev.swept;
     } else if (ev.type === "error") {
       fatalError = true;
       appendLog(
@@ -3205,6 +3210,8 @@ async function runBuildWithProgress(force = false) {
         t("buildDoneErrors") +
         errorCount,
     );
+    if (sweptCount > 0)
+      appendLog("skipped", t("buildSweptPrefix") + sweptCount);
     if (errorCount === 0 && !fatalError) {
       api("/api/v1/published", {
         method: "PUT",
