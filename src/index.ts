@@ -155,6 +155,17 @@ export default {
           },
         });
       }
+      // Compiled per-template Tailwind CSS: {publicBase}/_tw/{id}.{hash}.css
+      // (immutable; replaces the cdn.tailwindcss.com script). Served from the
+      // PUBLIC root, not the admin base — it's a public-page asset, and admin
+      // paths can be shadowed by other workers (e.g. kuro.boo/kurocms/* →
+      // promotion worker; only /_admin/* has a carve-out route).
+      const twCssMatch = publicPath.match(
+        new RegExp("^/_tw/([a-zA-Z0-9_-]+)\\.([a-z0-9]+)\\.css$"),
+      );
+      if (twCssMatch) {
+        return serveTemplateCss(env, twCssMatch[1], twCssMatch[2]);
+      }
       if (publicPath === "/rss.xml") {
         return new Response(await buildRssXml(env), { headers: xmlHeaders });
       }
@@ -215,15 +226,6 @@ export default {
     // Self-hosted web fonts: {base}/_fonts/<key>.woff2 → KV read-through cache.
     if (pathname.startsWith("/_fonts/")) {
       return serveFont(pathname.slice("/_fonts/".length), env, ctx);
-    }
-
-    // Compiled per-template Tailwind CSS: {base}/_tw/{id}.{hash}.css
-    // (immutable; replaces the cdn.tailwindcss.com script on public pages).
-    const twCssMatch = pathname.match(
-      new RegExp("^/_tw/([a-zA-Z0-9_-]+)\\.([a-z0-9]+)\\.css$"),
-    );
-    if (twCssMatch) {
-      return serveTemplateCss(env, twCssMatch[1], twCssMatch[2]);
     }
 
     if (pathname.startsWith("/api/")) {

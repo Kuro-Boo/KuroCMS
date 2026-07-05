@@ -19,7 +19,7 @@ import type { Env } from "./types";
 // can't see (e.g. the <head> content-CSS <link>, template-model shape). The
 // build salts every page hash with this, so cached builds are invalidated and
 // all pages regenerate even when their underlying content is unchanged.
-const RENDER_FORMAT_VERSION = "17";
+const RENDER_FORMAT_VERSION = "18";
 
 /** Cheap, synchronous string hash (FNV-1a, base36) for cache keys. Not crypto. */
 export function cheapHash(s: string): string {
@@ -1536,7 +1536,7 @@ export async function generatePage(
   }
   const adminBase = adminAssetBase(env);
   let html = injectContentStyles(renderTemplate(sourceHtml, ctx), adminBase);
-  html = applyCompiledTailwind(html, template, adminBase);
+  html = applyCompiledTailwind(html, template, s.base_path || "");
   html = injectFontHead(s, html, lang);
   html = injectSeoHead(html, s, ctx, pageLangs);
   html = injectGa4Head(html, s);
@@ -2129,16 +2129,20 @@ function compiledTwCovers(template: StoredTemplate): boolean {
  * source (e.g. a REST-side template edit added new classes and the admin
  * hasn't recompiled yet) — slower but always renders correctly; the admin
  * screen self-heals it on the next visit.
+ *
+ * The link points at the PUBLIC base (`{publicBase}/_tw/…`), not the admin
+ * base: it's a public-page asset, and admin paths can be shadowed by other
+ * workers on the public domain (kuro.boo/kurocms/* → promotion worker).
  */
 function applyCompiledTailwind(
   html: string,
   template: StoredTemplate,
-  adminBase: string,
+  publicBase: string,
 ): string {
   if (!compiledTwCovers(template)) return html;
   return html.replace(
     TW_CDN_SCRIPT_RE,
-    `<link rel="stylesheet" href="${adminBase}/_tw/${template.id}.${template.compiledHash}.css">`,
+    `<link rel="stylesheet" href="${publicBase}/_tw/${template.id}.${template.compiledHash}.css">`,
   );
 }
 
