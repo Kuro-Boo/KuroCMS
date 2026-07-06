@@ -147,6 +147,10 @@ async function newArticle(editDid: Dynamic) {
     hashtag: "",
     coverMid: "",
     coverPath: "",
+    // ?v=cache_version 付きのプレビュー用URLパス（セッション内のみ、保存しない）。
+    // 素の coverPath は immutable キャッシュに対して無防備なため、分かる場合は
+    // こちらを優先して表示する。
+    coverVersionedPath: "",
     title: "",
     summary: "",
     body: "",
@@ -221,6 +225,7 @@ async function newArticle(editDid: Dynamic) {
         art.hashtag = pf.hashtag || "";
         art.coverMid = pf.coverMid || "";
         art.coverPath = pf.coverPath || "";
+        art.coverVersionedPath = "";
         art.dirty = true;
         art.bodyDirty = true;
         art.metaDirty = true;
@@ -254,6 +259,7 @@ async function newArticle(editDid: Dynamic) {
             if (sj.coverMid) {
               art.coverMid = sj.coverMid;
               art.coverPath = sj.coverPath || "";
+              art.coverVersionedPath = "";
             }
           } catch {
             /* ignore */
@@ -648,7 +654,7 @@ async function newArticle(editDid: Dynamic) {
           "</span>"
         : art.coverMid
           ? "<img src='" +
-            escapeHtml(publicBase + art.coverPath) +
+            escapeHtml(publicBase + (art.coverVersionedPath || art.coverPath)) +
             "' style='width:100%;height:100%;object-fit:cover' />"
           : "<span style='font-size:36px;color:var(--muted)'>&#128444;</span><span style='font-size:11px;color:var(--muted)'>" +
             escapeHtml(t("coverDropHint")) +
@@ -1289,6 +1295,7 @@ async function newArticle(editDid: Dynamic) {
         readFields(); // preserve in-progress body/title edits before re-render
         art.coverMid = json.mid;
         art.coverPath = json.publicPath;
+        art.coverVersionedPath = json.url || "";
         markDirty();
         renderPage();
         bindAllArticleEvents();
@@ -1309,10 +1316,11 @@ async function newArticle(editDid: Dynamic) {
     // Specify the cover by image id ([[img-xxx]] or img-xxx). On blur, resolve
     // the id to its stored image and show it in the cover area. Uploading via
     // file/drop re-renders with value=art.coverMid, so the field auto-fills.
-    function applyCover(mid: string, path: string) {
+    function applyCover(mid: string, path: string, versionedPath?: string) {
       readFields(); // preserve in-progress body/title edits before re-render
       art.coverMid = mid;
       art.coverPath = path;
+      art.coverVersionedPath = versionedPath || "";
       markDirty();
       renderPage();
       bindAllArticleEvents();
@@ -1335,7 +1343,11 @@ async function newArticle(editDid: Dynamic) {
         if (!item || item.kind !== "image") {
           throw new Error(t("coverMidNotFound"));
         }
-        applyCover(item.id, item.publicPath);
+        applyCover(
+          item.id,
+          item.publicPath,
+          item.cacheVersion ? item.publicPath + "?v=" + item.cacheVersion : "",
+        );
       } catch (err) {
         toast(
           err instanceof Error && err.message
