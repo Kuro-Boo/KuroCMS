@@ -470,6 +470,11 @@ async function newArticle(editDid: Dynamic) {
         art.metaDirty = false;
         if (withBody) art.bodyDirty = false;
         art.dirty = art.bodyDirty;
+        // Keep KuroEditor's own dirty state in sync: without this, an
+        // admin-side save leaves the editor dirty, its onDirty (false→true
+        // only) never re-fires for the NEXT decoration-only edit, and that
+        // edit's save gets dropped by the onSave guard.
+        if (withBody) state.articleEditor?.clearDirty?.();
         if (art.dirty) {
           // Metadata persisted, body intentionally left out — keep the user
           // aware that their body edits still need an explicit save.
@@ -1104,6 +1109,12 @@ async function newArticle(editDid: Dynamic) {
           doSave();
         }
       },
+      // KuroEditor's complete change signal (MutationObserver-backed). The
+      // "input" listeners below miss decoration-only edits (文字色・セル背景色・
+      // テーブル操作 manipulate the DOM directly and fire no input event) —
+      // without this, such an edit leaves art.dirty false and the onSave guard
+      // above silently DROPS the save the user just clicked.
+      onDirty: markBodyDirty,
       onMediaUpload: r2Ok
         ? async function (file: File) {
             const fd = new FormData();
