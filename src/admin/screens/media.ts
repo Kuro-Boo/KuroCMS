@@ -213,7 +213,12 @@ function loadMediaList(apiPath: Dynamic) {
         items
           .map(function (item: Dynamic) {
             const mid = escapeHtml(item.id || "");
-            const imgUrl = escapeHtml(publicBase + (item.publicPath || ""));
+            // ?v=cache_version 付きで参照する。/images/{mid}.* は immutable
+            // キャッシュされるため、素のパスだと古いキャッシュが表示され得る。
+            const versionedPath =
+              (item.publicPath || "") +
+              (item.cacheVersion ? "?v=" + item.cacheVersion : "");
+            const imgUrl = escapeHtml(publicBase + versionedPath);
             const thumb =
               item.kind === "image"
                 ? "<img src='" +
@@ -229,7 +234,7 @@ function loadMediaList(apiPath: Dynamic) {
             const playTd =
               item.kind === "audio" || item.kind === "video"
                 ? "<td style='width:40px;padding:4px 6px'><button class='secondary small' data-play-url='" +
-                  escapeHtml(publicBase + (item.publicPath || "")) +
+                  imgUrl +
                   "' data-play-kind='" +
                   escapeHtml(item.kind) +
                   "' data-play-name='" +
@@ -507,11 +512,22 @@ function uploadFiles(files: Dynamic, kind: Dynamic, apiPath: Dynamic) {
             (typeof json.error === "string" ? json.error : "") ||
             resp.statusText,
         );
-      setStatus(t("uploadComplete"), true);
-      setTimeout(function () {
-        row.remove();
-        if (!queueEl.children.length) queueEl.style.display = "none";
-      }, 2000);
+      if (json.reused) {
+        // 同一内容の既存アセットに集約された（重複登録は作られていない）
+        setStatus(
+          t("mediaReusedToast").replace("{mid}", String(json.mid || "")),
+          true,
+        );
+      } else {
+        setStatus(t("uploadComplete"), true);
+      }
+      setTimeout(
+        function () {
+          row.remove();
+          if (!queueEl.children.length) queueEl.style.display = "none";
+        },
+        json.reused ? 4000 : 2000,
+      );
       loadMediaList(apiPath);
       // Refresh storage info
       api("/api/system/storage")
