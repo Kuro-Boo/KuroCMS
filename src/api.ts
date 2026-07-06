@@ -121,7 +121,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.7.55";
+export const KUROCMS_VERSION = "1.7.56";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 

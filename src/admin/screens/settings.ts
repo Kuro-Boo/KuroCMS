@@ -284,10 +284,10 @@ async function settings() {
       escapeHtml(t("snsBulkTitle")) +
       "</div>" +
       "<div style='display:flex;gap:8px;flex-wrap:wrap'>" +
-      "<button type='button' class='secondary' data-sns-bulk='bsky' data-sns-bulk-posted='1' style='font-size:12px;padding:5px 10px'>" +
+      "<button type='button' class='secondary' data-sns-bulk='bsky' data-sns-bulk-posted='1' style='font-size:12px;padding:5px 12px;border:1px solid var(--line);border-radius:8px'>" +
       escapeHtml(t("snsBulkSetBtn")) +
       "</button>" +
-      "<button type='button' class='secondary' data-sns-bulk='bsky' data-sns-bulk-posted='0' style='font-size:12px;padding:5px 10px'>" +
+      "<button type='button' class='secondary' data-sns-bulk='bsky' data-sns-bulk-posted='0' style='font-size:12px;padding:5px 12px;border:1px solid var(--line);border-radius:8px'>" +
       escapeHtml(t("snsBulkClearBtn")) +
       "</button>" +
       "</div>" +
@@ -333,10 +333,10 @@ async function settings() {
       escapeHtml(t("snsBulkTitle")) +
       "</div>" +
       "<div style='display:flex;gap:8px;flex-wrap:wrap'>" +
-      "<button type='button' class='secondary' data-sns-bulk='x' data-sns-bulk-posted='1' style='font-size:12px;padding:5px 10px'>" +
+      "<button type='button' class='secondary' data-sns-bulk='x' data-sns-bulk-posted='1' style='font-size:12px;padding:5px 12px;border:1px solid var(--line);border-radius:8px'>" +
       escapeHtml(t("snsBulkSetBtn")) +
       "</button>" +
-      "<button type='button' class='secondary' data-sns-bulk='x' data-sns-bulk-posted='0' style='font-size:12px;padding:5px 10px'>" +
+      "<button type='button' class='secondary' data-sns-bulk='x' data-sns-bulk-posted='0' style='font-size:12px;padding:5px 12px;border:1px solid var(--line);border-radius:8px'>" +
       escapeHtml(t("snsBulkClearBtn")) +
       "</button>" +
       "</div>" +
@@ -367,10 +367,10 @@ async function settings() {
       escapeHtml(t("snsBulkTitle")) +
       "</div>" +
       "<div style='display:flex;gap:8px;flex-wrap:wrap'>" +
-      "<button type='button' class='secondary' data-sns-bulk='threads' data-sns-bulk-posted='1' style='font-size:12px;padding:5px 10px'>" +
+      "<button type='button' class='secondary' data-sns-bulk='threads' data-sns-bulk-posted='1' style='font-size:12px;padding:5px 12px;border:1px solid var(--line);border-radius:8px'>" +
       escapeHtml(t("snsBulkSetBtn")) +
       "</button>" +
-      "<button type='button' class='secondary' data-sns-bulk='threads' data-sns-bulk-posted='0' style='font-size:12px;padding:5px 10px'>" +
+      "<button type='button' class='secondary' data-sns-bulk='threads' data-sns-bulk-posted='0' style='font-size:12px;padding:5px 12px;border:1px solid var(--line);border-radius:8px'>" +
       escapeHtml(t("snsBulkClearBtn")) +
       "</button>" +
       "</div>" +
