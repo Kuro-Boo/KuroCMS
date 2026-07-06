@@ -603,7 +603,9 @@ async function articles() {
         (n === page ? " active" : "") +
         "' data-page='" +
         n +
-        "'>" +
+        "'" +
+        (n === page ? " disabled" : "") +
+        ">" +
         n +
         "</button>";
       last = n;
@@ -797,6 +799,42 @@ async function articles() {
               "/api/documents/" + snsDid + "/sns/" + snsSvc + "/post",
               { method: "POST" },
             );
+            // Threads runs in the background (Meta-side image processing takes
+            // tens of seconds): close now and poll the flag until it lands.
+            if (res[snsSvc] && res[snsSvc].queued) {
+              close();
+              toast(t("snsPostQueued"), false);
+              let tries = 18; // ~90s at 5s intervals
+              const poll = function () {
+                tries--;
+                setTimeout(async function () {
+                  try {
+                    const st = await api("/api/documents/" + snsDid + "/sns");
+                    if (st[snsSvc] && st[snsSvc].posted) {
+                      const doc: Dynamic = allDocs.find(function (d) {
+                        return d.did === snsDid;
+                      });
+                      if (doc) doc[snsDocField(snsSvc)] = st[snsSvc].postedAt;
+                      renderList();
+                      toast(
+                        t("snsPostDone").replace(
+                          "{service}",
+                          snsServiceLabel(snsSvc),
+                        ),
+                        false,
+                      );
+                      return;
+                    }
+                  } catch {
+                    /* transient poll error — keep trying */
+                  }
+                  if (tries > 0) poll();
+                  else toast(t("snsPostQueueTimeout"), true);
+                }, 5000);
+              };
+              poll();
+              return;
+            }
             const doc: Dynamic = allDocs.find(function (d) {
               return d.did === snsDid;
             });

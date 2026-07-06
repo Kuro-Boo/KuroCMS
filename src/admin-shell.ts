@@ -175,7 +175,8 @@ export function adminHtml(
       .pagerNav { display: inline-flex; align-items: center; gap: 2px; padding: 4px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); }
       .pagerBtn { display: inline-flex; align-items: center; justify-content: center; min-width: 30px; height: 30px; padding: 0 10px; border: 0; background: transparent; color: var(--muted); border-radius: 8px; cursor: pointer; font: inherit; font-size: 13px; font-weight: 600; line-height: 1; transition: background .15s ease, color .15s ease; }
       .pagerBtn:hover:not(:disabled):not(.active) { background: var(--surface-3); color: var(--ink); }
-      .pagerBtn.active { background: var(--accent-soft); color: var(--accent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent); }
+      /* Current page = the same look as a disabled button (clearly not selectable). */
+      .pagerBtn.active, .pagerBtn.active:disabled { background: rgba(120,120,120,.15); color: var(--muted); box-shadow: inset 0 0 0 1px var(--line); cursor: default; opacity: 1; }
       .pagerBtn[data-page]:first-child, .pagerNav > .pagerBtn:last-child { font-size: 16px; color: var(--ink); }
       .pagerBtn:disabled { opacity: .3; cursor: default; }
       .pagerEllipsis { display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 30px; color: var(--muted); }

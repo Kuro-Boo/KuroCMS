@@ -978,6 +978,10 @@ const i18n = {
     snsBulkClearConfirm:
       "Clear the {service} posted flag from ALL articles? The Post button will reappear on every published article — be careful not to re-post old articles by accident.",
     snsBulkDone: "Updated {count} article flag(s).",
+    snsPostQueued:
+      "Posting started — Threads processes the image server-side, so this can take up to a minute. The row will switch to Posted automatically.",
+    snsPostQueueTimeout:
+      "The post has not been confirmed yet. Reload the article list in a minute to check its status.",
     statusActionsHeader: "Status / Actions",
     langsSuffix: " lang(s)",
     updatedSuffix: " updated",
@@ -1882,6 +1886,10 @@ const i18n = {
     snsBulkClearConfirm:
       "{service} の投稿済みフラグを全記事から解除しますか？全公開記事に「投稿」ボタンが再表示されます。過去記事を誤って再投稿しないようご注意ください。",
     snsBulkDone: "{count} 件のフラグを更新しました。",
+    snsPostQueued:
+      "投稿を開始しました。Threadsは画像処理のため最大1分ほどかかります。完了すると一覧が自動で投稿済み表示になります。",
+    snsPostQueueTimeout:
+      "投稿の完了をまだ確認できていません。1分ほど後に記事一覧を再読み込みして状態を確認してください。",
     statusActionsHeader: "状態 / 操作",
     langsSuffix: "言語",
     updatedSuffix: "更新",

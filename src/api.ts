@@ -121,7 +121,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.7.57";
+export const KUROCMS_VERSION = "1.7.58";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -635,7 +635,12 @@ export async function handleApi(
     );
     if (request.method === "POST" && documentSnsThreadsPostMatch) {
       return withJsonHeaders(
-        await postDocumentToThreads(env, user, documentSnsThreadsPostMatch[1]),
+        await postDocumentToThreads(
+          env,
+          ctx,
+          user,
+          documentSnsThreadsPostMatch[1],
+        ),
       );
     }
 
@@ -4047,23 +4052,21 @@ async function postThreadsForDoc(
   return { ok: true, postedAt };
 }
 
-/** On-demand "投稿" button for Threads (mirrors the Bluesky/X versions). */
+/**
+ * On-demand "投稿" button for Threads. Unlike Bluesky/X this runs in the
+ * BACKGROUND (ctx.waitUntil): Meta processes the cover image server-side and
+ * the publish step can take tens of seconds, which is too long to hold the
+ * HTTP request open (the dialog appeared to hang). Cheap guards run first so
+ * config/state errors still surface immediately; the client then polls the
+ * /sns flag to learn when the background post lands.
+ */
 async function postDocumentToThreads(
   env: Env,
+  ctx: ExecutionContext,
   user: AuthUser,
   did: string,
 ): Promise<Response> {
   requireAuthor(user);
-  const result = await postThreadsForDoc(env, did);
-  if (result.ok) {
-    await logActivity(env, user, "document.sns_post", "document", did, {
-      threads: true,
-    });
-    return json({
-      did,
-      threads: { posted: true, postedAt: result.postedAt },
-    });
-  }
   const failures: Record<string, [number, string]> = {
     not_configured: [400, "Threads is not configured in Settings → SNS."],
     no_public_domain: [400, "Set the site's public domain first."],
@@ -4071,8 +4074,51 @@ async function postDocumentToThreads(
     already_posted: [409, "This article was already posted to Threads."],
     post_failed: [502, "Posting to Threads failed. Check your access token."],
   };
-  const [status, message] = failures[result.code] ?? [500, "Posting failed."];
-  throw new HttpError(status, "threads_" + result.code, message);
+  const fail = (code: string): never => {
+    const [status, message] = failures[code] ?? [500, "Posting failed."];
+    throw new HttpError(status, "threads_" + code, message);
+  };
+
+  // Preflight (same guards postThreadsForDoc re-checks): fail fast while the
+  // request is still open.
+  const st = await env.DB.prepare(
+    "SELECT threads_token, public_domain FROM site_settings WHERE id = 1",
+  ).first<{ threads_token: string | null; public_domain: string | null }>();
+  if (!(st?.threads_token ?? "").trim()) fail("not_configured");
+  let origin = "";
+  try {
+    if (st?.public_domain) origin = new URL(st.public_domain).origin;
+  } catch {
+    /* invalid public_domain */
+  }
+  if (!origin) fail("no_public_domain");
+  const doc = await env.DB.prepare(
+    "SELECT sns_threads_posted_at FROM documents WHERE did = ? AND mode = 1",
+  )
+    .bind(did)
+    .first<{ sns_threads_posted_at: string | null }>();
+  if (!doc) fail("not_published");
+  if (doc!.sns_threads_posted_at) fail("already_posted");
+
+  await logActivity(env, user, "document.sns_post", "document", did, {
+    threads: true,
+    queued: true,
+  });
+  ctx.waitUntil(
+    postThreadsForDoc(env, did).then((result) => {
+      if (!result.ok) {
+        // postThreadsForDoc already logged the detail; keep a summary line.
+        console.warn(
+          JSON.stringify({
+            event: "threads_background_post_failed",
+            did,
+            code: result.code,
+          }),
+        );
+      }
+    }),
+  );
+  return json({ did, threads: { queued: true } });
 }
 
 /**
