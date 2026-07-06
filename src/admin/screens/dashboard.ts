@@ -788,9 +788,6 @@ async function articles() {
                   : "snsPostConfirm",
             ),
           ) +
-          "</p>" +
-          "<p class='muted' style='font-size:11px;margin-top:4px'>" +
-          escapeHtml(t("snsMarkOnlyHelp")) +
           "</p>",
         t("snsPostBtn"),
         async function (_: Dynamic, close: Dynamic) {
