@@ -279,6 +279,19 @@ async function settings() {
       "<div class='muted'>" +
       escapeHtml(t("blueskyAppPasswordHelp")) +
       "</div><input id='blueskyToken' type='password' placeholder='xxxx-xxxx-xxxx-xxxx' /></label>" +
+      "<div style='margin-top:14px;padding-top:10px;border-top:1px solid var(--line)'>" +
+      "<div class='muted' style='font-size:11px;margin-bottom:6px'>" +
+      escapeHtml(t("snsBulkTitle")) +
+      "</div>" +
+      "<div style='display:flex;gap:8px;flex-wrap:wrap'>" +
+      "<button type='button' class='secondary' data-sns-bulk='bsky' data-sns-bulk-posted='1' style='font-size:12px;padding:5px 10px'>" +
+      escapeHtml(t("snsBulkSetBtn")) +
+      "</button>" +
+      "<button type='button' class='secondary' data-sns-bulk='bsky' data-sns-bulk-posted='0' style='font-size:12px;padding:5px 10px'>" +
+      escapeHtml(t("snsBulkClearBtn")) +
+      "</button>" +
+      "</div>" +
+      "</div>" +
       "<div style='margin-top:16px;display:flex;justify-content:flex-end'><button type='submit'>" +
       escapeHtml(t("saveSiteSettings")) +
       "</button></div>" +
@@ -315,6 +328,19 @@ async function settings() {
       "<div class='muted' style='margin-bottom:6px'>" +
       escapeHtml(t("xLinkInReplyHelp")) +
       "</div>" +
+      "<div style='margin-top:14px;padding-top:10px;border-top:1px solid var(--line)'>" +
+      "<div class='muted' style='font-size:11px;margin-bottom:6px'>" +
+      escapeHtml(t("snsBulkTitle")) +
+      "</div>" +
+      "<div style='display:flex;gap:8px;flex-wrap:wrap'>" +
+      "<button type='button' class='secondary' data-sns-bulk='x' data-sns-bulk-posted='1' style='font-size:12px;padding:5px 10px'>" +
+      escapeHtml(t("snsBulkSetBtn")) +
+      "</button>" +
+      "<button type='button' class='secondary' data-sns-bulk='x' data-sns-bulk-posted='0' style='font-size:12px;padding:5px 10px'>" +
+      escapeHtml(t("snsBulkClearBtn")) +
+      "</button>" +
+      "</div>" +
+      "</div>" +
       "<div style='margin-top:16px;display:flex;justify-content:flex-end'><button type='submit'>" +
       escapeHtml(t("saveSiteSettings")) +
       "</button></div>" +
@@ -335,6 +361,19 @@ async function settings() {
       "<input id='threadsToken' type='password' autocomplete='off' /></label>" +
       "<div class='muted' style='margin-bottom:6px'>" +
       escapeHtml(t("threadsPostNote")) +
+      "</div>" +
+      "<div style='margin-top:14px;padding-top:10px;border-top:1px solid var(--line)'>" +
+      "<div class='muted' style='font-size:11px;margin-bottom:6px'>" +
+      escapeHtml(t("snsBulkTitle")) +
+      "</div>" +
+      "<div style='display:flex;gap:8px;flex-wrap:wrap'>" +
+      "<button type='button' class='secondary' data-sns-bulk='threads' data-sns-bulk-posted='1' style='font-size:12px;padding:5px 10px'>" +
+      escapeHtml(t("snsBulkSetBtn")) +
+      "</button>" +
+      "<button type='button' class='secondary' data-sns-bulk='threads' data-sns-bulk-posted='0' style='font-size:12px;padding:5px 10px'>" +
+      escapeHtml(t("snsBulkClearBtn")) +
+      "</button>" +
+      "</div>" +
       "</div>" +
       "<div style='margin-top:16px;display:flex;justify-content:flex-end'><button type='submit'>" +
       escapeHtml(t("saveSiteSettings")) +
@@ -843,6 +882,46 @@ async function settings() {
           if (bc) bc.style.display = svc === "bsky" ? "" : "none";
           if (xc) xc.style.display = svc === "x" ? "" : "none";
           if (tc) tc.style.display = svc === "threads" ? "" : "none";
+        });
+      });
+
+    // Bulk posted-flag buttons (one pair per SNS card). openEntryDialog shows
+    // a spinner on the confirm button while the API call runs.
+    document
+      .querySelectorAll<AdminElement>("[data-sns-bulk]")
+      .forEach(function (bulkBtn) {
+        bulkBtn.addEventListener("click", function () {
+          const svc = bulkBtn.dataset.snsBulk || "";
+          const posted = bulkBtn.dataset.snsBulkPosted === "1";
+          const label =
+            svc === "x" ? "X" : svc === "threads" ? "Threads" : "Bluesky";
+          openEntryDialog(
+            t("snsBulkTitle") + " — " + label,
+            "<p class='muted'>" +
+              escapeHtml(
+                t(posted ? "snsBulkSetConfirm" : "snsBulkClearConfirm").replace(
+                  "{service}",
+                  label,
+                ),
+              ) +
+              "</p>",
+            t(posted ? "snsBulkSetBtn" : "snsBulkClearBtn"),
+            async function (_: Dynamic, close: Dynamic) {
+              try {
+                const res = await api("/api/documents/sns/bulk-flag", {
+                  method: "POST",
+                  body: JSON.stringify({ service: svc, posted }),
+                });
+                close();
+                toast(
+                  t("snsBulkDone").replace("{count}", String(res.changed ?? 0)),
+                  false,
+                );
+              } catch (err) {
+                toast(errorMessage(err), true);
+              }
+            },
+          );
         });
       });
 

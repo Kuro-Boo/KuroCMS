@@ -121,7 +121,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.7.54";
+export const KUROCMS_VERSION = "1.7.55";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -598,6 +598,11 @@ export async function handleApi(
       );
     }
 
+    // Bulk posted-flag operation: mark/clear ALL documents for one service
+    // (used when enabling a new SNS so existing articles don't get re-posted).
+    if (request.method === "POST" && path === "/api/documents/sns/bulk-flag") {
+      return withJsonHeaders(await documentSnsBulkFlag(request, env, user));
+    }
     // Per-article SNS posted flag (Bluesky). GET reads it; PUT { bsky: bool }
     // sets (true) or clears (false) it — manual override of the posted state.
     const documentSnsMatch = path.match(/^\/api\/documents\/([^/]+)\/sns$/);
@@ -4068,6 +4073,57 @@ async function postDocumentToThreads(
   };
   const [status, message] = failures[result.code] ?? [500, "Posting failed."];
   throw new HttpError(status, "threads_" + result.code, message);
+}
+
+/**
+ * POST /api/documents/sns/bulk-flag { service, posted } — set or clear the
+ * posted flag on ALL documents for one service. Setting only fills NULL flags
+ * (existing timestamps are preserved); clearing NULLs every flag.
+ */
+async function documentSnsBulkFlag(
+  request: Request,
+  env: Env,
+  user: AuthUser,
+): Promise<Response> {
+  requireAuthor(user);
+  const body = await readJson(request);
+  const service = optionalString(body, "service") ?? "";
+  const SNS_FLAG_COLS: Record<string, string> = {
+    bsky: "sns_bsky_posted_at",
+    x: "sns_x_posted_at",
+    threads: "sns_threads_posted_at",
+  };
+  const col = SNS_FLAG_COLS[service];
+  if (!col) {
+    throw new HttpError(
+      400,
+      "invalid_field",
+      "service must be bsky, x or threads.",
+    );
+  }
+  if (typeof body.posted !== "boolean") {
+    throw new HttpError(400, "invalid_field", "posted must be a boolean.");
+  }
+  let changed: number;
+  if (body.posted) {
+    const r = await env.DB.prepare(
+      `UPDATE documents SET ${col} = ? WHERE ${col} IS NULL`,
+    )
+      .bind(nowIso())
+      .run();
+    changed = r.meta?.changes ?? 0;
+  } else {
+    const r = await env.DB.prepare(
+      `UPDATE documents SET ${col} = NULL WHERE ${col} IS NOT NULL`,
+    ).run();
+    changed = r.meta?.changes ?? 0;
+  }
+  await logActivity(env, user, "document.sns_flag_bulk", "document", "*", {
+    service,
+    posted: body.posted === true,
+    changed,
+  });
+  return json({ service, posted: body.posted === true, changed });
 }
 
 // REST: read / set the per-article Bluesky "already posted" flag.

@@ -970,6 +970,14 @@ const i18n = {
       "Post this article to Threads now? One post: cover image + text + topic tag + article link.",
     snsThreadsUseAutoPost:
       'Posting credentials are configured in the "Threads Auto-Post" card (access token). This card is only the handle for feed display (planned).',
+    snsBulkTitle: "Bulk posted-flag operations",
+    snsBulkSetBtn: "Mark ALL as posted",
+    snsBulkClearBtn: "Clear ALL posted flags",
+    snsBulkSetConfirm:
+      "Set the {service} posted flag on ALL articles? Existing articles will no longer show the Post button (clear per-article by clicking its posted state, or clear all here). Articles already flagged keep their original timestamps.",
+    snsBulkClearConfirm:
+      "Clear the {service} posted flag from ALL articles? The Post button will reappear on every published article — be careful not to re-post old articles by accident.",
+    snsBulkDone: "Updated {count} article flag(s).",
     statusActionsHeader: "Status / Actions",
     langsSuffix: " lang(s)",
     updatedSuffix: " updated",
@@ -1866,6 +1874,14 @@ const i18n = {
       "この記事を Threads に投稿しますか？（1通：カバー画像＋本文＋トピックタグ＋記事リンク）",
     snsThreadsUseAutoPost:
       "投稿用の認証情報は「Threads 自動投稿」カードで設定します（アクセストークン）。このカードはハンドル（フィード表示・将来対応）のみです。",
+    snsBulkTitle: "投稿済みフラグの一括操作",
+    snsBulkSetBtn: "全件投稿済みにする",
+    snsBulkClearBtn: "全件投稿済みを解除",
+    snsBulkSetConfirm:
+      "{service} の投稿済みフラグを全記事に立てますか？既存記事には「投稿」ボタンが表示されなくなります（解除は記事ごとの投稿済み表示クリック、またはここから全件解除）。すでにフラグが立っている記事の投稿日時は保持されます。",
+    snsBulkClearConfirm:
+      "{service} の投稿済みフラグを全記事から解除しますか？全公開記事に「投稿」ボタンが再表示されます。過去記事を誤って再投稿しないようご注意ください。",
+    snsBulkDone: "{count} 件のフラグを更新しました。",
     statusActionsHeader: "状態 / 操作",
     langsSuffix: "言語",
     updatedSuffix: "更新",
