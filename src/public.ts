@@ -2158,14 +2158,20 @@ export async function serveTemplateCss(
     .bind(id)
     .first<{ compiled_css: string | null; compiled_hash: string | null }>()
     .catch(() => null);
-  if (!row?.compiled_css || row.compiled_hash !== hash) {
+  if (!row?.compiled_css) {
     return new Response("Not found", { status: 404 });
   }
+  // Hash mismatch = the CSS was recompiled after this page was built. Serve
+  // the CURRENT css under the stale URL (short cache) instead of 404ing —
+  // pages keep their styling until the next build refreshes the href (the
+  // build salt includes compiledHash, so it will).
+  const current = row.compiled_hash === hash;
   return new Response(row.compiled_css, {
     headers: {
       "Content-Type": "text/css; charset=utf-8",
-      // Hash-versioned URL — safe to cache forever.
-      "Cache-Control": "public, max-age=31536000, immutable",
+      "Cache-Control": current
+        ? "public, max-age=31536000, immutable" // hash-versioned: cache forever
+        : "public, max-age=300",
     },
   });
 }
@@ -2650,7 +2656,9 @@ export async function buildAllPublicPages(
   const fontHash = cheapHash(
     `${settings.fonts_json || ""}:${settings.base_font || ""}:${settings.font_configs_json || ""}`,
   );
-  const tplId = `${template.id}:${cheapHash(template.sourceHtml)}:${fontHash}:${includeFuture ? "F" : ""}`;
+  // compiledHash participates so a Tailwind-CSS recompile regenerates pages
+  // (their <link> href embeds the hash) on the next build.
+  const tplId = `${template.id}:${cheapHash(template.sourceHtml)}:${template.compiledHash || ""}:${fontHash}:${includeFuture ? "F" : ""}`;
 
   // ── Resolve languages ─────────────────────────────────────────────────────
   const langRows = await env.DB.prepare(
