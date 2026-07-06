@@ -121,7 +121,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.7.61";
+export const KUROCMS_VERSION = "1.7.62";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -5813,7 +5813,7 @@ async function listMediaAssets(
 /** Resolve a single media asset by its mid (e.g. to display [[img-xxx]] as a cover). */
 async function getMediaAssetByMid(env: Env, mid: string): Promise<Response> {
   const row = await env.DB.prepare(
-    "SELECT mid AS id, kind, filename, mime, width, height, size_bytes AS sizeBytes, public_path AS publicPath, created_at AS createdAt FROM media_assets WHERE mid = ?",
+    "SELECT mid AS id, kind, filename, mime, width, height, size_bytes AS sizeBytes, public_path AS publicPath, cache_version AS cacheVersion, created_at AS createdAt FROM media_assets WHERE mid = ?",
   )
     .bind(mid)
     .first<Record<string, unknown>>();
