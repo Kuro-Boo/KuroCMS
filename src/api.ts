@@ -121,7 +121,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.7.53";
+export const KUROCMS_VERSION = "1.7.54";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -622,6 +622,15 @@ export async function handleApi(
     if (request.method === "POST" && documentSnsXPostMatch) {
       return withJsonHeaders(
         await postDocumentToX(env, user, documentSnsXPostMatch[1]),
+      );
+    }
+    // On-demand post to Threads (single post: image URL + text + link).
+    const documentSnsThreadsPostMatch = path.match(
+      /^\/api\/documents\/([^/]+)\/sns\/threads\/post$/,
+    );
+    if (request.method === "POST" && documentSnsThreadsPostMatch) {
+      return withJsonHeaders(
+        await postDocumentToThreads(env, user, documentSnsThreadsPostMatch[1]),
       );
     }
 
@@ -2933,6 +2942,7 @@ async function settings(
         xLinkInReply: (row?.x_link_in_reply as number | undefined) !== 0,
         threadsHandle: (row?.threads_handle as string | undefined) ?? "",
         threadsShowFeed: row?.threads_show_feed === 1,
+        threadsTokenSet: !!(row?.threads_token as string | undefined),
         siteIsPublished: (row?.site_is_published as number | undefined) === 1,
         templateId: (row?.template_id as string | undefined) ?? "",
       },
@@ -3042,6 +3052,13 @@ async function settings(
     if (hasThreadsShowFeed)
       settingsToSave.threads_show_feed = threadsShowFeed ? 1 : 0;
     if (hasBlueskyToken) settingsToSave.bluesky_token = blueskyToken;
+    // Threads access token: only update when non-empty; a new token may belong
+    // to a different account, so the cached threads_user_id is reset with it.
+    const threadsToken = optionalString(body, "threadsToken") ?? "";
+    if (threadsToken) {
+      settingsToSave.threads_token = threadsToken;
+      settingsToSave.threads_user_id = "";
+    }
     if (xApiKey) settingsToSave.x_api_key = xApiKey;
     if (xApiSecret) settingsToSave.x_api_secret = xApiSecret;
     if (xAccessToken) settingsToSave.x_access_token = xAccessToken;
@@ -3800,6 +3817,259 @@ async function postDocumentToX(
   throw new HttpError(status, "x_" + result.code, message);
 }
 
+// ─── Threads (Meta) auto-post ─────────────────────────────────────────────────
+// Official Threads API (graph.threads.net). Auth = one long-lived access token
+// (threads_basic + threads_content_publish). Images are passed as a PUBLIC URL
+// (no binary upload); publishing is two-step (create container → publish).
+// One post per article: cover image + title/summary + 1 topic tag + link
+// (Threads has no per-post pricing, so no parent/reply split like X).
+
+const THREADS_API = "https://graph.threads.net/v1.0";
+const THREADS_TEXT_LIMIT = 500;
+
+/** Simple code-point trim with ellipsis (Threads counts plain characters). */
+function trimToLen(s: string, max: number): string {
+  const chars = [...s];
+  if (chars.length <= max) return s;
+  return (
+    chars
+      .slice(0, Math.max(0, max - 1))
+      .join("")
+      .replace(/\s+$/, "") + "…"
+  );
+}
+
+async function postToThreads(
+  token: string,
+  userId: string,
+  text: string,
+  imageUrl: string | null,
+): Promise<void> {
+  const create = async (withImage: boolean): Promise<string> => {
+    const params = new URLSearchParams();
+    params.set("access_token", token);
+    params.set("text", text);
+    if (withImage && imageUrl) {
+      params.set("media_type", "IMAGE");
+      params.set("image_url", imageUrl);
+    } else {
+      params.set("media_type", "TEXT");
+    }
+    const res = await fetch(`${THREADS_API}/${userId}/threads`, {
+      method: "POST",
+      body: params,
+    });
+    if (!res.ok) {
+      throw new Error(
+        `threads container failed: ${res.status} ${(await res.text()).slice(0, 300)}`,
+      );
+    }
+    const j = (await res.json()) as { id?: string };
+    if (!j.id) throw new Error("threads container returned no id");
+    return j.id;
+  };
+  const publish = async (creationId: string): Promise<void> => {
+    // Image containers can take a moment to become ready — retry briefly.
+    let lastErr = "";
+    for (let i = 0; i < 4; i++) {
+      const params = new URLSearchParams();
+      params.set("access_token", token);
+      params.set("creation_id", creationId);
+      const res = await fetch(`${THREADS_API}/${userId}/threads_publish`, {
+        method: "POST",
+        body: params,
+      });
+      if (res.ok) return;
+      lastErr = `${res.status} ${(await res.text()).slice(0, 300)}`;
+      await new Promise((r) => setTimeout(r, 2500));
+    }
+    throw new Error(`threads publish failed: ${lastErr}`);
+  };
+
+  if (imageUrl) {
+    // Threads officially supports JPEG/PNG image URLs; if the cover can't be
+    // used (e.g. webp), fall back to a text post rather than failing the whole
+    // announcement. The unpublished container is simply abandoned.
+    try {
+      await publish(await create(true));
+      return;
+    } catch (error) {
+      console.warn(
+        JSON.stringify({
+          event: "threads_image_post_failed_fallback_text",
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      );
+    }
+  }
+  await publish(await create(false));
+}
+
+type ThreadsPostResult =
+  | { ok: true; postedAt: string }
+  | {
+      ok: false;
+      code:
+        | "not_configured"
+        | "no_public_domain"
+        | "not_published"
+        | "already_posted"
+        | "post_failed";
+    };
+
+/** Threads twin of postBlueskyForDoc / postXForDoc — sns_threads_posted_at. */
+async function postThreadsForDoc(
+  env: Env,
+  did: string,
+): Promise<ThreadsPostResult> {
+  const s = await env.DB.prepare(
+    "SELECT threads_token, threads_user_id, public_domain FROM site_settings WHERE id = 1",
+  ).first<{
+    threads_token: string | null;
+    threads_user_id: string | null;
+    public_domain: string | null;
+  }>();
+  const token = (s?.threads_token ?? "").trim();
+  if (!token) return { ok: false, code: "not_configured" };
+  let origin = "";
+  try {
+    if (s?.public_domain) origin = new URL(s.public_domain).origin;
+  } catch {
+    /* invalid public_domain */
+  }
+  if (!origin) return { ok: false, code: "no_public_domain" };
+
+  // Resolve and cache the Threads user id on first use.
+  let userId = (s?.threads_user_id ?? "").trim();
+  if (!userId) {
+    try {
+      const res = await fetch(
+        `${THREADS_API}/me?fields=id&access_token=${encodeURIComponent(token)}`,
+      );
+      if (res.ok) {
+        const j = (await res.json()) as { id?: string };
+        userId = (j.id ?? "").trim();
+      }
+    } catch {
+      /* handled below */
+    }
+    if (!userId) return { ok: false, code: "not_configured" };
+    await env.DB.prepare(
+      "UPDATE site_settings SET threads_user_id = ? WHERE id = 1",
+    )
+      .bind(userId)
+      .run();
+  }
+
+  const doc = await env.DB.prepare(
+    "SELECT tid, slug, initial_lang, sns_threads_posted_at FROM documents WHERE did = ? AND mode = 1",
+  )
+    .bind(did)
+    .first<{
+      tid: string;
+      slug: string;
+      initial_lang: string;
+      sns_threads_posted_at: string | null;
+    }>();
+  if (!doc) return { ok: false, code: "not_published" };
+  if (doc.sns_threads_posted_at) return { ok: false, code: "already_posted" };
+
+  const tl = await env.DB.prepare(
+    "SELECT title, summary, seo_json, hashtag_json FROM document_translations WHERE did = ? AND lang = ?",
+  )
+    .bind(did, doc.initial_lang)
+    .first<{
+      title: string | null;
+      summary: string | null;
+      seo_json: string | null;
+      hashtag_json: string | null;
+    }>();
+  const title = (tl?.title ?? doc.slug).trim() || doc.slug;
+  const summary = (tl?.summary ?? "").trim();
+  const url = `${origin}/${doc.tid}/${doc.slug}/`;
+
+  // Cover as a PUBLIC URL (the Threads API fetches it itself).
+  let imageUrl: string | null = null;
+  try {
+    const seo = tl?.seo_json ? JSON.parse(tl.seo_json) : {};
+    const coverPath =
+      seo && typeof seo.coverPath === "string" ? seo.coverPath : "";
+    if (coverPath) imageUrl = `${origin}${coverPath}`;
+  } catch {
+    /* ignore malformed seo_json */
+  }
+
+  // Threads renders only ONE topic tag per post — append just the first.
+  let tagText = "";
+  try {
+    const parsed = tl?.hashtag_json ? JSON.parse(tl.hashtag_json) : [];
+    if (Array.isArray(parsed)) {
+      const t = parsed.find(
+        (v): v is string => typeof v === "string" && v.trim() !== "",
+      );
+      if (t) tagText = `#${t.replace(/[\s#]+/g, "")}`;
+    }
+  } catch {
+    /* ignore */
+  }
+
+  const reserved =
+    [...url].length + 2 + (tagText ? [...tagText].length + 2 : 0);
+  let text = summary ? `${title}\n\n${summary}` : title;
+  text = trimToLen(text, THREADS_TEXT_LIMIT - reserved);
+  if (tagText) text = `${text}\n\n${tagText}`;
+  text = `${text}\n\n${url}`;
+
+  try {
+    await postToThreads(token, userId, text, imageUrl);
+  } catch (error) {
+    console.warn(
+      JSON.stringify({
+        event: "threads_post_failed",
+        did,
+        error: error instanceof Error ? error.message : String(error),
+      }),
+    );
+    return { ok: false, code: "post_failed" };
+  }
+
+  const postedAt = nowIso();
+  await env.DB.prepare(
+    "UPDATE documents SET sns_threads_posted_at = ? WHERE did = ? AND sns_threads_posted_at IS NULL",
+  )
+    .bind(postedAt, did)
+    .run();
+  return { ok: true, postedAt };
+}
+
+/** On-demand "投稿" button for Threads (mirrors the Bluesky/X versions). */
+async function postDocumentToThreads(
+  env: Env,
+  user: AuthUser,
+  did: string,
+): Promise<Response> {
+  requireAuthor(user);
+  const result = await postThreadsForDoc(env, did);
+  if (result.ok) {
+    await logActivity(env, user, "document.sns_post", "document", did, {
+      threads: true,
+    });
+    return json({
+      did,
+      threads: { posted: true, postedAt: result.postedAt },
+    });
+  }
+  const failures: Record<string, [number, string]> = {
+    not_configured: [400, "Threads is not configured in Settings → SNS."],
+    no_public_domain: [400, "Set the site's public domain first."],
+    not_published: [409, "Publish the article before posting to Threads."],
+    already_posted: [409, "This article was already posted to Threads."],
+    post_failed: [502, "Posting to Threads failed. Check your access token."],
+  };
+  const [status, message] = failures[result.code] ?? [500, "Posting failed."];
+  throw new HttpError(status, "threads_" + result.code, message);
+}
+
 // REST: read / set the per-article Bluesky "already posted" flag.
 //   GET /api/documents/:did/sns        -> { did, bsky: { posted, postedAt } }
 //   PUT /api/documents/:did/sns {bsky}  -> bsky:true marks posted (so the "投稿"
@@ -3812,12 +4082,13 @@ async function documentSnsFlag(
 ): Promise<Response> {
   requireAuthor(user);
   const row = await env.DB.prepare(
-    "SELECT sns_bsky_posted_at, sns_x_posted_at FROM documents WHERE did = ?",
+    "SELECT sns_bsky_posted_at, sns_x_posted_at, sns_threads_posted_at FROM documents WHERE did = ?",
   )
     .bind(did)
     .first<{
       sns_bsky_posted_at: string | null;
       sns_x_posted_at: string | null;
+      sns_threads_posted_at: string | null;
     }>();
   if (!row) {
     throw new HttpError(404, "document_not_found", "Document was not found.");
@@ -3834,6 +4105,10 @@ async function documentSnsFlag(
         posted: !!row.sns_x_posted_at,
         postedAt: row.sns_x_posted_at ?? null,
       },
+      threads: {
+        posted: !!row.sns_threads_posted_at,
+        postedAt: row.sns_threads_posted_at ?? null,
+      },
     });
   }
 
@@ -3841,11 +4116,12 @@ async function documentSnsFlag(
     const body = await readJson(request);
     const hasBsky = typeof body.bsky === "boolean";
     const hasX = typeof body.x === "boolean";
-    if (!hasBsky && !hasX) {
+    const hasThreads = typeof body.threads === "boolean";
+    if (!hasBsky && !hasX && !hasThreads) {
       throw new HttpError(
         400,
         "invalid_field",
-        "bsky or x must be a boolean: true = mark posted, false = clear.",
+        "bsky, x or threads must be a boolean: true = mark posted, false = clear.",
       );
     }
     let bskyAt = row.sns_bsky_posted_at;
@@ -3866,14 +4142,25 @@ async function documentSnsFlag(
         .bind(xAt, did)
         .run();
     }
+    let threadsAt = row.sns_threads_posted_at;
+    if (hasThreads) {
+      threadsAt = body.threads ? nowIso() : null;
+      await env.DB.prepare(
+        "UPDATE documents SET sns_threads_posted_at = ? WHERE did = ?",
+      )
+        .bind(threadsAt, did)
+        .run();
+    }
     await logActivity(env, user, "document.sns_flag", "document", did, {
       ...(hasBsky ? { bsky: body.bsky === true } : {}),
       ...(hasX ? { x: body.x === true } : {}),
+      ...(hasThreads ? { threads: body.threads === true } : {}),
     });
     return json({
       did,
       bsky: { posted: !!bskyAt, postedAt: bskyAt },
       x: { posted: !!xAt, postedAt: xAt },
+      threads: { posted: !!threadsAt, postedAt: threadsAt },
     });
   }
 
@@ -7559,6 +7846,8 @@ const SETTINGS_COLS = new Set([
   "sns_auto_post",
   "threads_handle",
   "threads_show_feed",
+  "threads_token",
+  "threads_user_id",
   "license_accepted_at",
   "license_accepted_by",
   "license_name",

@@ -961,6 +961,15 @@ const i18n = {
       'Posting credentials are configured in the "X (Twitter) Auto-Post" section above (API Key / Secret, Access Token / Secret). This card is only the handle + SID for feed display (planned).',
     xLinkInReplyHelp:
       "On X's API pricing, posts containing a link can be billed at a higher rate. When ON, each article is posted as a parent post (image + text) plus a reply carrying the link — roughly $0.015 + $0.015 ≈ $0.03 per article. When OFF, a single post includes the link in the body.",
+    threadsSettingsTitle: "Threads Auto-Post",
+    threadsCredsHelp:
+      "Enter a long-lived Threads API access token (create an app in Meta for Developers with the threads_basic and threads_content_publish permissions). The token is stored server-side and never shown again.",
+    threadsPostNote:
+      "Each article is posted as ONE post: cover image + title/summary + 1 topic tag + article link (500-char limit; Threads renders only one topic tag per post). Unlike X there is no per-post pricing, so no parent/reply split.",
+    snsPostConfirmThreads:
+      "Post this article to Threads now? One post: cover image + text + topic tag + article link.",
+    snsThreadsUseAutoPost:
+      'Posting credentials are configured in the "Threads Auto-Post" card (access token). This card is only the handle for feed display (planned).',
     statusActionsHeader: "Status / Actions",
     langsSuffix: " lang(s)",
     updatedSuffix: " updated",
@@ -1848,6 +1857,15 @@ const i18n = {
       "投稿用の認証情報は、上の「X (Twitter) 自動投稿」欄で設定します（API Key / Secret・Access Token / Secret の4つ）。このカードはハンドルとSID（フィード表示・将来対応）のみです。",
     xLinkInReplyHelp:
       "X APIでは本文にリンクを含む投稿は高い料金区分になる場合があります。ONにすると親ポスト（画像＋本文）→リプライ（記事リンク）の2通に分けて投稿し、費用を抑えます（目安: $0.015＋$0.015＝約$0.03/記事・約5円）。OFFにすると1通の本文にリンクを含めて投稿します。",
+    threadsSettingsTitle: "Threads 自動投稿",
+    threadsCredsHelp:
+      "Threads API の長期アクセストークンを入力します（Meta for Developers でアプリを作成し、threads_basic と threads_content_publish 権限が必要）。値はサーバー側に保存され、再表示されません。",
+    threadsPostNote:
+      "投稿は1通構成：カバー画像＋タイトル/要約＋トピックタグ1つ＋記事リンク（500字制限。Threadsは1投稿につきタグ1つのみリンク化されます）。Xと違い投稿ごとの課金がないため、親＋リプライ分割はしません。",
+    snsPostConfirmThreads:
+      "この記事を Threads に投稿しますか？（1通：カバー画像＋本文＋トピックタグ＋記事リンク）",
+    snsThreadsUseAutoPost:
+      "投稿用の認証情報は「Threads 自動投稿」カードで設定します（アクセストークン）。このカードはハンドル（フィード表示・将来対応）のみです。",
     statusActionsHeader: "状態 / 操作",
     langsSuffix: "言語",
     updatedSuffix: "更新",

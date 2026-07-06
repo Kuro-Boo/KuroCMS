@@ -729,10 +729,14 @@ async function articles() {
     }
     // Service helpers: "bsky" | "x" share the same flag/post plumbing.
     function snsServiceLabel(service: string) {
-      return service === "x" ? "X" : "Bluesky";
+      if (service === "x") return "X";
+      if (service === "threads") return "Threads";
+      return "Bluesky";
     }
     function snsDocField(service: string) {
-      return service === "x" ? "sns_x_posted_at" : "sns_bsky_posted_at";
+      if (service === "x") return "sns_x_posted_at";
+      if (service === "threads") return "sns_threads_posted_at";
+      return "sns_bsky_posted_at";
     }
     const snsClearEl = e.target.closest("[data-sns-clear]");
     if (snsClearEl) {
@@ -775,7 +779,15 @@ async function articles() {
       openEntryDialog(
         t("snsPostBtn") + " — " + snsServiceLabel(snsSvc),
         "<p class='muted'>" +
-          escapeHtml(t(snsSvc === "x" ? "snsPostConfirmX" : "snsPostConfirm")) +
+          escapeHtml(
+            t(
+              snsSvc === "x"
+                ? "snsPostConfirmX"
+                : snsSvc === "threads"
+                  ? "snsPostConfirmThreads"
+                  : "snsPostConfirm",
+            ),
+          ) +
           "</p>" +
           "<p class='muted' style='font-size:11px;margin-top:4px'>" +
           escapeHtml(t("snsMarkOnlyHelp")) +
@@ -990,7 +1002,7 @@ function renderArticleTable(documents: Dynamic) {
     const snsStatusHtml =
       "<div class='snsStatusList'>" +
       snsLine("BSKY", doc.sns_bsky_posted_at, true, "bsky") +
-      snsLine("THREADS", doc.sns_threads_posted_at, false) +
+      snsLine("THREADS", doc.sns_threads_posted_at, true, "threads") +
       snsLine("X", doc.sns_x_posted_at, true, "x") +
       "</div>";
     const editHref = adminHref("/articles/" + escapeHtml(doc.did));

@@ -245,6 +245,7 @@ async function settings() {
       "<div class='toolbar' style='gap:6px'>" +
       "<button type='button' class='secondary snsSvcTab active' data-sns-svc-tab='bsky' style='padding:5px 14px;font-size:13px;font-weight:700'>🦋 Bluesky</button>" +
       "<button type='button' class='secondary snsSvcTab' data-sns-svc-tab='x' style='padding:5px 14px;font-size:13px;font-weight:700'>𝕏 X (Twitter)</button>" +
+      "<button type='button' class='secondary snsSvcTab' data-sns-svc-tab='threads' style='padding:5px 14px;font-size:13px;font-weight:700'>@ Threads</button>" +
       "</div>" +
       "<div class='toolbar'><button type='button' id='addSnsBtn'>" +
       escapeHtml(t("addRegister")) +
@@ -313,6 +314,27 @@ async function settings() {
       "</span></label>" +
       "<div class='muted' style='margin-bottom:6px'>" +
       escapeHtml(t("xLinkInReplyHelp")) +
+      "</div>" +
+      "<div style='margin-top:16px;display:flex;justify-content:flex-end'><button type='submit'>" +
+      escapeHtml(t("saveSiteSettings")) +
+      "</button></div>" +
+      "</form>" +
+      // ── Threads (Meta) auto-post card: one long-lived access token ──
+      // Hidden until the Threads switcher tab is selected.
+      "<form class='snsCard' id='threadsAutoPostForm' style='display:none'>" +
+      "<div class='snsCardHead'>" +
+      "<div class='snsCardTitle'><span style='font-size:18px'>@</span> " +
+      escapeHtml(t("threadsSettingsTitle")) +
+      "</div>" +
+      "</div>" +
+      "<div class='muted' style='margin-bottom:10px'>" +
+      escapeHtml(t("threadsCredsHelp")) +
+      "</div>" +
+      "<label style='margin-bottom:10px'>" +
+      escapeHtml(t("snsAccessToken")) +
+      "<input id='threadsToken' type='password' autocomplete='off' /></label>" +
+      "<div class='muted' style='margin-bottom:6px'>" +
+      escapeHtml(t("threadsPostNote")) +
       "</div>" +
       "<div style='margin-top:16px;display:flex;justify-content:flex-end'><button type='submit'>" +
       escapeHtml(t("saveSiteSettings")) +
@@ -780,6 +802,10 @@ async function settings() {
       if (flag) byId(inputId)!.placeholder = "•••••••••••• ✓";
     }
     byId("xLinkInReply")!.checked = s.xLinkInReply !== false;
+    if (s.threadsTokenSet) {
+      byId("threadsToken")!.placeholder =
+        "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022 \u2713";
+    }
     // Auto-generate Bluesky SID if not set
     if (!s.blueskySid && s.blueskyHandle) {
       s.blueskySid = "sns-001";
@@ -813,8 +839,10 @@ async function settings() {
             });
           const bc = byId("blueskyCard");
           const xc = byId("xAutoPostForm");
+          const tc = byId("threadsAutoPostForm");
           if (bc) bc.style.display = svc === "bsky" ? "" : "none";
           if (xc) xc.style.display = svc === "x" ? "" : "none";
+          if (tc) tc.style.display = svc === "threads" ? "" : "none";
         });
       });
 
@@ -883,9 +911,11 @@ async function settings() {
             "' placeholder='@yourname' /></label>" +
             // X: posting credentials live in the "X (Twitter) Auto-Post"
             // section of the SNS form above — no token input here.
-            (svc === "x"
+            (svc === "x" || svc === "threads"
               ? "<p class='muted' style='font-size:11px;margin-top:4px'>" +
-                escapeHtml(t("snsXUseAutoPost")) +
+                escapeHtml(
+                  t(svc === "x" ? "snsXUseAutoPost" : "snsThreadsUseAutoPost"),
+                ) +
                 "</p>"
               : "<label style='margin-bottom:8px'><div class='muted' style='margin-bottom:4px'>" +
                 escapeHtml(t("snsAccessToken")) +
@@ -1977,6 +2007,7 @@ async function settings() {
             xAccessToken: (byId("xAccessToken")?.value || "").trim(),
             xAccessSecret: (byId("xAccessSecret")?.value || "").trim(),
             xLinkInReply: !!byId("xLinkInReply")?.checked,
+            threadsToken: (byId("threadsToken")?.value || "").trim(),
             ...extraFields,
           }),
         });
@@ -1987,7 +2018,12 @@ async function settings() {
       }
     }
 
-    for (const formId of ["siteForm", "snsForm", "xAutoPostForm"]) {
+    for (const formId of [
+      "siteForm",
+      "snsForm",
+      "xAutoPostForm",
+      "threadsAutoPostForm",
+    ]) {
       byId(formId)?.addEventListener("submit", async (event: Dynamic) => {
         event.preventDefault();
         const btn =
