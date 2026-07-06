@@ -121,7 +121,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.7.60";
+export const KUROCMS_VERSION = "1.7.61";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -5771,7 +5771,26 @@ async function nextMediaId(
       if (num > max) max = num;
     }
   }
-  const n = max + 1;
+  // NEVER re-issue a number: deleting the newest asset would otherwise free its
+  // mid, and the re-issued /images/{mid}.{ext} URL is poisoned by the 1-year
+  // immutable browser/CDN cache of the deleted content (the new image then
+  // LOOKS like the old one everywhere). media_id_seq remembers the highest
+  // number ever issued, independent of surviving rows (migration 0056).
+  const seqRow = await env.DB.prepare(
+    "SELECT last_n FROM media_id_seq WHERE kind = ?",
+  )
+    .bind(kind)
+    .first<{ last_n: number }>()
+    .catch(() => null);
+  const n = Math.max(max, seqRow?.last_n ?? 0) + 1;
+  await env.DB.prepare(
+    `INSERT INTO media_id_seq (kind, last_n) VALUES (?, ?)
+     ON CONFLICT(kind) DO UPDATE SET last_n = excluded.last_n
+     WHERE excluded.last_n > media_id_seq.last_n`,
+  )
+    .bind(kind, n)
+    .run()
+    .catch(() => {});
   // Hyphen separator for consistency with all other [[...]] tokens (content
   // keys, SNS ids). The [[...]] parser accepts both, but we standardize on "-".
   return `${prefix}-${String(n).padStart(3, "0")}`;
@@ -5784,7 +5803,7 @@ async function listMediaAssets(
 ): Promise<Response> {
   requireAuthor(user);
   const rows = await env.DB.prepare(
-    "SELECT mid AS id, kind, filename, mime, width, height, size_bytes AS sizeBytes, public_path AS publicPath, created_at AS createdAt FROM media_assets WHERE kind = ? ORDER BY created_at DESC LIMIT 200",
+    "SELECT mid AS id, kind, filename, mime, width, height, size_bytes AS sizeBytes, public_path AS publicPath, cache_version AS cacheVersion, created_at AS createdAt FROM media_assets WHERE kind = ? ORDER BY created_at DESC LIMIT 200",
   )
     .bind(kind)
     .all();
@@ -7353,18 +7372,61 @@ async function uploadMediaFile(
     kind === "image" ? Number(formData.get("height")) || null : null;
   const folder =
     kind === "image" ? "images" : kind === "video" ? "videos" : "audios";
+
+  // Content-hash dedup (images only — buffering a 300MB video to hash it is
+  // not worth it): byte-identical re-uploads reuse the existing asset instead
+  // of growing the library with duplicate rows + R2 objects. Judged by CONTENT,
+  // never by filename — same-named but different images are stored separately.
+  let contentHash: string | null = null;
+  let imageBuffer: ArrayBuffer | null = null;
+  if (kind === "image") {
+    imageBuffer = await file.arrayBuffer();
+    const digest = await crypto.subtle.digest("SHA-256", imageBuffer);
+    contentHash = [...new Uint8Array(digest)]
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+    const dup = await env.DB.prepare(
+      "SELECT mid, public_path AS publicPath, cache_version AS version FROM media_assets WHERE kind = 'image' AND content_hash = ? LIMIT 1",
+    )
+      .bind(contentHash)
+      .first<{ mid: string; publicPath: string; version: string }>()
+      .catch(() => null); // pre-0057 DB (no column) → behave as before
+    if (dup) {
+      // Audit trail: without this, a deduped drop leaves no trace and looks
+      // like "nothing happened" when debugging from activity_logs.
+      await logActivity(env, user, "image.reuse", kind, dup.mid, {
+        filename: file.name,
+        sizeBytes,
+      });
+      return json(
+        {
+          pid: dup.mid,
+          mid: dup.mid,
+          publicPath: dup.publicPath,
+          url: `${dup.publicPath}?v=${dup.version}`,
+          reused: true,
+        },
+        { status: 200 },
+      );
+    }
+  }
+
   const mid = await nextMediaId(env, kind);
   const version = cacheVersion();
   const publicPath = `/${folder}/${mid}.${ext}`;
   const r2Key = `${folder}/${mid}.${ext}`;
-  await (env.MEDIA_BUCKET as R2Bucket).put(r2Key, file.stream(), {
-    httpMetadata: { contentType: mime },
-    customMetadata: { originalFilename: file.name, version },
-  });
+  await (env.MEDIA_BUCKET as R2Bucket).put(
+    r2Key,
+    imageBuffer ?? file.stream(),
+    {
+      httpMetadata: { contentType: mime },
+      customMetadata: { originalFilename: file.name, version },
+    },
+  );
   const now = nowIso();
   await env.DB.prepare(
-    `INSERT INTO media_assets (mid, kind, filename, ext, mime, width, height, size_bytes, public_path, cache_version, created_at, updated_at, created_by)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO media_assets (mid, kind, filename, ext, mime, width, height, size_bytes, public_path, cache_version, created_at, updated_at, created_by, content_hash)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
     .bind(
       mid,
@@ -7380,6 +7442,7 @@ async function uploadMediaFile(
       now,
       now,
       user.uid,
+      contentHash,
     )
     .run();
   await logActivity(env, user, `${kind}.upload`, kind, mid, {

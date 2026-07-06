@@ -1145,7 +1145,17 @@ async function newArticle(editDid: Dynamic) {
                   (typeof data.error === "string" ? data.error : "") ||
                   resp.statusText,
               );
-            bodyMidUrlCache[data.mid] = publicBase + data.publicPath;
+            // ?v=cache_version 付き（data.url）で保持する。mid の URL は
+            // immutable キャッシュされるため、素の publicPath だと（過去に
+            // 同じパスが存在した場合）古いキャッシュ画像が表示される。
+            bodyMidUrlCache[data.mid] =
+              publicBase + (data.url || data.publicPath);
+            // 中身が同一の既存画像に集約された場合はその旨を通知（重複登録防止）
+            if (data.reused)
+              toast(
+                t("mediaReusedToast").replace("{mid}", String(data.mid)),
+                false,
+              );
             return data.mid;
           }
         : undefined,
@@ -1190,13 +1200,20 @@ async function newArticle(editDid: Dynamic) {
       ])
         .then(function (
           results: Array<{
-            items?: Array<{ id?: string; publicPath?: string }>;
+            items?: Array<{
+              id?: string;
+              publicPath?: string;
+              cacheVersion?: string;
+            }>;
           }>,
         ) {
           results.forEach(function (d) {
             (d.items || []).forEach(function (item) {
               if (item.id && item.publicPath)
-                bodyMidUrlCache[item.id] = publicBase + item.publicPath;
+                bodyMidUrlCache[item.id] =
+                  publicBase +
+                  item.publicPath +
+                  (item.cacheVersion ? "?v=" + item.cacheVersion : "");
             });
           });
           bodyMediaLoaded = true;

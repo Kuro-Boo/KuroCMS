@@ -1074,6 +1074,7 @@ const i18n = {
     bodyConflictConfirm:
       "The body of this article was updated by another client (e.g. an AI) after you opened it.\n\nOK: overwrite with your version (the other version is kept in revision history)\nCancel: don't save now (reopen the article to load the latest version)",
     articleSavedToast: "Saved",
+    mediaReusedToast: "Identical image already exists — reused {mid}",
     typeNotSelectedErr: "Type not selected",
     selectTypeMsg: "Please select an article type",
     slugEmptyErr: "Slug required",
@@ -1986,6 +1987,7 @@ const i18n = {
     bodyConflictConfirm:
       "この記事の本文は、開いた後に別のクライアント（AI など）によって更新されています。\n\nOK: 自分の本文で上書きする（相手の版はリビジョン履歴に残ります）\nキャンセル: 今は保存しない（最新版を読むには記事を開き直してください）",
     articleSavedToast: "保存しました",
+    mediaReusedToast: "同じ内容の画像が既にあるため {mid} を再利用しました",
     typeNotSelectedErr: "タイプ未選択",
     selectTypeMsg: "記事タイプを選択してください",
     slugEmptyErr: "Slug未入力",
