@@ -71,6 +71,9 @@ type KuroEditorInstance = {
   destroy(): void;
   getContent(): string;
   setContent(html: string): void;
+  isDirty(): boolean;
+  /** KE >= 2.1.1。古いバンドル対策で呼び出し側は optional chaining にする。 */
+  clearDirty?(): void;
   wysiwyg: HTMLElement;
   sourceArea: HTMLTextAreaElement;
   mmenu: HTMLElement;
