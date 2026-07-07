@@ -802,7 +802,12 @@ async function articles() {
             // Threads runs in the background (Meta-side image processing takes
             // tens of seconds): close now and poll the flag until it lands.
             if (res[snsSvc] && res[snsSvc].queued) {
+              // Mark in-flight BEFORE closing/re-rendering: the list keeps the
+              // button as a disabled 投稿中… until the poll resolves, so the
+              // background job can't be triggered twice from the UI.
+              snsPosting.add(snsDid + ":" + snsSvc);
               close();
+              renderList();
               toast(t("snsPostQueued"), false);
               let tries = 18; // ~90s at 5s intervals
               const poll = function () {
@@ -811,6 +816,7 @@ async function articles() {
                   try {
                     const st = await api("/api/documents/" + snsDid + "/sns");
                     if (st[snsSvc] && st[snsSvc].posted) {
+                      snsPosting.delete(snsDid + ":" + snsSvc);
                       const doc: Dynamic = allDocs.find(function (d) {
                         return d.did === snsDid;
                       });
@@ -829,7 +835,13 @@ async function articles() {
                     /* transient poll error — keep trying */
                   }
                   if (tries > 0) poll();
-                  else toast(t("snsPostQueueTimeout"), true);
+                  else {
+                    // Give the button back on timeout — the server-side
+                    // already_queued guard still blocks a real double post.
+                    snsPosting.delete(snsDid + ":" + snsSvc);
+                    renderList();
+                    toast(t("snsPostQueueTimeout"), true);
+                  }
                 }, 5000);
               };
               poll();
@@ -926,6 +938,14 @@ function formatDateShort(value: Dynamic) {
   return Number.isNaN(d.getTime()) ? value : d.toLocaleDateString();
 }
 
+// In-flight background SNS posts ("did:service"). While a did is here the
+// list renders its 投稿 button as a disabled 投稿中… — a re-render would
+// otherwise recreate the button enabled and allow a double post while the
+// Threads background job (≤90s) is still running. Module-level so the state
+// survives a screen remount too (the server's already_queued guard is the
+// final backstop either way).
+const snsPosting = new Set<string>();
+
 function renderArticleTable(documents: Dynamic) {
   if (!documents || !documents.length)
     return "<div class='emptyState'>" + escapeHtml(t("noDocuments")) + "</div>";
@@ -998,6 +1018,7 @@ function renderArticleTable(documents: Dynamic) {
       // A posted (and postable) line is clickable: it opens the clear-flag
       // dialog (PUT /sns {bsky/x:false}) so the "投稿" button can come back.
       const clearable = posted && canPost && !state.preview && !!service;
+      const posting = !!service && snsPosting.has(doc.did + ":" + service);
       const value =
         !posted && canPost && service
           ? "<button type='button' class='snsPostBtn' data-sns-post='" +
@@ -1005,9 +1026,9 @@ function renderArticleTable(documents: Dynamic) {
             "' data-sns-service='" +
             escapeHtml(service) +
             "'" +
-            (state.preview ? " disabled" : "") +
+            (state.preview || posting ? " disabled" : "") +
             ">" +
-            escapeHtml(t("snsPostBtn")) +
+            escapeHtml(posting ? t("snsPostingBtn") : t("snsPostBtn")) +
             "</button>"
           : "<span class='snsStatusValue" +
             (clearable ? " snsClearable" : "") +

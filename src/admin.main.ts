@@ -937,6 +937,7 @@ const i18n = {
     snsPublished: "Published",
     snsUnpublished: "Unpublished",
     snsPostBtn: "Post",
+    snsPostingBtn: "Posting…",
     snsPostConfirm:
       "Post this article to Bluesky now (title, link, cover image)?",
     snsPostDone: "Posted to {service}.",
@@ -1846,6 +1847,7 @@ const i18n = {
     snsPublished: "公開済み",
     snsUnpublished: "未公開",
     snsPostBtn: "投稿",
+    snsPostingBtn: "投稿中…",
     snsPostConfirm:
       "この記事を Bluesky に投稿しますか？（タイトル・リンク・カバー画像）",
     snsPostDone: "{service} に投稿しました。",

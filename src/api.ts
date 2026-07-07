@@ -121,7 +121,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.7.62";
+export const KUROCMS_VERSION = "1.7.63";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -4072,6 +4072,10 @@ async function postDocumentToThreads(
     no_public_domain: [400, "Set the site's public domain first."],
     not_published: [409, "Publish the article before posting to Threads."],
     already_posted: [409, "This article was already posted to Threads."],
+    already_queued: [
+      409,
+      "A Threads post for this article is already in progress.",
+    ],
     post_failed: [502, "Posting to Threads failed. Check your access token."],
   };
   const fail = (code: string): never => {
@@ -4099,6 +4103,18 @@ async function postDocumentToThreads(
     .first<{ sns_threads_posted_at: string | null }>();
   if (!doc) fail("not_published");
   if (doc!.sns_threads_posted_at) fail("already_posted");
+
+  // Double-queue guard: the background job can run for tens of seconds and the
+  // client UI state doesn't survive a screen remount, so block a second queue
+  // while a recent one may still be in flight. The queue action below is the
+  // lock record — no schema needed; a stuck job self-expires after 3 minutes.
+  const recentQueue = await env.DB.prepare(
+    "SELECT created_at FROM activity_logs WHERE action = 'document.sns_post' AND target_id = ? AND detail_json LIKE '%\"threads\":true%' AND detail_json LIKE '%\"queued\":true%' AND created_at > ? ORDER BY created_at DESC LIMIT 1",
+  )
+    .bind(did, new Date(Date.now() - 3 * 60_000).toISOString())
+    .first<{ created_at: string }>()
+    .catch(() => null);
+  if (recentQueue) fail("already_queued");
 
   await logActivity(env, user, "document.sns_post", "document", did, {
     threads: true,
