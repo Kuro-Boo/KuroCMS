@@ -1098,6 +1098,9 @@ async function newArticle(editDid: Dynamic) {
       modalToolbar: byId("arKeToolbar") || undefined,
       // KuroEditor's built-in periodic autosave interval (per-app tunable).
       autoSaveInterval: AUTOSAVE_INTERVAL_MS,
+      // 通常モードのキャンバスをアクティブテンプレートの body 配色に一致させる
+      // （/api/fonts の editorCanvas 由来。ダーク系テンプレートでも WYSIWYG）。
+      canvasColors: state.editorCanvasColors || undefined,
       urlResolver: function (slug: string) {
         if (slug.startsWith("http")) return slug;
         return bodyMidUrlCache[slug] || slug;
