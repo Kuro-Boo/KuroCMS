@@ -51,6 +51,7 @@ async function siteManagement() {
       document.body.appendChild(iframe);
       const started = Date.now();
       let lastLen = -1;
+      let stablePolls = 0;
       const timer = setInterval(function () {
         let css = "";
         try {
@@ -62,12 +63,22 @@ async function siteManagement() {
         } catch {
           /* ignore */
         }
-        // The JIT is done when the output is non-trivial and stable.
+        // The JIT is done when the output is non-trivial and stable. A single
+        // stable sample (2 polls / 300ms) can fire BETWEEN JIT passes and save
+        // an INCOMPLETE stylesheet — which then serves with a token list that
+        // claims full coverage, so the coverage check can't catch it and the
+        // public page silently loses rules. Require 3 consecutive stable
+        // samples AND a minimum elapsed time before accepting.
         if (css.length > 1000 && css.length === lastLen) {
-          clearInterval(timer);
-          iframe.remove();
-          resolve(css);
-          return;
+          stablePolls++;
+          if (stablePolls >= 3 && Date.now() - started > 1500) {
+            clearInterval(timer);
+            iframe.remove();
+            resolve(css);
+            return;
+          }
+        } else {
+          stablePolls = 0;
         }
         lastLen = css.length;
         if (Date.now() - started > 15000) {
@@ -2392,6 +2403,8 @@ async function siteManagement() {
       ta.closest(".popupCard")?.classList.add("kuroDlg");
       const midUrlCache: Record<string, string> = {};
       dlgKe = new KE(ta, {
+        // サイトテキスト編集も通常モードのキャンバスを実サイト配色に合わせる
+        canvasColors: state.editorCanvasColors || undefined,
         urlResolver: function (slug: string) {
           return slug.startsWith("http") ? slug : midUrlCache[slug] || slug;
         },

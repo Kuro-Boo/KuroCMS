@@ -121,7 +121,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.7.66";
+export const KUROCMS_VERSION = "1.7.67";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -8298,6 +8298,116 @@ function sanitizeWeights(input: unknown, family: string): number[] {
  * The base font may be "" (template default), a system stack id, or a loaded
  * catalog family.
  */
+/**
+ * Tailwind neutral scales + white/black — enough to resolve the body
+ * background/text classes real templates use. Colored bodies (or CSS the
+ * regex can't see) fall back to the editor's own defaults, which is safe.
+ */
+const TW_BODY_PALETTE: Record<string, string> = {
+  white: "#ffffff",
+  black: "#000000",
+  // prettier-ignore
+  "slate-50": "#f8fafc",
+  "slate-100": "#f1f5f9",
+  "slate-200": "#e2e8f0",
+  "slate-300": "#cbd5e1",
+  "slate-400": "#94a3b8",
+  "slate-500": "#64748b",
+  "slate-600": "#475569",
+  "slate-700": "#334155",
+  "slate-800": "#1e293b",
+  "slate-900": "#0f172a",
+  "slate-950": "#020617",
+  // prettier-ignore
+  "gray-50": "#f9fafb",
+  "gray-100": "#f3f4f6",
+  "gray-200": "#e5e7eb",
+  "gray-300": "#d1d5db",
+  "gray-400": "#9ca3af",
+  "gray-500": "#6b7280",
+  "gray-600": "#4b5563",
+  "gray-700": "#374151",
+  "gray-800": "#1f2937",
+  "gray-900": "#111827",
+  "gray-950": "#030712",
+  // prettier-ignore
+  "zinc-50": "#fafafa",
+  "zinc-100": "#f4f4f5",
+  "zinc-200": "#e4e4e7",
+  "zinc-300": "#d4d4d8",
+  "zinc-400": "#a1a1aa",
+  "zinc-500": "#71717a",
+  "zinc-600": "#52525b",
+  "zinc-700": "#3f3f46",
+  "zinc-800": "#27272a",
+  "zinc-900": "#18181b",
+  "zinc-950": "#09090b",
+  // prettier-ignore
+  "neutral-50": "#fafafa",
+  "neutral-100": "#f5f5f5",
+  "neutral-200": "#e5e5e5",
+  "neutral-300": "#d4d4d4",
+  "neutral-400": "#a3a3a3",
+  "neutral-500": "#737373",
+  "neutral-600": "#525252",
+  "neutral-700": "#404040",
+  "neutral-800": "#262626",
+  "neutral-900": "#171717",
+  "neutral-950": "#0a0a0a",
+  // prettier-ignore
+  "stone-50": "#fafaf9",
+  "stone-100": "#f5f5f4",
+  "stone-200": "#e7e5e4",
+  "stone-300": "#d6d3d1",
+  "stone-400": "#a8a29e",
+  "stone-500": "#78716c",
+  "stone-600": "#57534e",
+  "stone-700": "#44403c",
+  "stone-800": "#292524",
+  "stone-900": "#1c1917",
+  "stone-950": "#0c0a09",
+};
+
+/**
+ * Resolve the active template's <body> background/text colors so the editor's
+ * 通常モード canvas can match the real site (KuroEditor canvasColors option).
+ * Handles `bg-slate-50` style palette classes and `bg-[#hex]` arbitrary values;
+ * anything else returns partial/null and the editor keeps its own defaults.
+ */
+export function resolveTemplateCanvasColors(
+  sourceHtml: string,
+): { bg?: string; text?: string } | null {
+  const m = String(sourceHtml || "").match(
+    /<body\b[^>]*\bclass\s*=\s*["']([^"']*)["']/i,
+  );
+  if (!m) return null;
+  let bg: string | undefined;
+  let text: string | undefined;
+  for (const cls of m[1].split(/\s+/)) {
+    let mm = cls.match(/^bg-\[(#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6,8}))\]$/);
+    if (mm) {
+      bg = mm[1];
+      continue;
+    }
+    mm = cls.match(/^bg-([a-z]+(?:-\d{2,3})?)$/);
+    if (mm && TW_BODY_PALETTE[mm[1]]) {
+      bg = TW_BODY_PALETTE[mm[1]];
+      continue;
+    }
+    mm = cls.match(/^text-\[(#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6,8}))\]$/);
+    if (mm) {
+      text = mm[1];
+      continue;
+    }
+    mm = cls.match(/^text-([a-z]+(?:-\d{2,3})?)$/);
+    if (mm && TW_BODY_PALETTE[mm[1]]) {
+      text = TW_BODY_PALETTE[mm[1]];
+    }
+  }
+  if (!bg && !text) return null;
+  return { ...(bg ? { bg } : {}), ...(text ? { text } : {}) };
+}
+
 async function fonts(
   request: Request,
   env: Env,
@@ -8310,6 +8420,19 @@ async function fonts(
     const lang = (url.searchParams.get("lang") || "").trim().toLowerCase();
     if (lang) validateLanguage(lang, "lang");
     const { loaded, base, configs } = await readFontConfig(env, lang);
+    // Active template's body colors — the admin passes them to KuroEditor's
+    // canvasColors so the 通常モード canvas matches the real site palette
+    // (dark-designed templates would otherwise preview on a white canvas).
+    let editorCanvas: { bg?: string; text?: string } | null = null;
+    try {
+      const trow = await env.DB.prepare(
+        "SELECT source_html FROM page_templates WHERE id = (SELECT template_id FROM site_settings WHERE id = 1)",
+      ).first<{ source_html: string }>();
+      if (trow?.source_html)
+        editorCanvas = resolveTemplateCanvasColors(trow.source_html);
+    } catch {
+      /* non-fatal: editor keeps its default canvas palette */
+    }
     return json({
       catalog: FONT_CATALOG as unknown as JsonValue,
       systemFonts: SYSTEM_FONTS as unknown as JsonValue,
@@ -8320,6 +8443,7 @@ async function fonts(
       // Resolved CSS font-family for the base font (catalog family or system
       // stack). The admin uses it to render the editor body in the site font.
       baseStack: resolveBaseFontStack(base),
+      editorCanvas: editorCanvas as JsonValue,
     });
   }
 

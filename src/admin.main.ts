@@ -74,6 +74,8 @@ type KuroEditorInstance = {
   isDirty(): boolean;
   /** KE >= 2.1.1。古いバンドル対策で呼び出し側は optional chaining にする。 */
   clearDirty?(): void;
+  /** KE >= 2.2.0。通常モードのキャンバス配色をホスト（サイト）の色に合わせる。 */
+  setCanvasColors?(colors: { bg?: string; text?: string } | null): void;
   wysiwyg: HTMLElement;
   sourceArea: HTMLTextAreaElement;
   mmenu: HTMLElement;
@@ -2331,6 +2333,10 @@ type AdminState = {
   articleEditor: KuroEditorInstance | null;
   isAdmin: boolean;
   storageAlert: boolean;
+  /** アクティブテンプレートの body 配色（/api/fonts の editorCanvas）。
+      KuroEditor の canvasColors に渡し、通常モードのキャンバスを実サイトの
+      配色に一致させる（ダーク系テンプレートでも WYSIWYG になる）。 */
+  editorCanvasColors: { bg?: string; text?: string } | null;
 };
 
 const state: AdminState = {
@@ -2348,6 +2354,7 @@ const state: AdminState = {
   articleEditor: null,
   isAdmin: false,
   storageAlert: false,
+  editorCanvasColors: null,
 };
 
 // ---- Passkey / WebAuthn helpers ----
@@ -2767,6 +2774,11 @@ async function applyEditorFont(lang = "") {
     );
     const loaded: Dynamic[] = data.loaded || [];
     const baseStack: string = data.baseStack || "";
+
+    // アクティブテンプレートの body 配色。以後マウントされるエディタは
+    // options.canvasColors で受け取り、マウント済みエディタには即時反映する。
+    state.editorCanvasColors = data.editorCanvas || null;
+    state.articleEditor?.setCanvasColors?.(state.editorCanvasColors);
 
     let link = byId("kuroSiteFontLink") as Dynamic;
     if (loaded.length) {
