@@ -121,7 +121,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.7.65";
+export const KUROCMS_VERSION = "1.7.66";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -553,6 +553,7 @@ export async function handleApi(
           user,
           await resolveDid(env, documentTranslationMatch[1]),
           documentTranslationMatch[2],
+          ctx,
         ),
       );
     }
@@ -567,6 +568,7 @@ export async function handleApi(
           env,
           user,
           await resolveDid(env, documentCategoriesMatch[1]),
+          ctx,
         ),
       );
     }
@@ -5226,6 +5228,7 @@ async function documentCategories(
   env: Env,
   user: AuthUser,
   did: string,
+  ctx?: ExecutionContext,
 ): Promise<Response> {
   if (request.method === "GET") {
     const rows = await env.DB.prepare(
@@ -5274,6 +5277,22 @@ async function documentCategories(
     await env.DB.prepare("UPDATE documents SET updated_at = ? WHERE did = ?")
       .bind(nowIso(), did)
       .run();
+    // Immediate refresh of the published article's pages (chips render there).
+    // Runs AFTER the assignment is committed, so it can't build stale data.
+    if (ctx) {
+      const doc = await env.DB.prepare(
+        "SELECT mode FROM documents WHERE did = ?",
+      )
+        .bind(did)
+        .first<{ mode: number }>();
+      if (doc?.mode === 1) {
+        ctx.waitUntil(
+          buildDocumentPages(env, did).catch(() => {
+            /* non-fatal: full build will reconcile */
+          }),
+        );
+      }
+    }
     return json({ ok: true, changed: true });
   }
   throw new HttpError(405, "method_not_allowed", "Method is not allowed.");
@@ -5314,13 +5333,14 @@ async function documentDetail(
       throw new HttpError(400, "invalid_mode", "mode must be 0, 1, or 2.");
     }
     const existing = await env.DB.prepare(
-      "SELECT tid, slug, mode, unpublish_at FROM documents WHERE did = ?",
+      "SELECT tid, slug, mode, publish_at, unpublish_at FROM documents WHERE did = ?",
     )
       .bind(did)
       .first<{
         tid: string;
         slug: string;
         mode: number;
+        publish_at: string | null;
         unpublish_at: string | null;
       }>();
     if (!existing) {
@@ -5355,6 +5375,19 @@ async function documentDetail(
       }
     }
     const tidChanged = tid !== existing.tid;
+    // No-op guard: the editor PUTs {mode, publishAt, tid} on EVERY save. When
+    // nothing actually changed, skip the write entirely — otherwise every save
+    // bumps documents.updated_at (dirtying the article/listing/monthly build
+    // hashes for nothing), spams the activity log, and re-triggers the
+    // immediate page build below.
+    const docChanged =
+      tidChanged ||
+      modeValue !== existing.mode ||
+      (publishAt !== null && publishAt !== existing.publish_at) ||
+      (unpublishAt || null) !== (existing.unpublish_at || null);
+    if (!docChanged) {
+      return json({ ok: true, changed: false });
+    }
     const statements = [
       env.DB.prepare(
         `UPDATE documents
@@ -5402,7 +5435,7 @@ async function documentDetail(
     // SNS posting is decoupled from publishing: articles publish without touching
     // SNS. Posting to Bluesky is an explicit action via the "投稿" button
     // (POST /api/documents/:did/sns/bsky/post → postDocumentToBluesky).
-    return json({ ok: true });
+    return json({ ok: true, changed: true });
   }
 
   if (request.method === "DELETE") {
@@ -5528,6 +5561,7 @@ async function documentTranslations(
   user: AuthUser,
   did: string,
   lang?: string,
+  ctx?: ExecutionContext,
 ): Promise<Response> {
   // Mutations MUST target an explicit language. Never fall back to the base
   // language on a forgotten `:lang` — that would silently overwrite/delete the
@@ -5596,8 +5630,13 @@ async function documentTranslations(
     const requestedCreatedAt = optionalIsoTimestamp(body, "createdAt");
     const requestedUpdatedAt = optionalIsoTimestamp(body, "updatedAt");
     const document = await env.DB.prepare(
-      `SELECT d.did, d.tid, dt.created_at AS translation_created_at,
-              dt.body_html AS translation_body_html
+      `SELECT d.did, d.tid, d.mode, dt.created_at AS translation_created_at,
+              dt.updated_at AS translation_updated_at,
+              dt.body_html AS translation_body_html,
+              dt.title AS translation_title,
+              dt.summary AS translation_summary,
+              dt.seo_json AS translation_seo_json,
+              dt.hashtag_json AS translation_hashtag_json
        FROM documents d
        LEFT JOIN document_translations dt ON dt.did = d.did AND dt.lang = ?
        WHERE d.did = ?`,
@@ -5606,8 +5645,14 @@ async function documentTranslations(
       .first<{
         did: string;
         tid: string;
+        mode: number;
         translation_created_at: string | null;
+        translation_updated_at: string | null;
         translation_body_html: string | null;
+        translation_title: string | null;
+        translation_summary: string | null;
+        translation_seo_json: string | null;
+        translation_hashtag_json: string | null;
       }>();
     if (!document) {
       throw new HttpError(404, "document_not_found", "Document was not found.");
@@ -5633,6 +5678,32 @@ async function documentTranslations(
     }
     const bodyHtml =
       bodyHtmlInput ?? (document.translation_body_html as string);
+
+    // No-op guard: the editor PUTs the full metadata payload on EVERY save.
+    // When the stored translation is byte-identical, skip the write — the
+    // unconditional upsert would otherwise bump dt/d updated_at (dirtying the
+    // build hashes for nothing) AND snapshot a pointless revision each save.
+    // Explicit createdAt/updatedAt requests (import flows) are data changes.
+    const translationUnchanged =
+      document.translation_created_at !== null &&
+      requestedCreatedAt == null &&
+      requestedUpdatedAt == null &&
+      title === (document.translation_title ?? "") &&
+      (summary ?? "") === (document.translation_summary ?? "") &&
+      seo === (document.translation_seo_json ?? "") &&
+      hashtags === (document.translation_hashtag_json ?? "") &&
+      bodyHtml === document.translation_body_html;
+    if (translationUnchanged) {
+      return json({
+        ok: true,
+        did,
+        lang,
+        createdAt: document.translation_created_at,
+        updatedAt: document.translation_updated_at,
+        changed: false,
+      });
+    }
+
     const now = nowIso();
     const createdAt =
       requestedCreatedAt ?? document.translation_created_at ?? now;
@@ -5709,7 +5780,18 @@ async function documentTranslations(
     await logActivity(env, user, "translation.upsert", "document", did, {
       lang,
     });
-    return json({ ok: true, did, lang, createdAt, updatedAt });
+    // Immediate page refresh for a REAL content change on a published article.
+    // This used to piggyback on the documents PUT (which fired on every save,
+    // even no-ops, and raced ahead of this request so it could build the OLD
+    // body); here it runs after the new content is committed.
+    if (ctx && document.mode === 1) {
+      ctx.waitUntil(
+        buildDocumentPages(env, did).catch(() => {
+          /* non-fatal: full build will reconcile */
+        }),
+      );
+    }
+    return json({ ok: true, did, lang, createdAt, updatedAt, changed: true });
   }
 
   if (request.method === "DELETE" && lang) {
