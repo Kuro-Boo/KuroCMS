@@ -2724,9 +2724,13 @@ export async function buildAllPublicPages(
   );
   const siteHash = `${siteMaxTs}:${contentTs}:${tplId}:${siteLiveSig}`;
 
-  // 2. Per-article-translation updated_at (for article pages)
+  // 2. Per-article-translation updated_at (for article pages). The DOCUMENT's
+  // updated_at participates too: document-level changes that render on the
+  // article page — category assignment (chips), publish date, type — bump
+  // documents.updated_at without touching any translation row, and would
+  // otherwise never make the page a build target.
   const artRows = await env.DB.prepare(
-    `SELECT d.slug, d.tid, dt.lang, dt.updated_at AS ts
+    `SELECT d.slug, d.tid, d.updated_at AS dts, dt.lang, dt.updated_at AS ts
      FROM documents d
      JOIN document_translations dt ON dt.did = d.did
      WHERE d.mode = 1 ${liveWindowSql("d.", includeFuture)}
@@ -2735,11 +2739,17 @@ export async function buildAllPublicPages(
          OR NULLIF(dt.summary, '') IS NOT NULL
          OR (NULLIF(dt.title, '') IS NOT NULL AND dt.title <> d.slug)
        )`,
-  ).all<{ slug: string; tid: string; lang: string; ts: string }>();
+  ).all<{
+    slug: string;
+    tid: string;
+    dts: string;
+    lang: string;
+    ts: string;
+  }>();
   const artHash = new Map(
     artRows.results.map((r) => [
       `${r.slug}:${r.tid}:${r.lang}`,
-      `${r.ts || ""}:${contentTs}:${tplId}`,
+      `${r.ts || ""}:${r.dts || ""}:${contentTs}:${tplId}`,
     ]),
   );
 

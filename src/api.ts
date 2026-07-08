@@ -121,7 +121,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.7.64";
+export const KUROCMS_VERSION = "1.7.65";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -5243,6 +5243,19 @@ async function documentCategories(
           (c) => typeof c === "string",
         ) as string[])
       : [];
+    // Change detection: the editor PUTs categories on EVERY save, so only a
+    // real assignment change may bump documents.updated_at below — otherwise
+    // every metadata autosave would dirty the build hashes for nothing.
+    const existingRows = await env.DB.prepare(
+      "SELECT cid FROM document_categories WHERE did = ? ORDER BY cid",
+    )
+      .bind(did)
+      .all<{ cid: string }>();
+    const before = (existingRows.results ?? []).map((r) => r.cid).join(",");
+    const after = [...new Set(cats)].sort().join(",");
+    if (before === after) {
+      return json({ ok: true, changed: false });
+    }
     await env.DB.prepare("DELETE FROM document_categories WHERE did = ?")
       .bind(did)
       .run();
@@ -5253,7 +5266,15 @@ async function documentCategories(
         .bind(did, cid)
         .run();
     }
-    return json({ ok: true });
+    // Category assignments live only in document_categories, which no build
+    // signature reads — without this bump the article page and the listings
+    // (whose cards show the category chips) never become build targets after
+    // a category change. documents.updated_at feeds the article-page hash and
+    // the type/home listing hashes.
+    await env.DB.prepare("UPDATE documents SET updated_at = ? WHERE did = ?")
+      .bind(nowIso(), did)
+      .run();
+    return json({ ok: true, changed: true });
   }
   throw new HttpError(405, "method_not_allowed", "Method is not allowed.");
 }
