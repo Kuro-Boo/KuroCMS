@@ -36,6 +36,12 @@ async function dashboard() {
       "<div class='panel'>" +
       "<div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:10px'>" +
       "<span style='font-weight:700;font-size:14px'>KuroCMS</span>" +
+      "<div class='updateBtnWrap'>" +
+      "<button id='btnUpdate' style='font-size:12px;padding:5px 12px'>" +
+      escapeHtml(t("checkForUpdate")) +
+      "</button>" +
+      "<span class='updateBadge' id='updateBadge' style='display:none'></span>" +
+      "</div>" +
       "</div>" +
       "<div style='border-top:1px solid var(--line);padding-top:10px;display:flex;flex-direction:column;gap:6px'>" +
       "<div class='versionRow'><span class='versionLabel'>" +
@@ -59,15 +65,6 @@ async function dashboard() {
       "<input type='checkbox' id='updateChannelToggle' />" +
       "<span class='toggleSlider'></span>" +
       "</label>" +
-      "</div>" +
-      "</div>" +
-      "<div style='margin-top:12px'>" +
-      "<div class='updateBtnWrap'>" +
-      "<button id='btnUpdate' style='width:100%'>" +
-      escapeHtml(t("checkForUpdate")) +
-      "</button>" +
-      "<span class='updateBadge' id='updateBadge' style='display:none'></span>" +
-      "</div>" +
       "</div>" +
       "</div>" +
       "</div>" +
