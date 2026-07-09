@@ -121,7 +121,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.7.69";
+export const KUROCMS_VERSION = "1.8.0";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -341,6 +341,11 @@ export async function handleApi(
     if (request.method === "POST" && path === "/api/system/update") {
       requireAdmin(user);
       return withJsonHeaders(await systemUpdate(env, user));
+    }
+
+    if (request.method === "PUT" && path === "/api/system/update-channel") {
+      requireAdmin(user);
+      return withJsonHeaders(await setUpdateChannel(request, env));
     }
 
     if (request.method === "GET" && path === "/api/system/custom-domains") {
@@ -2634,36 +2639,88 @@ function githubApiHeaders(env: Env): Record<string, string> {
   return headers;
 }
 
-// Cache the latest-release lookup so the dashboard's per-load + hourly version
+// Cache the release-channel lookup so the dashboard's per-load + hourly version
 // polling does not hit the GitHub API on every call (was the main rate-limit cause).
-const LATEST_VERSION_CACHE_KEY = "system:latest_version";
-const LATEST_VERSION_CACHE_TTL = 1800; // 30 min
+//
+// Two channels, both derived from ONE `GET /releases` list call:
+//  - "latest"  = the newest published release regardless of prerelease (the
+//                rolling channel — every ./github_release_update.sh run lands
+//                here immediately).
+//  - "stable"  = the newest release that is NOT marked prerelease. Routine
+//                releases are created with --prerelease (see
+//                github_release_update.sh), so this stays pinned until a
+//                maintainer explicitly promotes one via --promote-stable
+//                (which clears its prerelease flag on GitHub). This is what
+//                lets an install opt out of every micro-release landing on it
+//                automatically.
+const RELEASE_CHANNELS_CACHE_KEY = "system:release_channels";
+const RELEASE_CHANNELS_CACHE_TTL = 1800; // 30 min
+const UPDATE_CHANNEL_KEY = "system:update_channel"; // "stable" | "latest"
+
+type ReleaseChannels = { stable: string; latest: string };
+
+async function fetchReleaseChannels(env: Env): Promise<ReleaseChannels> {
+  const cached = await env.PUBLIC_PAGES.get(RELEASE_CHANNELS_CACHE_KEY);
+  if (cached) {
+    try {
+      return JSON.parse(cached) as ReleaseChannels;
+    } catch {
+      /* stale/corrupt cache entry — refetch below */
+    }
+  }
+  const ghRes = await fetch(
+    `https://api.github.com/repos/${KUROCMS_GITHUB_REPO}/releases?per_page=10`,
+    { headers: githubApiHeaders(env) },
+  );
+  if (!ghRes.ok) throw new Error(`GitHub API returned ${ghRes.status}`);
+  const list = (await ghRes.json()) as Array<{
+    tag_name: string;
+    prerelease: boolean;
+    draft: boolean;
+  }>;
+  const rolling = list.find((r) => !r.draft);
+  const stableRelease = list.find((r) => !r.draft && !r.prerelease);
+  if (!rolling || !stableRelease)
+    throw new Error("No published releases found.");
+  const channels: ReleaseChannels = {
+    latest: rolling.tag_name.replace(/^v/, ""),
+    stable: stableRelease.tag_name.replace(/^v/, ""),
+  };
+  await env.PUBLIC_PAGES.put(
+    RELEASE_CHANNELS_CACHE_KEY,
+    JSON.stringify(channels),
+    { expirationTtl: RELEASE_CHANNELS_CACHE_TTL },
+  );
+  return channels;
+}
+
+async function getUpdateChannel(env: Env): Promise<"stable" | "latest"> {
+  const v = await env.PUBLIC_PAGES.get(UPDATE_CHANNEL_KEY);
+  return v === "latest" ? "latest" : "stable";
+}
+
+async function setUpdateChannel(request: Request, env: Env): Promise<Response> {
+  const body = await readJson(request);
+  const channel = body.channel === "latest" ? "latest" : "stable";
+  await env.PUBLIC_PAGES.put(UPDATE_CHANNEL_KEY, channel);
+  return json({ ok: true, channel });
+}
 
 async function systemVersion(env: Env): Promise<Response> {
   const current = KUROCMS_VERSION;
+  const channel = await getUpdateChannel(env);
+  let stable = current;
   let latest = current;
   try {
-    const cached = await env.PUBLIC_PAGES.get(LATEST_VERSION_CACHE_KEY);
-    if (cached) {
-      latest = cached;
-    } else {
-      const ghRes = await fetch(
-        `https://api.github.com/repos/${KUROCMS_GITHUB_REPO}/releases/latest`,
-        { headers: githubApiHeaders(env) },
-      );
-      if (ghRes.ok) {
-        const data = (await ghRes.json()) as { tag_name?: string };
-        latest = (data.tag_name ?? current).replace(/^v/, "");
-        await env.PUBLIC_PAGES.put(LATEST_VERSION_CACHE_KEY, latest, {
-          expirationTtl: LATEST_VERSION_CACHE_TTL,
-        });
-      }
-    }
+    const channels = await fetchReleaseChannels(env);
+    stable = channels.stable;
+    latest = channels.latest;
   } catch {
-    /* GitHub unreachable — fall back to current */
+    /* GitHub unreachable — fall back to current for both */
   }
-  const hasUpdate = latest !== current && compareVersions(latest, current) > 0;
-  return json({ current, latest, hasUpdate });
+  const target = channel === "latest" ? latest : stable;
+  const hasUpdate = target !== current && compareVersions(target, current) > 0;
+  return json({ current, stable, latest, channel, hasUpdate });
 }
 
 // Apply any pending migrations from the latest release's migrations-manifest.json.
@@ -2749,9 +2806,16 @@ async function systemUpdate(env: Env, user: AuthUser): Promise<Response> {
     );
   }
 
-  // Get latest GitHub release
+  // Fetch the release for the currently selected channel. "stable" reuses
+  // GitHub's own /releases/latest (which already skips prerelease/draft);
+  // "latest" takes the newest release regardless of prerelease. Both come
+  // back as full release objects (with assets), unlike the lightweight
+  // tag-only lookup cached by fetchReleaseChannels for the dashboard display.
+  const channel = await getUpdateChannel(env);
   const ghRes = await fetch(
-    `https://api.github.com/repos/${KUROCMS_GITHUB_REPO}/releases/latest`,
+    channel === "latest"
+      ? `https://api.github.com/repos/${KUROCMS_GITHUB_REPO}/releases?per_page=1`
+      : `https://api.github.com/repos/${KUROCMS_GITHUB_REPO}/releases/latest`,
     { headers: githubApiHeaders(env) },
   );
   if (!ghRes.ok) {
@@ -2762,22 +2826,31 @@ async function systemUpdate(env: Env, user: AuthUser): Promise<Response> {
       `GitHub API returned ${ghRes.status}: ${ghBody.slice(0, 200)}`,
     );
   }
-  const release = (await ghRes.json()) as {
-    tag_name: string;
-    assets: Array<{ name: string; browser_download_url: string }>;
-  };
+  const ghData = await ghRes.json();
+  const release = (channel === "latest" ? (ghData as unknown[])[0] : ghData) as
+    | {
+        tag_name: string;
+        assets: Array<{ name: string; browser_download_url: string }>;
+      }
+    | undefined;
+  if (!release)
+    throw new HttpError(
+      502,
+      "no_release_found",
+      `No GitHub release found for the "${channel}" channel.`,
+    );
   const workerAsset = release.assets.find((a) => a.name === "worker.js");
   if (!workerAsset)
     throw new HttpError(
       502,
       "no_worker_asset",
-      "No worker.js asset found in the latest GitHub release.",
+      `No worker.js asset found in the "${channel}" GitHub release.`,
     );
   // Apply pending migrations directly via D1 binding (run-once, additive-only).
   // Use the immutable, version-pinned manifest asset URL from the GitHub API
   // (release.assets) — NOT the CDN-cached latest/download redirect, which the
-  // Worker's fetch() can serve stale, skipping freshly-released migrations.
-  const latestDownloadBase = `https://github.com/${KUROCMS_GITHUB_REPO}/releases/latest/download`;
+  // Worker's fetch() can serve stale, skipping freshly-released migrations,
+  // AND which always resolves to GitHub's true latest regardless of channel.
   const manifestAsset = release.assets.find(
     (a) => a.name === "migrations-manifest.json",
   );
@@ -2786,9 +2859,10 @@ async function systemUpdate(env: Env, user: AuthUser): Promise<Response> {
     manifestAsset?.browser_download_url,
   );
 
-  // Download compiled Worker script — use /latest/download/ (same as deployer) to avoid
-  // redirect issues with version-specific browser_download_url from GitHub CDN
-  const scriptRes = await fetch(`${latestDownloadBase}/worker.js`, {
+  // Download the compiled Worker script from the version-pinned asset URL —
+  // NOT /latest/download/, which always resolves to GitHub's true latest
+  // release regardless of which channel was selected above.
+  const scriptRes = await fetch(workerAsset.browser_download_url, {
     redirect: "follow",
     signal: AbortSignal.timeout(30_000),
   });
@@ -2891,11 +2965,17 @@ async function systemUpdate(env: Env, user: AuthUser): Promise<Response> {
 
   await logActivity(env, user, "system.update", "system", "worker", {
     version: release.tag_name,
+    channel,
     migrationsApplied,
   });
-  // Invalidate the cached latest-version so the next check reflects reality now.
-  await env.PUBLIC_PAGES.delete(LATEST_VERSION_CACHE_KEY).catch(() => {});
-  return json({ ok: true, version: release.tag_name, migrationsApplied });
+  // Invalidate the cached channel lookup so the next check reflects reality now.
+  await env.PUBLIC_PAGES.delete(RELEASE_CHANNELS_CACHE_KEY).catch(() => {});
+  return json({
+    ok: true,
+    version: release.tag_name,
+    channel,
+    migrationsApplied,
+  });
 }
 
 async function settings(
@@ -7965,7 +8045,7 @@ async function restoreFinish(env: Env): Promise<Response> {
   // Public pages were wiped from KV; drop the version cache so the next visit /
   // build regenerates everything from the restored D1 data.
   if (env.PUBLIC_PAGES) {
-    await env.PUBLIC_PAGES.delete(LATEST_VERSION_CACHE_KEY).catch(() => {});
+    await env.PUBLIC_PAGES.delete(RELEASE_CHANNELS_CACHE_KEY).catch(() => {});
   }
   return json({ ok: true });
 }

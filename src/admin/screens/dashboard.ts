@@ -42,10 +42,24 @@ async function dashboard() {
       escapeHtml(t("installedVersionLabel")) +
       "</span><span class='versionVal' id='versionCurrent'>v—</span></div>" +
       "<div class='versionRow'><span class='versionLabel'>" +
+      escapeHtml(t("stableVersionLabel")) +
+      "</span><span class='versionVal' id='versionStable'>v—</span></div>" +
+      "<div class='versionRow'><span class='versionLabel'>" +
       escapeHtml(t("latestVersionLabel")) +
       "</span><span class='versionVal' id='versionLatest'>" +
       escapeHtml(t("checking")) +
       "</span></div>" +
+      "<div class='versionRow' style='margin-top:2px'>" +
+      "<span class='versionLabel'>" +
+      escapeHtml(t("updateChannelLabel")) +
+      "</span>" +
+      "<label class='toggleSwitch' title='" +
+      escapeHtml(t("updateChannelHint")) +
+      "'>" +
+      "<input type='checkbox' id='updateChannelToggle' />" +
+      "<span class='toggleSlider'></span>" +
+      "</label>" +
+      "</div>" +
       "</div>" +
       "<div style='margin-top:12px'>" +
       "<div class='updateBtnWrap'>" +
@@ -298,16 +312,30 @@ async function dashboard() {
     /* storage API optional */
   }
 
-  // Version card setup
+  // Version card setup. "stable" only advances when the maintainer explicitly
+  // promotes a release (see VERSION's KUROCMS_STABLE_VERSION / --promote-stable
+  // in github_release_update.sh); "latest" is the rolling channel that every
+  // release lands on immediately. The toggle picks which one btnUpdate targets.
   function applyVersionResult(v: Dynamic) {
     const cur = byId("versionCurrent");
+    const stab = byId("versionStable");
     const lat = byId("versionLatest");
     const badge = byId("updateBadge");
+    const toggle = byId("updateChannelToggle") as HTMLInputElement | null;
     if (cur) cur.textContent = "v" + v.current;
+    if (stab) {
+      stab.textContent = "v" + v.stable;
+      stab.className =
+        "versionVal" +
+        (v.channel === "stable" && v.hasUpdate ? " has-update" : "");
+    }
     if (lat) {
       lat.textContent = "v" + v.latest;
-      lat.className = "versionVal" + (v.hasUpdate ? " has-update" : "");
+      lat.className =
+        "versionVal" +
+        (v.channel === "latest" && v.hasUpdate ? " has-update" : "");
     }
+    if (toggle) toggle.checked = v.channel === "latest";
     if (badge) badge.style.display = v.hasUpdate ? "" : "none";
     const btn = byId("btnUpdate");
     if (btn)
@@ -325,6 +353,25 @@ async function dashboard() {
   // Check the version once when the dashboard opens (result is only shown here;
   // background polling would be pointless). Manual re-check via the button.
   checkVersion();
+
+  const channelToggle = byId("updateChannelToggle") as HTMLInputElement | null;
+  if (channelToggle) {
+    channelToggle.addEventListener("change", async () => {
+      const nextChannel = channelToggle.checked ? "latest" : "stable";
+      channelToggle.disabled = true;
+      try {
+        await api("/api/system/update-channel", {
+          method: "PUT",
+          body: JSON.stringify({ channel: nextChannel }),
+        });
+        applyVersionResult(await api("/api/system/version"));
+      } catch (err) {
+        channelToggle.checked = !channelToggle.checked; // revert on failure
+        toast(errorMessage(err), true);
+      }
+      channelToggle.disabled = false;
+    });
+  }
 
   const btnUpdate = byId("btnUpdate");
   if (btnUpdate) {

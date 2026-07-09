@@ -891,7 +891,11 @@ const i18n = {
     unknownError: "Unknown error",
     mediaLabel: "Media",
     installedVersionLabel: "Installed Version",
+    stableVersionLabel: "Stable Version",
     latestVersionLabel: "Latest Version",
+    updateChannelLabel: "Always update to latest",
+    updateChannelHint:
+      "ON: update button targets the latest release (every release). OFF: targets the stable release only (promoted by the maintainer).",
     checking: "Checking…",
     updateNow: "Update Now",
     checkForUpdate: "Check for Update",
@@ -1802,7 +1806,11 @@ const i18n = {
     unknownError: "不明なエラー",
     mediaLabel: "メディア",
     installedVersionLabel: "導入バージョン",
+    stableVersionLabel: "安定バージョン",
     latestVersionLabel: "最新バージョン",
+    updateChannelLabel: "常に最新版に更新",
+    updateChannelHint:
+      "ON: 更新ボタンは最新版（リリースのたび）を対象にします。OFF: 安定版（管理者が昇格したリリース）のみを対象にします。",
     checking: "確認中…",
     updateNow: "今すぐ更新",
     checkForUpdate: "今すぐ更新のチェック",
