@@ -2,7 +2,7 @@ import { adminHtml } from "./admin-shell";
 import { serveAdminAsset } from "./asset-serve";
 import { serveFont } from "./fonts";
 import { handleApi } from "./api";
-import { html, notFound } from "./http";
+import { html, notFound, notFoundPage } from "./http";
 import {
   buildCountsJs,
   buildLlmsTxt,
@@ -205,12 +205,21 @@ export default {
         );
       }
       const publicResp = await handlePublicRoute(publicPath, request, env);
-      return publicResp ?? notFound();
+      return (
+        publicResp ??
+        notFoundPage(request, {
+          homeHref: publicBase + "/",
+          adminHref: adminEntryUrl,
+        })
+      );
     }
 
     // Paths outside the admin basePath → 404 (unless caught as public above)
     if (!pathname) {
-      return notFound();
+      return notFoundPage(request, {
+        homeHref: publicBase + "/",
+        adminHref: adminEntryUrl,
+      });
     }
 
     // Externalized admin assets: {base}/_admin/<file> → KV / ASSETS / release.
@@ -281,7 +290,10 @@ export default {
       );
     }
 
-    return notFound();
+    return notFoundPage(request, {
+      homeHref: publicBase + "/",
+      adminHref: adminEntryUrl,
+    });
   },
 };
 

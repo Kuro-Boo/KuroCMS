@@ -53,6 +53,44 @@ export function notFound(): Response {
   return jsonError(404, "not_found", "The requested resource was not found.");
 }
 
+// A browser navigating to a stray/typo'd URL (e.g. an old bookmark, a scanned
+// QR code) previously got the raw notFound() JSON body — Safari/Chrome can't
+// render that, so mobile browsers offer it as a "download" (looks broken).
+// Only requests that actually ask for HTML get this page; fetch()/XHR clients
+// (Accept: application/json or none) keep getting the plain JSON error.
+export function notFoundPage(
+  request: Request,
+  links: { homeHref: string; adminHref: string },
+): Response {
+  const accept = request.headers.get("accept") || "";
+  if (!accept.includes("text/html")) return notFound();
+  const body = `<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>404 Not Found</title>
+<style>
+  body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center; background:#0f172a; color:#f1f5f9; font-family:ui-sans-serif,system-ui,sans-serif; }
+  .box { text-align:center; padding:24px; }
+  h1 { font-size:15px; font-weight:800; letter-spacing:0.08em; color:#64748b; margin:0 0 8px; }
+  p { font-size:15px; color:#94a3b8; margin:0 0 24px; }
+  a { display:inline-block; margin:0 8px; padding:10px 18px; border-radius:8px; background:#334155; color:#f1f5f9; text-decoration:none; font-weight:700; font-size:14px; }
+  a:hover { filter:brightness(1.15); }
+</style>
+</head>
+<body>
+  <div class="box">
+    <h1>404 NOT FOUND</h1>
+    <p>The requested page was not found.</p>
+    <a href="${links.homeHref}">Site</a>
+    <a href="${links.adminHref}">Admin</a>
+  </div>
+</body>
+</html>`;
+  return html(body, { status: 404 });
+}
+
 export function jsonError(
   status: number,
   code: string,
