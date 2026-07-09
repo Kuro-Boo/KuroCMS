@@ -75,7 +75,11 @@ async function dashboard() {
       "</label>" +
       "</div>" +
       "</div>" +
-      "</div>" +
+      "</div>" + // closes version .panel
+      "</div>" + // closes .split — was missing: the storage panel below was
+      // silently becoming .split's 3rd grid item (auto-flowing into row 2 of
+      // its 2-column track) instead of a normal sibling block. That's what
+      // made the layout misbehave differently at different widths.
       // Storage gauges
       "<div class='panel stack'>" +
       "<h3>" +
