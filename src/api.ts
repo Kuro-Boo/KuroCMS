@@ -121,7 +121,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.7.67";
+export const KUROCMS_VERSION = "1.7.68";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -7119,14 +7119,16 @@ async function siteTemplateTwTokens(
 ): Promise<Response> {
   requireAdmin(user);
   const row = await env.DB.prepare(
-    "SELECT id, source_html, compiled_tokens, compiled_hash FROM page_templates WHERE id = ?",
+    "SELECT id, source_html, compiled_css, compiled_tokens, compiled_hash, compiled_tw_version FROM page_templates WHERE id = ?",
   )
     .bind(id)
     .first<{
       id: string;
       source_html: string | null;
+      compiled_css: string | null;
       compiled_tokens: string | null;
       compiled_hash: string | null;
+      compiled_tw_version: string | null;
     }>();
   if (!row) throw new HttpError(404, "not_found", "Template not found.");
   const tokens = extractTwTokens(row.source_html || "");
@@ -7140,13 +7142,40 @@ async function siteTemplateTwTokens(
       covered = false;
     }
   }
+  // Backfill the baseline version from the already-compiled CSS banner, so the
+  // baseline = whatever Tailwind actually produced the currently-working CSS
+  // (not "latest at next recompile"). One-time, for templates compiled before
+  // migration 0058.
+  let compiledTwVersion = row.compiled_tw_version ?? null;
+  if (!compiledTwVersion && row.compiled_css) {
+    compiledTwVersion = extractTwBannerVersion(row.compiled_css);
+    if (compiledTwVersion) {
+      await env.DB.prepare(
+        "UPDATE page_templates SET compiled_tw_version = ? WHERE id = ?",
+      )
+        .bind(compiledTwVersion, id)
+        .run()
+        .catch(() => {});
+    }
+  }
   return json({
     id: row.id,
     cdnUrl,
     covered,
     compiledHash: row.compiled_hash ?? null,
+    compiledTwVersion,
     tokens,
   });
+}
+
+/**
+ * Extract the Tailwind version from a compiled stylesheet's banner comment
+ * (`/*! tailwindcss v3.4.16 | ... `), which every Tailwind build emits. Returns
+ * "" when absent (e.g. a future Play-CDN drops it) — callers then skip pinning.
+ */
+function extractTwBannerVersion(css: string): string {
+  const m = String(css || "").match(/tailwindcss\s+v([0-9]+\.[0-9]+\.[0-9]+)/i);
+  return m ? m[1] : "";
 }
 
 async function siteTemplateSaveCompiledCss(
@@ -7182,17 +7211,30 @@ async function siteTemplateSaveCompiledCss(
     throw new HttpError(400, "invalid_field", "tokens is too large.");
   }
   const hash = cheapHash(css);
+  // Record the producing Tailwind version (banner comment is authoritative;
+  // the client-sent value is a fallback when a future CDN omits the banner).
+  // This becomes the pin baseline for the next recompile — see ensureTwCss.
+  const twVersion =
+    extractTwBannerVersion(css) ||
+    (optionalString(body, "twVersion") ?? "").slice(0, 20);
   await env.DB.prepare(
-    "UPDATE page_templates SET compiled_css = ?, compiled_tokens = ?, compiled_hash = ? WHERE id = ?",
+    "UPDATE page_templates SET compiled_css = ?, compiled_tokens = ?, compiled_hash = ?, compiled_tw_version = ? WHERE id = ?",
   )
-    .bind(css, tokensJson, hash, id)
+    .bind(css, tokensJson, hash, twVersion || null, id)
     .run();
   await logActivity(env, user, "template.compiled_css", "template", id, {
     bytes: css.length,
     tokenCount: tokens.length,
     hash,
+    twVersion: twVersion || null,
   });
-  return json({ id, hash, bytes: css.length, tokenCount: tokens.length });
+  return json({
+    id,
+    hash,
+    bytes: css.length,
+    tokenCount: tokens.length,
+    twVersion,
+  });
 }
 
 /** Clear the compiled CSS — public pages fall back to the CDN script. */

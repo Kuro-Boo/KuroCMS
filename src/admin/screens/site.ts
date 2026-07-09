@@ -90,6 +90,23 @@ async function siteManagement() {
     });
   }
 
+  // Pin a Tailwind Play-CDN URL to a specific version so a recompile uses the
+  // SAME Tailwind that produced the current CSS. cdn.tailwindcss.com[/x.y.z]
+  // → cdn.tailwindcss.com/{version}, preserving any ?plugins= query.
+  function pinTwCdnVersion(url: Dynamic, version: Dynamic): string {
+    return String(url).replace(
+      new RegExp("(cdn\\.tailwindcss\\.com)(/[0-9][0-9.]*)?", "i"),
+      "$1/" + version,
+    );
+  }
+  // Read the Tailwind version from a compiled stylesheet's banner comment.
+  function readTwVersion(css: Dynamic): string {
+    const m = String(css || "").match(
+      new RegExp("tailwindcss\\s+v([0-9]+\\.[0-9]+\\.[0-9]+)", "i"),
+    );
+    return m ? m[1] : "";
+  }
+
   async function ensureTwCss(tmplId: Dynamic) {
     if (!tmplId) return;
     try {
@@ -100,13 +117,35 @@ async function siteManagement() {
       if (!info || info.covered || !info.cdnUrl) return;
       const tokens = info.tokens || [];
       if (!tokens.length) return;
-      const css = await compileTwCss(tokens, info.cdnUrl);
+      // Pin the recompile to the recorded baseline version so a Play-CDN
+      // version bump can't silently change how OTHER (unedited) classes
+      // render. First-ever compile has no baseline → template's URL (latest).
+      const cdnUrl = info.compiledTwVersion
+        ? pinTwCdnVersion(info.cdnUrl, info.compiledTwVersion)
+        : info.cdnUrl;
+      const css = await compileTwCss(tokens, cdnUrl);
       if (!css) return;
+      const twVersion = readTwVersion(css);
       await api(
         "/api/v1/templates/" + encodeURIComponent(tmplId) + "/compiled-css",
-        { method: "PUT", body: JSON.stringify({ css, tokens }) },
+        { method: "PUT", body: JSON.stringify({ css, tokens, twVersion }) },
       );
-      toast(t("twCssCompiled"), false);
+      // Surface a drift the pin couldn't prevent (e.g. baseline version no
+      // longer served by the CDN) so the admin can review the site.
+      if (
+        info.compiledTwVersion &&
+        twVersion &&
+        twVersion !== info.compiledTwVersion
+      ) {
+        toast(
+          t("twVersionChanged")
+            .replace("{from}", info.compiledTwVersion)
+            .replace("{to}", twVersion),
+          true,
+        );
+      } else {
+        toast(t("twCssCompiled"), false);
+      }
     } catch {
       /* non-fatal: public pages keep the CDN script fallback */
     }

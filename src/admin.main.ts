@@ -1061,6 +1061,8 @@ const i18n = {
       "Template selected. Preview available in the Template Preview tab.",
     twCssCompiled:
       "Template CSS compiled — public pages now ship static CSS instead of the Tailwind CDN script.",
+    twVersionChanged:
+      "Tailwind version changed ({from} → {to}) during recompile. Review the public site — unrelated styles may have shifted.",
     refreshThumbnailHint: "Re-capture thumbnail",
     thumbnailRefreshed: "Thumbnail updated.",
     thumbnailCaptureFailed: "Failed to capture thumbnail.",
@@ -1975,6 +1977,8 @@ const i18n = {
       "テンプレートを選択しました。「テンプレート表示」タブでプレビューを確認できます。",
     twCssCompiled:
       "テンプレートCSSを静的生成しました。公開ページは Tailwind CDN の代わりに静的CSSで配信されます。",
+    twVersionChanged:
+      "再コンパイル中に Tailwind のバージョンが変わりました（{from} → {to}）。編集と無関係なスタイルがずれた可能性があるため、公開サイトをご確認ください。",
     refreshThumbnailHint: "サムネイルを再キャプチャ",
     thumbnailRefreshed: "サムネイルを更新しました。",
     thumbnailCaptureFailed: "サムネイルのキャプチャに失敗しました。",

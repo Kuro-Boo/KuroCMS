@@ -3757,7 +3757,13 @@ export async function handlePublicRoute(
       const res = new Response(cached, {
         headers: {
           "Content-Type": "text/html; charset=utf-8",
-          "Cache-Control": "public, max-age=60, s-maxage=300",
+          // stale-while-revalidate: once the 5-min edge TTL lapses, serve the
+          // cached page INSTANTLY while refreshing in the background, so a
+          // template/CSS change is never more than one visit stale instead of
+          // making visitors wait for a full regen (or holding an old page for
+          // the whole max-age). 24h SWR window.
+          "Cache-Control":
+            "public, max-age=60, s-maxage=300, stale-while-revalidate=86400",
           "X-KuroCMS-Source": "kv-static",
         },
       });
@@ -3889,7 +3895,10 @@ export async function handlePublicRoute(
   const res = new Response(html, {
     headers: {
       "Content-Type": "text/html; charset=utf-8",
-      "Cache-Control": "public, max-age=30",
+      // On-demand pages (categories, un-built fallbacks): short fresh window +
+      // a SWR grace so a stale hit serves instantly and refreshes in the
+      // background instead of blocking on regeneration.
+      "Cache-Control": "public, max-age=30, stale-while-revalidate=86400",
       "X-KuroCMS-Source": "generated",
     },
   });
