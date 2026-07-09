@@ -411,6 +411,16 @@ async function newArticle(editDid: Dynamic) {
     setSaveStatus(t("saveStatusSaving"));
     try {
       const publishAt = localDateTimeInputToIso(art.pubDate, art.pubTime);
+      // docChanged (with translationChanged below) decides whether the LAST
+      // request of this save (the categories PUT) needs to fire a rebuild —
+      // see the deferBuild comments server-side (documentDetail/
+      // documentTranslations/documentCategories in api.ts). Only the last
+      // request builds: this save issues up to three PUTs back to back, and
+      // letting each one fire its own immediate build races them against each
+      // other (whichever finishes LAST wins in KV, with no guarantee that's
+      // the one with the freshest data) — that race could make a just-dropped
+      // cover image revert to the old one.
+      let docChanged = false;
       if (!art.did) {
         const res = await api("/api/documents", {
           method: "POST",
@@ -422,14 +432,21 @@ async function newArticle(editDid: Dynamic) {
           }),
         });
         art.did = res.did;
+        docChanged = true;
       } else {
         // tid included: the type is changeable on existing articles (draft
         // mode). Server-side it is validated, mirrored to search_entries, and
         // the old type's public pages are cleaned up when it changes.
-        await api("/api/documents/" + art.did, {
+        const docRes = await api("/api/documents/" + art.did, {
           method: "PUT",
-          body: JSON.stringify({ mode: art.mode, publishAt, tid: art.tid }),
+          body: JSON.stringify({
+            mode: art.mode,
+            publishAt,
+            tid: art.tid,
+            deferBuild: true,
+          }),
         });
+        docChanged = docRes.changed !== false;
       }
       const hashtags = art.hashtag
         .split(" ")
@@ -445,6 +462,7 @@ async function newArticle(editDid: Dynamic) {
         summary: art.summary,
         hashtags,
         seo,
+        deferBuild: true,
       };
       if (withBody) {
         payload.bodyHtml = art.body || "<p></p>";
@@ -456,13 +474,21 @@ async function newArticle(editDid: Dynamic) {
           payload.baseBodyHash = await sha256Hex(art.baseBody);
         }
       }
-      await api("/api/documents/" + art.did + "/translations/" + art.lang, {
-        method: "PUT",
-        body: JSON.stringify(payload),
-      });
+      const translationRes = await api(
+        "/api/documents/" + art.did + "/translations/" + art.lang,
+        { method: "PUT", body: JSON.stringify(payload) },
+      );
+      const translationChanged = translationRes.changed !== false;
+      // categories PUT is the LAST request of this save — it fires the one
+      // consolidated build (see the top-of-function comment) once mode/
+      // translations are already committed. metaChanged tells it to build
+      // even when the category assignment itself didn't change.
       await api("/api/documents/" + art.did + "/categories", {
         method: "PUT",
-        body: JSON.stringify({ categories: art.categories }),
+        body: JSON.stringify({
+          categories: art.categories,
+          metaChanged: docChanged || translationChanged,
+        }),
       });
       art.hasTranslation = true;
       if (withBody) {
