@@ -121,7 +121,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.7.68";
+export const KUROCMS_VERSION = "1.7.69";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -5256,27 +5256,38 @@ async function documentCategories(
       .all<{ cid: string }>();
     const before = (existingRows.results ?? []).map((r) => r.cid).join(",");
     const after = [...new Set(cats)].sort().join(",");
-    if (before === after) {
+    const categoriesChanged = before !== after;
+    // metaChanged: the editor's doSave() always PUTs documents → translations
+    // → categories as one logical save, and this is the LAST of the three —
+    // so it's the one that fires the single consolidated build once mode/
+    // translations are already committed (see the deferBuild comments in
+    // documentDetail/documentTranslations). The editor sets this when either
+    // of those earlier PUTs actually changed something, so a save that only
+    // touches the cover/body (categories untouched) still triggers a build.
+    const metaChanged = body.metaChanged === true;
+    if (!categoriesChanged && !metaChanged) {
       return json({ ok: true, changed: false });
     }
-    await env.DB.prepare("DELETE FROM document_categories WHERE did = ?")
-      .bind(did)
-      .run();
-    for (const cid of cats) {
-      await env.DB.prepare(
-        "INSERT OR IGNORE INTO document_categories (did, cid) VALUES (?, ?)",
-      )
-        .bind(did, cid)
+    if (categoriesChanged) {
+      await env.DB.prepare("DELETE FROM document_categories WHERE did = ?")
+        .bind(did)
+        .run();
+      for (const cid of cats) {
+        await env.DB.prepare(
+          "INSERT OR IGNORE INTO document_categories (did, cid) VALUES (?, ?)",
+        )
+          .bind(did, cid)
+          .run();
+      }
+      // Category assignments live only in document_categories, which no build
+      // signature reads — without this bump the article page and the listings
+      // (whose cards show the category chips) never become build targets after
+      // a category change. documents.updated_at feeds the article-page hash and
+      // the type/home listing hashes.
+      await env.DB.prepare("UPDATE documents SET updated_at = ? WHERE did = ?")
+        .bind(nowIso(), did)
         .run();
     }
-    // Category assignments live only in document_categories, which no build
-    // signature reads — without this bump the article page and the listings
-    // (whose cards show the category chips) never become build targets after
-    // a category change. documents.updated_at feeds the article-page hash and
-    // the type/home listing hashes.
-    await env.DB.prepare("UPDATE documents SET updated_at = ? WHERE did = ?")
-      .bind(nowIso(), did)
-      .run();
     // Immediate refresh of the published article's pages (chips render there).
     // Runs AFTER the assignment is committed, so it can't build stale data.
     if (ctx) {
@@ -5293,7 +5304,7 @@ async function documentCategories(
         );
       }
     }
-    return json({ ok: true, changed: true });
+    return json({ ok: true, changed: categoriesChanged });
   }
   throw new HttpError(405, "method_not_allowed", "Method is not allowed.");
 }
@@ -5420,16 +5431,33 @@ async function documentDetail(
     // KV, so a stale bundle would keep the old URL alive forever.
     const wasPublished = existing.mode === 1;
     const detailPageStale = wasPublished && (tidChanged || modeValue !== 1);
-    if (modeValue === 1 || modeValue === 2 || detailPageStale) {
+    // deferBuild: the admin editor's doSave() always PUTs documents →
+    // translations → categories back-to-back for a single logical save. If
+    // this endpoint fires its own immediate build, it races the later (and
+    // more current) build fired from the translations/categories PUTs below —
+    // whichever finishes LAST wins in KV, and completion order isn't
+    // guaranteed to match commit order. The editor sets deferBuild so only the
+    // last PUT in its sequence builds, using fully-committed data. Stale-page
+    // DELETION still runs immediately (it can't race against a future build:
+    // there's nothing to overwrite).
+    const deferBuild = body.deferBuild === true;
+    if (detailPageStale) {
       ctx.waitUntil(
-        (async () => {
-          if (detailPageStale) {
-            await deleteArticlePages(env, existing.tid, existing.slug);
-          }
-          await buildDocumentPages(env, did, tidChanged ? [existing.tid] : []);
-        })().catch(() => {
+        deleteArticlePages(env, existing.tid, existing.slug).catch(() => {
           /* non-fatal: full build will reconcile */
         }),
+      );
+    }
+    if (
+      !deferBuild &&
+      (modeValue === 1 || modeValue === 2 || detailPageStale)
+    ) {
+      ctx.waitUntil(
+        buildDocumentPages(env, did, tidChanged ? [existing.tid] : []).catch(
+          () => {
+            /* non-fatal: full build will reconcile */
+          },
+        ),
       );
     }
     // SNS posting is decoupled from publishing: articles publish without touching
@@ -5784,7 +5812,11 @@ async function documentTranslations(
     // This used to piggyback on the documents PUT (which fired on every save,
     // even no-ops, and raced ahead of this request so it could build the OLD
     // body); here it runs after the new content is committed.
-    if (ctx && document.mode === 1) {
+    // deferBuild: see the matching comment in documentDetail — the editor's
+    // doSave() always follows this PUT with a categories PUT, which fires the
+    // one consolidated build for the whole save once everything is committed.
+    const deferBuild = body.deferBuild === true;
+    if (!deferBuild && ctx && document.mode === 1) {
       ctx.waitUntil(
         buildDocumentPages(env, did).catch(() => {
           /* non-fatal: full build will reconcile */
