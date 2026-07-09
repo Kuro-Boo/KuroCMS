@@ -371,6 +371,12 @@ export function adminHtml(
       .tokenRow { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; align-items: center; border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px; background: var(--surface-2); }
       .tokenRow button { padding: 4px 10px; font-size: 12px; }
       .tokenMeta { font-size: 11px; color: var(--muted); }
+      .langPickerResults { max-height: 240px; overflow-y: auto; border: 1px solid var(--line); border-radius: 8px; margin-top: 8px; }
+      .langPickerRow { padding: 8px 12px; cursor: pointer; font-size: 13px; border-bottom: 1px solid var(--line); }
+      .langPickerRow:last-child { border-bottom: none; }
+      .langPickerRow:hover, .langPickerRow.selected { background: var(--surface-2); }
+      .langPickerRow.selected { font-weight: 700; color: var(--accent); }
+      .langPickerEmpty { padding: 16px; text-align: center; color: var(--muted); font-size: 13px; }
       .tokenLabel { font-size: 15px; font-weight: 700; color: var(--ink); }
       .tokenHelp { font-size: 12px; color: var(--muted); margin-top: 4px; }
       .tokenOutputRow { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; }

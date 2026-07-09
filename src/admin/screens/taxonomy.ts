@@ -24,40 +24,197 @@ async function languages() {
   let registered: Dynamic[] = [];
   let availableLanguageChoices: Dynamic[] = [];
 
+  // Full ISO 639-1 set (~184 codes). `en` is the English name, kept purely as
+  // a search alias (never displayed) so typing "burmese" finds "my" even
+  // though its native label is "မြန်မာစာ".
   function allLanguageOptions() {
-    const commonLanguages = [
-      { code: "en", label: "English" },
-      { code: "ja", label: "日本語" },
-      { code: "zh", label: "中文" },
-      { code: "es", label: "Español" },
-      { code: "fr", label: "Français" },
-      { code: "de", label: "Deutsch" },
-      { code: "it", label: "Italiano" },
-      { code: "pt", label: "Português" },
-      { code: "ru", label: "Русский" },
-      { code: "ko", label: "한국어" },
-      { code: "ar", label: "العربية" },
-      { code: "hi", label: "हिन्दी" },
-      { code: "bn", label: "বাংলা" },
-      { code: "pa", label: "ਪੰਜਾਬੀ" },
-      { code: "jv", label: "Basa Jawa" },
-      { code: "ms", label: "Bahasa Melayu" },
-      { code: "te", label: "తెలుగు" },
-      { code: "vi", label: "Tiếng Việt" },
-      { code: "mr", label: "मराठी" },
-      { code: "ta", label: "தமிழ்" },
-      { code: "ur", label: "اردو" },
-      { code: "tr", label: "Türkçe" },
-      { code: "gu", label: "ગુજરાતી" },
-      { code: "pl", label: "Polski" },
-      { code: "uk", label: "Українська" },
-      { code: "kn", label: "ಕನ್ನಡ" },
-      { code: "ml", label: "മലയാളം" },
-      { code: "th", label: "ไทย" },
-      { code: "az", label: "Azərbaycanca" },
-      { code: "fa", label: "فارسی" },
+    const iso6391Languages = [
+      { code: "aa", label: "Qafár af", en: "Afar" },
+      { code: "ab", label: "аҧсуа бызшәа", en: "Abkhaz" },
+      { code: "ae", label: "avesta", en: "Avestan" },
+      { code: "af", label: "Afrikaans", en: "Afrikaans" },
+      { code: "ak", label: "Akan", en: "Akan" },
+      { code: "am", label: "አማርኛ", en: "Amharic" },
+      { code: "an", label: "aragonés", en: "Aragonese" },
+      { code: "ar", label: "العربية", en: "Arabic" },
+      { code: "as", label: "অসমীয়া", en: "Assamese" },
+      { code: "av", label: "авар мацӀ", en: "Avaric" },
+      { code: "ay", label: "aymar aru", en: "Aymara" },
+      { code: "az", label: "Azərbaycanca", en: "Azerbaijani" },
+      { code: "ba", label: "башҡорт теле", en: "Bashkir" },
+      { code: "be", label: "беларуская", en: "Belarusian" },
+      { code: "bg", label: "български", en: "Bulgarian" },
+      { code: "bh", label: "भोजपुरी", en: "Bihari" },
+      { code: "bi", label: "Bislama", en: "Bislama" },
+      { code: "bm", label: "bamanankan", en: "Bambara" },
+      { code: "bn", label: "বাংলা", en: "Bengali" },
+      { code: "bo", label: "བོད་ཡིག", en: "Tibetan" },
+      { code: "br", label: "brezhoneg", en: "Breton" },
+      { code: "bs", label: "bosanski", en: "Bosnian" },
+      { code: "ca", label: "català", en: "Catalan" },
+      { code: "ce", label: "нохчийн мотт", en: "Chechen" },
+      { code: "ch", label: "Chamoru", en: "Chamorro" },
+      { code: "co", label: "corsu", en: "Corsican" },
+      { code: "cr", label: "ᓀᐦᐃᔭᐍᐏᐣ", en: "Cree" },
+      { code: "cs", label: "čeština", en: "Czech" },
+      { code: "cu", label: "ѩзыкъ словѣньскъ", en: "Church Slavic" },
+      { code: "cv", label: "чӑваш чӗлхи", en: "Chuvash" },
+      { code: "cy", label: "Cymraeg", en: "Welsh" },
+      { code: "da", label: "dansk", en: "Danish" },
+      { code: "de", label: "Deutsch", en: "German" },
+      { code: "dv", label: "ދިވެހި", en: "Divehi" },
+      { code: "dz", label: "རྫོང་ཁ", en: "Dzongkha" },
+      { code: "ee", label: "Eʋegbe", en: "Ewe" },
+      { code: "el", label: "Ελληνικά", en: "Greek" },
+      { code: "en", label: "English", en: "English" },
+      { code: "eo", label: "Esperanto", en: "Esperanto" },
+      { code: "es", label: "Español", en: "Spanish" },
+      { code: "et", label: "eesti", en: "Estonian" },
+      { code: "eu", label: "euskara", en: "Basque" },
+      { code: "fa", label: "فارسی", en: "Persian" },
+      { code: "ff", label: "Fulfulde", en: "Fulah" },
+      { code: "fi", label: "suomi", en: "Finnish" },
+      { code: "fj", label: "vosa Vakaviti", en: "Fijian" },
+      { code: "fo", label: "føroyskt", en: "Faroese" },
+      { code: "fr", label: "Français", en: "French" },
+      { code: "fy", label: "Frysk", en: "Western Frisian" },
+      { code: "ga", label: "Gaeilge", en: "Irish" },
+      { code: "gd", label: "Gàidhlig", en: "Scottish Gaelic" },
+      { code: "gl", label: "galego", en: "Galician" },
+      { code: "gn", label: "Avañe'ẽ", en: "Guarani" },
+      { code: "gu", label: "ગુજરાતી", en: "Gujarati" },
+      { code: "gv", label: "Gaelg", en: "Manx" },
+      { code: "ha", label: "Hausa", en: "Hausa" },
+      { code: "he", label: "עברית", en: "Hebrew" },
+      { code: "hi", label: "हिन्दी", en: "Hindi" },
+      { code: "ho", label: "Hiri Motu", en: "Hiri Motu" },
+      { code: "hr", label: "hrvatski", en: "Croatian" },
+      { code: "ht", label: "Kreyòl ayisyen", en: "Haitian Creole" },
+      { code: "hu", label: "magyar", en: "Hungarian" },
+      { code: "hy", label: "Հայերեն", en: "Armenian" },
+      { code: "hz", label: "Otjiherero", en: "Herero" },
+      { code: "ia", label: "Interlingua", en: "Interlingua" },
+      { code: "id", label: "Bahasa Indonesia", en: "Indonesian" },
+      { code: "ie", label: "Interlingue", en: "Interlingue" },
+      { code: "ig", label: "Asụsụ Igbo", en: "Igbo" },
+      { code: "ii", label: "ꆈꌠ꒿ Nuosuhxop", en: "Sichuan Yi" },
+      { code: "ik", label: "Iñupiaq", en: "Inupiaq" },
+      { code: "io", label: "Ido", en: "Ido" },
+      { code: "is", label: "íslenska", en: "Icelandic" },
+      { code: "it", label: "Italiano", en: "Italian" },
+      { code: "iu", label: "ᐃᓄᒃᑎᑐᑦ", en: "Inuktitut" },
+      { code: "ja", label: "日本語", en: "Japanese" },
+      { code: "jv", label: "Basa Jawa", en: "Javanese" },
+      { code: "ka", label: "ქართული", en: "Georgian" },
+      { code: "kg", label: "Kikongo", en: "Kongo" },
+      { code: "ki", label: "Gĩkũyũ", en: "Kikuyu" },
+      { code: "kj", label: "Kuanyama", en: "Kwanyama" },
+      { code: "kk", label: "қазақ тілі", en: "Kazakh" },
+      { code: "kl", label: "kalaallisut", en: "Kalaallisut" },
+      { code: "km", label: "ខ្មែរ", en: "Khmer" },
+      { code: "kn", label: "ಕನ್ನಡ", en: "Kannada" },
+      { code: "ko", label: "한국어", en: "Korean" },
+      { code: "kr", label: "Kanuri", en: "Kanuri" },
+      { code: "ks", label: "كٲشُر", en: "Kashmiri" },
+      { code: "ku", label: "Kurdî", en: "Kurdish" },
+      { code: "kv", label: "коми кыв", en: "Komi" },
+      { code: "kw", label: "Kernewek", en: "Cornish" },
+      { code: "ky", label: "Кыргызча", en: "Kyrgyz" },
+      { code: "la", label: "Latina", en: "Latin" },
+      { code: "lb", label: "Lëtzebuergesch", en: "Luxembourgish" },
+      { code: "lg", label: "Luganda", en: "Ganda" },
+      { code: "li", label: "Limburgs", en: "Limburgish" },
+      { code: "ln", label: "Lingála", en: "Lingala" },
+      { code: "lo", label: "ລາວ", en: "Lao" },
+      { code: "lt", label: "lietuvių", en: "Lithuanian" },
+      { code: "lu", label: "Kiluba", en: "Luba-Katanga" },
+      { code: "lv", label: "latviešu", en: "Latvian" },
+      { code: "mg", label: "Malagasy", en: "Malagasy" },
+      { code: "mh", label: "Kajin M̧ajeļ", en: "Marshallese" },
+      { code: "mi", label: "te reo Māori", en: "Maori" },
+      { code: "mk", label: "македонски", en: "Macedonian" },
+      { code: "ml", label: "മലയാളം", en: "Malayalam" },
+      { code: "mn", label: "Монгол", en: "Mongolian" },
+      { code: "mr", label: "मराठी", en: "Marathi" },
+      { code: "ms", label: "Bahasa Melayu", en: "Malay" },
+      { code: "mt", label: "Malti", en: "Maltese" },
+      { code: "my", label: "မြန်မာစာ", en: "Burmese" },
+      { code: "na", label: "Dorerin Naoero", en: "Nauru" },
+      { code: "nb", label: "Norsk Bokmål", en: "Norwegian Bokmål" },
+      { code: "nd", label: "isiNdebele (North)", en: "North Ndebele" },
+      { code: "ne", label: "नेपाली", en: "Nepali" },
+      { code: "ng", label: "Owambo", en: "Ndonga" },
+      { code: "nl", label: "Nederlands", en: "Dutch" },
+      { code: "nn", label: "Norsk Nynorsk", en: "Norwegian Nynorsk" },
+      { code: "no", label: "Norsk", en: "Norwegian" },
+      { code: "nr", label: "isiNdebele (South)", en: "South Ndebele" },
+      { code: "nv", label: "Diné bizaad", en: "Navajo" },
+      { code: "ny", label: "Chichewa", en: "Chichewa" },
+      { code: "oc", label: "occitan", en: "Occitan" },
+      { code: "oj", label: "ᐊᓂᔑᓈᐯᒧᐎᓐ", en: "Ojibwe" },
+      { code: "om", label: "Afaan Oromoo", en: "Oromo" },
+      { code: "or", label: "ଓଡ଼ିଆ", en: "Odia" },
+      { code: "os", label: "ирон æвзаг", en: "Ossetian" },
+      { code: "pa", label: "ਪੰਜਾਬੀ", en: "Punjabi" },
+      { code: "pi", label: "पाऴि", en: "Pali" },
+      { code: "pl", label: "polski", en: "Polish" },
+      { code: "ps", label: "پښتو", en: "Pashto" },
+      { code: "pt", label: "Português", en: "Portuguese" },
+      { code: "qu", label: "Runa Simi", en: "Quechua" },
+      { code: "rm", label: "rumantsch", en: "Romansh" },
+      { code: "rn", label: "Ikirundi", en: "Kirundi" },
+      { code: "ro", label: "română", en: "Romanian" },
+      { code: "ru", label: "Русский", en: "Russian" },
+      { code: "rw", label: "Ikinyarwanda", en: "Kinyarwanda" },
+      { code: "sa", label: "संस्कृतम्", en: "Sanskrit" },
+      { code: "sc", label: "sardu", en: "Sardinian" },
+      { code: "sd", label: "سنڌي", en: "Sindhi" },
+      { code: "se", label: "Davvisámegiella", en: "Northern Sami" },
+      { code: "sg", label: "Sängö", en: "Sango" },
+      { code: "si", label: "සිංහල", en: "Sinhala" },
+      { code: "sk", label: "slovenčina", en: "Slovak" },
+      { code: "sl", label: "slovenščina", en: "Slovenian" },
+      { code: "sm", label: "gagana fa'a Samoa", en: "Samoan" },
+      { code: "sn", label: "chiShona", en: "Shona" },
+      { code: "so", label: "Soomaaliga", en: "Somali" },
+      { code: "sq", label: "Shqip", en: "Albanian" },
+      { code: "sr", label: "српски", en: "Serbian" },
+      { code: "ss", label: "SiSwati", en: "Swati" },
+      { code: "st", label: "Sesotho", en: "Southern Sotho" },
+      { code: "su", label: "Basa Sunda", en: "Sundanese" },
+      { code: "sv", label: "svenska", en: "Swedish" },
+      { code: "sw", label: "Kiswahili", en: "Swahili" },
+      { code: "ta", label: "தமிழ்", en: "Tamil" },
+      { code: "te", label: "తెలుగు", en: "Telugu" },
+      { code: "tg", label: "тоҷикӣ", en: "Tajik" },
+      { code: "th", label: "ไทย", en: "Thai" },
+      { code: "ti", label: "ትግርኛ", en: "Tigrinya" },
+      { code: "tk", label: "Türkmen", en: "Turkmen" },
+      { code: "tl", label: "Tagalog", en: "Tagalog" },
+      { code: "tn", label: "Setswana", en: "Tswana" },
+      { code: "to", label: "faka Tonga", en: "Tongan" },
+      { code: "tr", label: "Türkçe", en: "Turkish" },
+      { code: "ts", label: "Xitsonga", en: "Tsonga" },
+      { code: "tt", label: "татар теле", en: "Tatar" },
+      { code: "tw", label: "Twi", en: "Twi" },
+      { code: "ty", label: "Reo Tahiti", en: "Tahitian" },
+      { code: "ug", label: "ئۇيغۇرچە", en: "Uyghur" },
+      { code: "uk", label: "Українська", en: "Ukrainian" },
+      { code: "ur", label: "اردو", en: "Urdu" },
+      { code: "uz", label: "Oʻzbek", en: "Uzbek" },
+      { code: "ve", label: "Tshivenḓa", en: "Venda" },
+      { code: "vi", label: "Tiếng Việt", en: "Vietnamese" },
+      { code: "vo", label: "Volapük", en: "Volapük" },
+      { code: "wa", label: "walon", en: "Walloon" },
+      { code: "wo", label: "Wolof", en: "Wolof" },
+      { code: "xh", label: "isiXhosa", en: "Xhosa" },
+      { code: "yi", label: "ייִדיש", en: "Yiddish" },
+      { code: "yo", label: "Yorùbá", en: "Yoruba" },
+      { code: "za", label: "Vahcuengh", en: "Zhuang" },
+      { code: "zh", label: "中文", en: "Chinese" },
+      { code: "zu", label: "isiZulu", en: "Zulu" },
     ];
-    return commonLanguages.sort((a, b) => a.label.localeCompare(b.label));
+    return iso6391Languages.sort((a, b) => a.label.localeCompare(b.label));
   }
 
   function renderAvailableOptions() {
@@ -187,43 +344,77 @@ async function languages() {
     },
   );
 
+  // Renders the filtered result rows for the search-as-you-type language
+  // picker below. `selectedCode` highlights the currently chosen row (kept
+  // visible even if the query no longer matches it, so re-filtering doesn't
+  // silently drop the selection).
+  function renderLangPickerResults(query: Dynamic, selectedCode: Dynamic) {
+    const list = byId("dialogLanguageResults");
+    if (!list) return;
+    const q = String(query || "")
+      .trim()
+      .toLowerCase();
+    // entry.code === selectedCode always matches: once a row is picked, the
+    // search box is filled with "label (code)" for confirmation, which
+    // wouldn't match its own label/code substrings — without this the list
+    // would flash "no matches" right after a successful selection.
+    const matches = !q
+      ? availableLanguageChoices
+      : availableLanguageChoices.filter(
+          (entry: Dynamic) =>
+            entry.code === selectedCode ||
+            entry.label.toLowerCase().includes(q) ||
+            entry.en.toLowerCase().includes(q) ||
+            entry.code.toLowerCase().includes(q),
+        );
+    if (!matches.length) {
+      list.innerHTML =
+        "<div class='langPickerEmpty'>" + escapeHtml(t("noMatches")) + "</div>";
+      return;
+    }
+    list.innerHTML = matches
+      .map(
+        (entry: Dynamic) =>
+          "<div class='langPickerRow" +
+          (entry.code === selectedCode ? " selected" : "") +
+          "' data-lang-code='" +
+          escapeHtml(entry.code) +
+          "'>" +
+          escapeHtml(entry.label + " (" + entry.code + ")") +
+          "</div>",
+      )
+      .join("");
+  }
+
   byId("languageAddButton")!.addEventListener("click", () => {
     if (state.preview) {
       toast(t("previewReadOnly"));
       return;
     }
-    const optionsHtml: Dynamic = availableLanguageChoices
-      .map(
-        (entry) =>
-          "<option value='" +
-          escapeHtml(entry.code) +
-          "'>" +
-          escapeHtml(entry.label + " (" + entry.code + ")") +
-          "</option>",
-      )
-      .join("");
-    if (!optionsHtml) {
+    if (!availableLanguageChoices.length) {
       toast(t("noRegisteredLanguages"));
       return;
     }
+    let selectedCode = "";
     openEntryDialog(
       t("addLanguage"),
       "<label>" +
         escapeHtml(t("availableLanguages")) +
-        "<select id='dialogLanguageCode'>" +
-        optionsHtml +
-        "</select></label>",
+        "<input type='text' id='dialogLanguageSearch' placeholder='" +
+        escapeHtml(t("searchLanguagePlaceholder")) +
+        "' autocomplete='off' /></label>" +
+        "<input type='hidden' id='dialogLanguageCode' />" +
+        "<div id='dialogLanguageResults' class='langPickerResults'></div>",
       t("addRegister"),
       async (form: Dynamic, close: Dynamic) => {
-        const lang = requireDialogValue(
-          form,
-          "#dialogLanguageCode",
-          "Language selector is missing.",
-        );
-        if (!lang) return;
-        const entry = allLanguageOptions().find((item) => item.code === lang);
-        const displayName = entry ? entry.label : lang;
         try {
+          const lang = requireDialogValue(
+            form,
+            "#dialogLanguageCode",
+            t("selectLangMsg"),
+          );
+          const entry = allLanguageOptions().find((item) => item.code === lang);
+          const displayName = entry ? entry.label : lang;
           await api("/api/languages", {
             method: "POST",
             body: JSON.stringify({
@@ -239,6 +430,28 @@ async function languages() {
         }
       },
     );
+    renderLangPickerResults("", selectedCode);
+    const searchInput = byId("dialogLanguageSearch") as Dynamic;
+    const codeInput = byId("dialogLanguageCode") as Dynamic;
+    searchInput?.addEventListener("input", () => {
+      renderLangPickerResults(searchInput.value, selectedCode);
+    });
+    byId("dialogLanguageResults")!.addEventListener(
+      "click",
+      (event: Dynamic) => {
+        const row = event.target.closest("[data-lang-code]");
+        if (!row) return;
+        selectedCode = row.getAttribute("data-lang-code");
+        if (codeInput) codeInput.value = selectedCode;
+        const entry = availableLanguageChoices.find(
+          (item: Dynamic) => item.code === selectedCode,
+        );
+        if (searchInput && entry)
+          searchInput.value = entry.label + " (" + entry.code + ")";
+        renderLangPickerResults(searchInput?.value, selectedCode);
+      },
+    );
+    searchInput?.focus();
   });
 
   try {
