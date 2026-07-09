@@ -36,7 +36,11 @@ async function dashboard() {
       "<div class='panel'>" +
       "<div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:10px'>" +
       "<span style='font-weight:700;font-size:14px'>KuroCMS</span>" +
-      "<div class='updateBtnWrap'>" +
+      // updateBtnWrap normally stretches full-width (block layout below the
+      // header); override that here so it shrinks to the button's own size —
+      // otherwise it fights "KuroCMS" for space in this flex row and never
+      // reaches the right edge.
+      "<div class='updateBtnWrap' style='width:auto;flex-shrink:0'>" +
       "<button id='btnUpdate' style='font-size:12px;padding:5px 12px'>" +
       escapeHtml(t("checkForUpdate")) +
       "</button>" +
