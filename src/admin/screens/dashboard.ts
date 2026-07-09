@@ -34,7 +34,11 @@ async function dashboard() {
       "</div>" +
       // Version card
       "<div class='panel'>" +
-      "<div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:10px'>" +
+      // flex-wrap: the panel's own width is a CSS grid track (minmax(0,1fr))
+      // that shrinks with the viewport/sidebar state — "KuroCMS" + the button
+      // can outgrow it well before the .split column collapses to 1 row. Let
+      // the button drop to its own line instead of overflowing the card.
+      "<div style='display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px'>" +
       "<span style='font-weight:700;font-size:14px'>KuroCMS</span>" +
       // updateBtnWrap normally stretches full-width (block layout below the
       // header); override that here so it shrinks to the button's own size —
