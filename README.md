@@ -64,6 +64,21 @@ Release history — versions, change notes, and the built `worker.js` — lives 
 configuration, and maintainer scripts are intentionally omitted (source‑review mirror,
 not a build target).
 
+## 🔄 Self-update & release channels
+
+The admin Dashboard checks for updates and applies them with one click — no CLI,
+no build. Releases publish frequently (often several a day), so installs choose
+one of two channels:
+
+| Channel | Tracks | Moves forward |
+|---|---|---|
+| **Stable** *(default)* | The newest release **not** marked [Pre-release](https://github.com/Kuro-Boo/KuroCMS/releases) on GitHub | Only when the maintainer explicitly promotes a release — so a same-day regression doesn't reach every install automatically |
+| **Latest** | Every release, including Pre-release-tagged ones | Immediately, on every release |
+
+Flip **“Always update to latest”** in Dashboard → KuroCMS to switch to the Latest
+channel; leave it off to stay on Stable. Both the installed, stable, and latest
+version numbers are shown on the same card.
+
 ## 🔒 Security
 
 Found a vulnerability? Please see [SECURITY.md](./SECURITY.md) for private reporting
