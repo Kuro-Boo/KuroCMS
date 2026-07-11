@@ -1124,12 +1124,16 @@ async function newArticle(editDid: Dynamic) {
       modalToolbar: byId("arKeToolbar") || undefined,
       // KuroEditor's built-in periodic autosave interval (per-app tunable).
       autoSaveInterval: AUTOSAVE_INTERVAL_MS,
-      // 通常モードのキャンバスをアクティブテンプレートの body 配色に一致させる
-      // （/api/fonts の editorCanvas 由来。ダーク系テンプレートでも WYSIWYG）。
+      // キャンバスをアクティブテンプレートの body 配色に一致させる（/api/fonts
+      // の editorCanvas 由来）。テンプレートの配色は1組なので両モードのスロット
+      // に同じ値を渡し（canvasDarkColors は KE 2.4.0+）、どちらのモードでも
+      // テンプレートの実色で描画される＝真の WYSIWYG。
       canvasColors: state.editorCanvasColors || undefined,
+      canvasDarkColors: state.editorCanvasColors || undefined,
       // ダークモードはテンプレートの配色から自動決定（KE 2.3.0+）。ホスト指定
       // なので localStorage の保存値より優先され、canvasDarkUi は既定 false の
-      // ままなので手動トグルのチェックボックスは表示されない。
+      // ままなので手動トグルのチェックボックスは表示されない。モードは
+      // caret/placeholder 等の未指定キーの既定パレットを左右する。
       canvasDark: editorCanvasDark(),
       urlResolver: function (slug: string) {
         if (slug.startsWith("http")) return slug;
