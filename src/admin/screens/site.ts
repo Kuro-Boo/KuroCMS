@@ -2447,9 +2447,10 @@ async function siteManagement() {
         // KuroEditor v2.3.0+ のホスト設定でどちらもマウント自体を止める。
         modalMenu: false,
         saveUi: false,
-        // サイトテキスト編集も通常モードのキャンバスを実サイト配色に合わせる
+        // サイトテキスト編集もキャンバスを実サイト配色に合わせる（記事エディタ
+        // と同じ: 両モードのスロットに同じテンプレート配色、モードは自動決定）
         canvasColors: state.editorCanvasColors || undefined,
-        // ダークモードもテンプレート配色から自動決定（記事エディタと同じ）
+        canvasDarkColors: state.editorCanvasColors || undefined,
         canvasDark: editorCanvasDark(),
         urlResolver: function (slug: string) {
           return slug.startsWith("http") ? slug : midUrlCache[slug] || slug;

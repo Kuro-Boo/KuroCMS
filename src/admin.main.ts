@@ -76,6 +76,8 @@ type KuroEditorInstance = {
   clearDirty?(): void;
   /** KE >= 2.2.0。通常モードのキャンバス配色をホスト（サイト）の色に合わせる。 */
   setCanvasColors?(colors: { bg?: string; text?: string } | null): void;
+  /** KE >= 2.4.0。ダークモード中のキャンバス配色（shape は setCanvasColors と同じ）。 */
+  setCanvasDarkColors?(colors: { bg?: string; text?: string } | null): void;
   /** KE >= 2.1.0（options.canvasDark 連携は 2.3.0+）。キャンバスのダーク切替。 */
   setCanvasDark?(on: boolean): void;
   wysiwyg: HTMLElement;
@@ -2813,11 +2815,15 @@ async function applyEditorFont(lang = "") {
     const baseStack: string = data.baseStack || "";
 
     // アクティブテンプレートの body 配色。以後マウントされるエディタは
-    // options.canvasColors で受け取り、マウント済みエディタには即時反映する。
+    // options.canvasColors / canvasDarkColors で受け取り、マウント済みエディタ
+    // には即時反映する。テンプレートの配色は1組なので両モードのスロットに同じ
+    // 値を渡し（KE 2.4.0+）、どちらのモードでもテンプレートの実色で描画される
+    // （モード側は caret/placeholder 等の未指定キーの既定値を左右する）。
     // ダークモードもテンプレート配色から自動決定して同期（テンプレート変更後の
     // /api/fonts 再取得で、開いているエディタも即時にモードが切り替わる）。
     state.editorCanvasColors = data.editorCanvas || null;
     state.articleEditor?.setCanvasColors?.(state.editorCanvasColors);
+    state.articleEditor?.setCanvasDarkColors?.(state.editorCanvasColors);
     state.articleEditor?.setCanvasDark?.(editorCanvasDark());
 
     let link = byId("kuroSiteFontLink") as Dynamic;
