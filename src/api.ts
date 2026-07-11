@@ -121,7 +121,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.8.8";
+export const KUROCMS_VERSION = "1.8.9";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -3755,24 +3755,17 @@ async function postToX(
     .slice(0, 3)
     .map((t) => `#${t}`)
     .join(" ");
-  // The language line rides on the REPLY (with the link) in the default
-  // 2-post shape — the parent's 280-weight budget is the scarce resource and
-  // the reply is nearly empty. Only in single-post mode does it join the
-  // parent, reserved out of the budget like the tags (dropped if it alone
-  // couldn't fit alongside a minimal body).
-  let langPart = langLine ? `\n\n${langLine}` : "";
+  // The language line rides ONLY on the link reply (2-post shape below) —
+  // never on the parent. In single-post mode it is omitted entirely: the
+  // parent's 280-weight budget is the scarce resource there, and per the
+  // maintainer the line isn't worth spending it on.
   let budget = 280;
   if (!linkInReply) budget -= X_URL_WEIGHT + 2; // "\n\n" + wrapped URL
   if (tagsText) budget -= xWeightedLength(tagsText) + 2; // "\n\n" + tags
-  if (!linkInReply && langPart) {
-    const w = xWeightedLength(langPart);
-    if (w <= budget - 40) budget -= w;
-    else langPart = "";
-  }
   let text = summary ? `${title}\n\n${summary}` : title;
   text = xTrimToWeight(text, budget);
   if (tagsText) text = `${text}\n\n${tagsText}`;
-  if (!linkInReply) text = `${text}\n\n${url}${langPart}`;
+  if (!linkInReply) text = `${text}\n\n${url}`;
 
   const parentBody: Record<string, unknown> = { text };
   if (mediaId) parentBody.media = { media_ids: [mediaId] };
