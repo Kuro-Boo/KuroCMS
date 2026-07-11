@@ -32,16 +32,38 @@ export function cheapHash(s: string): string {
 }
 
 /**
- * SQL predicate for a document's live publish window, to append after `mode = 1`.
- * `alias` is the column prefix ("d." or ""). When `includeFuture` is true (build
- * "always" mode) the upper publish_at bound is dropped so future-dated posts are
- * built/listed immediately; the unpublish_at (expiry) bound is always enforced.
+ * Which notion of "published" a query runs under. The publish flag (documents.
+ * mode) is pure STATE — it only takes effect when a build materializes it into
+ * documents.live. Serving must never read mode directly, or a flagged-but-not-
+ * yet-built article would leak out through the on-demand pages (categories,
+ * KV-miss fallback, sitemap/RSS) before any build ran.
+ *   "live"   — serve-time: what the last completed build published (live = 1)
+ *   "window" — build-time: mode = 1 within the publish window
+ *   "future" — build-time in "always" mode: the upper publish_at bound is
+ *              dropped so future-dated posts are built/listed immediately; the
+ *              unpublish_at (expiry) bound is always enforced
  */
-function liveWindowSql(alias: string, includeFuture: boolean): string {
-  const upper = includeFuture
-    ? ""
-    : `AND datetime(${alias}publish_at) <= datetime('now') `;
-  return `${upper}AND (${alias}unpublish_at IS NULL OR datetime(${alias}unpublish_at) > datetime('now'))`;
+export type PubFilter = "live" | "window" | "future";
+
+/** SQL predicate selecting published documents under `filter`.
+ *  `alias` is the column prefix ("d." or ""). */
+function publishedSql(alias: string, filter: PubFilter): string {
+  if (filter === "live") return `${alias}live = 1`;
+  const upper =
+    filter === "future"
+      ? ""
+      : `AND datetime(${alias}publish_at) <= datetime('now') `;
+  return `${alias}mode = 1 ${upper}AND (${alias}unpublish_at IS NULL OR datetime(${alias}unpublish_at) > datetime('now'))`;
+}
+
+/** SQL CASE computing a document's materialized `live` value from its flag
+ *  state — the build-time counterpart of publishedSql, used wherever a build
+ *  syncs documents.live. Must stay consistent with publishedSql and with the
+ *  auto-build cron's pending-change predicate. */
+function liveCaseSql(filter: "window" | "future"): string {
+  const upper =
+    filter === "future" ? "" : `AND datetime(publish_at) <= datetime('now') `;
+  return `CASE WHEN mode = 1 ${upper}AND (unpublish_at IS NULL OR datetime(unpublish_at) > datetime('now')) THEN 1 ELSE 0 END`;
 }
 
 interface StoredTemplate {
@@ -183,11 +205,11 @@ async function fetchSettings(env: Env): Promise<SettingsMap> {
 
 async function countPublishedArticles(
   env: Env,
-  includeFuture = false,
+  filter: PubFilter = "live",
 ): Promise<number> {
   const row = await env.DB.prepare(
     `SELECT COUNT(*) AS cnt FROM documents
-     WHERE mode = 1 ${liveWindowSql("", includeFuture)}`,
+     WHERE ${publishedSql("", filter)}`,
   ).first<{ cnt: number }>();
   return row?.cnt ?? 0;
 }
@@ -195,13 +217,13 @@ async function countPublishedArticles(
 async function countArticlesByTypeSlug(
   env: Env,
   typeSlug: string,
-  includeFuture = false,
+  filter: PubFilter = "live",
 ): Promise<number> {
   const row = await env.DB.prepare(
     `SELECT COUNT(*) AS cnt FROM documents d
      JOIN taxonomy_items ti ON ti.id = d.tid AND ti.kind = 'type'
        AND (COALESCE(ti.slug, ti.id) = ? OR ti.id = ?)
-     WHERE d.mode = 1 ${liveWindowSql("d.", includeFuture)}`,
+     WHERE ${publishedSql("d.", filter)}`,
   )
     .bind(typeSlug, typeSlug)
     .first<{ cnt: number }>();
@@ -228,7 +250,7 @@ async function fetchPublishedArticles(
   defaultLang = "",
   page = 1,
   limit = 30,
-  includeFuture = false,
+  filter: PubFilter = "live",
 ): Promise<ArticleRow[]> {
   const offset = (page - 1) * limit;
   const rows = await env.DB.prepare(
@@ -252,7 +274,7 @@ async function fetchPublishedArticles(
        ORDER BY dt2.updated_at DESC
        LIMIT 1
      )
-     WHERE d.mode = 1 ${liveWindowSql("d.", includeFuture)}
+     WHERE ${publishedSql("d.", filter)}
      ORDER BY d.publish_at DESC, d.did DESC LIMIT ? OFFSET ?`,
   )
     .bind(lang, defaultLang || lang, limit, offset)
@@ -266,6 +288,7 @@ async function fetchArticleDetail(
   tid: string,
   lang: string,
   defaultLang = "",
+  filter: PubFilter = "live",
 ): Promise<ArticleRow | null> {
   return env.DB.prepare(
     `SELECT d.did, d.slug, d.tid, d.publish_at, d.updated_at,
@@ -290,7 +313,7 @@ async function fetchArticleDetail(
        ORDER BY dt2.updated_at DESC
        LIMIT 1
      )
-     WHERE d.slug = ? AND d.tid = ? AND d.mode = 1
+     WHERE d.slug = ? AND d.tid = ? AND ${publishedSql("d.", filter)}
      LIMIT 1`,
   )
     .bind(lang, defaultLang || lang, slug, tid)
@@ -502,6 +525,7 @@ async function expandContentRefs(
   settings?: SettingsMap,
   lang = "en",
   prefetch?: RenderPrefetch,
+  filter: PubFilter = "live",
 ): Promise<TemplateContent> {
   const allHtml = Object.values(content).join("\n");
 
@@ -516,7 +540,8 @@ async function expandContentRefs(
       const parts = ref.split(":");
       try {
         if (parts[0] === "type" && parts[1] === "all") {
-          const rows = prefetch?.types ?? (await fetchTypesWithCounts(env));
+          const rows =
+            prefetch?.types ?? (await fetchTypesWithCounts(env, filter));
           dataExpanded[ref] = JSON.stringify(rows);
         } else if (parts[0] === "type" && parts[1] && parts[1] !== "all") {
           const n = parseInt(parts[2] || "10", 10);
@@ -527,13 +552,15 @@ async function expandContentRefs(
             settings?.default_lang ?? "",
             1,
             n,
+            filter,
           );
           dataExpanded[ref] = JSON.stringify(
             rows.map((r) => toArticleCard(r, basePath)),
           );
         } else if (parts[0] === "category" && parts[1] === "all") {
           const rows =
-            prefetch?.categories ?? (await fetchCategoriesWithCounts(env));
+            prefetch?.categories ??
+            (await fetchCategoriesWithCounts(env, filter));
           dataExpanded[ref] = JSON.stringify(rows);
         } else if (parts[0] === "category" && parts[1] && parts[1] !== "all") {
           const n = parseInt(parts[2] || "10", 10);
@@ -544,6 +571,7 @@ async function expandContentRefs(
             settings?.default_lang ?? "",
             1,
             n,
+            filter,
           );
           dataExpanded[ref] = JSON.stringify(
             rows.map((r) => toArticleCard(r, basePath)),
@@ -556,6 +584,7 @@ async function expandContentRefs(
             settings?.default_lang ?? "",
             1,
             n,
+            filter,
           );
           dataExpanded[ref] = JSON.stringify(
             rows.map((r) => toArticleCard(r, basePath)),
@@ -578,7 +607,7 @@ async function expandContentRefs(
                ORDER BY dt2.updated_at DESC
                LIMIT 1
              )
-             WHERE d.slug = ? AND d.mode = 1 LIMIT 1`,
+             WHERE d.slug = ? AND ${publishedSql("d.", filter)} LIMIT 1`,
           )
             .bind(lang, settings?.default_lang || lang, parts[1])
             .first<{
@@ -720,12 +749,15 @@ async function fetchTemplateContent(
   return result;
 }
 
-async function fetchTypesWithCounts(env: Env): Promise<TypeItem[]> {
+async function fetchTypesWithCounts(
+  env: Env,
+  filter: PubFilter = "live",
+): Promise<TypeItem[]> {
   const rows = await env.DB.prepare(
     `SELECT ti.id, ti.name, COALESCE(ti.slug, ti.id) AS slug,
             COUNT(d.did) AS count
      FROM taxonomy_items ti
-     LEFT JOIN documents d ON d.tid = ti.id AND d.mode = 1
+     LEFT JOIN documents d ON d.tid = ti.id AND ${publishedSql("d.", filter)}
      WHERE ti.kind = 'type' AND ti.lang = ''
      GROUP BY ti.id
      ORDER BY ti.name`,
@@ -733,13 +765,16 @@ async function fetchTypesWithCounts(env: Env): Promise<TypeItem[]> {
   return rows.results ?? [];
 }
 
-async function fetchCategoriesWithCounts(env: Env): Promise<CategoryItem[]> {
+async function fetchCategoriesWithCounts(
+  env: Env,
+  filter: PubFilter = "live",
+): Promise<CategoryItem[]> {
   const rows = await env.DB.prepare(
     `SELECT ti.id, ti.name, COALESCE(ti.slug, ti.id) AS slug,
             COUNT(DISTINCT dc.did) AS count
      FROM categories ti
      LEFT JOIN document_categories dc ON dc.cid = ti.id
-     LEFT JOIN documents d ON d.did = dc.did AND d.mode = 1
+     LEFT JOIN documents d ON d.did = dc.did AND ${publishedSql("d.", filter)}
      GROUP BY ti.id
      ORDER BY ti.name`,
   ).all<CategoryItem>();
@@ -749,13 +784,13 @@ async function fetchCategoriesWithCounts(env: Env): Promise<CategoryItem[]> {
 async function countArticlesByCategory(
   env: Env,
   categorySlug: string,
-  includeFuture = false,
+  filter: PubFilter = "live",
 ): Promise<number> {
   const row = await env.DB.prepare(
     `SELECT COUNT(*) AS cnt FROM documents d
      JOIN document_categories dc ON dc.did = d.did
      JOIN categories ti ON ti.id = dc.cid AND (ti.slug = ? OR ti.id = ?)
-     WHERE d.mode = 1 ${liveWindowSql("d.", includeFuture)}`,
+     WHERE ${publishedSql("d.", filter)}`,
   )
     .bind(categorySlug, categorySlug)
     .first<{ cnt: number }>();
@@ -769,7 +804,7 @@ async function fetchArticlesByCategory(
   defaultLang = "",
   page = 1,
   limit = 30,
-  includeFuture = false,
+  filter: PubFilter = "live",
 ): Promise<ArticleRow[]> {
   const offset = (page - 1) * limit;
   const rows = await env.DB.prepare(
@@ -795,7 +830,7 @@ async function fetchArticlesByCategory(
        ORDER BY dt2.updated_at DESC
        LIMIT 1
      )
-     WHERE d.mode = 1 ${liveWindowSql("d.", includeFuture)}
+     WHERE ${publishedSql("d.", filter)}
      ORDER BY d.publish_at DESC, d.did DESC LIMIT ? OFFSET ?`,
   )
     .bind(categorySlug, categorySlug, lang, defaultLang || lang, limit, offset)
@@ -810,7 +845,7 @@ async function fetchArticlesByType(
   defaultLang = "",
   page = 1,
   limit = 30,
-  includeFuture = false,
+  filter: PubFilter = "live",
 ): Promise<ArticleRow[]> {
   const offset = (page - 1) * limit;
   const rows = await env.DB.prepare(
@@ -835,7 +870,7 @@ async function fetchArticlesByType(
        ORDER BY dt2.updated_at DESC
        LIMIT 1
      )
-     WHERE d.mode = 1 ${liveWindowSql("d.", includeFuture)}
+     WHERE ${publishedSql("d.", filter)}
      ORDER BY d.publish_at DESC, d.did DESC LIMIT ? OFFSET ?`,
   )
     .bind(typeSlug, typeSlug, lang, defaultLang || lang, limit, offset)
@@ -901,7 +936,7 @@ async function fetchArticlesScoped(
     extraBinds?: (string | number)[];
     limit?: number;
     offset?: number;
-    includeFuture?: boolean;
+    filter?: PubFilter;
   } = {},
 ): Promise<ArticleRow[]> {
   const {
@@ -909,13 +944,13 @@ async function fetchArticlesScoped(
     extraBinds = [],
     limit,
     offset = 0,
-    includeFuture = false,
+    filter = "live",
   } = opts;
   const sc = scopeFromSql(scope);
   const limitSql = limit != null ? " LIMIT ? OFFSET ?" : "";
   const sql =
     `SELECT ${ARTICLE_COLS} FROM documents d ${sc.sql} ${ARTICLE_TR_JOINS} ` +
-    `WHERE d.mode = 1 ${liveWindowSql("d.", includeFuture)} ${extraWhere} ` +
+    `WHERE ${publishedSql("d.", filter)} ${extraWhere} ` +
     `ORDER BY d.publish_at DESC, d.did DESC${limitSql}`;
   const binds: (string | number)[] = [
     ...sc.binds,
@@ -940,16 +975,16 @@ async function fetchArticlesLatest(
   scope: ArticleScope,
   lang: string,
   defaultLang = "",
-  includeFuture = false,
+  filter: PubFilter = "live",
 ): Promise<ArticleRow[]> {
   const windowed = await fetchArticlesScoped(env, scope, lang, defaultLang, {
     extraWhere: `AND datetime(d.publish_at) >= datetime('now','-${LATEST_WINDOW_DAYS} days')`,
-    includeFuture,
+    filter,
   });
   if (windowed.length >= LATEST_MIN) return windowed;
   return fetchArticlesScoped(env, scope, lang, defaultLang, {
     limit: LATEST_MIN,
-    includeFuture,
+    filter,
   });
 }
 
@@ -960,12 +995,12 @@ async function fetchArticlesByMonth(
   month: string,
   lang: string,
   defaultLang = "",
-  includeFuture = false,
+  filter: PubFilter = "live",
 ): Promise<ArticleRow[]> {
   return fetchArticlesScoped(env, scope, lang, defaultLang, {
     extraWhere: `AND strftime('%Y-%m', datetime(d.publish_at)) = ?`,
     extraBinds: [month],
-    includeFuture,
+    filter,
   });
 }
 
@@ -977,12 +1012,12 @@ async function fetchArticlesByMonth(
 async function fetchDistinctMonths(
   env: Env,
   scope: ArticleScope,
-  includeFuture = false,
+  filter: PubFilter = "live",
 ): Promise<string[]> {
   const sc = scopeFromSql(scope);
   const rows = await env.DB.prepare(
     `SELECT DISTINCT strftime('%Y-%m', datetime(d.publish_at)) AS ym FROM documents d ${sc.sql} ` +
-      `WHERE d.mode = 1 ${liveWindowSql("d.", includeFuture)} ` +
+      `WHERE ${publishedSql("d.", filter)} ` +
       `AND strftime('%Y-%m', datetime(d.publish_at)) < strftime('%Y-%m', 'now') ` +
       `ORDER BY ym DESC`,
   )
@@ -994,12 +1029,13 @@ async function fetchDistinctMonths(
 /** Live article count per category slug — for the single shared counts KV value. */
 async function fetchAllCategoryCounts(
   env: Env,
+  filter: PubFilter = "live",
 ): Promise<Record<string, number>> {
   const rows = await env.DB.prepare(
     `SELECT COALESCE(ti.slug, ti.id) AS slug, COUNT(DISTINCT dc.did) AS count
      FROM categories ti
      LEFT JOIN document_categories dc ON dc.cid = ti.id
-     LEFT JOIN documents d ON d.did = dc.did AND d.mode = 1
+     LEFT JOIN documents d ON d.did = dc.did AND ${publishedSql("d.", filter)}
      GROUP BY ti.id`,
   ).all<{ slug: string; count: number }>();
   const out: Record<string, number> = {};
@@ -1016,10 +1052,11 @@ const NAV_COUNTS_KEY = "_cfg/nav_counts";
 /** Live nav counts for both kinds (for the single shared counts KV value). */
 async function fetchNavCounts(
   env: Env,
+  filter: PubFilter = "live",
 ): Promise<{ type: Record<string, number>; category: Record<string, number> }> {
   const [types, category] = await Promise.all([
-    fetchTypesWithCounts(env),
-    fetchAllCategoryCounts(env),
+    fetchTypesWithCounts(env, filter),
+    fetchAllCategoryCounts(env, filter),
   ]);
   const type: Record<string, number> = {};
   for (const t of types) type[t.slug] = t.count ?? 0;
@@ -1027,9 +1064,12 @@ async function fetchNavCounts(
 }
 
 /** Recompute and persist the shared nav-counts KV value. */
-async function writeNavCounts(env: Env): Promise<void> {
+async function writeNavCounts(
+  env: Env,
+  filter: PubFilter = "live",
+): Promise<void> {
   if (!env.PUBLIC_PAGES) return;
-  const counts = await fetchNavCounts(env);
+  const counts = await fetchNavCounts(env, filter);
   await env.PUBLIC_PAGES.put(
     NAV_COUNTS_KEY,
     JSON.stringify({ ...counts, _v: Date.now() }),
@@ -1224,7 +1264,7 @@ async function buildRenderContext(
   lang: string,
   settings: SettingsMap,
   prefetch?: RenderPrefetch,
-  includeFuture = false,
+  filter: PubFilter = "live",
 ): Promise<RenderContext | null> {
   const basePath = settings.base_path || "";
   const LIMIT = 30;
@@ -1232,8 +1272,8 @@ async function buildRenderContext(
   const [rawContent, types, categories] = await Promise.all([
     prefetch?.templateContent?.get(lang) ??
       fetchTemplateContent(env, lang, settings.default_lang ?? ""),
-    prefetch?.types ?? fetchTypesWithCounts(env),
-    prefetch?.categories ?? fetchCategoriesWithCounts(env),
+    prefetch?.types ?? fetchTypesWithCounts(env, filter),
+    prefetch?.categories ?? fetchCategoriesWithCounts(env, filter),
   ]);
   const content = await expandContentRefs(
     env,
@@ -1242,6 +1282,7 @@ async function buildRenderContext(
     settings,
     lang,
     prefetch,
+    filter,
   );
 
   // The About page body is authored rich content too — wrap it like the article
@@ -1297,6 +1338,7 @@ async function buildRenderContext(
       params.type,
       lang,
       defaultLang,
+      filter,
     );
     if (!r) return null;
     const expandedBody = await expandContentRefs(
@@ -1305,6 +1347,8 @@ async function buildRenderContext(
       basePath,
       settings,
       lang,
+      undefined,
+      filter,
     );
     let articleCategories: CategoryItem[] = [];
     if (r.categories_json) {
@@ -1369,7 +1413,7 @@ async function buildRenderContext(
               defaultLang,
               page,
               LIMIT,
-              includeFuture,
+              filter,
             )
           : scope.kind === "type"
             ? fetchArticlesByType(
@@ -1379,7 +1423,7 @@ async function buildRenderContext(
                 defaultLang,
                 page,
                 LIMIT,
-                includeFuture,
+                filter,
               )
             : fetchPublishedArticles(
                 env,
@@ -1387,13 +1431,13 @@ async function buildRenderContext(
                 defaultLang,
                 page,
                 LIMIT,
-                includeFuture,
+                filter,
               ),
         scope.kind === "category"
-          ? countArticlesByCategory(env, scope.slug, includeFuture)
+          ? countArticlesByCategory(env, scope.slug, filter)
           : scope.kind === "type"
-            ? countArticlesByTypeSlug(env, scope.slug, includeFuture)
-            : countPublishedArticles(env, includeFuture),
+            ? countArticlesByTypeSlug(env, scope.slug, filter)
+            : countPublishedArticles(env, filter),
       ]);
       content["_articles"] = JSON.stringify(
         rows.map((r) => toArticleCard(r, basePath)),
@@ -1406,16 +1450,9 @@ async function buildRenderContext(
     const month = params.month || null;
     const [rows, months] = await Promise.all([
       month
-        ? fetchArticlesByMonth(
-            env,
-            scope,
-            month,
-            lang,
-            defaultLang,
-            includeFuture,
-          )
-        : fetchArticlesLatest(env, scope, lang, defaultLang, includeFuture),
-      fetchDistinctMonths(env, scope, includeFuture),
+        ? fetchArticlesByMonth(env, scope, month, lang, defaultLang, filter)
+        : fetchArticlesLatest(env, scope, lang, defaultLang, filter),
+      fetchDistinctMonths(env, scope, filter),
     ]);
     content["_articles"] = JSON.stringify(
       rows.map((r) => toArticleCard(r, basePath)),
@@ -1487,7 +1524,7 @@ export async function generatePage(
   template: StoredTemplate,
   settings?: SettingsMap,
   prefetch?: RenderPrefetch,
-  includeFuture = false,
+  filter: PubFilter = "live",
 ): Promise<string | null> {
   const s = settings ?? (await fetchSettings(env));
   const ctx = await buildRenderContext(
@@ -1497,7 +1534,7 @@ export async function generatePage(
     lang,
     s,
     prefetch,
-    includeFuture,
+    filter,
   );
   if (!ctx) return null;
   // Spec §12: `[[sid]]` in the template body renders the SNS widget in place.
@@ -2340,6 +2377,10 @@ async function createPageWriter(
   settings: SettingsMap,
   articleLangs: Map<string, string[]>,
   extraLangs: string[] = [],
+  // "live" (the default) refreshes already-materialized pages only. The per-doc
+  // rebuilds (content edits, single-doc build) must never render pending
+  // flag-state into the shared index pages — only the full build does that.
+  filter: PubFilter = "live",
 ): Promise<{
   writeBundle: (
     path: string,
@@ -2348,13 +2389,12 @@ async function createPageWriter(
   ) => Promise<void>;
   allLangs: string[];
 }> {
-  const includeFuture = (await getBuildMode(env)) === "always";
   const template = await loadTemplate(env, settings.template_id);
 
   // Pre-fetch shared data once for all pages in this build
   const [docTypes, docCategories] = await Promise.all([
-    fetchTypesWithCounts(env),
-    fetchCategoriesWithCounts(env),
+    fetchTypesWithCounts(env, filter),
+    fetchCategoriesWithCounts(env, filter),
   ]);
   const docDefLang = settings.default_lang ?? "";
   const docAvailLangs = await env.DB.prepare(
@@ -2413,7 +2453,7 @@ async function createPageWriter(
         template,
         settings,
         docPrefetch,
-        includeFuture,
+        filter,
       );
       if (html) bundle[lang] = html;
     }
@@ -2422,16 +2462,27 @@ async function createPageWriter(
   return { writeBundle, allLangs };
 }
 
-/** Generate and store pages for a single published document (called on publish).
+/** Refresh the stored pages of a single document plus the listings that show it.
  *  `extraTids` = additional type indexes to refresh — on a type change, pass the
- *  PREVIOUS tid so the article disappears from its old type's listings. */
+ *  PREVIOUS tid so the article disappears from its old type's listings.
+ *
+ *  Two flavors, both rendering under the "live" filter (never pending flag
+ *  state — only a build materializes the publish flag):
+ *  - default (content refresh, fired by the editor's save): acts only when the
+ *    document is ALREADY live; a flagged-but-unbuilt article is a no-op, so a
+ *    content save can never side-channel-publish it.
+ *  - `promote` (the explicit POST /api/documents/:did/build): a true
+ *    single-document build — first syncs THIS document's `live` from its
+ *    flag-state (mode within the publish window, build-mode aware), deleting
+ *    the detail page when the document just left publication. */
 export async function buildDocumentPages(
   env: Env,
   did: string,
   extraTids: string[] = [],
+  opts: { promote?: boolean } = {},
 ): Promise<void> {
   const row = await env.DB.prepare(
-    `SELECT d.slug, d.tid, d.mode, d.publish_at,
+    `SELECT d.slug, d.tid, d.live, d.publish_at,
             GROUP_CONCAT(DISTINCT CASE
               WHEN NULLIF(dt.body_html, '') IS NOT NULL
                 OR NULLIF(dt.summary, '') IS NOT NULL
@@ -2447,18 +2498,37 @@ export async function buildDocumentPages(
     .first<{
       slug: string;
       tid: string;
-      mode: number;
+      live: number;
       publish_at: string | null;
       langs: string | null;
     }>();
 
   if (!row) return;
 
+  let live = row.live === 1;
+  if (opts.promote) {
+    const buildFilter =
+      (await getBuildMode(env)) === "always" ? "future" : "window";
+    const updated = await env.DB.prepare(
+      `UPDATE documents SET live = ${liveCaseSql(buildFilter)}
+       WHERE did = ? RETURNING live`,
+    )
+      .bind(did)
+      .first<{ live: number }>();
+    live = updated?.live === 1;
+    if (!live) {
+      // The document just left publication: remove its detail page, then let
+      // the index rebuilds below drop it from the listings.
+      await deleteArticlePages(env, row.tid, row.slug);
+    }
+  } else if (!live) {
+    return; // content refresh of a not-yet-built document: nothing to update
+  }
+
   const settings = await fetchSettings(env);
   const docLangs = (row.langs || settings.default_lang || "en")
     .split(",")
     .filter(Boolean);
-  const published = row.mode === 1;
   const otherTids = Array.from(
     new Set(extraTids.filter((t) => t && t !== row.tid)),
   );
@@ -2470,7 +2540,7 @@ export async function buildDocumentPages(
     docLangs,
   );
 
-  if (published) {
+  if (live) {
     await writeBundle(`/${row.tid}/${row.slug}/`, docLangs, {
       type: row.tid,
       article: row.slug,
@@ -2646,19 +2716,22 @@ export async function buildAllPublicPages(
 }> {
   const settings = await fetchSettings(env);
   const template = await loadTemplate(env, settings.template_id);
-  // "always" build mode ignores the future publish_at bound so scheduled posts
-  // are built and listed immediately; "manual"/"auto" keep the normal gate.
-  const includeFuture = (await getBuildMode(env)) === "always";
+  // The full build is the sole materializer of the publish flag: it renders
+  // from mode within the publish window ("always" mode ignores the future
+  // publish_at bound so scheduled posts are built and listed immediately) and
+  // syncs documents.live at the end, so serving ("live" filter) follows.
+  const filter: PubFilter =
+    (await getBuildMode(env)) === "always" ? "future" : "window";
   // Fold a hash of the template SOURCE into the cache key so editing the
   // template (same id) invalidates every page's build hash and forces a rebuild
   // (the per-page hashes are `${ts}:${tplId}`, otherwise blind to template edits).
-  // Also fold includeFuture in so toggling the mode rebuilds listings/details.
+  // Also fold the filter in so toggling the mode rebuilds listings/details.
   const fontHash = cheapHash(
     `${settings.fonts_json || ""}:${settings.base_font || ""}:${settings.font_configs_json || ""}`,
   );
   // compiledHash participates so a Tailwind-CSS recompile regenerates pages
   // (their <link> href embeds the hash) on the next build.
-  const tplId = `${template.id}:${cheapHash(template.sourceHtml)}:${template.compiledHash || ""}:${fontHash}:${includeFuture ? "F" : ""}`;
+  const tplId = `${template.id}:${cheapHash(template.sourceHtml)}:${template.compiledHash || ""}:${fontHash}:${filter === "future" ? "F" : ""}`;
 
   // ── Resolve languages ─────────────────────────────────────────────────────
   const langRows = await env.DB.prepare(
@@ -2672,7 +2745,7 @@ export async function buildAllPublicPages(
     new Set([siteLang, requestedLang, ...registeredLangs]),
   ).filter(Boolean);
 
-  const types = await fetchTypesWithCounts(env);
+  const types = await fetchTypesWithCounts(env, filter);
 
   // ── Preload source hashes ─────────────────────────────────────────────────
   // 1. Per-type max updated_at (published articles only, for type-index pages)
@@ -2693,7 +2766,7 @@ export async function buildAllPublicPages(
   const liveSigRows = await env.DB.prepare(
     `SELECT tid, COUNT(*) AS cnt, COALESCE(MAX(publish_at), '') AS mpub
      FROM documents
-     WHERE mode = 1 ${liveWindowSql("", includeFuture)}
+     WHERE ${publishedSql("", filter)}
      GROUP BY tid`,
   ).all<{ tid: string; cnt: number; mpub: string }>();
   const typeLiveSig = new Map(
@@ -2733,7 +2806,7 @@ export async function buildAllPublicPages(
     `SELECT d.slug, d.tid, d.updated_at AS dts, dt.lang, dt.updated_at AS ts
      FROM documents d
      JOIN document_translations dt ON dt.did = d.did
-     WHERE d.mode = 1 ${liveWindowSql("d.", includeFuture)}
+     WHERE ${publishedSql("d.", filter)}
        AND (
          NULLIF(dt.body_html, '') IS NOT NULL
          OR NULLIF(dt.summary, '') IS NOT NULL
@@ -2777,7 +2850,7 @@ export async function buildAllPublicPages(
 
   // Categories are no longer pre-built as pages, but the nav still lists their
   // names (counts are filled client-side), so the prefetch needs them.
-  const categories = await fetchCategoriesWithCounts(env);
+  const categories = await fetchCategoriesWithCounts(env, filter);
 
   // 4. Completed-month archive signatures (home aggregate + per type). Each month
   // is an immutable `/monthly/YYYY/MM/` page; its hash depends only on that month's
@@ -2787,7 +2860,7 @@ export async function buildAllPublicPages(
     `SELECT d.tid AS tid, strftime('%Y-%m', datetime(d.publish_at)) AS ym,
             COUNT(*) AS cnt, COALESCE(MAX(d.updated_at), '') AS ts
      FROM documents d
-     WHERE d.mode = 1 ${liveWindowSql("d.", includeFuture)}
+     WHERE ${publishedSql("d.", filter)}
        AND strftime('%Y-%m', datetime(d.publish_at)) < strftime('%Y-%m', 'now')
      GROUP BY d.tid, ym`,
   ).all<{ tid: string; ym: string; cnt: number; ts: string }>();
@@ -3004,7 +3077,7 @@ export async function buildAllPublicPages(
           template,
           settings,
           buildPrefetch,
-          includeFuture,
+          filter,
         ),
     );
     // Home completed-month archives: /monthly/YYYY/MM/ (immutable; per-month hash).
@@ -3025,7 +3098,7 @@ export async function buildAllPublicPages(
             template,
             settings,
             buildPrefetch,
-            includeFuture,
+            filter,
           ),
       );
     }
@@ -3042,6 +3115,7 @@ export async function buildAllPublicPages(
           template,
           settings,
           buildPrefetch,
+          filter,
         ),
     );
     for (let ti = 0; ti < types.length; ti++) {
@@ -3060,7 +3134,7 @@ export async function buildAllPublicPages(
             template,
             settings,
             buildPrefetch,
-            includeFuture,
+            filter,
           ),
       );
       // Per-type completed-month archives: /{type}/monthly/YYYY/MM/ (immutable).
@@ -3082,7 +3156,7 @@ export async function buildAllPublicPages(
                 template,
                 settings,
                 buildPrefetch,
-                includeFuture,
+                filter,
               ),
           );
         }
@@ -3121,7 +3195,7 @@ export async function buildAllPublicPages(
             template,
             settings,
             buildPrefetch,
-            includeFuture,
+            filter,
           ),
       );
     }
@@ -3146,8 +3220,23 @@ export async function buildAllPublicPages(
     }
   }
 
+  // ── Materialize the publish flag ── only after a COMPLETED pass: sync
+  // documents.live to what this build just published. This is THE moment the
+  // publish flag takes effect — everything served on-demand (categories,
+  // KV-miss fallback, sitemap/RSS/llms.txt, nav counts) reads live, so until a
+  // build fully drains, flag changes stay invisible to visitors. A chunked
+  // pass (more:true) keeps the old snapshot; the mode/live disagreement also
+  // lets the auto-build cron detect that a build is still pending.
+  if (!more) {
+    const liveCase = liveCaseSql(filter);
+    await env.DB.prepare(
+      `UPDATE documents SET live = ${liveCase} WHERE live <> ${liveCase}`,
+    ).run();
+  }
+
   // Refresh the shared nav-counts KV value (one write, filled into the nav
-  // client-side). Cheap and independent of the per-page build budget.
+  // client-side). Cheap and independent of the per-page build budget. Runs
+  // after the live sync so the counts match the pages just published.
   await writeNavCounts(env);
 
   onEvent?.({ type: "done", built, skipped, errors, more, swept });
@@ -3164,25 +3253,19 @@ export async function buildAllPublicPages(
 
 // ─── Build scheduling mode (manual / auto / always) ───────────────────────────
 // One mutually-exclusive mode, KV-backed so no schema migration is needed and the
-// cron gate reads it cheaply:
-//   "manual"  — respect publish_at, manual build only (default)
-//   "auto"    — respect publish_at, cron auto-builds at each post's publish time
-//   "always"  — ignore the future publish_at bound; build/list future posts now
+// cron gate reads it cheaply. The publish flag (mode) is pure state in every
+// mode — the build is what materializes it into documents.live:
+//   "manual"  — flag changes + publish_at wait for a manual build (default)
+//   "auto"    — cron builds whenever some document's pending flag-state differs
+//               from its live state (covers flag flips and window crossings)
+//   "always"  — like manual, but builds ignore the future publish_at bound so
+//               future-dated posts are built/listed as soon as a build runs
 export type BuildMode = "manual" | "auto" | "always";
 export const BUILD_MODE_KEY = "_cfg/build_schedule_mode";
-const AUTO_BUILD_WATERMARK_KEY = "_cfg/auto_build_watermark";
 // Same per-invocation page budget as the manual build; if a transition affects
-// more pages than this, the next cron tick continues (watermark isn't advanced
-// until the build reports no more pending pages).
+// more pages than this, the next cron tick detects the still-pending mode/live
+// disagreement (live only syncs on a fully drained build) and continues.
 const AUTO_BUILD_MAX_PER_INVOCATION = 50;
-
-/** Current D1 wall clock as the same `datetime('now')` string the build uses. */
-async function dbNow(env: Env): Promise<string> {
-  const row = await env.DB.prepare(`SELECT datetime('now') AS now`).first<{
-    now: string;
-  }>();
-  return row?.now || "";
-}
 
 /** Read the persisted build mode (defaults to "manual"). */
 export async function getBuildMode(env: Env): Promise<BuildMode> {
@@ -3191,59 +3274,43 @@ export async function getBuildMode(env: Env): Promise<BuildMode> {
   return v === "auto" || v === "always" ? v : "manual";
 }
 
-/** Persist the build mode; arm the cron watermark when entering "auto". */
+/** Persist the build mode. */
 export async function setBuildMode(env: Env, mode: BuildMode): Promise<void> {
   if (!env.PUBLIC_PAGES) return;
   await env.PUBLIC_PAGES.put(BUILD_MODE_KEY, mode);
-  if (mode === "auto") {
-    await env.PUBLIC_PAGES.put(AUTO_BUILD_WATERMARK_KEY, await dbNow(env));
-  }
 }
 
 /**
- * Cron entry point. Only acts in "auto" mode, and only when a scheduled post has
- * actually crossed its publish_at (or unpublish_at) since the last successful
- * auto-build — a variable, data-driven trigger rather than a fixed periodic
- * rebuild. Idle ticks cost a single COUNT query.
+ * Cron entry point. Only acts in "auto" mode, and only when some document's
+ * flag-state (mode within the publish window) disagrees with its materialized
+ * `live` state. One predicate covers every pending transition — a manual
+ * publish/unpublish flag flip AND a publish_at / unpublish_at boundary
+ * crossing — because the full build syncs `live` on completion: agreement
+ * means nothing is pending, and a budget-limited pass (`more`) leaves the
+ * disagreement in place so the next tick continues (already-built pages skip
+ * via the build cache). Idle ticks cost a single COUNT query.
  */
 export async function runScheduledAutoBuild(env: Env): Promise<void> {
   if (!env.PUBLIC_PAGES) return;
   if ((await getBuildMode(env)) !== "auto") return;
 
-  const now = await dbNow(env);
-  const wm = await env.PUBLIC_PAGES.get(AUTO_BUILD_WATERMARK_KEY);
-  if (!wm) {
-    // No watermark yet: set it so we only act on transitions from here on.
-    await env.PUBLIC_PAGES.put(AUTO_BUILD_WATERMARK_KEY, now);
-    return;
-  }
-
-  // Any publish or unpublish boundary crossed in the (watermark, now] window?
-  const crossed = await env.DB.prepare(
+  // Must mirror the "window" filter (auto mode never builds future posts) and
+  // the build's live-sync CASE exactly, or the cron would loop or stall.
+  const pending = await env.DB.prepare(
     `SELECT COUNT(*) AS cnt FROM documents
-     WHERE mode = 1 AND (
-       (datetime(publish_at) > datetime(?1) AND datetime(publish_at) <= datetime(?2))
-       OR (unpublish_at IS NOT NULL
-           AND datetime(unpublish_at) > datetime(?1)
-           AND datetime(unpublish_at) <= datetime(?2))
-     )`,
-  )
-    .bind(wm, now)
-    .first<{ cnt: number }>();
-  if ((crossed?.cnt ?? 0) === 0) return;
+     WHERE live <> (CASE WHEN mode = 1
+       AND datetime(publish_at) <= datetime('now')
+       AND (unpublish_at IS NULL OR datetime(unpublish_at) > datetime('now'))
+       THEN 1 ELSE 0 END)`,
+  ).first<{ cnt: number }>();
+  if ((pending?.cnt ?? 0) === 0) return;
 
-  const res = await buildAllPublicPages(
+  await buildAllPublicPages(
     env,
     env.SITE_DEFAULT_LANG || "en",
     undefined,
     AUTO_BUILD_MAX_PER_INVOCATION,
   );
-  // Only advance the watermark once the rebuild is fully drained; if the page
-  // budget was hit (`more`), keep the old watermark so the next tick re-detects
-  // the same crossing and continues (already-built pages skip via build cache).
-  if (!res.more) {
-    await env.PUBLIC_PAGES.put(AUTO_BUILD_WATERMARK_KEY, now);
-  }
 }
 
 // ─── sitemap.xml / RSS / robots.txt ───────────────────────────────────────────
@@ -3295,17 +3362,18 @@ export async function buildSitemapXml(env: Env): Promise<string> {
   const origin = publicOrigin(settings);
   const base = origin + (settings.base_path || "");
   const defaultLang = settings.default_lang || "";
-  // Match the build's "always" mode so future-dated posts that were built into KV
-  // are also discoverable in the sitemap.
-  const includeFuture = (await getBuildMode(env)) === "always";
+  // The sitemap enumerates what is actually served: the last completed build's
+  // materialized state (documents.live). In "always" mode the build itself
+  // publishes future-dated posts, so they show up here via live too.
+  const filter: PubFilter = "live";
 
   const registered = await fetchRegisteredLangs(env);
   if (defaultLang && !registered.includes(defaultLang))
     registered.unshift(defaultLang);
 
   const [types, categories] = await Promise.all([
-    fetchTypesWithCounts(env),
-    fetchCategoriesWithCounts(env),
+    fetchTypesWithCounts(env, filter),
+    fetchCategoriesWithCounts(env, filter),
   ]);
 
   // Published article translations → group langs + lastmod per article.
@@ -3313,7 +3381,7 @@ export async function buildSitemapXml(env: Env): Promise<string> {
     `SELECT d.slug, d.tid, dt.lang, dt.updated_at AS ts
      FROM documents d
      JOIN document_translations dt ON dt.did = d.did
-     WHERE d.mode = 1 ${liveWindowSql("d.", includeFuture)}
+     WHERE ${publishedSql("d.", filter)}
        AND (
          NULLIF(dt.body_html, '') IS NOT NULL
          OR NULLIF(dt.summary, '') IS NOT NULL
@@ -3355,11 +3423,7 @@ export async function buildSitemapXml(env: Env): Promise<string> {
     entries.push({ path: `/category/${c.slug}/`, langs: registered });
   // Completed-month archives (home + per type). Category month pages are served
   // on-demand and omitted to avoid enumerating non-pre-built URLs.
-  const homeMonths = await fetchDistinctMonths(
-    env,
-    { kind: "home" },
-    includeFuture,
-  );
+  const homeMonths = await fetchDistinctMonths(env, { kind: "home" }, filter);
   for (const ym of homeMonths) {
     const [y, m] = ym.split("-");
     entries.push({ path: `/monthly/${y}/${m}/`, langs: registered });
@@ -3368,7 +3432,7 @@ export async function buildSitemapXml(env: Env): Promise<string> {
     const tMonths = await fetchDistinctMonths(
       env,
       { kind: "type", slug: t.slug },
-      includeFuture,
+      filter,
     );
     for (const ym of tMonths) {
       const [y, m] = ym.split("-");
@@ -3440,11 +3504,10 @@ export async function buildRssXml(
   const lang = settings.default_lang || "en";
   const siteName = settings.site_name || "KuroCMS";
   const siteDesc = settings.site_description || "";
-  const includeFuture = (await getBuildMode(env)) === "always";
 
   const rows = typeSlug
-    ? await fetchArticlesByType(env, typeSlug, lang, lang, 1, 20, includeFuture)
-    : await fetchPublishedArticles(env, lang, lang, 1, 20, includeFuture);
+    ? await fetchArticlesByType(env, typeSlug, lang, lang, 1, 20, "live")
+    : await fetchPublishedArticles(env, lang, lang, 1, 20, "live");
 
   const channelLink = `${base}/`;
   const items = rows
@@ -3527,10 +3590,9 @@ export async function buildLlmsTxt(env: Env): Promise<string> {
   const lang = settings.default_lang || "en";
   const siteName = settings.site_name || "KuroCMS";
   const siteDesc = seoDescription(settings.site_description || "", 500);
-  const includeFuture = (await getBuildMode(env)) === "always";
 
   const registered = await fetchRegisteredLangs(env);
-  const types = await fetchTypesWithCounts(env);
+  const types = await fetchTypesWithCounts(env, "live");
 
   // Markdown-safe single line: collapse whitespace, escape link brackets.
   const md = (s: string) =>
@@ -3562,7 +3624,7 @@ export async function buildLlmsTxt(env: Env): Promise<string> {
       lang,
       1,
       100,
-      includeFuture,
+      "live",
     );
     if (!rows.length) continue;
     lines.push(`## ${md(t.name || t.slug)}`);

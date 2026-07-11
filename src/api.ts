@@ -121,7 +121,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.8.12";
+export const KUROCMS_VERSION = "1.8.13";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -930,10 +930,13 @@ export async function handleApi(
       });
     }
 
+    // Single-document build: the one per-document action that MATERIALIZES the
+    // publish flag (promote syncs documents.live from mode before rendering,
+    // and deletes the detail page when the document left publication).
     const buildDocMatch = path.match(/^\/api\/documents\/([^/]+)\/build$/);
     if (request.method === "POST" && buildDocMatch) {
       requireAuthor(user);
-      await buildDocumentPages(env, buildDocMatch[1]);
+      await buildDocumentPages(env, buildDocMatch[1], [], { promote: true });
       return json(
         { ok: true, did: buildDocMatch[1] },
         { headers: jsonHeaders },
@@ -1050,7 +1053,7 @@ async function getSingle(
            dt.title, dt.summary, dt.body_html, dt.metadata_json
     FROM documents d
     LEFT JOIN document_translations dt ON dt.did = d.did AND dt.lang = ?
-    WHERE d.tid = ? AND d.mode = 1
+    WHERE d.tid = ? AND d.mode = 1 AND d.live = 1
     LIMIT 1`;
 
   let row = await env.DB.prepare(query)
@@ -3382,7 +3385,9 @@ async function postBlueskyForDoc(
   if (!origin) return { ok: false, code: "no_public_domain" };
 
   const doc = await env.DB.prepare(
-    "SELECT tid, slug, initial_lang, sns_bsky_posted_at FROM documents WHERE did = ? AND mode = 1",
+    // live (not just mode): the flag alone is unbuilt state — the public URL
+    // is not served yet, so posting would share a dead link.
+    "SELECT tid, slug, initial_lang, sns_bsky_posted_at FROM documents WHERE did = ? AND mode = 1 AND live = 1",
   )
     .bind(did)
     .first<{
@@ -3462,7 +3467,10 @@ async function postDocumentToBluesky(
   const failures: Record<string, [number, string]> = {
     not_configured: [400, "Bluesky is not configured in Settings → SNS."],
     no_public_domain: [400, "Set the site's public domain first."],
-    not_published: [409, "Publish the article before posting to Bluesky."],
+    not_published: [
+      409,
+      "Publish AND build the article before posting to Bluesky.",
+    ],
     already_posted: [409, "This article was already posted to Bluesky."],
     cover_failed: [502, "The cover image could not be prepared for Bluesky."],
     post_failed: [502, "Posting to Bluesky failed. Check your credentials."],
@@ -3863,7 +3871,8 @@ async function postXForDoc(env: Env, did: string): Promise<XPostResult> {
   if (!origin) return { ok: false, code: "no_public_domain" };
 
   const doc = await env.DB.prepare(
-    "SELECT tid, slug, initial_lang, sns_x_posted_at FROM documents WHERE did = ? AND mode = 1",
+    // live (not just mode): see the matching Bluesky comment.
+    "SELECT tid, slug, initial_lang, sns_x_posted_at FROM documents WHERE did = ? AND mode = 1 AND live = 1",
   )
     .bind(did)
     .first<{
@@ -3959,7 +3968,7 @@ async function postDocumentToX(
   const failures: Record<string, [number, string]> = {
     not_configured: [400, "X is not configured in Settings → SNS."],
     no_public_domain: [400, "Set the site's public domain first."],
-    not_published: [409, "Publish the article before posting to X."],
+    not_published: [409, "Publish AND build the article before posting to X."],
     already_posted: [409, "This article was already posted to X."],
     cover_failed: [502, "The cover image could not be prepared for X."],
     post_failed: [502, "Posting to X failed. Check your credentials."],
@@ -4113,7 +4122,8 @@ async function postThreadsForDoc(
   }
 
   const doc = await env.DB.prepare(
-    "SELECT tid, slug, initial_lang, sns_threads_posted_at FROM documents WHERE did = ? AND mode = 1",
+    // live (not just mode): see the matching Bluesky comment.
+    "SELECT tid, slug, initial_lang, sns_threads_posted_at FROM documents WHERE did = ? AND mode = 1 AND live = 1",
   )
     .bind(did)
     .first<{
@@ -4218,7 +4228,10 @@ async function postDocumentToThreads(
   const failures: Record<string, [number, string]> = {
     not_configured: [400, "Threads is not configured in Settings → SNS."],
     no_public_domain: [400, "Set the site's public domain first."],
-    not_published: [409, "Publish the article before posting to Threads."],
+    not_published: [
+      409,
+      "Publish AND build the article before posting to Threads.",
+    ],
     already_posted: [409, "This article was already posted to Threads."],
     already_queued: [
       409,
@@ -4245,7 +4258,7 @@ async function postDocumentToThreads(
   }
   if (!origin) fail("no_public_domain");
   const doc = await env.DB.prepare(
-    "SELECT sns_threads_posted_at FROM documents WHERE did = ? AND mode = 1",
+    "SELECT sns_threads_posted_at FROM documents WHERE did = ? AND mode = 1 AND live = 1",
   )
     .bind(did)
     .first<{ sns_threads_posted_at: string | null }>();
@@ -5434,15 +5447,18 @@ async function documentCategories(
         .bind(nowIso(), did)
         .run();
     }
-    // Immediate refresh of the published article's pages (chips render there).
-    // Runs AFTER the assignment is committed, so it can't build stale data.
+    // Immediate refresh of the LIVE article's pages (chips render there). Runs
+    // AFTER the assignment is committed, so it can't build stale data. Gated on
+    // live (not mode): a flagged-but-unbuilt article must not be published as a
+    // side effect of a category edit — buildDocumentPages no-ops on live=0
+    // anyway, so this check just saves the wasted invocation.
     if (ctx) {
       const doc = await env.DB.prepare(
-        "SELECT mode FROM documents WHERE did = ?",
+        "SELECT live FROM documents WHERE did = ?",
       )
         .bind(did)
-        .first<{ mode: number }>();
-      if (doc?.mode === 1) {
+        .first<{ live: number }>();
+      if (doc?.live === 1) {
         ctx.waitUntil(
           buildDocumentPages(env, did).catch(() => {
             /* non-fatal: full build will reconcile */
@@ -5565,47 +5581,14 @@ async function documentDetail(
       mode: modeValue,
       ...(tidChanged ? { tid, previousTid: existing.tid } : {}),
     });
-    // Trigger static page generation when publishing (mode 1) or unpublishing
-    // (mode 2). Run it AFTER the response via waitUntil: page generation
-    // (esp. multi-language index rebuilds) can be heavy and must never block or
-    // fail the publish request itself. Final reflection is guaranteed by the
-    // full "Build now" (buildAllPublicPages).
+    // The publish flag (mode) and the type/publish-window fields are pure
+    // STATE — this endpoint deliberately triggers NO page generation and NO KV
+    // deletion. Flag changes only take effect when a build materializes them
+    // into documents.live: the manual "Build now", the auto-build cron (which
+    // detects the resulting mode/live disagreement), or the explicit
+    // single-document POST /api/documents/:did/build. Until then the public
+    // site keeps serving exactly what the last build published.
     //
-    // When a published article's detail page URL becomes stale — the type
-    // changed (URL contains the tid) or the article left mode 1 (draft/hidden)
-    // — the old KV page must be DELETED, not just left behind: serving prefers
-    // KV, so a stale bundle would keep the old URL alive forever.
-    const wasPublished = existing.mode === 1;
-    const detailPageStale = wasPublished && (tidChanged || modeValue !== 1);
-    // deferBuild: the admin editor's doSave() always PUTs documents →
-    // translations → categories back-to-back for a single logical save. If
-    // this endpoint fires its own immediate build, it races the later (and
-    // more current) build fired from the translations/categories PUTs below —
-    // whichever finishes LAST wins in KV, and completion order isn't
-    // guaranteed to match commit order. The editor sets deferBuild so only the
-    // last PUT in its sequence builds, using fully-committed data. Stale-page
-    // DELETION still runs immediately (it can't race against a future build:
-    // there's nothing to overwrite).
-    const deferBuild = body.deferBuild === true;
-    if (detailPageStale) {
-      ctx.waitUntil(
-        deleteArticlePages(env, existing.tid, existing.slug).catch(() => {
-          /* non-fatal: full build will reconcile */
-        }),
-      );
-    }
-    if (
-      !deferBuild &&
-      (modeValue === 1 || modeValue === 2 || detailPageStale)
-    ) {
-      ctx.waitUntil(
-        buildDocumentPages(env, did, tidChanged ? [existing.tid] : []).catch(
-          () => {
-            /* non-fatal: full build will reconcile */
-          },
-        ),
-      );
-    }
     // SNS posting is decoupled from publishing: articles publish without touching
     // SNS. Posting to Bluesky is an explicit action via the "投稿" button
     // (POST /api/documents/:did/sns/bsky/post → postDocumentToBluesky).
@@ -5804,7 +5787,7 @@ async function documentTranslations(
     const requestedCreatedAt = optionalIsoTimestamp(body, "createdAt");
     const requestedUpdatedAt = optionalIsoTimestamp(body, "updatedAt");
     const document = await env.DB.prepare(
-      `SELECT d.did, d.tid, d.mode, dt.created_at AS translation_created_at,
+      `SELECT d.did, d.tid, d.mode, d.live, dt.created_at AS translation_created_at,
               dt.updated_at AS translation_updated_at,
               dt.body_html AS translation_body_html,
               dt.title AS translation_title,
@@ -5820,6 +5803,7 @@ async function documentTranslations(
         did: string;
         tid: string;
         mode: number;
+        live: number;
         translation_created_at: string | null;
         translation_updated_at: string | null;
         translation_body_html: string | null;
@@ -5954,15 +5938,16 @@ async function documentTranslations(
     await logActivity(env, user, "translation.upsert", "document", did, {
       lang,
     });
-    // Immediate page refresh for a REAL content change on a published article.
-    // This used to piggyback on the documents PUT (which fired on every save,
-    // even no-ops, and raced ahead of this request so it could build the OLD
-    // body); here it runs after the new content is committed.
-    // deferBuild: see the matching comment in documentDetail — the editor's
-    // doSave() always follows this PUT with a categories PUT, which fires the
-    // one consolidated build for the whole save once everything is committed.
+    // Immediate page refresh for a REAL content change on a LIVE article (one
+    // the last build published). Runs after the new content is committed.
+    // Gated on live, NOT mode: the publish flag is pure state until a build
+    // materializes it, so a content save on a flagged-but-unbuilt article must
+    // not publish it (buildDocumentPages also no-ops on live=0).
+    // deferBuild: the editor's doSave() always follows this PUT with a
+    // categories PUT, which fires the one consolidated refresh for the whole
+    // save once everything is committed.
     const deferBuild = body.deferBuild === true;
-    if (!deferBuild && ctx && document.mode === 1) {
+    if (!deferBuild && ctx && document.live === 1) {
       ctx.waitUntil(
         buildDocumentPages(env, did).catch(() => {
           /* non-fatal: full build will reconcile */
