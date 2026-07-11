@@ -121,7 +121,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.8.7";
+export const KUROCMS_VERSION = "1.8.8";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -3318,6 +3318,41 @@ async function prepareSnsCoverImage(
 }
 
 /**
+ * "🌐 日本語, English, 中文, …" — the article's available translation languages
+ * in their NATIVE names, appended to SNS posts so each language's speakers can
+ * see at a glance that the article is readable for them. Built dynamically
+ * from document_translations (same content-presence filter as
+ * buildDocumentPages), with names from the registered languages
+ * (taxonomy_items kind='language', whose name holds the native label from the
+ * language picker; falls back to the raw code). The article's own language
+ * comes first, the rest in code order. Returns "" for articles with fewer
+ * than 2 languages — a language line on a monolingual post is just noise.
+ */
+async function snsLanguagesLine(
+  env: Env,
+  did: string,
+  initialLang: string,
+  slug: string,
+): Promise<string> {
+  const result = await env.DB.prepare(
+    `SELECT dt.lang, ti.name
+     FROM document_translations dt
+     LEFT JOIN taxonomy_items ti ON ti.id = dt.lang AND ti.kind = 'language'
+     WHERE dt.did = ?
+       AND (NULLIF(dt.body_html, '') IS NOT NULL
+         OR NULLIF(dt.summary, '') IS NOT NULL
+         OR (NULLIF(dt.title, '') IS NOT NULL AND dt.title <> ?))
+     ORDER BY (dt.lang <> ?), dt.lang`,
+  )
+    .bind(did, slug, initialLang)
+    .all<{ lang: string; name: string | null }>();
+  const rows = result.results ?? [];
+  if (rows.length < 2) return "";
+  const names = rows.map((r) => (r.name ?? "").trim() || r.lang);
+  return `🌐 ${names.join(", ")}`;
+}
+
+/**
  * Build and post a single article to Bluesky, returning a discriminated result
  * (no throwing for expected conditions). Used by the on-demand "投稿" button
  * (postDocumentToBluesky). Requires Bluesky credentials, a public_domain, the
@@ -3371,6 +3406,7 @@ async function postBlueskyForDoc(
   const title = (tl?.title ?? doc.slug).trim() || doc.slug;
   const summary = (tl?.summary ?? "").trim();
   const url = `${origin}/${doc.tid}/${doc.slug}/`;
+  const langLine = await snsLanguagesLine(env, did, doc.initial_lang, doc.slug);
 
   const cover = await prepareSnsCoverImage(
     env,
@@ -3382,7 +3418,7 @@ async function postBlueskyForDoc(
   const image = cover.image;
 
   try {
-    await postToBluesky(handle, password, title, summary, url, image);
+    await postToBluesky(handle, password, title, summary, url, image, langLine);
   } catch (error) {
     console.warn(
       JSON.stringify({
@@ -3445,6 +3481,7 @@ async function postToBluesky(
   summary: string,
   url: string,
   image: { bytes: ArrayBuffer; mime: string } | null,
+  langLine = "",
 ): Promise<void> {
   const HOST = "https://bsky.social";
   const sessRes = await fetch(`${HOST}/xrpc/com.atproto.server.createSession`, {
@@ -3461,14 +3498,20 @@ async function postToBluesky(
   }
   const session = (await sessRes.json()) as { accessJwt: string; did: string };
 
+  // The language line ("🌐 日本語, English, …") is a FIXED suffix: reserved out
+  // of the 300-char budget before the title/summary trim, so it can never be
+  // cut itself. Dropped entirely only if it alone would blow the budget
+  // (pathological many-language case) — the title/summary always win.
   const urlPart = `\n\n${url}`;
-  const maxBody = 300 - urlPart.length;
+  let langPart = langLine ? `\n\n${langLine}` : "";
+  if (langPart.length > 300 - urlPart.length - 40) langPart = "";
+  const maxBody = 300 - urlPart.length - langPart.length;
   // Post body = title + summary (Bluesky's 300-char limit; trim if needed). The
   // URL is always appended below with a link facet.
   let body = summary ? `${title}\n\n${summary}` : title;
   if (body.length > maxBody)
     body = `${body.slice(0, Math.max(0, maxBody - 1))}…`;
-  const text = `${body}${urlPart}`;
+  const text = `${body}${urlPart}${langPart}`;
 
   const enc = new TextEncoder();
   const byteStart = enc.encode(text.slice(0, text.indexOf(url))).length;
@@ -3676,6 +3719,7 @@ async function postToX(
   linkInReply: boolean,
   lang: string,
   tags: string[],
+  langLine = "",
 ): Promise<void> {
   let mediaId = "";
   if (image) {
@@ -3711,13 +3755,24 @@ async function postToX(
     .slice(0, 3)
     .map((t) => `#${t}`)
     .join(" ");
+  // The language line rides on the REPLY (with the link) in the default
+  // 2-post shape — the parent's 280-weight budget is the scarce resource and
+  // the reply is nearly empty. Only in single-post mode does it join the
+  // parent, reserved out of the budget like the tags (dropped if it alone
+  // couldn't fit alongside a minimal body).
+  let langPart = langLine ? `\n\n${langLine}` : "";
   let budget = 280;
   if (!linkInReply) budget -= X_URL_WEIGHT + 2; // "\n\n" + wrapped URL
   if (tagsText) budget -= xWeightedLength(tagsText) + 2; // "\n\n" + tags
+  if (!linkInReply && langPart) {
+    const w = xWeightedLength(langPart);
+    if (w <= budget - 40) budget -= w;
+    else langPart = "";
+  }
   let text = summary ? `${title}\n\n${summary}` : title;
   text = xTrimToWeight(text, budget);
   if (tagsText) text = `${text}\n\n${tagsText}`;
-  if (!linkInReply) text = `${text}\n\n${url}`;
+  if (!linkInReply) text = `${text}\n\n${url}${langPart}`;
 
   const parentBody: Record<string, unknown> = { text };
   if (mediaId) parentBody.media = { media_ids: [mediaId] };
@@ -3739,6 +3794,14 @@ async function postToX(
 
   if (linkInReply) {
     if (!parentId) throw new Error("x tweet returned no id for the reply");
+    // Reply = lead-in + URL (~50 weight) — plenty of room for the language
+    // line. Still guard the 280 budget for a pathological language count.
+    let replyText = xReplyText(lang, url);
+    if (langLine) {
+      const withLangs = `${replyText}\n\n${langLine}`;
+      const weight = xWeightedLength(withLangs.replace(url, "")) + X_URL_WEIGHT;
+      if (weight <= 280) replyText = withLangs;
+    }
     const replyRes = await fetch(X_TWEET_URL, {
       method: "POST",
       headers: {
@@ -3746,7 +3809,7 @@ async function postToX(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        text: xReplyText(lang, url),
+        text: replyText,
         reply: { in_reply_to_tweet_id: parentId },
       }),
     });
@@ -3841,6 +3904,8 @@ async function postXForDoc(env: Env, did: string): Promise<XPostResult> {
     /* ignore malformed hashtag_json */
   }
 
+  const langLine = await snsLanguagesLine(env, did, doc.initial_lang, doc.slug);
+
   const cover = await prepareSnsCoverImage(
     env,
     did,
@@ -3859,6 +3924,7 @@ async function postXForDoc(env: Env, did: string): Promise<XPostResult> {
       linkInReply,
       doc.initial_lang || "en",
       tags,
+      langLine,
     );
   } catch (error) {
     console.warn(
@@ -4105,12 +4171,19 @@ async function postThreadsForDoc(
     /* ignore */
   }
 
+  // Language line as a fixed suffix, reserved out of the 500-char budget like
+  // the tag/URL so the title/summary trim can never cut it.
+  const langLine = await snsLanguagesLine(env, did, doc.initial_lang, doc.slug);
+  const langPart = langLine ? `\n\n${langLine}` : "";
   const reserved =
-    [...url].length + 2 + (tagText ? [...tagText].length + 2 : 0);
+    [...url].length +
+    2 +
+    (tagText ? [...tagText].length + 2 : 0) +
+    [...langPart].length;
   let text = summary ? `${title}\n\n${summary}` : title;
   text = trimToLen(text, THREADS_TEXT_LIMIT - reserved);
   if (tagText) text = `${text}\n\n${tagText}`;
-  text = `${text}\n\n${url}`;
+  text = `${text}\n\n${url}${langPart}`;
 
   try {
     await postToThreads(token, userId, text, imageUrl);
