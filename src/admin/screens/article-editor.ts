@@ -1127,6 +1127,10 @@ async function newArticle(editDid: Dynamic) {
       // 通常モードのキャンバスをアクティブテンプレートの body 配色に一致させる
       // （/api/fonts の editorCanvas 由来。ダーク系テンプレートでも WYSIWYG）。
       canvasColors: state.editorCanvasColors || undefined,
+      // ダークモードはテンプレートの配色から自動決定（KE 2.3.0+）。ホスト指定
+      // なので localStorage の保存値より優先され、canvasDarkUi は既定 false の
+      // ままなので手動トグルのチェックボックスは表示されない。
+      canvasDark: editorCanvasDark(),
       urlResolver: function (slug: string) {
         if (slug.startsWith("http")) return slug;
         return bodyMidUrlCache[slug] || slug;
