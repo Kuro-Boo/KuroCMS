@@ -76,6 +76,8 @@ type KuroEditorInstance = {
   clearDirty?(): void;
   /** KE >= 2.2.0。通常モードのキャンバス配色をホスト（サイト）の色に合わせる。 */
   setCanvasColors?(colors: { bg?: string; text?: string } | null): void;
+  /** KE >= 2.1.0（options.canvasDark 連携は 2.3.0+）。キャンバスのダーク切替。 */
+  setCanvasDark?(on: boolean): void;
   wysiwyg: HTMLElement;
   sourceArea: HTMLTextAreaElement;
   mmenu: HTMLElement;
@@ -2779,6 +2781,25 @@ async function loadTheme() {
   applyEditorFont();
 }
 
+// Whether the active template's canvas is DARK — drives KuroEditor's
+// canvasDark option (KE 2.3.0+), so the editor's light/dark mode follows the
+// template automatically instead of a user-facing checkbox (canvasDarkUi
+// stays at its default false = hidden). Decided by the YIQ luminance of the
+// resolved template body background (editorCanvas.bg from /api/fonts);
+// unresolvable/absent bg = light, the editor's stylesheet default.
+function editorCanvasDark(): boolean {
+  const bg = state.editorCanvasColors?.bg || "";
+  const m = bg.match(
+    /^#(?:([0-9a-f]{3})[0-9a-f]?|([0-9a-f]{6})(?:[0-9a-f]{2})?)$/i,
+  );
+  if (!m) return false;
+  const hex = m[2] || (m[1] || "").replace(/(.)/g, "$1$1");
+  const r = parseInt(hex.slice(0, 2), 16);
+  const g = parseInt(hex.slice(2, 4), 16);
+  const b = parseInt(hex.slice(4, 6), 16);
+  return (r * 299 + g * 587 + b * 114) / 1000 < 128;
+}
+
 // Render the KuroEditor body (article body + site-text editors) in the
 // configured site base font, so the editor is WYSIWYG with the published site.
 // Only the editor content (.kuro-body/.kuro-content) is touched — the admin
@@ -2793,8 +2814,11 @@ async function applyEditorFont(lang = "") {
 
     // アクティブテンプレートの body 配色。以後マウントされるエディタは
     // options.canvasColors で受け取り、マウント済みエディタには即時反映する。
+    // ダークモードもテンプレート配色から自動決定して同期（テンプレート変更後の
+    // /api/fonts 再取得で、開いているエディタも即時にモードが切り替わる）。
     state.editorCanvasColors = data.editorCanvas || null;
     state.articleEditor?.setCanvasColors?.(state.editorCanvasColors);
+    state.articleEditor?.setCanvasDark?.(editorCanvasDark());
 
     let link = byId("kuroSiteFontLink") as Dynamic;
     if (loaded.length) {

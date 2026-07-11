@@ -2442,8 +2442,15 @@ async function siteManagement() {
       ta.closest(".popupCard")?.classList.add("kuroDlg");
       const midUrlCache: Record<string, string> = {};
       dlgKe = new KE(ta, {
+        // このダイアログは自前の保存/キャンセルボタンを持ち、KuroEditor の
+        // 下部モーダルメニューも上部の保存 UI も不要 (onSave も渡していない)。
+        // KuroEditor v2.3.0+ のホスト設定でどちらもマウント自体を止める。
+        modalMenu: false,
+        saveUi: false,
         // サイトテキスト編集も通常モードのキャンバスを実サイト配色に合わせる
         canvasColors: state.editorCanvasColors || undefined,
+        // ダークモードもテンプレート配色から自動決定（記事エディタと同じ）
+        canvasDark: editorCanvasDark(),
         urlResolver: function (slug: string) {
           return slug.startsWith("http") ? slug : midUrlCache[slug] || slug;
         },
@@ -2480,11 +2487,9 @@ async function siteManagement() {
           return data.mid;
         },
       });
-      // Remove KuroEditor's bottom floating modal menu (mmenu) on this screen:
-      // the dialog's top toolbar already mirrors every mmenu action (undo/redo,
-      // insert, char count, save), so the fixed bottom bar is redundant here.
-      // KuroEditor appends mmenu to document.body, so we drop it from the host
-      // (KuroCMS) side rather than touching the editor library.
+      // Fallback for a stale bundled KuroEditor (< v2.3.0, before the
+      // modalMenu option): the old bundle ignores the option and still mounts
+      // mmenu to document.body, so drop it here too. No-op on v2.3.0+.
       dlgKe.mmenu?.remove();
       const initial = item?.name || "";
       // Preload media → fill the URL cache → render so [[mid]] refs show images.
