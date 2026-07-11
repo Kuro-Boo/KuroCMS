@@ -100,17 +100,19 @@ INSERT OR IGNORE INTO taxonomy_items (id, kind, lang, name, slug, created_at, up
   ('money',    'category', '', 'Money',    'money',    datetime('now'), datetime('now')),
   ('life',     'category', '', 'Life',     'life',     datetime('now'), datetime('now'));
 
--- Managed languages
+-- Managed languages. Names are NATIVE labels (same convention as the admin
+-- language picker): they surface user-facing, e.g. the SNS post language line
+-- ("🌐 日本語, English, …") — never English exonyms.
 INSERT OR IGNORE INTO taxonomy_items (id, kind, lang, name, created_at, updated_at) VALUES
   ('en', 'language', '', 'English',    datetime('now'), datetime('now')),
-  ('ja', 'language', '', 'Japanese',   datetime('now'), datetime('now')),
-  ('de', 'language', '', 'German',     datetime('now'), datetime('now')),
-  ('fr', 'language', '', 'French',     datetime('now'), datetime('now')),
-  ('it', 'language', '', 'Italian',    datetime('now'), datetime('now')),
-  ('es', 'language', '', 'Spanish',    datetime('now'), datetime('now')),
-  ('zh', 'language', '', 'Chinese',    datetime('now'), datetime('now')),
-  ('ko', 'language', '', 'Korean',     datetime('now'), datetime('now')),
-  ('uk', 'language', '', 'Ukrainian',  datetime('now'), datetime('now'));
+  ('ja', 'language', '', '日本語',      datetime('now'), datetime('now')),
+  ('de', 'language', '', 'Deutsch',    datetime('now'), datetime('now')),
+  ('fr', 'language', '', 'Français',   datetime('now'), datetime('now')),
+  ('it', 'language', '', 'Italiano',   datetime('now'), datetime('now')),
+  ('es', 'language', '', 'Español',    datetime('now'), datetime('now')),
+  ('zh', 'language', '', '中文',        datetime('now'), datetime('now')),
+  ('ko', 'language', '', '한국어',      datetime('now'), datetime('now')),
+  ('uk', 'language', '', 'Українська', datetime('now'), datetime('now'));
 
 -- ── Content ───────────────────────────────────────────────────────────────────
 
