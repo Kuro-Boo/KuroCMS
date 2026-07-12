@@ -121,7 +121,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.8.13";
+export const KUROCMS_VERSION = "1.8.14";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -340,7 +340,7 @@ export async function handleApi(
 
     if (request.method === "POST" && path === "/api/system/update") {
       requireAdmin(user);
-      return withJsonHeaders(await systemUpdate(env, user));
+      return withJsonHeaders(await systemUpdate(request, env, user));
     }
 
     if (request.method === "PUT" && path === "/api/system/update-channel") {
@@ -2797,7 +2797,11 @@ async function applyPendingMigrations(
   return applied;
 }
 
-async function systemUpdate(env: Env, user: AuthUser): Promise<Response> {
+async function systemUpdate(
+  request: Request,
+  env: Env,
+  user: AuthUser,
+): Promise<Response> {
   const token = env.CF_API_TOKEN;
   const accountId = env.CF_ACCOUNT_ID;
   const workerName = env.CF_WORKER_NAME;
@@ -2809,28 +2813,49 @@ async function systemUpdate(env: Env, user: AuthUser): Promise<Response> {
     );
   }
 
-  // Fetch the release for the currently selected channel. "stable" reuses
-  // GitHub's own /releases/latest (which already skips prerelease/draft);
-  // "latest" takes the newest release regardless of prerelease. Both come
-  // back as full release objects (with assets), unlike the lightweight
-  // tag-only lookup cached by fetchReleaseChannels for the dashboard display.
+  // Optional explicit target: { tag: "vX.Y.Z" }. The release pipeline passes
+  // the tag it JUST published so the lookup is a per-tag point read —
+  // /releases/tags/{tag} is visible immediately after publish, unlike the
+  // /releases list below, which is eventually consistent and kept returning
+  // the PREVIOUS release for seconds after a publish (the update then
+  // "successfully" reinstalled the old version).
+  const body = await readJson(request).catch(
+    () => ({}) as Record<string, unknown>,
+  );
+  const requestedTag = typeof body.tag === "string" ? body.tag.trim() : "";
+  if (requestedTag && !/^v\d+\.\d+\.\d+$/.test(requestedTag)) {
+    throw new HttpError(400, "invalid_tag", "tag must look like vX.Y.Z.");
+  }
+
+  // Without an explicit tag (dashboard "今すぐ更新"), fetch the release for the
+  // currently selected channel. "stable" reuses GitHub's own /releases/latest
+  // (which already skips prerelease/draft); "latest" takes the newest release
+  // regardless of prerelease. Both come back as full release objects (with
+  // assets), unlike the lightweight tag-only lookup cached by
+  // fetchReleaseChannels for the dashboard display.
   const channel = await getUpdateChannel(env);
   const ghRes = await fetch(
-    channel === "latest"
-      ? `https://api.github.com/repos/${KUROCMS_GITHUB_REPO}/releases?per_page=1`
-      : `https://api.github.com/repos/${KUROCMS_GITHUB_REPO}/releases/latest`,
+    requestedTag
+      ? `https://api.github.com/repos/${KUROCMS_GITHUB_REPO}/releases/tags/${requestedTag}`
+      : channel === "latest"
+        ? `https://api.github.com/repos/${KUROCMS_GITHUB_REPO}/releases?per_page=1`
+        : `https://api.github.com/repos/${KUROCMS_GITHUB_REPO}/releases/latest`,
     { headers: githubApiHeaders(env) },
   );
   if (!ghRes.ok) {
     const ghBody = await ghRes.text().catch(() => "");
     throw new HttpError(
       502,
-      "github_unreachable",
+      requestedTag && ghRes.status === 404
+        ? "release_not_found"
+        : "github_unreachable",
       `GitHub API returned ${ghRes.status}: ${ghBody.slice(0, 200)}`,
     );
   }
   const ghData = await ghRes.json();
-  const release = (channel === "latest" ? (ghData as unknown[])[0] : ghData) as
+  const release = (
+    !requestedTag && channel === "latest" ? (ghData as unknown[])[0] : ghData
+  ) as
     | {
         tag_name: string;
         assets: Array<{ name: string; browser_download_url: string }>;
