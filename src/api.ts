@@ -121,7 +121,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.8.17";
+export const KUROCMS_VERSION = "1.8.18";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -5799,10 +5799,71 @@ function stripCopyNoiseStyles(html: string): string {
   });
 }
 
+/** ごく基本的な HTML エンティティのデコード（リンク正規化のラベル/URL 用）。 */
+function decodeBasicEntities(s: string): string {
+  return s
+    .replace(/&#(\d+);/g, (_, n: string) =>
+      String.fromCodePoint(parseInt(n, 10)),
+    )
+    .replace(/&#x([0-9a-f]+);/gi, (_, n: string) =>
+      String.fromCodePoint(parseInt(n, 16)),
+    )
+    .replace(/&nbsp;/g, " ")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
+}
+
 /**
- * Maintenance sweep: run stripCopyNoiseStyles over every stored translation
- * body. Changed rows are revision-snapshotted first (recoverable), then
- * updated with a fresh updated_at so the next build regenerates their pages.
+ * 保存済み本文のプレーンな外部リンク `<a href>テキスト</a>` を KuroEditor の
+ * リンク記法トークン（[[url|text]] / text==url は [[url]]）へ正規化する。
+ * KuroEditor 2.6.1 のペースト時正規化（normalizePastedLinks）の保存データ版で、
+ * 変換対象の判定も同じ:
+ *   - href が http(s) であること（mailto:/tel:/#・相対パスはプレーン維持）
+ *   - リンク内がプレーンテキストのみ（子要素があると装飾が失われるため維持）
+ *   - テキストが空でない・] を含まない、URL が ] / | を含まない
+ *   - 属性が href/target/rel/style のみ（class/id 等を持つリンクは
+ *     kuro-media-open-link のような機能マークアップの可能性があるため維持）
+ */
+function normalizePlainLinks(html: string): string {
+  if (!/<a[\s>]/i.test(html)) return html;
+  return html.replace(
+    /<a\b([^>]*)>([^<]*)<\/a>/gi,
+    (whole, attrs: string, inner: string) => {
+      if (/data-kuro/i.test(attrs)) return whole;
+      // 属性名の列挙は引用符付きの値を消費するパターンで行う（href の
+      // クエリ文字列内の a=1 等を属性名と誤認しないため）。
+      const attrNames = [
+        ...attrs.matchAll(
+          /([a-zA-Z][a-zA-Z0-9:_-]*)\s*(?:=\s*("[^"]*"|'[^']*'|[^\s"'=<>`]+))?/g,
+        ),
+      ].map((m) => m[1].toLowerCase());
+      if (
+        attrNames.some((n) => !["href", "target", "rel", "style"].includes(n))
+      ) {
+        return whole;
+      }
+      const hrefM =
+        attrs.match(/href\s*=\s*"([^"]*)"/i) ||
+        attrs.match(/href\s*=\s*'([^']*)'/i);
+      if (!hrefM) return whole;
+      const url = decodeBasicEntities(hrefM[1]).trim();
+      if (!/^https?:\/\//i.test(url)) return whole;
+      if (/[\]|<>"]/.test(url)) return whole;
+      const text = decodeBasicEntities(inner).replace(/\s+/g, " ").trim();
+      if (!text || /[\]<>]/.test(text)) return whole;
+      return text === url ? `[[${url}]]` : `[[${url}|${text}]]`;
+    },
+  );
+}
+
+/**
+ * Maintenance sweep: run stripCopyNoiseStyles + normalizePlainLinks over every
+ * stored translation body. Changed rows are revision-snapshotted first
+ * (recoverable), then updated with a fresh updated_at so the next build
+ * regenerates their pages; search_entries.body_text is re-synced too.
  * Processes at most 50 changed rows per invocation (subrequest budget); the
  * response carries `more: true` when another pass is needed.
  */
@@ -5811,7 +5872,7 @@ async function cleanupCopyNoise(env: Env, user: AuthUser): Promise<Response> {
   const MAX_CHANGED_PER_RUN = 50;
   const rows = await env.DB.prepare(
     `SELECT did, lang, body_html FROM document_translations
-     WHERE body_html LIKE '%revert-layer%'`,
+     WHERE body_html LIKE '%revert-layer%' OR body_html LIKE '%<a %'`,
   ).all<{ did: string; lang: string; body_html: string | null }>();
   const candidates = rows.results ?? [];
 
@@ -5820,7 +5881,11 @@ async function cleanupCopyNoise(env: Env, user: AuthUser): Promise<Response> {
   const now = nowIso();
   for (const row of candidates) {
     if (changed >= MAX_CHANGED_PER_RUN) break;
-    const cleaned = stripCopyNoiseStyles(row.body_html || "");
+    // スタイルノイズ除去 → リンク記法正規化の順（ノイズ style が消えた
+    // プレーンリンクは属性ホワイトリストを通過して変換対象になる）。
+    const cleaned = normalizePlainLinks(
+      stripCopyNoiseStyles(row.body_html || ""),
+    );
     if (cleaned === (row.body_html || "")) continue;
     const statements: D1PreparedStatement[] = [];
     const snapshot = await snapshotTranslationStatement(
@@ -5835,6 +5900,11 @@ async function cleanupCopyNoise(env: Env, user: AuthUser): Promise<Response> {
         `UPDATE document_translations SET body_html = ?, updated_at = ?
          WHERE did = ? AND lang = ?`,
       ).bind(cleaned, now, row.did, row.lang),
+      // 本文テキストが変わる（リンクがトークン化される）ため検索索引も同期。
+      env.DB.prepare(
+        `UPDATE search_entries SET body_text = ?, updated_at = ?
+         WHERE did = ? AND lang = ?`,
+      ).bind(stripHtml(cleaned), now, row.did, row.lang),
     );
     await env.DB.batch(statements);
     touchedDids.add(row.did);
