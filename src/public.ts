@@ -701,7 +701,9 @@ async function expandContentRefs(
     return out;
   };
 
-  // Apply data refs first, then media refs
+  // Apply data refs first, then media refs, then KuroEditor URL cards.
+  // 各パターンは相互に重ならない（data は `:` 必須、media は [a-z0-9_-] のみ、
+  // URL カードは末尾 `|]]` 必須）ので順序は結果に影響しない。
   const afterData = Object.fromEntries(
     Object.entries(content).map(([k, v]) => [
       k,
@@ -713,7 +715,10 @@ async function expandContentRefs(
     ]),
   );
   return Object.fromEntries(
-    Object.entries(afterData).map(([k, v]) => [k, expand(v)]),
+    Object.entries(afterData).map(([k, v]) => [
+      k,
+      expandUrlCards(expand(v), basePath),
+    ]),
   );
 }
 
@@ -1112,6 +1117,53 @@ function escHtml(s: string): string {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+// KuroEditor URL card ([[slug|]] — 表示テキストを空にして「表題なし」を明示した
+// 記法, KuroEditor 2.6.0+) を公開ページ用の HTML に展開する。KuroEditor が編集
+// キャンバスで描く「簡易表示」（アイコン＋タイトル＋URL）と同じマークアップ・
+// 同じ .kuro-url-card クラスを出力し、ke-content.css（KuroEditor content.css）で
+// スタイルが当たる。タイトルはサーバー側で URL 自体から得られる情報のみ使う
+// （http(s) はホスト名、内部 slug は slug 文字列）。KuroEditor の onFetchUrlMeta
+// による「豪華表示」は編集時のクライアント側のみで、保存本文は常に [[slug|]] に
+// 戻るため、公開ページは常にこの簡易表示になる（対象 URL の内容が変わっても
+// 保存データは不変、という KuroEditor 側の仕様と一致）。
+//
+// [[slug|]] は v2.6.0 の新記法で既存本文には存在しない → 追加は既存コンテンツに
+// 無影響。ラベルが空（|]]）のときだけ発火し、[[mid]] / [[type:all]] / [[slug|表示]]
+// 等の既存記法とはパターンが重ならない。
+const KE_URL_CARD_ICON =
+  '<svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true">' +
+  '<circle cx="8" cy="8" r="6.5"/>' +
+  '<ellipse cx="8" cy="8" rx="2.8" ry="6.5"/>' +
+  '<line x1="1.5" y1="8" x2="14.5" y2="8"/>' +
+  "</svg>";
+
+function expandUrlCards(html: string, basePath: string): string {
+  return html.replace(/\[\[([^[\]|]+)\|\]\]/g, (_m, slug: string) => {
+    const isHttp = /^https?:\/\//i.test(slug);
+    const href = isHttp ? slug : `${basePath}/${slug.replace(/^\/+/, "")}`;
+    let title = slug;
+    if (isHttp) {
+      try {
+        title = new URL(slug).hostname;
+      } catch {
+        /* keep raw slug as title */
+      }
+    }
+    const sub = isHttp ? slug : href;
+    const ext = isHttp ? ' target="_blank" rel="noopener"' : "";
+    return (
+      `<a href="${escHtml(href)}"${ext} class="kuro-url-card">` +
+      `<span class="kuro-url-card__icon">${KE_URL_CARD_ICON}</span>` +
+      `<span class="kuro-url-card__body">` +
+      `<span class="kuro-url-card__title">${escHtml(title)}</span>` +
+      `<span class="kuro-url-card__url">${escHtml(sub)}</span>` +
+      `</span>` +
+      `<span class="kuro-url-card__arrow">↗</span>` +
+      `</a>`
+    );
+  });
 }
 
 // "Latest" label for the first dropdown option. Site/UI chrome (not authored
