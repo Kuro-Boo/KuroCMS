@@ -1,5 +1,21 @@
 // KuroCMS admin screen module. Concatenated by scripts/build-admin.js.
 
+// The most recently mounted article editor's state (or null). Read by
+// hasUnsavedArticleEdits() so a background auto-reload can defer while the user
+// has unsaved edits open. Concatenated build → this is a shared global.
+let activeArticleState: Dynamic = null;
+
+// True only when an article editor is on screen AND has unsaved changes. The
+// route check guards against a stale activeArticleState after the user has
+// navigated away from a dirty editor without it being cleared.
+function hasUnsavedArticleEdits(): boolean {
+  return !!(
+    activeArticleState &&
+    activeArticleState.dirty &&
+    routePath().indexOf("/articles/") === 0
+  );
+}
+
 function padDatePart(value: number): string {
   return String(value).padStart(2, "0");
 }
@@ -177,6 +193,10 @@ async function newArticle(editDid: Dynamic) {
     ready: false,
     switching: false,
   };
+  // Expose this editor's state so the version auto-reloader (admin.main) can
+  // tell whether it would clobber unsaved article edits. Only meaningful while
+  // an article route is on screen — hasUnsavedArticleEdits() re-checks that.
+  activeArticleState = art;
   // Map of lang code → display name, filled when the language list loads.
   const langNames: Record<string, string> = {};
   function langLabel(code: Dynamic) {
