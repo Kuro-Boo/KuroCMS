@@ -121,7 +121,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.8.18";
+export const KUROCMS_VERSION = "1.8.19";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -592,6 +592,14 @@ export async function handleApi(
       );
     }
 
+    // Maintenance: strip Chrome-copy style noise (`revert-layer` dumps) and
+    // normalize plain links in every stored translation body. MUST be routed
+    // before the generic /api/documents/:id matcher below, which would
+    // otherwise swallow "cleanup-styles" as a slug.
+    if (request.method === "POST" && path === "/api/documents/cleanup-styles") {
+      return withJsonHeaders(await cleanupCopyNoise(env, user));
+    }
+
     const documentMatch = path.match(/^\/api\/documents\/([^/]+)$/);
     if (documentMatch) {
       return withJsonHeaders(
@@ -609,11 +617,6 @@ export async function handleApi(
     // (used when enabling a new SNS so existing articles don't get re-posted).
     if (request.method === "POST" && path === "/api/documents/sns/bulk-flag") {
       return withJsonHeaders(await documentSnsBulkFlag(request, env, user));
-    }
-    // Maintenance: strip Chrome-copy style noise (`revert-layer` dumps) from
-    // every stored translation body. See cleanupCopyNoise.
-    if (request.method === "POST" && path === "/api/documents/cleanup-styles") {
-      return withJsonHeaders(await cleanupCopyNoise(env, user));
     }
     // Per-article SNS posted flag (Bluesky). GET reads it; PUT { bsky: bool }
     // sets (true) or clears (false) it — manual override of the posted state.
