@@ -625,6 +625,14 @@ async function articles() {
     currentPage = 1;
     renderList();
   }
+  // Let the global focus/visibilitychange handler re-fetch this list when the
+  // operator returns to the tab — so an article created out-of-band (AI via the
+  // REST/MCP API) shows up without a manual reload. Cleared by render() on nav.
+  activeListReload = function () {
+    load().catch(function (err) {
+      toast(errorMessage(err), true);
+    });
+  };
   function renderPager(total: Dynamic, page: Dynamic, size: Dynamic) {
     const pages = Math.max(1, Math.ceil(total / size));
     const sizeOpts = PAGE_SIZE_OPTS.map(function (n) {

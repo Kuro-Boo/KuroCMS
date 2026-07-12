@@ -3974,6 +3974,9 @@ async function render() {
     }
     await loadTheme();
     setTimeout(checkStorageAlertOnce, 0);
+    // Screens that expose a live list register a reloader (activeListReload);
+    // clear it here so it only points at the screen currently on view.
+    activeListReload = null;
     const path = routePath();
     if (path === "/initialize") return setupScreen({ needsSetup: true });
     if (path === "/articles") return articles();
@@ -4047,6 +4050,28 @@ window.addEventListener("unhandledrejection", (event) => {
 });
 window.addEventListener("popstate", render);
 render();
+
+// ── Refresh a live list when the tab/window regains focus ──────────────────
+// The article list is a snapshot taken when the screen mounts. If an article is
+// created out-of-band while it's open — e.g. AI via the REST/MCP API — the list
+// wouldn't reflect it until a manual reload or re-navigation. The list screen
+// registers its reloader in activeListReload; re-fetch it whenever the operator
+// returns to the tab (the natural moment after triggering an external create).
+// Event-driven, not polled: nothing runs while the tab sits in the foreground.
+let activeListReload: (() => void) | null = null;
+let lastListRefreshAt = 0;
+function refreshActiveListOnReturn() {
+  if (!activeListReload) return;
+  const nowMs = Date.now();
+  // Collapse the focus + visibilitychange pair that fire together on tab switch.
+  if (nowMs - lastListRefreshAt < 1500) return;
+  lastListRefreshAt = nowMs;
+  activeListReload();
+}
+document.addEventListener("visibilitychange", function () {
+  if (document.visibilityState === "visible") refreshActiveListOnReturn();
+});
+window.addEventListener("focus", refreshActiveListOnReturn);
 
 // ── Resizable sidebar ─────────────────────────────────────────────────────
 // Drag the divider between the sidebar and the workspace to set its width.
