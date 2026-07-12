@@ -121,7 +121,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.8.20";
+export const KUROCMS_VERSION = "1.8.21";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -134,6 +134,12 @@ const jsonHeaders = {
   "access-control-allow-origin": "*",
   "access-control-allow-methods": "GET,POST,PUT,DELETE,OPTIONS",
   "access-control-allow-headers": "content-type,authorization",
+  // Stamp every admin API response with the serving Worker's version. The admin
+  // client compares this against the version that served its page and reloads
+  // when they diverge (i.e. a system update swapped the Worker under an open
+  // tab) — purely reactively, off the client's own requests, with no polling.
+  "access-control-expose-headers": "x-kurocms-version",
+  "x-kurocms-version": KUROCMS_VERSION,
 };
 
 export async function handleApi(

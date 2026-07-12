@@ -2672,6 +2672,23 @@ function setSidebarMode(mode: Dynamic) {
   }
 }
 
+// Reactive auto-reload after a system update. Every admin API response carries
+// the serving Worker's version (x-kurocms-version). When it stops matching the
+// version that served this page, the Worker was updated under an open tab — the
+// admin JS/HTML here is now stale against the new API — so reload to pick up the
+// fresh client. No timers: this is driven entirely by the client's own requests
+// (navigation, saves, autosave), so an idle tab stays put until it next acts.
+// A pending reload is held back while an article edit is unsaved; the next api()
+// call (an autosave/save/navigation) re-checks and reloads once it has flushed.
+let serverVersionChanged = false;
+function noteServerVersion(response: Dynamic) {
+  const loaded = (window as Dynamic).__KUROCMS_VERSION__;
+  if (!loaded) return; // page served by older HTML without the marker
+  const served = response.headers.get("x-kurocms-version");
+  if (served && served !== loaded) serverVersionChanged = true;
+  if (serverVersionChanged && !hasUnsavedArticleEdits()) location.reload();
+}
+
 async function api(path: Dynamic, options: RequestInit = {}) {
   const headers = new Headers(options.headers);
   if (!headers.has("content-type")) {
@@ -2697,6 +2714,7 @@ async function api(path: Dynamic, options: RequestInit = {}) {
         : "/api/admin" + path.slice(4)
       : path;
   const response = await fetch(withBase(endpoint), { ...options, headers });
+  noteServerVersion(response);
   // Read as text first so non-JSON failures are still surfaced (e.g. a
   // Cloudflare 5xx/limit HTML page when the Worker is killed). Otherwise the
   // error collapses to a generic message and a bug can't be told from a CF limit.
