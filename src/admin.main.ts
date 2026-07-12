@@ -3563,7 +3563,7 @@ const helpContent: Record<string, Dynamic> = {
     title: "KuroCMS 基本ガイド",
     role: "KuroCMS は Cloudflare Workers + D1 上で動作する個人用ヘッドレス CMS です。記事・メディア・設定を Web ブラウザから管理し、公開ページを KV キャッシュ経由で高速配信します。PC 不要で、すべての管理作業をブラウザのみで完結できます。",
     canDo:
-      "記事の作成・多言語対応・公開管理 / 画像・動画・音楽のアップロード（R2 必須）/ カテゴリ・タイプ・言語の管理 / デザインテンプレートの選択・編集とフォント設定 / Bluesky への記事投稿 / 複数ユーザーの招待・管理 / バックアップの作成・復元 / REST API 経由での記事登録（PAT 使用）",
+      "記事の作成・多言語対応・公開管理 / 画像・動画・音楽のアップロード（R2 必須）/ カテゴリ・タイプ・言語の管理 / デザインテンプレートの選択・編集とフォント設定 / SNS（Bluesky・X・Threads）への記事投稿 / 複数ユーザーの招待・管理 / バックアップの作成・復元 / REST API 経由での記事登録（PAT 使用）",
     notes:
       "D1（5GB）・R2（10GB）・KV（1 日あたりの書き込み回数）などの Cloudflare 無料枠を超えると課金が発生します。使用状況はダッシュボードで確認してください。R2 を利用するにはクレジットカードの登録が必要です（無料枠内は課金なし）。パスキーは複数のデバイスに登録しておくことを強く推奨します。",
   },
@@ -3571,7 +3571,7 @@ const helpContent: Record<string, Dynamic> = {
     title: "ダッシュボード",
     role: "サイト全体の状態を一目で把握するホーム画面です。ストレージ使用量・記事数・メディア数などの統計をグラフと数値で表示します。",
     canDo:
-      "D1（データベース）・R2（メディア）の使用量と KV（ページキャッシュ）の 1 日あたり書き込み回数を円グラフで確認 / 公開済み・下書き・非公開の記事数を確認 / 画像・動画・音楽の登録件数と合計容量を確認 / ビルド設定（手動／自動／常時）の切り替え",
+      "D1（データベース）・R2（メディア）の使用量と KV（ページキャッシュ）の 1 日あたり書き込み回数を円グラフで確認 / 公開済み・下書き・非公開の記事数を確認 / 画像・動画・音楽の登録件数と合計容量を確認 / バージョンカードで導入中・安定版・最新版のバージョン確認と「今すぐ更新」の実行、「常に最新版に更新」トグルの切り替え",
     notes:
       "使用量が 70% を超えると黄色、90% を超えると赤で警告表示されます。赤になる前に不要なデータを削除してください。R2 使用量はアップロードされたファイルの合計サイズ、D1 の使用量は推定値です。KV はページキャッシュの 1 日あたり書き込み回数で、Cloudflare 無料枠の上限を超えると公開ビルドに失敗することがあります。",
   },
@@ -3579,9 +3579,9 @@ const helpContent: Record<string, Dynamic> = {
     title: "記事管理",
     role: "登録されているすべての記事を一覧・検索・並べ替えできる画面です。タイトルをクリックすると記事の編集画面に移動します。",
     canDo:
-      "ソート順プルダウンで更新日・公開日・タイトル順に並べ替え / キーワードで記事を検索 / タイトルをクリックして記事編集画面へ移動 / 「公開する」「非公開に」ボタンで公開状態をすばやく切り替え / 対応言語数の確認",
+      "ソート順プルダウンで更新日・公開日・タイトル順に並べ替え / キーワードで記事を検索 / タイトルをクリックして記事編集画面へ移動 / 「公開する」「非公開に」ボタンで公開フラグを切り替え / SNS（Bluesky・X・Threads）への投稿ボタンで記事を投稿 / 下部ビルドバーでビルド設定（手動／自動／常時）の切り替えと「今すぐビルド」の実行 / 対応言語数の確認",
     notes:
-      "記事の新規作成はサイドバーの「記事作成」から行います。公開状態の変更後は下部の「今すぐビルド」ボタンで公開サイトに反映してください。検索はタイトルと Slug を対象に行います。",
+      "記事の新規作成はサイドバーの「記事作成」から行います。公開・非公開の切り替えは「フラグ」の設定であり、ビルドを実行するまで公開サイトには一切反映されません（手動モードでは「今すぐビルド」、自動モードでは cron が自動反映）。SNS への投稿は公開済みかつビルド済みの記事のみ可能です。検索はタイトルと Slug を対象に行います。",
   },
   newArticle: {
     title: "記事作成 / 編集",
@@ -3589,15 +3589,15 @@ const helpContent: Record<string, Dynamic> = {
     canDo:
       "記事タイプの選択（Collection タイプのみ）/ Slug の設定 / 初期言語の選択 / 公開日時の設定 / タイトル・要約・本文（リッチエディタ）の編集 / カバー画像の設定 / カテゴリの割り当て / ハッシュタグの設定 / 公開・下書き・非公開の切り替え",
     notes:
-      "Slug は半角英数・ハイフン・アンダースコアのみ使用可能で、作成後に変更できません。タイプが登録されていない場合は先にタイプ管理画面でタイプを作成してください。カバー画像は画像管理でアップロード済みの画像から選択します。",
+      "Slug は小文字英数字とハイフンのみ使用可能（先頭は英数字、アンダースコア不可）で、作成後に変更できません。タイプが登録されていない場合は先にタイプ管理画面でタイプを作成してください。カバー画像は画像管理でアップロード済みの画像から選択します。公開への切り替えはフラグの設定のみで、ビルドを実行するまで公開サイトには反映されません。",
   },
   images: {
     title: "画像管理",
     role: "R2 に保存された画像ファイルのアップロード・一覧・削除を管理する画面です。",
     canDo:
-      "画像ファイルのドラッグ＆ドロップまたはクリックでアップロード / アップロード済み画像の一覧表示（サムネイル付き）/ 画像の削除（R2 と D1 から同時削除）",
+      "画像ファイルのドラッグ＆ドロップまたはクリックでアップロード / アップロード済み画像の一覧表示（サムネイル付き）/ 画像の削除（R2 と D1 から同時削除）/ 「画像サイズの自動縮小」でアップロード時の縮小上限を選択（縮小なし・200KB・500KB・1MB・2MB）",
     notes:
-      "R2 の有効化（クレジットカード登録）が必要です。アップロードした画像は URL が分かれば誰でもアクセス可能です。機密画像はアップロードしないでください。R2 無料枠は 10GB です。不要な画像は定期的に削除してください。",
+      "R2 の有効化（クレジットカード登録）が必要です。「画像サイズの自動縮小」は選択した瞬間に自動保存され、以後のアップロードに適用されます（毎回の設定は不要）。この設定はブラウザごとに保存されるため、別のブラウザ・端末では既定値の 1MB に戻ります。登録済みの画像には影響しません。同一内容のファイルを再アップロードした場合は既存の画像が再利用され、重複登録されません。アップロードした画像は URL が分かれば誰でもアクセス可能です。機密画像はアップロードしないでください。R2 無料枠は 10GB です。不要な画像は定期的に削除してください。",
   },
   videos: {
     title: "動画管理",
@@ -3627,7 +3627,7 @@ const helpContent: Record<string, Dynamic> = {
     role: "KuroCMS で使用する言語を登録・管理する画面です。REST API で記事を登録する際の言語コードのバリデーションにも使用されます。",
     canDo: "対応言語の追加・削除 / 登録言語一覧の確認",
     notes:
-      "REST API で記事を登録する際、ここに登録されていない言語コードは受け付けません。言語を削除すると、その言語の翻訳データもすべて削除されます。言語コードは小文字 2 文字（例: ja, en, fr）を使用します。",
+      "REST API で記事を登録する際、ここに登録されていない言語コードは受け付けません。言語を削除すると、その言語の翻訳データもすべて削除できます（削除時に選択）。言語コードは小文字 2〜3 文字＋任意の地域サブタグ（例: ja, en, pt-br）を使用します。追加ダイアログは ISO 639-1 全言語から検索式で選択できます。",
   },
   types: {
     title: "タイプ管理",
@@ -3635,15 +3635,15 @@ const helpContent: Record<string, Dynamic> = {
     canDo:
       "Collection タイプの追加・編集（記事管理画面に表示されるブログ等）/ Single タイプの追加・編集（TOP・About 等の固定ページ）/ タイプの削除",
     notes:
-      "タイプを削除するとそのタイプに属する記事もすべて削除されます。初期登録の news・blog タイプは削除しないことを強く推奨します。Single タイプは 1 タイプにつき 1 記事しか持てません。",
+      "記事が 1 件でも存在するタイプは削除できません（先に記事を削除するか、記事のタイプを変更してください）。初期登録の news・blog タイプは削除しないことを強く推奨します。Single タイプは 1 タイプにつき 1 記事しか持てません。",
   },
   settings: {
     title: "設定",
     role: "サイト全体の設定を管理する画面です。基本・SNS・ライセンス・インポートの 4 タブ構成です（インポートタブ内で Strapi と KuroCMS を切り替えます）。",
     canDo:
-      "公開ドメイン・独自ドメイン（Cloudflare）・R2 の設定 / 基本言語の設定 / SNS 外部連動（Bluesky）の設定 / ライセンス表示の確認 / Strapi からの記事インポート / 他の KuroCMS からのデータ読み込み",
+      "公開ドメイン・独自ドメイン（Cloudflare）・R2 の設定 / 基本言語の設定 / SNS 外部連動（Bluesky・X・Threads）の設定 / ライセンス表示の確認 / Strapi からの記事インポート / 他の KuroCMS からのデータ読み込み",
     notes:
-      "サイト名はサイト管理画面、テーマ（デザイン）はテンプレートで設定します。管理画面 URL・Worker 名・D1 名は bootstrap スクリプトで設定し、この画面からは変更できません。Bluesky への投稿は記事一覧の投稿ボタンから手動で行えます（他 SNS は順次対応）。Strapi インポートは Strapi v4/v5 の REST API に対応しています。",
+      "サイト名はサイト管理画面、テーマ（デザイン）はテンプレートで設定します。管理画面 URL・Worker 名・D1 名は bootstrap スクリプトで設定し、この画面からは変更できません。SNS への投稿は記事一覧の投稿ボタンから記事ごと・SNS ごとに手動で行えます（公開済みかつビルド済みの記事のみ）。SNS タブでは各サービスの「全件投稿済みにする／解除」の一括操作もできます。Strapi インポートは Strapi v4/v5 の REST API に対応しています。",
   },
   siteManagement: {
     title: "サイト管理",
@@ -3721,7 +3721,7 @@ const helpContentEn: Record<string, Dynamic> = {
     title: "KuroCMS Getting Started Guide",
     role: "KuroCMS is a personal headless CMS running on Cloudflare Workers + D1. Manage articles, media, and settings from any web browser and deliver public pages fast via KV cache. No PC required — all admin tasks can be completed entirely in the browser.",
     canDo:
-      "Create & manage articles with multilingual support / Upload images, video, and audio (R2 required) / Manage categories, types, and languages / Choose and edit design templates and fonts / Post articles to Bluesky / Invite and manage multiple users / Create and restore backups / Register articles via REST API (PAT authentication)",
+      "Create & manage articles with multilingual support / Upload images, video, and audio (R2 required) / Manage categories, types, and languages / Choose and edit design templates and fonts / Post articles to SNS (Bluesky, X, Threads) / Invite and manage multiple users / Create and restore backups / Register articles via REST API (PAT authentication)",
     notes:
       "Cloudflare free tier limits: D1 (5 GB), R2 (10 GB), KV (daily write operations). Exceeding these limits will incur charges. Monitor usage on the Dashboard. R2 requires a credit card on file (no charge within free tier). Strongly recommended: register passkeys on multiple devices.",
   },
@@ -3729,7 +3729,7 @@ const helpContentEn: Record<string, Dynamic> = {
     title: "Dashboard",
     role: "The home screen for a quick overview of your entire site. Displays storage usage, article counts, and media statistics in charts and numbers.",
     canDo:
-      "Check D1 (database) and R2 (media) usage plus KV (page cache) daily write operations in pie charts / View published, draft, and hidden article counts / Check image, video, and audio counts with total storage / Switch build mode (manual / auto / always)",
+      'Check D1 (database) and R2 (media) usage plus KV (page cache) daily write operations in pie charts / View published, draft, and hidden article counts / Check image, video, and audio counts with total storage / Use the version card to see the installed, stable, and latest versions, run "Update Now", and toggle "Always update to latest"',
     notes:
       "Usage above 70% shows a yellow warning; above 90% shows red. Delete unnecessary data before it turns red. R2 usage reflects total uploaded file size; D1 usage is an estimate. KV is shown as daily page-cache write operations — exceeding the Cloudflare free-tier limit can cause site builds to fail.",
   },
@@ -3737,9 +3737,9 @@ const helpContentEn: Record<string, Dynamic> = {
     title: "Article Manager",
     role: "List, search, and sort all registered articles. Click a title to open the article editor.",
     canDo:
-      "Sort by updated date, publish date, or title using the dropdown / Search articles by keyword / Click a title to edit / Quickly toggle publish state with Publish / Unpublish buttons / Check supported language count per article",
+      "Sort by updated date, publish date, or title using the dropdown / Search articles by keyword / Click a title to edit / Toggle the publish flag with the Publish and Unpublish buttons / Post articles to SNS (Bluesky, X, Threads) with the post buttons / Switch build mode (manual・auto・always) and run Build Now from the bottom build bar / Check supported language count per article",
     notes:
-      'Create new articles from the "New Article" sidebar item. After changing publish state, click "Build Now" to reflect changes on the public site. Search covers titles and slugs.',
+      'Create new articles from the "New Article" sidebar item. Toggling publish/unpublish only sets a FLAG — nothing changes on the public site until a build runs ("Build Now" in manual mode; the cron applies it automatically in auto mode). SNS posting is only available for articles that are published AND built. Search covers titles and slugs.',
   },
   newArticle: {
     title: "New Article / Edit Article",
@@ -3747,15 +3747,15 @@ const helpContentEn: Record<string, Dynamic> = {
     canDo:
       "Select article type (Collection types only) / Set slug / Select initial language / Set publish date and time / Edit title, summary, and body (rich editor) / Set cover image / Assign categories / Add hashtags / Toggle published, draft, or hidden",
     notes:
-      "Slugs may only contain lowercase letters, numbers, hyphens, and underscores, and cannot be changed after creation. If no types are registered, create one in Types first. Cover images are selected from images already uploaded in Image Manager.",
+      "Slugs may only contain lowercase letters, numbers, and hyphens (must start with a letter or number; underscores are not allowed) and cannot be changed after creation. If no types are registered, create one in Types first. Cover images are selected from images already uploaded in Image Manager. Switching to published only sets the flag — the public site does not change until a build runs.",
   },
   images: {
     title: "Image Manager",
     role: "Manage image files stored in R2 — upload, list, and delete.",
     canDo:
-      "Upload image files via drag & drop or click / Browse uploaded images with thumbnails / Delete images (removes from both R2 and D1)",
+      'Upload image files via drag & drop or click / Browse uploaded images with thumbnails / Delete images (removes from both R2 and D1) / Choose the upload size limit with "Automatic image resizing" (no resize / 200 KB / 500 KB / 1 MB / 2 MB)',
     notes:
-      "R2 must be enabled (credit card registration required). Uploaded images are publicly accessible via URL. Do not upload confidential images. R2 free tier is 10 GB. Delete unused images regularly.",
+      'R2 must be enabled (credit card registration required). The "Automatic image resizing" choice is saved automatically the moment you select it and applies to subsequent uploads (it is stored per browser in localStorage, so a different browser or device falls back to the default 1 MB; already-uploaded images are not affected). Re-uploading a file with identical content reuses the existing image instead of registering a duplicate. Uploaded images are publicly accessible via URL. Do not upload confidential images. R2 free tier is 10 GB. Delete unused images regularly.',
   },
   videos: {
     title: "Video Manager",
@@ -3785,7 +3785,7 @@ const helpContentEn: Record<string, Dynamic> = {
     role: "Register and manage the languages used in KuroCMS. Also used to validate language codes when registering articles via REST API.",
     canDo: "Add and remove supported languages / View registered language list",
     notes:
-      "Language codes not registered here will be rejected by the REST API. Deleting a language deletes all translation data for that language. Use lowercase 2-letter codes (e.g. ja, en, fr).",
+      "Language codes not registered here will be rejected by the REST API. When deleting a language you can optionally purge all translation data for that language (chosen in the delete dialog). Use lowercase 2–3 letter codes with an optional region subtag (such as ja, en, pt-br). The add dialog offers a searchable picker covering all ISO 639-1 languages.",
   },
   types: {
     title: "Type Manager",
@@ -3793,15 +3793,15 @@ const helpContentEn: Record<string, Dynamic> = {
     canDo:
       "Add and edit Collection types (blog, etc.) / Add and edit Single types (fixed pages like TOP or About) / Delete types",
     notes:
-      "Deleting a type deletes all articles in that type. It is strongly recommended not to delete the initial news and blog types. A Single type can only hold one article.",
+      "A type cannot be deleted while any article uses it (delete those articles first, or change their type). It is strongly recommended not to delete the initial news and blog types. A Single type can only hold one article.",
   },
   settings: {
     title: "Settings",
     role: "Manage site-wide settings. Organized into 4 tabs: Basic, SNS, License, and Import (the Import tab toggles between Strapi and KuroCMS).",
     canDo:
-      "Set public domain, custom domain (Cloudflare), and R2 / Configure the default language / Set up SNS integrations (Bluesky) / View license / Import articles from Strapi / Load data from another KuroCMS",
+      "Set public domain, custom domain (Cloudflare), and R2 / Configure the default language / Set up SNS integrations (Bluesky, X, Threads) / View license / Import articles from Strapi / Load data from another KuroCMS",
     notes:
-      "Site name is set in Site Manager, and theme (design) is set per template. The admin URL, Worker name, and D1 name are set by the bootstrap script and cannot be changed here. Bluesky posting is available manually via the post button in the article list (other SNS to follow). Strapi import supports Strapi v4/v5 REST API.",
+      'Site name is set in Site Manager, and theme (design) is set per template. The admin URL, Worker name, and D1 name are set by the bootstrap script and cannot be changed here. SNS posting is done manually per article and per service via the post buttons in the article list (only for articles that are published AND built). The SNS tab also offers bulk "mark all as posted / unmark all" actions per service. Strapi import supports Strapi v4/v5 REST API.',
   },
   siteManagement: {
     title: "Site Manager",
