@@ -121,7 +121,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.8.19";
+export const KUROCMS_VERSION = "1.8.20";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -4166,7 +4166,9 @@ async function postThreadsForDoc(
       sns_threads_posted_at: string | null;
     }>();
   if (!doc) return { ok: false, code: "not_published" };
-  if (doc.sns_threads_posted_at) return { ok: false, code: "already_posted" };
+  // The flag was already CLAIMED by postDocumentToThreads before this job was
+  // queued (it doubles as the in-flight lock), so a set value here is our own
+  // claim — not a prior post. Don't bail out as already_posted.
 
   const tl = await env.DB.prepare(
     "SELECT title, summary, seo_json, hashtag_json FROM document_translations WHERE did = ? AND lang = ?",
@@ -4234,13 +4236,9 @@ async function postThreadsForDoc(
     return { ok: false, code: "post_failed" };
   }
 
-  const postedAt = nowIso();
-  await env.DB.prepare(
-    "UPDATE documents SET sns_threads_posted_at = ? WHERE did = ? AND sns_threads_posted_at IS NULL",
-  )
-    .bind(postedAt, did)
-    .run();
-  return { ok: true, postedAt };
+  // The posted flag is already set (claimed at queue time), so nothing to
+  // write here — the claim simply "sticks" now that the post succeeded.
+  return { ok: true, postedAt: nowIso() };
 }
 
 /**
@@ -4266,10 +4264,6 @@ async function postDocumentToThreads(
       "Publish AND build the article before posting to Threads.",
     ],
     already_posted: [409, "This article was already posted to Threads."],
-    already_queued: [
-      409,
-      "A Threads post for this article is already in progress.",
-    ],
     post_failed: [502, "Posting to Threads failed. Check your access token."],
   };
   const fail = (code: string): never => {
@@ -4298,26 +4292,40 @@ async function postDocumentToThreads(
   if (!doc) fail("not_published");
   if (doc!.sns_threads_posted_at) fail("already_posted");
 
-  // Double-queue guard: the background job can run for tens of seconds and the
-  // client UI state doesn't survive a screen remount, so block a second queue
-  // while a recent one may still be in flight. The queue action below is the
-  // lock record — no schema needed; a stuck job self-expires after 3 minutes.
-  const recentQueue = await env.DB.prepare(
-    "SELECT created_at FROM activity_logs WHERE action = 'document.sns_post' AND target_id = ? AND detail_json LIKE '%\"threads\":true%' AND detail_json LIKE '%\"queued\":true%' AND created_at > ? ORDER BY created_at DESC LIMIT 1",
+  // Atomically CLAIM the posted flag BEFORE queueing the background job. This
+  // one timestamp is both the "posted" marker and the in-flight lock, which
+  // closes the double-post window the old activity_logs guard left open:
+  //   • Any second press (a double click, a poll-timeout re-enable, or a fresh
+  //     screen after remount) now sees the flag set and is refused with
+  //     already_posted — deterministically, with no 3-minute expiry to race.
+  //   • It survives isolate eviction: if the background job reaches Threads but
+  //     the worker is killed before it could confirm, the flag is already set,
+  //     so the article can never be posted a second time.
+  // The claim is RELEASED (set back to NULL) by the handler below only if the
+  // post ultimately fails, so a genuine failure stays retryable.
+  const claim = await env.DB.prepare(
+    "UPDATE documents SET sns_threads_posted_at = ? WHERE did = ? AND mode = 1 AND live = 1 AND sns_threads_posted_at IS NULL",
   )
-    .bind(did, new Date(Date.now() - 3 * 60_000).toISOString())
-    .first<{ created_at: string }>()
-    .catch(() => null);
-  if (recentQueue) fail("already_queued");
+    .bind(nowIso(), did)
+    .run();
+  if ((claim.meta?.changes ?? 0) === 0) fail("already_posted");
 
   await logActivity(env, user, "document.sns_post", "document", did, {
     threads: true,
     queued: true,
   });
   ctx.waitUntil(
-    postThreadsForDoc(env, did).then((result) => {
+    postThreadsForDoc(env, did).then(async (result) => {
       if (!result.ok) {
-        // postThreadsForDoc already logged the detail; keep a summary line.
+        // Release the claim so the row reverts to un-posted and the user can
+        // retry. (config/domain/publish were preflighted above, so a failure
+        // here is almost always a Threads-side post_failed.)
+        await env.DB.prepare(
+          "UPDATE documents SET sns_threads_posted_at = NULL WHERE did = ?",
+        )
+          .bind(did)
+          .run()
+          .catch(() => {});
         console.warn(
           JSON.stringify({
             event: "threads_background_post_failed",
