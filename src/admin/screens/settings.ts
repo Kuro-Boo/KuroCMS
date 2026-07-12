@@ -234,6 +234,19 @@ async function settings() {
       escapeHtml(t("saveSiteSettings")) +
       "</button>" +
       "</form>" +
+      // ── Maintenance: copy-noise style cleanup ─────────────────────────
+      "<div class='panel stack' style='margin-top:16px'>" +
+      "<div class='panelHead'><h3>" +
+      escapeHtml(t("maintenanceTitle")) +
+      "</h3></div>" +
+      "<div class='muted' style='font-size:12px'>" +
+      escapeHtml(t("cleanupStylesHelp")) +
+      "</div>" +
+      "<div><button type='button' id='cleanupStylesBtn' class='secondary'>" +
+      escapeHtml(t("cleanupStylesButton")) +
+      "</button></div>" +
+      "<div id='cleanupStylesResult' class='muted' style='font-size:12px'></div>" +
+      "</div>" +
       "</div>" +
       // ── SNS ──────────────────────────────────────────────────────────
       "<div id='panel-sns' class='settingsPanel' style='display:none'>" +
@@ -587,6 +600,45 @@ async function settings() {
   // Tab switching
   document.querySelectorAll<AdminElement>(".settingsTab").forEach((btn) => {
     btn.addEventListener("click", () => switchTab(btn.dataset.tab));
+  });
+
+  // Maintenance: copy-noise style cleanup. Loops while the server reports
+  // more (it processes at most 50 changed rows per call), then reminds the
+  // user to build so the cleaned pages get regenerated.
+  byId("cleanupStylesBtn")?.addEventListener("click", async () => {
+    const btn = byId("cleanupStylesBtn") as Dynamic;
+    const out = byId("cleanupStylesResult");
+    if (state.preview) {
+      toast(t("previewReadOnly"), false, btn);
+      return;
+    }
+    btn.disabled = true;
+    try {
+      let total = 0;
+      let scanned = 0;
+      for (let pass = 0; pass < 40; pass++) {
+        const res = await api("/api/documents/cleanup-styles", {
+          method: "POST",
+        });
+        total += Number(res.changed || 0);
+        scanned = Number(res.scanned || 0);
+        if (out)
+          out.textContent = t("cleanupStylesProgress") + " " + total + "…";
+        if (!res.more) break;
+      }
+      if (out)
+        out.textContent =
+          total > 0
+            ? t("cleanupStylesDone")
+                .replace("{n}", String(total))
+                .replace("{s}", String(scanned))
+            : t("cleanupStylesNothing");
+      toast(t("cleanupStylesToast"), false, btn);
+    } catch (error) {
+      toast(errorMessage(error), true, btn);
+    } finally {
+      btn.disabled = false;
+    }
   });
 
   // Import section switcher

@@ -792,6 +792,15 @@ const i18n = {
     mainPaneColor: "Main pane color",
     mainPaneHelp: "Workspace background and selected sidebar item.",
     saveSiteSettings: "Save Site Settings",
+    maintenanceTitle: "Maintenance",
+    cleanupStylesHelp:
+      "Removes style noise that Chrome's rich copy baked into article bodies pasted with an older editor (huge revert-layer property dumps and hard-coded theme colors). Only style attributes carrying the copy-noise signature are touched; decorations you applied on purpose stay. The previous body of every changed article is saved to revision history. Run a build afterwards to regenerate the cleaned pages.",
+    cleanupStylesButton: "Clean up copied-style noise",
+    cleanupStylesProgress: "Cleaning… changed so far:",
+    cleanupStylesDone:
+      "Done: cleaned {n} translation(s) (scan matched {s}). Run a build to publish the cleaned pages.",
+    cleanupStylesNothing: "No copy-noise styles found. Nothing to clean.",
+    cleanupStylesToast: "Style cleanup finished",
     siteSettingsSaved: "Site settings saved.",
     workerSecrets: "Workers Secret Registration",
     workerSecretsLead:
@@ -1709,6 +1718,15 @@ const i18n = {
     mainPaneColor: "メインペイン色",
     mainPaneHelp: "作業領域と選択中メニューの背景。",
     saveSiteSettings: "サイト設定を保存",
+    maintenanceTitle: "メンテナンス",
+    cleanupStylesHelp:
+      "旧バージョンのエディタで貼り付けた本文に Chrome のリッチコピーが焼き込んだスタイルノイズ（revert-layer の大量羅列やテーマ色の固定値）を除去します。コピー由来の署名がある style 属性だけが対象で、意図的に付けた装飾には触れません。変更された記事の元本文はリビジョン履歴に保存されます。実行後はビルドを実行して掃除後のページを再生成してください。",
+    cleanupStylesButton: "コピー由来のスタイルノイズを掃除",
+    cleanupStylesProgress: "掃除中… ここまでの変更:",
+    cleanupStylesDone:
+      "完了: {n} 件の翻訳を掃除しました（対象候補 {s} 件）。ビルドを実行すると掃除後のページが公開されます。",
+    cleanupStylesNothing: "コピー由来のスタイルノイズは見つかりませんでした。",
+    cleanupStylesToast: "スタイル掃除が完了しました",
     siteSettingsSaved: "サイト設定を保存しました。",
     workerSecrets: "Workers Secret登録",
     workerSecretsLead:

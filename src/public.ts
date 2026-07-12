@@ -701,9 +701,15 @@ async function expandContentRefs(
     return out;
   };
 
-  // Apply data refs first, then media refs, then KuroEditor URL cards.
-  // 各パターンは相互に重ならない（data は `:` 必須、media は [a-z0-9_-] のみ、
-  // URL カードは末尾 `|]]` 必須）ので順序は結果に影響しない。
+  // Apply data refs first, then bare media/sns refs, then the KuroEditor link
+  // notation (card / wiki / hyper — expandSpecialLinks). 先行2パスが bare
+  // トークン（[[mid]] / [[sns]] / [[a:b]]）を消費するため、最終パスには '|'
+  // を含む wiki 形・[a-z0-9_-] に収まらない URL hyper 形・[[[card]]] だけが
+  // 残り、パターンは重ならない。
+  const resolveMid: MidResolver = (mid) => {
+    const m = mediaMap[mid];
+    return m ? `${basePath}${m.public_path}?v=${m.cache_version}` : null;
+  };
   const afterData = Object.fromEntries(
     Object.entries(content).map(([k, v]) => [
       k,
@@ -717,7 +723,7 @@ async function expandContentRefs(
   return Object.fromEntries(
     Object.entries(afterData).map(([k, v]) => [
       k,
-      expandUrlCards(expand(v), basePath),
+      expandSpecialLinks(expand(v), basePath, resolveMid),
     ]),
   );
 }
@@ -1119,19 +1125,25 @@ function escHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
-// KuroEditor URL card ([[slug|]] — 表示テキストを空にして「表題なし」を明示した
-// 記法, KuroEditor 2.6.0+) を公開ページ用の HTML に展開する。KuroEditor が編集
-// キャンバスで描く「簡易表示」（アイコン＋タイトル＋URL）と同じマークアップ・
-// 同じ .kuro-url-card クラスを出力し、ke-content.css（KuroEditor content.css）で
-// スタイルが当たる。タイトルはサーバー側で URL 自体から得られる情報のみ使う
+// ─── KuroEditor リンク記法の公開ビルド展開 ────────────────────────────────────
+// KuroEditor は保存本文（body_html）にリンク・メディアを [[...]] トークンで
+// 保持する（getContent → unrenderSpecialLinks）。公開ビルドは KuroEditor の
+// renderSpecialLinks（KE 2.6.0）と同じ優先順位・同じクラスのマークアップへ
+// 展開する（編集専用の data-kuro-* / contenteditable は付けない）:
+//   [[[card]]]           → カードリンク <a class="kuro-card-link">
+//   [[slug|]]            → URL カード <a class="kuro-url-card">（表題なしの明示）
+//   [[slug|60%,right]]   → メディア figure（サイズ/寄せ/クリックリンク params）
+//   [[YouTube等URL|…]]   → 16:9 iframe figure（YouTube / Vimeo）
+//   [[slug|表示テキスト]] → 通常リンク <a>表示テキスト</a>
+//   [[URL]]              → embed / メディア / 素リンク（hyper 形）
+// スタイルは ke-content.css（KuroEditor content.css）が公開ページにも当たる。
+// URL カードのタイトルはサーバー側で URL 自体から得られる情報のみ使う
 // （http(s) はホスト名、内部 slug は slug 文字列）。KuroEditor の onFetchUrlMeta
-// による「豪華表示」は編集時のクライアント側のみで、保存本文は常に [[slug|]] に
-// 戻るため、公開ページは常にこの簡易表示になる（対象 URL の内容が変わっても
-// 保存データは不変、という KuroEditor 側の仕様と一致）。
+// による「豪華表示」は編集時のクライアント側のみ。
 //
-// [[slug|]] は v2.6.0 の新記法で既存本文には存在しない → 追加は既存コンテンツに
-// 無影響。ラベルが空（|]]）のときだけ発火し、[[mid]] / [[type:all]] / [[slug|表示]]
-// 等の既存記法とはパターンが重ならない。
+// この展開は expand()（bare [[mid]] / [[sns]] トークン）と data ref（[[a:b]]）
+// の【後】に走る: 先行パスが消費した bare トークンには触れず、'|' を含む wiki
+// 形・[a-z0-9_-] に収まらない URL hyper 形・[[[card]]] だけが残っている。
 const KE_URL_CARD_ICON =
   '<svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true">' +
   '<circle cx="8" cy="8" r="6.5"/>' +
@@ -1139,31 +1151,225 @@ const KE_URL_CARD_ICON =
   '<line x1="1.5" y1="8" x2="14.5" y2="8"/>' +
   "</svg>";
 
-function expandUrlCards(html: string, basePath: string): string {
-  return html.replace(/\[\[([^[\]|]+)\|\]\]/g, (_m, slug: string) => {
-    const isHttp = /^https?:\/\//i.test(slug);
-    const href = isHttp ? slug : `${basePath}/${slug.replace(/^\/+/, "")}`;
-    let title = slug;
-    if (isHttp) {
-      try {
-        title = new URL(slug).hostname;
-      } catch {
-        /* keep raw slug as title */
-      }
-    }
-    const sub = isHttp ? slug : href;
-    const ext = isHttp ? ' target="_blank" rel="noopener"' : "";
-    return (
-      `<a href="${escHtml(href)}"${ext} class="kuro-url-card">` +
-      `<span class="kuro-url-card__icon">${KE_URL_CARD_ICON}</span>` +
-      `<span class="kuro-url-card__body">` +
-      `<span class="kuro-url-card__title">${escHtml(title)}</span>` +
-      `<span class="kuro-url-card__url">${escHtml(sub)}</span>` +
-      `</span>` +
-      `<span class="kuro-url-card__arrow">↗</span>` +
-      `</a>`
+// KuroEditor の MEDIA_EXT_RE / VIDEO_EXT_RE / AUDIO_EXT_RE と同一定義。
+const KE_MEDIA_EXT_RE =
+  /\.(jpe?g|png|gif|webp|svg|avif|mp4|webm|ogg|mov|mp3|wav|aac|flac|m4a)(\?.*)?$/i;
+const KE_VIDEO_EXT_RE = /\.(mp4|webm|mov)(\?.*)?$/i;
+const KE_AUDIO_EXT_RE = /\.(mp3|wav|aac|flac|m4a|oga)(\?.*)?$/i;
+
+/** KuroEditor parseMediaParams と同一: "60%,right|https://…" を分解。 */
+function keParseMediaParams(params: string): {
+  size: string | null;
+  align: string | null;
+  link: string | null;
+} {
+  const result: {
+    size: string | null;
+    align: string | null;
+    link: string | null;
+  } = { size: null, align: null, link: null };
+  if (!params) return result;
+  let sizeAlignPart = params;
+  const pipeIdx = params.indexOf("|");
+  if (pipeIdx !== -1) {
+    result.link = params.slice(pipeIdx + 1).trim() || null;
+    sizeAlignPart = params.slice(0, pipeIdx);
+  }
+  for (const part of sizeAlignPart
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)) {
+    if (/^\d+%$/.test(part)) result.size = part;
+    else if (part === "left" || part === "right" || part === "center")
+      result.align = part;
+  }
+  return result;
+}
+
+/** KuroEditor _looksLikeMediaParams と同一のヒューリスティック。 */
+function keLooksLikeMediaParams(label: string): boolean {
+  if (!label) return false;
+  const paramsPart =
+    label.indexOf("|") !== -1 ? label.slice(0, label.indexOf("|")) : label;
+  const trimmed = paramsPart.trim();
+  if (trimmed === "") return true; // "|https://…" = リンクのみ
+  return trimmed
+    .split(",")
+    .map((s) => s.trim())
+    .every(
+      (t) =>
+        /^\d+%$/.test(t) || t === "left" || t === "right" || t === "center",
     );
-  });
+}
+
+/** KuroEditor resolveEmbedUrl と同一: YouTube / Vimeo の埋め込み URL 解決。 */
+function keResolveEmbedUrl(url: string): string | null {
+  if (!url) return null;
+  try {
+    const u = new URL(url);
+    const host = u.hostname.replace(/^www\./, "");
+    if (host === "youtube.com") {
+      const v = u.searchParams.get("v");
+      if (v) return `https://www.youtube.com/embed/${v}`;
+      const shorts = u.pathname.match(/^\/shorts\/([^/]+)/);
+      if (shorts) return `https://www.youtube.com/embed/${shorts[1]}`;
+    }
+    if (host === "youtu.be") {
+      const id = u.pathname.slice(1);
+      if (id) return `https://www.youtube.com/embed/${id}`;
+    }
+    if (host === "vimeo.com") {
+      const id = u.pathname.replace(/\D/g, "");
+      if (id) return `https://player.vimeo.com/video/${id}`;
+    }
+  } catch {
+    /* not a URL */
+  }
+  return null;
+}
+
+/** 16:9 iframe figure（KuroEditor _buildIframeFigure の公開版）。 */
+function keIframeFigure(
+  embedUrl: string,
+  size: string | null,
+  align: string | null,
+): string {
+  const sizeStyle = size && size !== "100%" ? ` style="width:${size}"` : "";
+  const alignClass = align ? ` kuro-media-wrap--${align}` : "";
+  return (
+    `<figure class="kuro-media-wrap kuro-media-wrap--iframe${alignClass}"${sizeStyle}>` +
+    `<div class="kuro-iframe-wrap">` +
+    `<iframe src="${escHtml(embedUrl)}" class="kuro-media kuro-media--iframe" allowfullscreen frameborder="0" loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" title="埋め込み動画"></iframe>` +
+    `</div></figure>`
+  );
+}
+
+/** メディア figure（KuroEditor wiki/hyper メディア分岐の公開版）。 */
+function keMediaFigure(
+  src: string,
+  size: string | null,
+  align: string | null,
+  link: string | null,
+): string {
+  const sizeStyle = size && size !== "100%" ? ` style="width:${size}"` : "";
+  const alignClass = align ? ` kuro-media-wrap--${align}` : "";
+  const linkBtn = link
+    ? `<a class="kuro-media-open-link" href="${escHtml(link)}" target="_blank" rel="noopener">↗ URLを新規タブで開く</a>`
+    : "";
+  const esc = escHtml(src);
+  if (KE_VIDEO_EXT_RE.test(src)) {
+    return `<figure class="kuro-media-wrap kuro-media-wrap--video${alignClass}"${sizeStyle}><video src="${esc}" controls class="kuro-media kuro-media--video"></video>${linkBtn}</figure>`;
+  }
+  if (KE_AUDIO_EXT_RE.test(src)) {
+    return `<figure class="kuro-media-wrap kuro-media-wrap--audio${alignClass}"${sizeStyle}><audio src="${esc}" controls class="kuro-media kuro-media--audio"></audio>${linkBtn}</figure>`;
+  }
+  return `<figure class="kuro-media-wrap${alignClass}"${sizeStyle}><img src="${esc}" alt="" loading="lazy" class="kuro-media">${linkBtn}</figure>`;
+}
+
+/** URL カード（[[slug|]]）のアンカー。 */
+function keUrlCard(slug: string, href: string): string {
+  const isHttp = /^https?:\/\//i.test(slug);
+  let title = slug;
+  if (isHttp) {
+    try {
+      title = new URL(slug).hostname;
+    } catch {
+      /* keep raw slug as title */
+    }
+  }
+  const sub = isHttp ? slug : href;
+  const ext = isHttp ? ' target="_blank" rel="noopener"' : "";
+  return (
+    `<a href="${escHtml(href)}"${ext} class="kuro-url-card">` +
+    `<span class="kuro-url-card__icon">${KE_URL_CARD_ICON}</span>` +
+    `<span class="kuro-url-card__body">` +
+    `<span class="kuro-url-card__title">${escHtml(title)}</span>` +
+    `<span class="kuro-url-card__url">${escHtml(sub)}</span>` +
+    `</span>` +
+    `<span class="kuro-url-card__arrow">↗</span>` +
+    `</a>`
+  );
+}
+
+/** mid / URL / 内部 slug を href に解決する（mid は resolveMid に委譲）。 */
+type MidResolver = (mid: string) => string | null;
+
+function expandSpecialLinks(
+  html: string,
+  basePath: string,
+  resolveMid: MidResolver = () => null,
+): string {
+  const resolve = (slug: string): string | null => {
+    if (/^https?:\/\//i.test(slug)) return slug;
+    if (/^(img|vid|aud|mid)-/.test(slug)) return resolveMid(slug);
+    return `${basePath}/${slug.replace(/^\/+/, "")}`;
+  };
+  // KuroEditor renderSpecialLinks と同じ単一パス・同じ優先順位
+  // （card > wiki > hyper）。
+  const RE =
+    /\[\[\[([^\]]+)\]\]\]|\[\[([^\]|]+)\|([^\]]*)\]\]|\[\[([^\]]+)\]\]/g;
+  return html.replace(
+    RE,
+    (
+      match,
+      card?: string,
+      wikiSlug?: string,
+      wikiLabel?: string,
+      hyper?: string,
+    ) => {
+      if (card !== undefined) {
+        const url = resolve(card);
+        if (!url) return `<!-- media not found: ${escHtml(card)} -->`;
+        return `<a href="${escHtml(url)}" target="_blank" rel="noopener" class="kuro-card-link">${escHtml(card)}</a>`;
+      }
+
+      if (wikiSlug !== undefined && wikiLabel !== undefined) {
+        const url = resolve(wikiSlug);
+        if (!url) return `<!-- media not found: ${escHtml(wikiSlug)} -->`;
+        // ⓪ 空ラベル = 表題なしの明示 → URL カード
+        if (wikiLabel === "") return keUrlCard(wikiSlug, url);
+        // ① iframe embed（メディア拡張子より先に判定 — KE と同順）
+        const embedUrl = keResolveEmbedUrl(url);
+        if (embedUrl) {
+          const { size, align } = keParseMediaParams(wikiLabel);
+          return keIframeFigure(embedUrl, size, align);
+        }
+        // ② メディア（mid 系 / 拡張子 / params らしきラベルの http URL）
+        const isMedia =
+          /^(img|vid|aud|mid)-/.test(wikiSlug) ||
+          KE_MEDIA_EXT_RE.test(url) ||
+          (/^https?:\/\//i.test(wikiSlug) && keLooksLikeMediaParams(wikiLabel));
+        if (isMedia) {
+          const { size, align, link } = keParseMediaParams(wikiLabel);
+          return keMediaFigure(url, size, align, link);
+        }
+        // ③ 通常の wiki リンク [[slug|表示テキスト]]
+        const ext = /^https?:\/\//i.test(wikiSlug)
+          ? ' target="_blank" rel="noopener"'
+          : "";
+        return `<a href="${escHtml(url)}"${ext}>${escHtml(wikiLabel)}</a>`;
+      }
+
+      if (hyper !== undefined) {
+        const url = resolve(hyper);
+        if (!url) return `<!-- media not found: ${escHtml(hyper)} -->`;
+        // ① iframe embed
+        const embedUrl = keResolveEmbedUrl(url);
+        if (embedUrl) return keIframeFigure(embedUrl, null, null);
+        // ② メディアファイル
+        if (/^(img|vid|aud|mid)-/.test(hyper) || KE_MEDIA_EXT_RE.test(url)) {
+          return keMediaFigure(url, null, null, null);
+        }
+        // ③ 素リンク
+        const ext = /^https?:\/\//i.test(hyper)
+          ? ' target="_blank" rel="noopener"'
+          : "";
+        return `<a href="${escHtml(url)}"${ext}>${escHtml(hyper)}</a>`;
+      }
+
+      return match;
+    },
+  );
 }
 
 // "Latest" label for the first dropdown option. Site/UI chrome (not authored

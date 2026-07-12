@@ -121,7 +121,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.8.16";
+export const KUROCMS_VERSION = "1.8.17";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -609,6 +609,11 @@ export async function handleApi(
     // (used when enabling a new SNS so existing articles don't get re-posted).
     if (request.method === "POST" && path === "/api/documents/sns/bulk-flag") {
       return withJsonHeaders(await documentSnsBulkFlag(request, env, user));
+    }
+    // Maintenance: strip Chrome-copy style noise (`revert-layer` dumps) from
+    // every stored translation body. See cleanupCopyNoise.
+    if (request.method === "POST" && path === "/api/documents/cleanup-styles") {
+      return withJsonHeaders(await cleanupCopyNoise(env, user));
     }
     // Per-article SNS posted flag (Bluesky). GET reads it; PUT { bsky: bool }
     // sets (true) or clears (false) it — manual override of the posted state.
@@ -5717,6 +5722,142 @@ async function snapshotTranslationStatement(
     nowIso(),
     snapshotBy,
   );
+}
+
+// ─── Copy-noise style cleanup (maintenance) ───────────────────────────────────
+// Chrome のリッチコピーは、要素に効いているスタイル宣言をインライン style として
+// クリップボードに焼き込む。管理画面のエディタ保護 CSS（.kuro-editor * の
+// all: revert-layer 系）はこのとき数百個のロングハンド `<prop>: revert-layer` に
+// 展開され、テンプレートのリンク色等も `color: oklch(…)` として焼き込まれる。
+// KuroEditor 2.0.10+ はペースト時に除去する（_pasteSanitizedHTML）が、それ以前に
+// 貼り付け保存された本文にはこのノイズが残っている。この掃除はその救済。
+
+const NOISE_STYLE_VALUES = new Set([
+  "revert-layer",
+  "revert",
+  "initial",
+  "unset",
+  "inherit",
+]);
+// ノイズ署名を持つ要素からは色系も剥がす（KuroEditor のペーストサニタイザと
+// 同じ方針: コピー時に焼き込まれたテーマ色はダーク/ライト切替を壊す）。
+const NOISE_COLOR_PROPS = new Set([
+  "color",
+  "background",
+  "background-color",
+  "background-image",
+]);
+
+/** `;` で宣言を分割する（url(data:…;base64,…) 等の括弧・引用符内は無視）。 */
+function splitDeclarations(css: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let quote = "";
+  let start = 0;
+  for (let i = 0; i < css.length; i++) {
+    const c = css[i];
+    if (quote) {
+      if (c === quote) quote = "";
+      continue;
+    }
+    if (c === '"' || c === "'") quote = c;
+    else if (c === "(") depth++;
+    else if (c === ")") depth = Math.max(0, depth - 1);
+    else if (c === ";" && depth === 0) {
+      out.push(css.slice(start, i));
+      start = i + 1;
+    }
+  }
+  out.push(css.slice(start));
+  return out;
+}
+
+/**
+ * 1 本文からコピー由来のスタイルノイズを除去する。CSS-wide キーワード宣言を
+ * 含む style 属性（＝Chrome コピーの署名）だけを対象に、①ノイズ宣言と
+ * ②同じ属性内の色系宣言を落とす。署名の無い style 属性（ユーザーが装飾で
+ * 意図的に付けた色・サイズ等）には一切触れない。
+ */
+function stripCopyNoiseStyles(html: string): string {
+  if (!/revert-layer|:\s*revert\b/i.test(html)) return html;
+  return html.replace(/\sstyle="([^"]*)"/gi, (whole, css: string) => {
+    if (!/revert-layer|:\s*revert\b/i.test(css)) return whole;
+    const kept = splitDeclarations(css)
+      .map((d) => d.trim())
+      .filter(Boolean)
+      .filter((decl) => {
+        const idx = decl.indexOf(":");
+        if (idx < 0) return false;
+        const prop = decl.slice(0, idx).trim().toLowerCase();
+        const value = decl
+          .slice(idx + 1)
+          .trim()
+          .toLowerCase();
+        return !NOISE_STYLE_VALUES.has(value) && !NOISE_COLOR_PROPS.has(prop);
+      });
+    return kept.length ? ` style="${kept.join("; ")}"` : "";
+  });
+}
+
+/**
+ * Maintenance sweep: run stripCopyNoiseStyles over every stored translation
+ * body. Changed rows are revision-snapshotted first (recoverable), then
+ * updated with a fresh updated_at so the next build regenerates their pages.
+ * Processes at most 50 changed rows per invocation (subrequest budget); the
+ * response carries `more: true` when another pass is needed.
+ */
+async function cleanupCopyNoise(env: Env, user: AuthUser): Promise<Response> {
+  requireAdmin(user);
+  const MAX_CHANGED_PER_RUN = 50;
+  const rows = await env.DB.prepare(
+    `SELECT did, lang, body_html FROM document_translations
+     WHERE body_html LIKE '%revert-layer%'`,
+  ).all<{ did: string; lang: string; body_html: string | null }>();
+  const candidates = rows.results ?? [];
+
+  let changed = 0;
+  const touchedDids = new Set<string>();
+  const now = nowIso();
+  for (const row of candidates) {
+    if (changed >= MAX_CHANGED_PER_RUN) break;
+    const cleaned = stripCopyNoiseStyles(row.body_html || "");
+    if (cleaned === (row.body_html || "")) continue;
+    const statements: D1PreparedStatement[] = [];
+    const snapshot = await snapshotTranslationStatement(
+      env,
+      row.did,
+      row.lang,
+      user.uid,
+    );
+    if (snapshot) statements.push(snapshot);
+    statements.push(
+      env.DB.prepare(
+        `UPDATE document_translations SET body_html = ?, updated_at = ?
+         WHERE did = ? AND lang = ?`,
+      ).bind(cleaned, now, row.did, row.lang),
+    );
+    await env.DB.batch(statements);
+    touchedDids.add(row.did);
+    changed++;
+  }
+  // Dirty the affected documents so the article/listing build hashes change
+  // and the next build regenerates their pages with the cleaned HTML.
+  if (touchedDids.size) {
+    await env.DB.batch(
+      Array.from(touchedDids).map((did) =>
+        env.DB.prepare(
+          "UPDATE documents SET updated_at = ? WHERE did = ?",
+        ).bind(now, did),
+      ),
+    );
+  }
+  const more = changed >= MAX_CHANGED_PER_RUN;
+  await logActivity(env, user, "document.cleanup_styles", "system", "content", {
+    scanned: candidates.length,
+    changed,
+    more,
+  });
+  return json({ ok: true, scanned: candidates.length, changed, more });
 }
 
 /**
