@@ -309,17 +309,6 @@ async function newArticle(editDid: Dynamic) {
   let editRevision = 0;
   let r2Ok = true;
 
-  function statusLabel(m: Dynamic) {
-    return m === 0 ? t("draft") : m === 1 ? t("published") : t("hidden");
-  }
-  function statusClass(m: Dynamic) {
-    return m === 0
-      ? "statusDraft"
-      : m === 1
-        ? "statusPublished"
-        : "statusHidden";
-  }
-
   function renderCatTags() {
     const wrap = byId("arCatTags");
     if (!wrap) return;
@@ -363,10 +352,8 @@ async function newArticle(editDid: Dynamic) {
   // save) — after a save they dim out until the next edit. Called after every
   // render and on every dirty/save state change.
   function updateSaveButtons() {
-    const disabled = !art.dirty || art.saving;
-    [byId("arSaveBtn"), byId("arSaveBtnTop")].forEach(function (b: Dynamic) {
-      if (b) b.disabled = disabled;
-    });
+    const btn = byId("arSaveBtn") as Dynamic;
+    if (btn) btn.disabled = !art.dirty || art.saving;
   }
 
   function readFields() {
@@ -743,6 +730,13 @@ async function newArticle(editDid: Dynamic) {
       escapeHtml(art.summary) +
       "</textarea>" +
       "</label>" +
+      "</div>" +
+      // Right: Meta panel
+      "<div class='articleMetaPanel'>" +
+      // Category — moved here from the left column. The status badge and the
+      // top save button were removed (article status is shown in the article
+      // list / bottom bar, and saving uses the bottom-bar button), so category
+      // fills the space freed at the top of this panel.
       "<div>" +
       "<span class='fieldLabel'>" +
       escapeHtml(t("categoryLabel")) +
@@ -754,26 +748,6 @@ async function newArticle(editDid: Dynamic) {
       escapeHtml(t("categoryAddBtn")) +
       "</button>" +
       "<div id='arCatTags' style='display:flex;gap:4px;flex-wrap:wrap;margin-top:6px'></div>" +
-      "</div>" +
-      "</div>" +
-      "</div>" +
-      // Right: Meta panel
-      "<div class='articleMetaPanel'>" +
-      "<div>" +
-      "<span class='fieldLabel'>" +
-      escapeHtml(t("statusFieldLabel")) +
-      "</span>" +
-      "<div style='display:flex;align-items:center;gap:8px;margin-top:4px;flex-wrap:wrap'>" +
-      "<span class='statusBadge " +
-      statusClass(art.mode) +
-      "'>" +
-      statusLabel(art.mode) +
-      "</span>" +
-      (!ro
-        ? "<button type='button' id='arSaveBtnTop' style='font-size:12px;padding:5px 12px;margin-left:auto'>" +
-          escapeHtml(t("save")) +
-          "</button>"
-        : "") +
       "</div>" +
       "</div>" +
       "<label>" +
@@ -1641,10 +1615,6 @@ async function newArticle(editDid: Dynamic) {
       switchToLanguage(target);
     });
     byId("arSaveBtn")?.addEventListener("click", function () {
-      clearTimeout(autoSaveTimer);
-      doSave();
-    });
-    byId("arSaveBtnTop")?.addEventListener("click", function () {
       clearTimeout(autoSaveTimer);
       doSave();
     });

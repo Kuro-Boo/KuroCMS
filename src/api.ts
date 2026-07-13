@@ -121,7 +121,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.8.22";
+export const KUROCMS_VERSION = "1.8.23";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -138,11 +138,49 @@ const jsonHeaders = {
   // client compares this against the version that served its page and reloads
   // when they diverge (i.e. a system update swapped the Worker under an open
   // tab) — purely reactively, off the client's own requests, with no polling.
-  "access-control-expose-headers": "x-kurocms-version",
+  // x-kurocms-docrev (added per-request by handleApi) is the article dataset's
+  // revision; the admin list re-fetches when it changes, so out-of-band edits
+  // (AI via REST/MCP) surface without a manual reload.
+  "access-control-expose-headers": "x-kurocms-version, x-kurocms-docrev",
   "x-kurocms-version": KUROCMS_VERSION,
 };
 
+// Current revision of the article dataset, maintained by DB triggers (migration
+// 0061). A single indexed-row read; any failure (e.g. pre-migration DB) yields
+// null so the header is simply omitted. Stamped onto responses by handleApi.
+async function readDocRev(env: Env): Promise<string | null> {
+  try {
+    const row = await env.DB.prepare(
+      "SELECT rev FROM data_revision WHERE name = 'documents'",
+    ).first<{ rev: number }>();
+    return row ? String(row.rev) : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function handleApi(
+  request: Request,
+  env: Env,
+  ctx: ExecutionContext,
+): Promise<Response> {
+  const response = await handleApiDispatch(request, env, ctx);
+  // Stamp the dataset revision so the admin list can auto-refresh on out-of-band
+  // edits. Skip preflight and the public health check (kept read-free and hot).
+  if (request.method === "OPTIONS") return response;
+  if (new URL(request.url).pathname.endsWith("/api/health")) return response;
+  const rev = await readDocRev(env);
+  if (rev === null) return response;
+  const headers = new Headers(response.headers);
+  headers.set("x-kurocms-docrev", rev);
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
+async function handleApiDispatch(
   request: Request,
   env: Env,
   ctx: ExecutionContext,

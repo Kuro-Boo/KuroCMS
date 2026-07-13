@@ -2689,6 +2689,27 @@ function noteServerVersion(response: Dynamic) {
   if (serverVersionChanged && !hasUnsavedArticleEdits()) location.reload();
 }
 
+// Reactive list refresh keyed on the article dataset revision. The server stamps
+// every admin API response with x-kurocms-docrev (bumped by DB triggers on any
+// documents change — including AI/REST/MCP edits). When it moves relative to
+// what we last saw, re-fetch the live list if one is mounted. This closes the
+// gap the focus-based refresh can't: a change that lands while the operator is
+// actively using the admin surfaces on their very next request. Driven entirely
+// by the client's own traffic — no polling.
+let lastSeenDocRev: string | null = null;
+function noteDataRevision(response: Dynamic) {
+  const rev = response.headers.get("x-kurocms-docrev");
+  if (!rev) return;
+  if (lastSeenDocRev === null) {
+    lastSeenDocRev = rev; // baseline on first observation
+    return;
+  }
+  if (rev === lastSeenDocRev) return;
+  lastSeenDocRev = rev;
+  // Refresh a mounted list, but never yank the page during an unsaved edit.
+  if (activeListReload && !hasUnsavedArticleEdits()) activeListReload();
+}
+
 async function api(path: Dynamic, options: RequestInit = {}) {
   const headers = new Headers(options.headers);
   if (!headers.has("content-type")) {
@@ -2715,6 +2736,7 @@ async function api(path: Dynamic, options: RequestInit = {}) {
       : path;
   const response = await fetch(withBase(endpoint), { ...options, headers });
   noteServerVersion(response);
+  noteDataRevision(response);
   // Read as text first so non-JSON failures are still surfaced (e.g. a
   // Cloudflare 5xx/limit HTML page when the Worker is killed). Otherwise the
   // error collapses to a generic message and a bug can't be told from a CF limit.
