@@ -309,6 +309,33 @@ async function newArticle(editDid: Dynamic) {
   let editRevision = 0;
   let r2Ok = true;
 
+  // Auto-save on/off. KuroCMS now owns autosaving entirely: KuroEditor's built-in
+  // save button + autosave checkbox are disabled (saveUi:false), so the bottom
+  // bar carries our own checkbox. Persisted; reuses KuroEditor's legacy pref key
+  // so an existing preference carries over. Defaults to ON.
+  const AUTOSAVE_PREF_KEY = "kuro-editor-autosave";
+  function autoSaveEnabled(): boolean {
+    try {
+      return localStorage.getItem(AUTOSAVE_PREF_KEY) !== "0";
+    } catch {
+      return true; // storage disabled → keep the default (on)
+    }
+  }
+  function setAutoSaveEnabled(on: boolean) {
+    try {
+      localStorage.setItem(AUTOSAVE_PREF_KEY, on ? "1" : "0");
+    } catch {
+      /* storage unavailable — the preference just won't persist */
+    }
+  }
+  // (Re)arm the periodic autosave, but only while it is enabled. The tick saves
+  // metadata AND the body (the body only when it was edited here — see doSave()).
+  function scheduleAutoSave() {
+    clearTimeout(autoSaveTimer);
+    if (!autoSaveEnabled()) return;
+    autoSaveTimer = setTimeout(autoSaveTick, AUTOSAVE_INTERVAL_MS);
+  }
+
   function renderCatTags() {
     const wrap = byId("arCatTags");
     if (!wrap) return;
@@ -551,19 +578,21 @@ async function newArticle(editDid: Dynamic) {
     art.saving = false;
     updateSaveButtons();
     if (art.dirty && editRevision !== saveRevision) {
-      clearTimeout(autoSaveTimer);
-      autoSaveTimer = setTimeout(autoSaveTick, AUTOSAVE_INTERVAL_MS);
+      scheduleAutoSave();
     }
   }
 
-  // The periodic autosave persists METADATA ONLY (title/summary/dates/hashtags/
-  // cover/categories). The body is deliberately excluded — see doSave.
+  // The periodic autosave persists metadata AND the body — doSave() (no arg)
+  // includes the body exactly when it was edited here (art.bodyDirty), so an
+  // untouched local body still never overwrites server-side (AI) body edits.
+  // KuroEditor's own autosave is off (saveUi:false), so this is the sole path.
   function autoSaveTick() {
-    doSave(false);
+    if (!autoSaveEnabled()) return; // toggled off after this tick was armed
+    doSave();
   }
 
-  // Metadata edits (title/summary/dates/hashtags/cover/categories) — schedules
-  // the periodic autosave, which persists metadata only (see autoSaveTick).
+  // Metadata edits (title/summary/dates/hashtags/cover/categories) — arm the
+  // periodic autosave (which now persists metadata AND the body, see autoSaveTick).
   function markDirty() {
     // Suppressed until the editor is ready / not mid-switch, so the programmatic
     // setContent() that loads a language (which fires the editor's input event)
@@ -574,15 +603,14 @@ async function newArticle(editDid: Dynamic) {
     art.dirty = true;
     setSaveStatus(t("saveStatusUnsaved"));
     updateSaveButtons();
-    clearTimeout(autoSaveTimer);
-    autoSaveTimer = setTimeout(autoSaveTick, AUTOSAVE_INTERVAL_MS);
+    scheduleAutoSave();
   }
 
-  // Body edits — mark unsaved but do NOT schedule the periodic autosave. The
-  // body is persisted only by an explicit save, or by KuroEditor's own autosave
-  // while its 自動保存 checkbox is ON (arriving via onSave → doSave with
-  // bodyDirty set). This keeps the admin from silently overwriting body edits
-  // other clients (e.g. AI via REST/MCP) made while the article was open.
+  // Body edits — mark unsaved and arm the periodic autosave. KuroCMS now owns
+  // body autosave too (KuroEditor's built-in one is disabled via saveUi:false).
+  // doSave() only writes the body when it was edited here (bodyDirty) and uses an
+  // optimistic lock, so a background edit by another client (e.g. AI via
+  // REST/MCP) is never silently overwritten.
   function markBodyDirty() {
     if (!art.ready || art.switching) return;
     editRevision += 1;
@@ -590,6 +618,7 @@ async function newArticle(editDid: Dynamic) {
     art.dirty = true;
     setSaveStatus(t("saveStatusUnsaved"));
     updateSaveButtons();
+    scheduleAutoSave();
   }
 
   // Called once the editor is mounted AND the language's content is on screen:
@@ -601,7 +630,7 @@ async function newArticle(editDid: Dynamic) {
     clearTimeout(autoSaveTimer);
     if (art.dirty) {
       editRevision += 1;
-      autoSaveTimer = setTimeout(autoSaveTick, AUTOSAVE_INTERVAL_MS);
+      scheduleAutoSave();
     }
   }
 
@@ -829,6 +858,16 @@ async function newArticle(editDid: Dynamic) {
       "<span id='arSaveStatus' class='autoSaveStatus'>" +
       escapeHtml(t("saveStatusUnsaved")) +
       "</span>" +
+      // Auto-save toggle, immediately left of the save button (editable mode
+      // only). Replaces KuroEditor's now-hidden 自動保存 checkbox.
+      (!ro
+        ? "<label style='display:flex;align-items:center;gap:5px;font-size:12px;color:var(--muted);cursor:pointer;user-select:none;white-space:nowrap'>" +
+          "<input type='checkbox' id='arAutoSaveCheck' style='cursor:pointer'" +
+          (autoSaveEnabled() ? " checked" : "") +
+          " />" +
+          escapeHtml(t("autoSaveLabel")) +
+          "</label>"
+        : "") +
       "<button type='button' id='arSaveBtn' style='min-width:80px'>" +
       escapeHtml(t("save")) +
       "</button>" +
@@ -1065,8 +1104,12 @@ async function newArticle(editDid: Dynamic) {
     destroyArticleEditor();
     const ke = new KE(ta, {
       modalToolbar: byId("arKeToolbar") || undefined,
-      // KuroEditor's built-in periodic autosave interval (per-app tunable).
-      autoSaveInterval: AUTOSAVE_INTERVAL_MS,
+      // Host-managed saving: hide KuroEditor's own 保存 button + 自動保存 checkbox
+      // and disable its internal autosave timer. KuroCMS owns the save/autosave UI
+      // (bottom bar), so the two never disagree. onDirty still fires for every
+      // edit (incl. decoration-only), and we call ke.clearDirty() after a body
+      // save to keep KuroEditor's dirty state aligned.
+      saveUi: false,
       // キャンバスをアクティブテンプレートの body 配色に一致させる（/api/fonts
       // の editorCanvas 由来）。テンプレートの配色は1組なので両モードのスロット
       // に同じ値を渡し（canvasDarkColors は KE 2.4.0+）、どちらのモードでも
@@ -1566,6 +1609,17 @@ async function newArticle(editDid: Dynamic) {
     byId("arSaveBtn")?.addEventListener("click", function () {
       clearTimeout(autoSaveTimer);
       doSave();
+    });
+    byId("arAutoSaveCheck")?.addEventListener("change", function () {
+      const on = !!(byId("arAutoSaveCheck") as Dynamic)?.checked;
+      setAutoSaveEnabled(on);
+      if (on) {
+        // Turning it on flushes nothing immediately; just arm the timer if there
+        // are pending edits so they get picked up on the next tick.
+        if (art.dirty) scheduleAutoSave();
+      } else {
+        clearTimeout(autoSaveTimer);
+      }
     });
     // Reflect the current dirty/saving state on the freshly rendered buttons.
     updateSaveButtons();
