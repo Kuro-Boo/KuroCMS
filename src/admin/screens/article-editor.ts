@@ -737,18 +737,14 @@ async function newArticle(editDid: Dynamic) {
       // top save button were removed (article status is shown in the article
       // list / bottom bar, and saving uses the bottom-bar button), so category
       // fills the space freed at the top of this panel.
+      // No "カテゴリ" label: the ＋カテゴリ追加 button already names the field.
       "<div>" +
-      "<span class='fieldLabel'>" +
-      escapeHtml(t("categoryLabel")) +
-      "</span>" +
-      "<div style='margin-top:6px'>" +
       "<button type='button' id='arCatBtn' style='font-size:12px;padding:5px 12px'" +
       dis +
       ">＋" +
       escapeHtml(t("categoryAddBtn")) +
       "</button>" +
       "<div id='arCatTags' style='display:flex;gap:4px;flex-wrap:wrap;margin-top:6px'></div>" +
-      "</div>" +
       "</div>" +
       "<label>" +
       escapeHtml(t("articleTypeLabel")) +
@@ -814,9 +810,6 @@ async function newArticle(editDid: Dynamic) {
       "</label>" +
       "</div>" +
       "</div>" +
-      // Init diagnostics (dev console is not available to the user; surface the
-      // dropdown/body load results on-screen so failures are observable).
-      "<div id='arInitDiag' style='font-size:11px;color:var(--muted);font-family:monospace;margin:2px 2px 10px;word-break:break-all'></div>" +
       // BODY (Title + Summary are in the left column of the top grid)
       "<div class='articleBodyWrap' style='border-top:none'>" +
       "<span class='fieldLabel'>" +
@@ -865,44 +858,9 @@ async function newArticle(editDid: Dynamic) {
     // Transient stale-bundle failure → reload once automatically.
     if (editorAutoRecover()) return;
     const msg = errorMessage(e) || String(e);
-    const el = byId("arInitDiag");
-    if (el) el.textContent = t("initRenderError") + " (render): " + msg;
     toast(t("initRenderError") + ": " + msg, true);
     throw e;
   }
-
-  // ── Init diagnostics: the user cannot open the dev console, so surface the
-  // load results of each dropdown on-screen (#arInitDiag). Updated as each
-  // async step settles. ──────────────────────────────────────────────────────
-  const diag: Dynamic = {
-    types: null, // number of types loaded, or "ERR"
-    typeMatch: null, // art.tid present in the loaded list?
-    langs: null, // number of languages loaded, or "ERR"
-    langMatch: null, // art.lang present in the loaded list?
-  };
-  function renderDiag() {
-    const el = byId("arInitDiag");
-    if (!el) return;
-    const mark = function (b: Dynamic) {
-      return b === null ? "" : b ? "✓" : "✗" + t("notRegistered");
-    };
-    el.textContent =
-      "diag · types=" +
-      (diag.types === null ? "…" : diag.types) +
-      " langs=" +
-      (diag.langs === null ? "…" : diag.langs) +
-      " · tid=" +
-      (art.tid || "-") +
-      mark(diag.typeMatch) +
-      " · lang=" +
-      (art.lang || "-") +
-      mark(diag.langMatch) +
-      " · r2=" +
-      (r2Ok ? "yes" : "no") +
-      " · body.len=" +
-      (art.body || "").length;
-  }
-  renderDiag();
 
   // ── Dynamic field population (types / languages / categories) ───────────────
   // These selects are rebuilt by every renderPage() (e.g. draft toggle, cover
@@ -915,15 +873,14 @@ async function newArticle(editDid: Dynamic) {
   let langsPromise: Dynamic = null;
 
   function fillTypeSelect(types: Dynamic) {
-    diag.types = types.length;
     const codes = types.map(function (tp: Dynamic) {
       return tp.tid || tp.id || "";
     });
     // Preserve the current value even if it isn't in the registered list, so it
     // stays visible and is not silently dropped on save.
-    diag.typeMatch = !art.tid || codes.indexOf(art.tid) !== -1;
+    const typeRegistered = !art.tid || codes.indexOf(art.tid) !== -1;
     const sel = byId("arType");
-    if (!sel) return renderDiag();
+    if (!sel) return;
     let options =
       "<option value=''>" +
       escapeHtml(t("selectTypeEmpty")) +
@@ -940,7 +897,7 @@ async function newArticle(editDid: Dynamic) {
           );
         })
         .join("");
-    if (art.tid && !diag.typeMatch)
+    if (art.tid && !typeRegistered)
       options +=
         "<option value='" +
         escapeHtml(art.tid) +
@@ -949,7 +906,6 @@ async function newArticle(editDid: Dynamic) {
         "</option>";
     sel.innerHTML = options;
     if (art.tid) sel.value = art.tid;
-    renderDiag();
   }
 
   function loadTypes() {
@@ -961,12 +917,10 @@ async function newArticle(editDid: Dynamic) {
       });
     typesPromise.then(fillTypeSelect).catch(function (err: Dynamic) {
       typesPromise = null; // allow a later re-render to retry the fetch
-      diag.types = "ERR";
       const sel = byId("arType");
       if (sel)
         sel.innerHTML =
           "<option value=''>" + escapeHtml(t("typeLoadFailed")) + "</option>";
-      renderDiag();
       toast(t("typeLoadFailed") + errorMessage(err), true);
     });
   }
@@ -974,7 +928,6 @@ async function newArticle(editDid: Dynamic) {
   function fillLangSelect(payload: Dynamic) {
     const langs = payload.langs;
     const defaultLang = payload.defaultLang;
-    diag.langs = langs.length;
     const codes = langs.map(function (lg: Dynamic) {
       return lg.lang || lg.id || "";
     });
@@ -983,13 +936,12 @@ async function newArticle(editDid: Dynamic) {
       if (code) langNames[code] = lg.displayName || lg.name || code;
     }
     const currentLang = art.lang || defaultLang;
-    diag.langMatch = !art.lang || codes.indexOf(art.lang) !== -1;
     const sel = byId("arLang");
-    if (!sel) return renderDiag();
+    if (!sel) return;
     if (!langs.length && !art.existingLangs.length) {
       sel.innerHTML =
         "<option value=''>" + escapeHtml(t("noLanguages")) + "</option>";
-      return renderDiag();
+      return;
     }
     // Dropdown candidates = registered languages ∪ this article's existing
     // translation langs. Mark which already have content vs. "(new)".
@@ -1026,7 +978,6 @@ async function newArticle(editDid: Dynamic) {
     sel.value = currentLang;
     if (!sel.value && candidates.length) sel.value = candidates[0].code;
     if (!art.lang) art.lang = sel.value;
-    renderDiag();
   }
 
   function loadLanguages() {
@@ -1049,12 +1000,10 @@ async function newArticle(editDid: Dynamic) {
       });
     langsPromise.then(fillLangSelect).catch(function (err: Dynamic) {
       langsPromise = null; // allow a later re-render to retry the fetch
-      diag.langs = "ERR";
       const sel = byId("arLang");
       if (sel)
         sel.innerHTML =
           "<option value=''>" + escapeHtml(t("langLoadFailed")) + "</option>";
-      renderDiag();
       toast(t("langLoadFailed") + errorMessage(err), true);
     });
   }
