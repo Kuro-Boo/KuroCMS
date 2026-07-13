@@ -285,8 +285,8 @@ export function adminHtml(
       .fieldLabel { font-size: 12px; font-weight: 700; color: var(--muted); margin-bottom: 4px; display: block; }
       .articleEditorPage label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; font-weight: 700; color: var(--muted); }
       .articleEditorPage label input, .articleEditorPage label textarea, .articleEditorPage label select { color: var(--ink); font-weight: 400; margin-top: 0; }
-      .helpBtn { background: rgba(255,182,193,.18) !important; border: 1px solid rgba(220,80,110,.30) !important; color: rgb(185,50,80) !important; padding: 3px 9px !important; border-radius: 12px !important; font-size: 11px !important; font-weight: 600 !important; cursor: pointer; white-space: nowrap; transition: background .15s; flex-shrink: 0; box-shadow: none !important; }
-      .helpBtn:hover { background: rgba(255,182,193,.38) !important; }
+      .helpBtn { background: rgba(128,128,128,.12) !important; border: 1px solid var(--line) !important; color: var(--muted) !important; padding: 3px 9px !important; border-radius: 12px !important; font-size: 11px !important; font-weight: 600 !important; cursor: pointer; white-space: nowrap; transition: background .15s; flex-shrink: 0; box-shadow: none !important; }
+      .helpBtn:hover { background: rgba(128,128,128,.22) !important; }
       .headerRight { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; margin-left: auto; }
       .editorHeadActions { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; flex: 0 0 auto; margin-left: auto; }
       .editorHeadTools { display: flex; align-items: center; gap: 8px; }
@@ -299,7 +299,7 @@ export function adminHtml(
       .editorLockOverlay span { font-weight: 700; font-size: 16px; color: #fff; background: rgba(15,20,30,.80); padding: 12px 22px; border-radius: 12px; text-align: center; max-width: 90%; box-shadow: 0 6px 24px rgba(0,0,0,.3); }
       .headerLocale { min-width: auto !important; width: auto; font-size: 12px; padding: 4px 8px; border-radius: 10px; cursor: pointer; }
       .helpDialog { position: fixed; top: 72px; right: clamp(8px, 2vw, 20px); width: clamp(0px, calc(100vw - 16px), 90vw); max-width: 90vw; max-height: calc(100vh - 96px); background: var(--surface); border: 1.5px solid var(--line-strong); border-radius: var(--radius); box-shadow: 0 10px 40px rgba(0,0,0,.18); z-index: 2000; display: flex; flex-direction: column; overflow: hidden; }
-      .helpDialogHead { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid var(--line); background: rgba(255,182,193,.10); flex-shrink: 0; cursor: move; }
+      .helpDialogHead { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid var(--line); background: var(--surface-2); flex-shrink: 0; cursor: move; }
       .helpDialogTitle { font-weight: 800; font-size: 14px; }
       .helpDialogClose { background: none; border: none; font-size: 20px; cursor: pointer; color: var(--muted); padding: 2px 6px; line-height: 1; border-radius: 6px; }
       .helpDialogClose:hover { background: var(--surface-2); }
