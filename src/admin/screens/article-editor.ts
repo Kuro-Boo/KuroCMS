@@ -818,7 +818,10 @@ async function newArticle(editDid: Dynamic) {
       "'" +
       dis +
       " /></label>" +
-      "<label>Slug" +
+      // Existing docs fold the read-only/copy note into the label; new docs keep
+      // the plain "Slug" label plus the editable-slug hint line below.
+      "<label>" +
+      escapeHtml(art.did ? "Slug（" + t("slugLabelNote") + "）" : "Slug") +
       "<input id='arSlug' placeholder='my-article-slug' value='" +
       escapeHtml(art.slug) +
       "'" +
@@ -829,13 +832,11 @@ async function newArticle(editDid: Dynamic) {
           "'"
         : dis) +
       " />" +
-      "<span style='font-size:11px;color:var(--muted)'>" +
-      escapeHtml(
-        art.did
-          ? t("slugReadonly") + " ・ " + t("slugCopyHint")
-          : t("slugHint"),
-      ) +
-      "</span>" +
+      (art.did
+        ? ""
+        : "<span style='font-size:11px;color:var(--muted)'>" +
+          escapeHtml(t("slugHint")) +
+          "</span>") +
       "</label>" +
       "</div>" +
       "</div>" +
