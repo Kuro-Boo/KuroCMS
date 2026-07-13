@@ -121,7 +121,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.8.27";
+export const KUROCMS_VERSION = "1.8.28";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -901,16 +901,6 @@ async function handleApiDispatch(
       return withJsonHeaders(
         await siteContentDelete(request, env, user, siteContentMatch[1]),
       );
-    }
-
-    // One-off: normalize legacy "_" media IDs (img_146) to "-" (img-146).
-    // NOTE: not under /api/admin/* — that prefix is rewritten to /api/* by
-    // normalizeAdminApiPath (the admin SPA's API access path).
-    if (
-      request.method === "POST" &&
-      path === "/api/system/migrate-mid-separator"
-    ) {
-      return withJsonHeaders(await migrateMidSeparator(request, env, user));
     }
 
     // Build scheduling mode: "manual" | "auto" | "always" (KV-backed).
@@ -4547,7 +4537,7 @@ async function workerSecretsSettings(
       tokenConfigured,
       accountId,
       workerName,
-      note: "Credentials are stored as Cloudflare Worker Secrets, set automatically by kurocms_manual_deploy.sh.",
+      note: "Credentials are stored as Cloudflare Worker Secrets, set automatically by the KuroCMS installer.",
     },
   });
 }
@@ -6421,110 +6411,6 @@ async function deleteMediaAsset(
   return json({ ok: true }, { status: 200 });
 }
 
-/**
- * One-off migration: normalize legacy media IDs that use "_" (e.g. img_146) to
- * the "-" separator (img-146) so every [[...]] token is consistent. Renames the
- * R2 object (copy → delete), updates media_assets (mid + public_path), and — once
- * every asset is migrated — rewrites the [[img_/vid_/aud_]] references in article
- * bodies, revisions, SEO cover fields and site-text content, then clears the page
- * build cache so the next build regenerates pages with the new URLs.
- *
- * Idempotent + chunked: it only touches assets whose mid still contains "_", and
- * processes up to `maxAssets` per call (R2 get+put+delete + a D1 write each), so
- * the client loops until `remaining` reaches 0.
- */
-async function migrateMidSeparator(
-  request: Request,
-  env: Env,
-  user: AuthUser,
-): Promise<Response> {
-  requireAdmin(user);
-  const body = await readJson(request).catch(
-    () => ({}) as Record<string, unknown>,
-  );
-  const maxAssets =
-    typeof body.maxAssets === "number" && body.maxAssets > 0
-      ? Math.min(200, Math.floor(body.maxAssets))
-      : 60;
-
-  // Legacy-format assets: mid still uses "_" (LIKE escapes it as a literal).
-  const rows = await env.DB.prepare(
-    "SELECT mid, public_path AS publicPath FROM media_assets WHERE mid LIKE '%\\_%' ESCAPE '\\' ORDER BY mid LIMIT ?",
-  )
-    .bind(maxAssets)
-    .all<{ mid: string; publicPath: string }>();
-  const assets = rows.results ?? [];
-  const bucket = env.MEDIA_BUCKET as R2Bucket | undefined;
-
-  let migrated = 0;
-  const errors: string[] = [];
-  for (const a of assets) {
-    const newMid = a.mid.replace("_", "-");
-    const newPath = a.publicPath.replace(a.mid, newMid);
-    try {
-      if (bucket) {
-        const oldKey = a.publicPath.replace(/^\//, "").split("?")[0];
-        const newKey = newPath.replace(/^\//, "").split("?")[0];
-        // Copy-before-delete: only remove the old object after the new one is
-        // written, so a failure mid-way never loses the file.
-        const obj = await bucket.get(oldKey);
-        if (obj) {
-          await bucket.put(newKey, obj.body, {
-            httpMetadata: obj.httpMetadata,
-            customMetadata: obj.customMetadata,
-          });
-          await bucket.delete(oldKey);
-        }
-      }
-      await env.DB.prepare(
-        "UPDATE media_assets SET mid = ?, public_path = ? WHERE mid = ?",
-      )
-        .bind(newMid, newPath, a.mid)
-        .run();
-      migrated++;
-    } catch (err) {
-      errors.push(`${a.mid}: ${String(err)}`);
-    }
-  }
-
-  const remRow = await env.DB.prepare(
-    "SELECT COUNT(*) AS cnt FROM media_assets WHERE mid LIKE '%\\_%' ESCAPE '\\'",
-  ).first<{ cnt: number }>();
-  const remaining = Number(remRow?.cnt ?? 0);
-
-  // Final pass: every asset renamed → rewrite content references + drop the
-  // build cache (forces a full rebuild with the new image URLs).
-  let referencesRewritten = false;
-  if (remaining === 0 && errors.length === 0) {
-    await env.DB.batch([
-      env.DB.prepare(
-        "UPDATE document_translations SET body_html = REPLACE(REPLACE(REPLACE(body_html,'[[img_','[[img-'),'[[vid_','[[vid-'),'[[aud_','[[aud-')",
-      ),
-      env.DB.prepare(
-        "UPDATE document_translations SET seo_json = REPLACE(REPLACE(seo_json,'\"img_','\"img-'),'/images/img_','/images/img-') WHERE seo_json LIKE '%img\\_%' ESCAPE '\\'",
-      ),
-      env.DB.prepare(
-        "UPDATE document_translation_revisions SET body_html = REPLACE(REPLACE(REPLACE(body_html,'[[img_','[[img-'),'[[vid_','[[vid-'),'[[aud_','[[aud-')",
-      ),
-      env.DB.prepare(
-        "UPDATE document_translation_revisions SET seo_json = REPLACE(REPLACE(seo_json,'\"img_','\"img-'),'/images/img_','/images/img-') WHERE seo_json LIKE '%img\\_%' ESCAPE '\\'",
-      ),
-      env.DB.prepare(
-        "UPDATE taxonomy_items SET name = REPLACE(REPLACE(REPLACE(name,'[[img_','[[img-'),'[[vid_','[[vid-'),'[[aud_','[[aud-')",
-      ),
-      env.DB.prepare("DELETE FROM page_build_cache"),
-    ]);
-    referencesRewritten = true;
-  }
-
-  await logActivity(env, user, "media.migrate_separator", "media", "*", {
-    migrated,
-    remaining,
-    referencesRewritten,
-  });
-  return json({ migrated, remaining, referencesRewritten, errors });
-}
-
 // ── Site management: templates ────────────────────────────────────────────
 
 // html2canvas は srcdoc iframe 内の相対 URL を解決できないため、
@@ -7872,7 +7758,7 @@ async function siteContentUpdate(
 }
 
 async function siteContentDelete(
-  request: Request,
+  _request: Request,
   env: Env,
   user: AuthUser,
   id: string,
@@ -8870,7 +8756,7 @@ const TW_BODY_PALETTE: Record<string, string> = {
  * Handles `bg-slate-50` style palette classes and `bg-[#hex]` arbitrary values;
  * anything else returns partial/null and the editor keeps its own defaults.
  */
-export function resolveTemplateCanvasColors(
+function resolveTemplateCanvasColors(
   sourceHtml: string,
 ): { bg?: string; text?: string } | null {
   const m = String(sourceHtml || "").match(
@@ -8909,9 +8795,11 @@ async function fonts(
   env: Env,
   user: AuthUser,
 ): Promise<Response> {
-  requireAdmin(user);
-
   if (request.method === "GET") {
+    // Read is Author-level: the article editor (an Author feature) fetches
+    // /api/fonts for its WYSIWYG base font and editorCanvas colors. Requiring
+    // Admin here silently broke both for author-only accounts.
+    requireAuthor(user);
     const url = new URL(request.url);
     const lang = (url.searchParams.get("lang") || "").trim().toLowerCase();
     if (lang) validateLanguage(lang, "lang");
@@ -8944,6 +8832,7 @@ async function fonts(
   }
 
   if (request.method === "PUT") {
+    requireAdmin(user);
     const body = await readJson(request);
     const lang = optionalString(body, "lang")?.trim().toLowerCase() || "";
     if (lang) validateLanguage(lang, "lang");
@@ -9389,7 +9278,7 @@ async function strapiImportSettings(
 }
 
 async function strapiImportPreview(
-  request: Request,
+  _request: Request,
   env: Env,
   user: AuthUser,
   url: URL,
@@ -10349,7 +10238,7 @@ async function kurocmsImportSettings(
 }
 
 async function kurocmsImportPreview(
-  request: Request,
+  _request: Request,
   env: Env,
   user: AuthUser,
   url: URL,

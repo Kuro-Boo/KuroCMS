@@ -1,6 +1,6 @@
 import type { RenderContext } from "./types";
 
-export const HTML_TEMPLATE_MARKER = "<!-- kurocms-template-api:1 -->";
+const HTML_TEMPLATE_MARKER = "<!-- kurocms-template-api:1 -->";
 
 type TemplateValue =
   | string
