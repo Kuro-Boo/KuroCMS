@@ -925,8 +925,20 @@ async function articles() {
               false,
             );
           } catch (err) {
+            // Parent post succeeded but the link reply failed: the server has
+            // already set the posted flag (a retry would duplicate the parent),
+            // so reflect the posted state instead of re-enabling the button.
+            if ((err as Dynamic)?.code === "x_reply_failed") {
+              const doc: Dynamic = allDocs.find(function (d) {
+                return d.did === snsDid;
+              });
+              if (doc) doc[snsDocField(snsSvc)] = new Date().toISOString();
+              close();
+              renderList();
+            } else {
+              snsBtn.disabled = false;
+            }
             toast(errorMessage(err), true);
-            snsBtn.disabled = false;
           }
         },
       );

@@ -59,10 +59,15 @@ function errorMessage(error: unknown, fallback = ""): string {
   const e = error as Error & { status?: number; code?: string };
   const status = e.status ? "[HTTP " + e.status + "] " : "";
   const code = e.code ? " (" + e.code + ")" : "";
+  // SNS post failures (x_/bsky_/threads_ codes) are deliberate 5xx responses
+  // about the UPSTREAM service — the Cloudflare-limit hint would mislead there
+  // (the server already embeds the upstream status/body in the message).
+  const upstreamSns = /^(x|bsky|threads)_/.test(e.code || "");
   // Surface a likely-Cloudflare-limit hint so it can be told apart from a bug.
   const limitLike =
-    (typeof e.status === "number" && e.status >= 500) ||
-    /exceed|limit|cpu|timeout|too many|rate/i.test(e.message || "");
+    !upstreamSns &&
+    ((typeof e.status === "number" && e.status >= 500) ||
+      /exceed|limit|cpu|timeout|too many|rate/i.test(e.message || ""));
   const hint = limitLike ? " — " + t("cfLimitHint") : "";
   return status + e.message + code + hint;
 }

@@ -121,7 +121,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.8.28";
+export const KUROCMS_VERSION = "1.8.29";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -3314,6 +3314,8 @@ type BlueskyPostResult =
         | "already_posted"
         | "cover_failed"
         | "post_failed";
+      /** Upstream error (service HTTP status + response snippet) for the admin toast. */
+      detail?: string;
     };
 
 /**
@@ -3492,14 +3494,11 @@ async function postBlueskyForDoc(
   try {
     await postToBluesky(handle, password, title, summary, url, image, langLine);
   } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
     console.warn(
-      JSON.stringify({
-        event: "bsky_post_failed",
-        did,
-        error: error instanceof Error ? error.message : String(error),
-      }),
+      JSON.stringify({ event: "bsky_post_failed", did, error: detail }),
     );
-    return { ok: false, code: "post_failed" };
+    return { ok: false, code: "post_failed", detail };
   }
 
   const postedAt = nowIso();
@@ -3540,10 +3539,15 @@ async function postDocumentToBluesky(
     ],
     already_posted: [409, "This article was already posted to Bluesky."],
     cover_failed: [502, "The cover image could not be prepared for Bluesky."],
-    post_failed: [502, "Posting to Bluesky failed. Check your credentials."],
+    post_failed: [502, "Posting to Bluesky failed."],
   };
   const [status, message] = failures[result.code] ?? [500, "Posting failed."];
-  throw new HttpError(status, "bsky_" + result.code, message);
+  // Surface the upstream response (e.g. "bsky createRecord failed: 401 …") so a
+  // transient service error can be told from bad credentials without opening
+  // the Worker logs.
+  const detail =
+    "detail" in result && result.detail ? ` — ${result.detail}` : "";
+  throw new HttpError(status, "bsky_" + result.code, message + detail);
 }
 
 // Post a single article to Bluesky (AT Protocol), mirroring kuro-boo's
@@ -3785,6 +3789,14 @@ function xReplyText(lang: string, url: string): string {
  * ($0.015) + reply ($0.015) is the cheaper shape. With linkInReply=false the
  * URL is appended to the parent text instead (single tweet).
  */
+/**
+ * Thrown when the parent tweet WAS posted but the link reply failed. The
+ * caller must treat the article as posted (set the flag): retrying the whole
+ * flow would post a duplicate parent, which X rejects — or worse, doubles the
+ * post if the text changed.
+ */
+class XReplyFailedError extends Error {}
+
 async function postToX(
   creds: XCreds,
   title: string,
@@ -3861,7 +3873,10 @@ async function postToX(
   const parentId = parent.data?.id || "";
 
   if (linkInReply) {
-    if (!parentId) throw new Error("x tweet returned no id for the reply");
+    // From here on the parent tweet is live — any failure must NOT be retried
+    // from scratch (duplicate parent), so it is raised as XReplyFailedError.
+    if (!parentId)
+      throw new XReplyFailedError("x tweet returned no id for the reply");
     // Reply = lead-in + URL (~50 weight) — plenty of room for the language
     // line. Still guard the 280 budget for a pathological language count.
     let replyText = xReplyText(lang, url);
@@ -3870,19 +3885,26 @@ async function postToX(
       const weight = xWeightedLength(withLangs.replace(url, "")) + X_URL_WEIGHT;
       if (weight <= 280) replyText = withLangs;
     }
-    const replyRes = await fetch(X_TWEET_URL, {
-      method: "POST",
-      headers: {
-        Authorization: await oauth1Header("POST", X_TWEET_URL, creds),
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        text: replyText,
-        reply: { in_reply_to_tweet_id: parentId },
-      }),
-    });
+    let replyRes: Response;
+    try {
+      replyRes = await fetch(X_TWEET_URL, {
+        method: "POST",
+        headers: {
+          Authorization: await oauth1Header("POST", X_TWEET_URL, creds),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          text: replyText,
+          reply: { in_reply_to_tweet_id: parentId },
+        }),
+      });
+    } catch (err) {
+      throw new XReplyFailedError(
+        `x reply fetch failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
     if (!replyRes.ok) {
-      throw new Error(
+      throw new XReplyFailedError(
         `x reply failed: ${replyRes.status} ${(await replyRes.text()).slice(0, 300)}`,
       );
     }
@@ -3899,7 +3921,12 @@ type XPostResult =
         | "not_published"
         | "already_posted"
         | "cover_failed"
-        | "post_failed";
+        | "post_failed"
+        // Parent tweet posted, link reply failed. The posted flag IS set (a
+        // retry would duplicate the parent); the admin replies manually on X.
+        | "reply_failed";
+      /** Upstream error (X HTTP status + response snippet) for the admin toast. */
+      detail?: string;
     };
 
 /** X twin of postBlueskyForDoc — same guards, sns_x_posted_at flag. */
@@ -3996,14 +4023,24 @@ async function postXForDoc(env: Env, did: string): Promise<XPostResult> {
       langLine,
     );
   } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    if (error instanceof XReplyFailedError) {
+      // The parent tweet is live: mark the article posted so a retry cannot
+      // create a duplicate parent, and tell the admin the reply is missing.
+      console.warn(
+        JSON.stringify({ event: "x_reply_failed", did, error: detail }),
+      );
+      await env.DB.prepare(
+        "UPDATE documents SET sns_x_posted_at = ? WHERE did = ? AND sns_x_posted_at IS NULL",
+      )
+        .bind(nowIso(), did)
+        .run();
+      return { ok: false, code: "reply_failed", detail };
+    }
     console.warn(
-      JSON.stringify({
-        event: "x_post_failed",
-        did,
-        error: error instanceof Error ? error.message : String(error),
-      }),
+      JSON.stringify({ event: "x_post_failed", did, error: detail }),
     );
-    return { ok: false, code: "post_failed" };
+    return { ok: false, code: "post_failed", detail };
   }
 
   const postedAt = nowIso();
@@ -4038,10 +4075,19 @@ async function postDocumentToX(
     not_published: [409, "Publish AND build the article before posting to X."],
     already_posted: [409, "This article was already posted to X."],
     cover_failed: [502, "The cover image could not be prepared for X."],
-    post_failed: [502, "Posting to X failed. Check your credentials."],
+    post_failed: [502, "Posting to X failed."],
+    reply_failed: [
+      502,
+      "Posted to X, but the link reply failed. The article is marked as posted (retrying would duplicate the parent post) — reply with the article URL manually on X.",
+    ],
   };
   const [status, message] = failures[result.code] ?? [500, "Posting failed."];
-  throw new HttpError(status, "x_" + result.code, message);
+  // Surface the upstream response (e.g. "x tweet failed: 429 …") so a rate
+  // limit / transient X error can be told from bad credentials without opening
+  // the Worker logs.
+  const detail =
+    "detail" in result && result.detail ? ` — ${result.detail}` : "";
+  throw new HttpError(status, "x_" + result.code, message + detail);
 }
 
 // ─── Threads (Meta) auto-post ─────────────────────────────────────────────────
