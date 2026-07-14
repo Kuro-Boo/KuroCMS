@@ -236,14 +236,26 @@ function buildTemplateModel(ctx: RenderContext): TemplateObject {
   );
 
   const isAbout = ctx.path === "/about" || ctx.path === "/about/";
+  // Dedicated legal pages (privacy policy / terms of service), rendered from
+  // the `privacy` / `terms` site texts — same standalone-page shape as About.
+  const isPrivacy = ctx.path === "/privacy" || ctx.path === "/privacy/";
+  const isTerms = ctx.path === "/terms" || ctx.path === "/terms/";
   return {
     page: {
       path: ctx.path,
-      // isHome must exclude the About page: /about/ has no article/type/category
-      // params, so without this guard the home block also renders on /about/.
+      // isHome must exclude the standalone pages (About/Privacy/Terms): they
+      // have no article/type/category params, so without this guard the home
+      // block would also render on them.
       isHome:
-        !isAbout && !ctx.article && !ctx.params.type && !ctx.params.category,
+        !isAbout &&
+        !isPrivacy &&
+        !isTerms &&
+        !ctx.article &&
+        !ctx.params.type &&
+        !ctx.params.category,
       isAbout,
+      isPrivacy,
+      isTerms,
       isArticle: Boolean(ctx.article),
       isType: Boolean(ctx.params.type && !ctx.article),
       isCategory: Boolean(ctx.params.category),

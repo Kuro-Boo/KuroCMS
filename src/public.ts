@@ -1548,6 +1548,18 @@ async function buildRenderContext(
   if (content["about-body"]) {
     content["about-body"] = wrapKuroContent(content["about-body"]);
   }
+  // Same for the legal pages' site texts (privacy policy / terms of service).
+  if (content["privacy"])
+    content["privacy"] = wrapKuroContent(content["privacy"]);
+  if (content["terms"]) content["terms"] = wrapKuroContent(content["terms"]);
+
+  // /privacy/ and /terms/ exist only while their site text has content (after
+  // the language fallback above): an empty key means 404 — and the matching
+  // [[privacy]]/[[terms]] template tokens expand to nothing (no dead links).
+  if ((path === "/privacy/" || path === "/privacy") && !content["privacy"])
+    return null;
+  if ((path === "/terms/" || path === "/terms") && !content["terms"])
+    return null;
 
   content["_site-name"] = settings.site_name || "";
   // Nav lists carry NO counts: counts fluctuate on every publish, so baking them
@@ -1829,6 +1841,19 @@ export async function generatePage(
       .split("[[lang]]")
       .join(buildLanguageWidget(lang, availableLangs, new Set(pageLangs)));
   }
+  // `[[privacy]]` / `[[terms]]` → links to the dedicated legal pages (same
+  // source-token family as [[lang]]/[[sid]]). Expanded to a plain inheriting
+  // <a> so the template's own footer/nav styling applies. While the backing
+  // site text is empty the token expands to nothing, so templates can embed
+  // these unconditionally without producing dead links.
+  for (const legal of ["privacy", "terms"] as const) {
+    const token = `[[${legal}]]`;
+    if (!sourceHtml.includes(token)) continue;
+    const link = ctx.content[legal]
+      ? `<a href="${seoAttr(`${ctx.basePath}/${legal}/`)}" class="kuro-legal-link kuro-legal-link--${legal}">${seoText(legalPageLabel(legal, lang))}</a>`
+      : "";
+    sourceHtml = sourceHtml.split(token).join(link);
+  }
   const adminBase = adminAssetBase(env);
   let html = injectContentStyles(renderTemplate(sourceHtml, ctx), adminBase);
   html = applyCompiledTailwind(html, template, s.base_path || "");
@@ -1980,6 +2005,12 @@ function injectSeoHead(
   } else if (ctx.params.category) {
     const cn = ctx.content["_category-name"] || ctx.params.category;
     title = siteName ? `${cn}｜${siteName}` : cn;
+  } else if (ctx.path === "/privacy/" || ctx.path === "/privacy") {
+    const pn = legalPageLabel("privacy", lang);
+    title = siteName ? `${pn}｜${siteName}` : pn;
+  } else if (ctx.path === "/terms/" || ctx.path === "/terms") {
+    const tn = legalPageLabel("terms", lang);
+    title = siteName ? `${tn}｜${siteName}` : tn;
   } else {
     title = siteName;
   }
@@ -2320,6 +2351,39 @@ const BYLINE_LABELS: Record<string, string> = {
   es: "Autor",
   uk: "Автор",
 };
+
+// Localized names of the dedicated legal pages. Used as the [[privacy]]/
+// [[terms]] link text and as the page <title> (same 9-language set as the
+// byline; unknown languages fall back to English).
+const LEGAL_PAGE_LABELS: Record<"privacy" | "terms", Record<string, string>> = {
+  privacy: {
+    ja: "プライバシーポリシー",
+    en: "Privacy Policy",
+    ko: "개인정보 처리방침",
+    zh: "隐私政策",
+    de: "Datenschutzerklärung",
+    fr: "Politique de confidentialité",
+    it: "Informativa sulla privacy",
+    es: "Política de privacidad",
+    uk: "Політика конфіденційності",
+  },
+  terms: {
+    ja: "利用規約",
+    en: "Terms of Service",
+    ko: "이용약관",
+    zh: "服务条款",
+    de: "Nutzungsbedingungen",
+    fr: "Conditions d'utilisation",
+    it: "Termini di servizio",
+    es: "Términos de servicio",
+    uk: "Умови використання",
+  },
+};
+
+function legalPageLabel(page: "privacy" | "terms", lang: string): string {
+  const labels = LEGAL_PAGE_LABELS[page];
+  return labels[lang] || labels.en;
+}
 
 /**
  * Author byline appended to the article body by the CMS (templates need not
@@ -3147,11 +3211,28 @@ export async function buildAllPublicPages(
     0,
   );
 
+  // Legal pages exist only while their site text has content in ANY language
+  // (per-language emptiness falls back / 404s inside generatePage).
+  const legalRows = await env.DB.prepare(
+    `SELECT DISTINCT id FROM taxonomy_items
+     WHERE kind = 'template' AND id IN ('privacy','terms')
+       AND TRIM(COALESCE(name, '')) != ''`,
+  ).all<{ id: string }>();
+  const hasLegalPage: Record<"privacy" | "terms", boolean> = {
+    privacy: false,
+    terms: false,
+  };
+  for (const r of legalRows.results ?? []) {
+    if (r.id === "privacy" || r.id === "terms") hasLegalPage[r.id] = true;
+  }
+
   // ── Expected page-path set (for the orphan sweep after a completed pass) ──
   // Mirrors every path this build — or the per-document incremental builds —
   // legitimately writes. Type paths are included under BOTH the taxonomy slug
   // (full build) and the raw tid (buildDocumentPages); they usually coincide.
   const expectedPaths = new Set<string>(["/", "/about/"]);
+  if (hasLegalPage.privacy) expectedPaths.add("/privacy/");
+  if (hasLegalPage.terms) expectedPaths.add("/terms/");
   for (const ym of homeMonths) {
     const [y, m] = ym.split("-");
     expectedPaths.add(`/monthly/${y}/${m}/`);
@@ -3376,6 +3457,29 @@ export async function buildAllPublicPages(
           filter,
         ),
     );
+    // Legal pages (/privacy/, /terms/) — built only while their site text has
+    // content (hasLegalPage; generatePage also yields null per empty language).
+    // When the text is emptied the path drops out of expectedPaths and the
+    // orphan sweep removes the stale bundle + build-cache row.
+    for (const legal of ["privacy", "terms"] as const) {
+      if (!hasLegalPage[legal]) continue;
+      await processPageBundle(
+        `/${legal}/`,
+        allLangs,
+        () => contentHash,
+        (lang) =>
+          generatePage(
+            env,
+            `/${legal}/`,
+            {},
+            lang,
+            template,
+            settings,
+            buildPrefetch,
+            filter,
+          ),
+      );
+    }
     for (let ti = 0; ti < types.length; ti++) {
       const t = types[ti];
       const typeHash = `${typeMaxTs.get(t.id) || ""}:${contentTs}:${tplId}:${typeLiveSig.get(t.id) || "0:"}`;
@@ -3675,6 +3779,17 @@ export async function buildSitemapXml(env: Env): Promise<string> {
   const entries: SitemapEntry[] = [];
   entries.push({ path: "/", langs: registered, lastmod: siteLastmod });
   entries.push({ path: "/about/", langs: registered });
+  // Legal pages, only while their backing site text has content (404 otherwise).
+  const legalRows = await env.DB.prepare(
+    `SELECT DISTINCT id FROM taxonomy_items
+     WHERE kind = 'template' AND id IN ('privacy','terms')
+       AND TRIM(COALESCE(name, '')) != ''`,
+  )
+    .all<{ id: string }>()
+    .catch(() => ({ results: [] as { id: string }[] }));
+  for (const r of legalRows.results ?? []) {
+    entries.push({ path: `/${r.id}/`, langs: registered });
+  }
   for (const t of types)
     entries.push({ path: `/${t.slug}/`, langs: registered });
   for (const c of categories)
@@ -4112,7 +4227,16 @@ export async function handlePublicRoute(
 
   if (pathname === "/" || pathname === "") {
     html = await generatePage(env, "/", {}, lang, template, settings);
-  } else if (pathname === "/about" || pathname === "/about/") {
+  } else if (
+    pathname === "/about" ||
+    pathname === "/about/" ||
+    pathname === "/privacy" ||
+    pathname === "/privacy/" ||
+    pathname === "/terms" ||
+    pathname === "/terms/"
+  ) {
+    // Standalone pages. /privacy/ and /terms/ 404 (null) while their site
+    // text is empty — buildRenderContext enforces it.
     html = await generatePage(env, pathname, {}, lang, template, settings);
   } else {
     // Ordered matches: month archives (3+ segments) and category before the
