@@ -394,6 +394,21 @@ async function languages() {
             (entry.local || "").toLowerCase().includes(q) ||
             entry.code.toLowerCase().includes(q),
         );
+    // Relevance order. The catalog is sorted by native label, which collates
+    // Latin scripts BEFORE Arabic/Cyrillic/CJK — so "ar" buried العربية (an
+    // exact code match) below a dozen Latin substring matches ("aragonés",
+    // "aymar aru", …) at the bottom of the scrollbox, looking like a miss.
+    // Exact code match first, then prefix matches on any name, then the rest
+    // (stable sort keeps the native-label order within each tier).
+    if (q) {
+      const tier = (entry: Dynamic): number => {
+        if (entry.code.toLowerCase() === q) return 0;
+        const names = [entry.label, entry.en, entry.local || ""];
+        if (names.some((n: string) => n.toLowerCase().startsWith(q))) return 1;
+        return 2;
+      };
+      matches.sort((a: Dynamic, b: Dynamic) => tier(a) - tier(b));
+    }
     if (!matches.length) {
       list.innerHTML =
         "<div class='langPickerEmpty'>" + escapeHtml(t("noMatches")) + "</div>";
