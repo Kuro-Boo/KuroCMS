@@ -9,6 +9,7 @@ import type {
 } from "./templates/types";
 import {
   isKuroCmsHtmlTemplate,
+  isRtlLang,
   renderTemplate,
 } from "./templates/html-template";
 import { KE_VERSION } from "./admin-assets";
@@ -1856,6 +1857,7 @@ export async function generatePage(
   }
   const adminBase = adminAssetBase(env);
   let html = injectContentStyles(renderTemplate(sourceHtml, ctx), adminBase);
+  html = applyRtlDir(html, lang);
   html = applyCompiledTailwind(html, template, s.base_path || "");
   html = injectFontHead(s, html, lang);
   html = injectSeoHead(html, s, ctx, pageLangs);
@@ -2383,6 +2385,20 @@ const LEGAL_PAGE_LABELS: Record<"privacy" | "terms", Record<string, string>> = {
 function legalPageLabel(page: "privacy" | "terms", lang: string): string {
   const labels = LEGAL_PAGE_LABELS[page];
   return labels[lang] || labels.en;
+}
+
+/**
+ * Stamp dir="rtl" on the root <html> tag for right-to-left languages (Arabic
+ * etc.). Direction is a PAGE attribute, so the core sets it template-agnostically
+ * — templates keep <html lang="[[site.lang]]"> as-is and translations stay
+ * plain HTML (Unicode bidi resolves mixed-direction runs within the text).
+ * A template that already writes its own dir attribute wins (not overridden).
+ */
+function applyRtlDir(html: string, lang: string): string {
+  if (!isRtlLang(lang)) return html;
+  return html.replace(/<html\b([^>]*)>/i, (tag, attrs: string) =>
+    /\bdir\s*=/i.test(attrs) ? tag : `<html${attrs} dir="rtl">`,
+  );
 }
 
 /**
