@@ -2,6 +2,26 @@ import type { RenderContext } from "./types";
 
 const HTML_TEMPLATE_MARKER = "<!-- kurocms-template-api:1 -->";
 
+// ISO 639-1 languages written right-to-left. Drives the page-level direction:
+// generatePage stamps dir="rtl" on <html> for these (writing direction is a
+// PAGE attribute — templates and translations stay direction-agnostic, and
+// Unicode bidi handles mixed-direction runs inside the text).
+const RTL_LANGS = new Set([
+  "ar", // Arabic
+  "dv", // Divehi
+  "fa", // Persian
+  "he", // Hebrew
+  "ps", // Pashto
+  "sd", // Sindhi
+  "ug", // Uyghur
+  "ur", // Urdu
+  "yi", // Yiddish
+]);
+
+export function isRtlLang(lang: string): boolean {
+  return RTL_LANGS.has((lang || "").toLowerCase());
+}
+
 type TemplateValue =
   | string
   | number
@@ -263,6 +283,9 @@ function buildTemplateModel(ctx: RenderContext): TemplateObject {
     site: {
       name: ctx.content["_site-name"] || "",
       lang: ctx.lang,
+      // "rtl" / "ltr" — for templates that want direction-aware markup. The
+      // page-level <html dir> is injected by the core regardless (generatePage).
+      dir: isRtlLang(ctx.lang) ? "rtl" : "ltr",
       basePath: ctx.basePath,
     },
     content,
