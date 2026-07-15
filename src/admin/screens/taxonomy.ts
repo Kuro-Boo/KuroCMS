@@ -214,7 +214,33 @@ async function languages() {
       { code: "zh", label: "中文", en: "Chinese" },
       { code: "zu", label: "isiZulu", en: "Zulu" },
     ];
-    return iso6391Languages.sort((a, b) => a.label.localeCompare(b.label));
+    // Localized language names in the admin UI language (e.g. ja: ar →
+    // "アラビア語") via the browser's Intl.DisplayNames — searching by the
+    // admin language ("アラビア") found nothing when only the native label
+    // (العربية) / English name / code were matchable, so Arabic etc. looked
+    // missing from the picker. Shown in the row and matched by the search.
+    let displayNames: Dynamic = null;
+    try {
+      displayNames = new (Intl as Dynamic).DisplayNames(
+        [state.uiLang || "en"],
+        { type: "language" },
+      );
+    } catch {
+      /* Intl.DisplayNames unsupported — search still matches native/en/code */
+    }
+    const withLocal = iso6391Languages.map((entry) => {
+      let local = "";
+      try {
+        local = displayNames ? displayNames.of(entry.code) || "" : "";
+      } catch {
+        /* unknown code in this browser — keep empty */
+      }
+      // DisplayNames returns the code itself for unknown languages; and a
+      // local name identical to the native label adds nothing to the row.
+      if (local === entry.code || local === entry.label) local = "";
+      return { ...entry, local };
+    });
+    return withLocal.sort((a, b) => a.label.localeCompare(b.label));
   }
 
   function renderAvailableOptions() {
@@ -365,6 +391,7 @@ async function languages() {
             entry.code === selectedCode ||
             entry.label.toLowerCase().includes(q) ||
             entry.en.toLowerCase().includes(q) ||
+            (entry.local || "").toLowerCase().includes(q) ||
             entry.code.toLowerCase().includes(q),
         );
     if (!matches.length) {
@@ -380,7 +407,13 @@ async function languages() {
           "' data-lang-code='" +
           escapeHtml(entry.code) +
           "'>" +
-          escapeHtml(entry.label + " (" + entry.code + ")") +
+          escapeHtml(
+            entry.label +
+              " (" +
+              entry.code +
+              ")" +
+              (entry.local ? " — " + entry.local : ""),
+          ) +
           "</div>",
       )
       .join("");
