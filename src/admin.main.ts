@@ -257,7 +257,13 @@ async function prepareImageForUpload(file: File): Promise<PreparedUploadImage> {
 const tokenKey = "kurocms_pat";
 const uiLangKey = "kurocms_ui_lang";
 const colorModeKey = "kurocms_color_mode";
-const defaultAdminLogo = "https://kuro.boo/favicon.svg";
+// Built-in brand mark (assets/logo.svg, base64 data URL). Self-contained on
+// purpose: the previous default pointed at https://kuro.boo/favicon.svg —
+// CONTENT of one specific KuroCMS site — so every installation's admin logo
+// broke whenever that site's favicon setting changed (and each admin load
+// made an external request).
+const defaultAdminLogo =
+  "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj4KICA8IS0tIE11bHRpcGxlIExheWVycyAvIENvbGxlY3Rpb24gQ29uY2VwdCAtLT4KICA8cGF0aCBkPSJNNDUsMzUgTDg1LDM1IEw4NSw4NSBMNDUsODUgWiIgZmlsbD0iIzhmM2QyZSIgb3BhY2l0eT0iMC4yIiB0cmFuc2Zvcm09InJvdGF0ZSg1IDY1IDYwKSIvPgogIDxwYXRoIGQ9Ik0zNSwyNSBMNzUsMjUgTDc1LDc1IEwzNSw3NSBaIiBmaWxsPSIjOGYzZDJlIiBvcGFjaXR5PSIwLjQiIHRyYW5zZm9ybT0icm90YXRlKC0zIDU1IDUwKSIvPgogIAogIDwhLS0gVGhlIEJsYWNrIFJhYmJpdCAoTWFpbiBDb250ZW50IC8gSWRlbnRpdHkpIC0tPgogIDwhLS0gQm9keSBhcyBhICdDYXJkJyAtLT4KICA8cmVjdCB4PSIyMCIgeT0iMjAiIHdpZHRoPSI0NSIgaGVpZ2h0PSI1NSIgcng9IjYiIGZpbGw9IiMyNzIzMWYiLz4KICAKICA8IS0tIEVhcnMgKFJhYmJpdCBJZGVudGl0eSkgLS0+CiAgPHBhdGggZD0iTTI4LDIwIEMyOCw1IDM0LDAgMzYsMTUgTDQwLDIwIiBmaWxsPSIjMjcyMzFmIi8+CiAgPHBhdGggZD0iTTQ1LDIwIEM0NSw1IDUxLDAgNTMsMTUgTDU3LDIwIiBmaWxsPSIjMjcyMzFmIi8+CiAgCiAgPCEtLSBVcGRhdGUgLyBTeW5jIE1vdGlmIChUaGUgQ3VydmUpIC0tPgogIDxwYXRoIGQ9Ik03MCw1NSBBMjUsMjUgMCAwLDEgNDUsODAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzhmM2QyZSIgc3Ryb2tlLXdpZHRoPSI2IiBzdHJva2UtbGluZWNhcD0icm91bmQiLz4KICA8cGF0aCBkPSJNNDUsODAgTDUyLDc0IE00NSw4MCBMNTIsODYiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzhmM2QyZSIgc3Ryb2tlLXdpZHRoPSI2IiBzdHJva2UtbGluZWNhcD0icm91bmQiLz4KICAKICA8IS0tIEV5ZSAoU21hbGwgRGV0YWlsKSAtLT4KICA8Y2lyY2xlIGN4PSIzMyIgY3k9IjMyIiByPSIyLjUiIGZpbGw9IiM4ZjNkMmUiLz4KPC9zdmc+Cg==";
 const localeNames: Record<string, string> = {
   en: "English",
   ja: "日本語",
