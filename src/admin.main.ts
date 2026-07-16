@@ -2568,14 +2568,13 @@ function routePath() {
 }
 
 function renderLogoHtml() {
-  if (state.adminLogo) {
-    return (
-      "<img src='" +
-      escapeHtml(state.adminLogo) +
-      "' style='width:38px; height:38px; border-radius:8px; object-fit:cover;' />"
-    );
-  }
-  return "<div class='brandMark'><svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><path d='M45,35 L85,35 L85,85 L45,85 Z' fill='currentColor' opacity='0.2' transform='rotate(5 65 60)'/><path d='M35,25 L75,25 L75,75 L35,75 Z' fill='currentColor' opacity='0.4' transform='rotate(-3 55 50)'/><rect x='20' y='20' width='45' height='55' rx='6' fill='currentColor' opacity='0.9'/><path d='M28,20 C28,5 34,0 36,15 L40,20' fill='currentColor'/><path d='M45,20 C45,5 51,0 53,15 L57,20' fill='currentColor'/><circle cx='33' cy='32' r='2.5' fill='var(--accent)'/></svg></div>";
+  // adminLogo is never empty: normalizeAdminLogo falls back to
+  // defaultAdminLogo (the brand favicon URL) when the setting is unset.
+  return (
+    "<img src='" +
+    escapeHtml(state.adminLogo || defaultAdminLogo) +
+    "' style='width:38px; height:38px; border-radius:8px; object-fit:cover;' />"
+  );
 }
 
 function setActiveNav() {
@@ -2832,15 +2831,7 @@ function normalizeLanguages(values: Dynamic, fallback = ["en"]) {
 
 function normalizeAdminLogo(value: Dynamic) {
   const logo = String(value || "").trim();
-  if (!logo) return defaultAdminLogo;
-  if (
-    logo.startsWith("data:image/svg+xml") &&
-    logo.includes("M45,35 L85,35 L85,85 L45,85") &&
-    logo.includes("circle cx='33' cy='32' r='2.5'")
-  ) {
-    return defaultAdminLogo;
-  }
-  return logo;
+  return logo || defaultAdminLogo;
 }
 
 async function loadTheme() {
