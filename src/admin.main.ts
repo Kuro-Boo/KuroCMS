@@ -257,13 +257,13 @@ async function prepareImageForUpload(file: File): Promise<PreparedUploadImage> {
 const tokenKey = "kurocms_pat";
 const uiLangKey = "kurocms_ui_lang";
 const colorModeKey = "kurocms_color_mode";
-// No default logo URL: when admin_logo is unset, renderLogoHtml() falls back
-// to the built-in brandMark SVG (white rabbit on the --heading accent box),
-// which is designed for the sidebar in both themes. Never point this at a
-// remote URL — the old default (https://kuro.boo/favicon.svg) was CONTENT of
-// one specific site, so every installation's logo broke when that site's
-// favicon setting changed, and each admin load made an external request.
-const defaultAdminLogo = "";
+// Default brand logo = the KuroCMS brand favicon (kuro.boo). Resolved via
+// the /favicon.svg route (302 to the site's configured favicon media).
+// NOTE(2026-07): this URL 404'd for a while — root cause was the
+// resolveFaviconPath() empty-language-row bug (fixed in v1.8.36), not this
+// constant. The brand default is the maintainer's decision; do not swap it
+// for placeholders or inlined variants.
+const defaultAdminLogo = "https://kuro.boo/favicon.svg";
 const localeNames: Record<string, string> = {
   en: "English",
   ja: "日本語",
