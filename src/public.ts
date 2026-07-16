@@ -4045,14 +4045,31 @@ export async function buildLlmsTxt(env: Env): Promise<string> {
 export async function resolveFaviconPath(env: Env): Promise<string | null> {
   const settings = await fetchSettings(env);
   const basePath = settings.base_path || "";
+  const defaultLang = settings.default_lang || "";
   const rows = await env.DB.prepare(
-    `SELECT id, name FROM taxonomy_items WHERE kind = 'template' AND id IN ('favicon','icon')`,
+    `SELECT id, name, lang FROM taxonomy_items WHERE kind = 'template' AND id IN ('favicon','icon')`,
   )
-    .all<{ id: string; name: string }>()
-    .catch(() => ({ results: [] as { id: string; name: string }[] }));
-  const byId: Record<string, string> = {};
-  for (const r of rows.results ?? []) if (!(r.id in byId)) byId[r.id] = r.name;
-  const value = byId["favicon"] || byId["icon"] || "";
+    .all<{ id: string; name: string; lang: string }>()
+    .catch(() => ({
+      results: [] as { id: string; name: string; lang: string }[],
+    }));
+  // Same fallback semantics as fetchTemplateContent: an EMPTY per-language row
+  // must never shadow a non-empty one. The editor writes per-language rows and
+  // language registration seeds blank rows, so an unordered "first row wins"
+  // here picked a blank and 404'd even though the favicon was configured.
+  // Priority among non-empty rows: default_lang → '' (canonical) → the rest.
+  const pick = (id: string): string => {
+    const mine = (rows.results ?? []).filter(
+      (r) => r.id === id && (r.name || "").trim(),
+    );
+    const rank = (lang: string) =>
+      lang === defaultLang ? 0 : lang === "" ? 1 : 2;
+    mine.sort(
+      (a, b) => rank(a.lang) - rank(b.lang) || a.lang.localeCompare(b.lang),
+    );
+    return mine.length ? mine[0].name : "";
+  };
+  const value = pick("favicon") || pick("icon");
   const m = value.match(/\[\[([a-z0-9_-]+)\]\]/);
   if (!m) return null;
   const asset = await env.DB.prepare(
