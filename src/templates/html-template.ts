@@ -309,7 +309,9 @@ function buildTemplateModel(ctx: RenderContext): TemplateObject {
     },
     integrations: {
       blueskyHandle: ctx.content["_bluesky-handle"] || "",
-      showBlueskyFeed: ctx.content["_bluesky-show-feed"] === "true",
+      // showBlueskyFeed was retired with the settings feed toggle: feed
+      // placement is template-driven via the [[sid]] tokens (spec §12).
+      // Templates still referencing it resolve to empty/false harmlessly.
     },
   };
 }
