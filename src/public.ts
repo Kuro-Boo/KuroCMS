@@ -144,8 +144,6 @@ interface SettingsMap {
   public_domain?: string;
   ga4_measurement_id?: string;
   bluesky_handle?: string;
-  bluesky_show_feed?: string;
-  bluesky_feed_position?: string;
   bluesky_sid?: string;
   template_id?: string;
   base_path?: string;
@@ -160,8 +158,7 @@ interface SettingsMap {
 async function fetchSettings(env: Env): Promise<SettingsMap> {
   const row = await env.DB.prepare(
     `SELECT site_name, site_description, public_domain, ga4_measurement_id,
-            bluesky_handle, bluesky_show_feed,
-            bluesky_feed_position, bluesky_sid, template_id, default_lang,
+            bluesky_handle, bluesky_sid, template_id, default_lang,
             fonts_json, base_font, font_configs_json
      FROM site_settings WHERE id = 1`,
   ).first<{
@@ -170,8 +167,6 @@ async function fetchSettings(env: Env): Promise<SettingsMap> {
     public_domain: string;
     ga4_measurement_id: string;
     bluesky_handle: string;
-    bluesky_show_feed: number;
-    bluesky_feed_position: string;
     bluesky_sid: string;
     template_id: string;
     default_lang: string;
@@ -192,8 +187,6 @@ async function fetchSettings(env: Env): Promise<SettingsMap> {
     public_domain: row?.public_domain || "",
     ga4_measurement_id: row?.ga4_measurement_id || "",
     bluesky_handle: row?.bluesky_handle || "",
-    bluesky_show_feed: row?.bluesky_show_feed ? "true" : "false",
-    bluesky_feed_position: row?.bluesky_feed_position || "left",
     bluesky_sid: row?.bluesky_sid || "",
     template_id: row?.template_id || "",
     base_path: basePath,
@@ -1571,8 +1564,6 @@ async function buildRenderContext(
     categories.map(({ count: _c, ...c }) => c),
   );
   content["_bluesky-handle"] = settings.bluesky_handle || "";
-  content["_bluesky-show-feed"] = settings.bluesky_show_feed || "false";
-  content["_bluesky-feed-position"] = settings.bluesky_feed_position || "left";
 
   // Site-owner display name, for the About page's ProfilePage JSON-LD
   // (earliest-created admin = the installer-created owner account).

@@ -121,7 +121,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.8.39";
+export const KUROCMS_VERSION = "1.8.40";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -1230,11 +1230,10 @@ interface InvitationRow {
 }
 
 /**
- * Resolve an unused invitation by its plaintext token. Invitations are stored as
- * a SHA-256 hash (like recovery tokens / PATs); a legacy plaintext row is still
- * matched for backward compatibility so outstanding invites keep working until
- * they expire. Returns the stored PK value (`token`) so callers consume the exact
- * row. Does NOT check expiry — each caller decides how to report it.
+ * Resolve an unused invitation by its plaintext token. Invitations are stored
+ * as a SHA-256 hash (like recovery tokens / PATs). Returns the stored PK value
+ * (`token`) so callers consume the exact row. Does NOT check expiry — each
+ * caller decides how to report it.
  */
 async function lookupInvitationToken(
   env: Env,
@@ -1243,9 +1242,9 @@ async function lookupInvitationToken(
   const tokenHash = await sha256Hex(token);
   return await env.DB.prepare(
     `SELECT token, email, is_admin, is_author, expires_at
-     FROM invitation_tokens WHERE token IN (?, ?) AND used_at IS NULL`,
+     FROM invitation_tokens WHERE token = ? AND used_at IS NULL`,
   )
-    .bind(tokenHash, token)
+    .bind(tokenHash)
     .first<InvitationRow>();
 }
 
@@ -2120,7 +2119,6 @@ async function setup(request: Request, env: Env): Promise<Response> {
     public_domain: publicDomain,
     default_lang: defaultLang,
     initial_lang: initialLang,
-    enabled_languages: defaultLang,
     license_accepted_at: acceptedAt,
     license_accepted_by: result.uid,
     license_name: "Kuro License",
@@ -3063,10 +3061,6 @@ async function settings(
       (row?.default_lang as string | undefined) ??
       env.SITE_DEFAULT_LANG ??
       "en";
-    const enabledLanguages = parseLanguageList(
-      row?.enabled_languages as string | undefined,
-      [defaultLang],
-    );
     return json({
       settings: {
         siteName: (row?.site_name as string | undefined) ?? "KuroCMS",
@@ -3076,7 +3070,6 @@ async function settings(
         developmentDomain: deriveInternalPreviewUrl(request, env),
         defaultLang,
         initialLang: (row?.initial_lang as string | undefined) ?? defaultLang,
-        enabledLanguages,
         adminLogo: (row?.admin_logo as string | undefined) ?? "",
         licenseAcceptedAt:
           (row?.license_accepted_at as string | undefined) ?? "",
@@ -3092,9 +3085,6 @@ async function settings(
         themeMainPane:
           (row?.theme_main_pane as string | undefined) ?? "#f7f8fb",
         blueskyHandle: (row?.bluesky_handle as string | undefined) ?? "",
-        blueskyShowFeed: row?.bluesky_show_feed === 1,
-        blueskyFeedPosition:
-          (row?.bluesky_feed_position as string | undefined) ?? "left",
         blueskySid: (row?.bluesky_sid as string | undefined) ?? "",
         blueskyTokenSet: !!(row?.bluesky_token as string | undefined),
         xApiKeySet: !!(row?.x_api_key as string | undefined),
@@ -3102,8 +3092,6 @@ async function settings(
         xAccessTokenSet: !!(row?.x_access_token as string | undefined),
         xAccessSecretSet: !!(row?.x_access_secret as string | undefined),
         xLinkInReply: (row?.x_link_in_reply as number | undefined) !== 0,
-        threadsHandle: (row?.threads_handle as string | undefined) ?? "",
-        threadsShowFeed: row?.threads_show_feed === 1,
         threadsTokenSet: !!(row?.threads_token as string | undefined),
         siteIsPublished: (row?.site_is_published as number | undefined) === 1,
         templateId: (row?.template_id as string | undefined) ?? "",
@@ -3124,30 +3112,18 @@ async function settings(
     ).slice(0, 500);
     const ga4MeasurementId = optionalString(body, "ga4MeasurementId") ?? "";
     const publicDomain = optionalString(body, "publicDomain") ?? "";
-    const developmentDomain = deriveInternalPreviewUrl(request, env);
     const defaultLang = requireString(body, "defaultLang", { min: 2, max: 20 });
     // initial_lang (初期作成言語) is unified into default_lang: the admin UI no
     // longer exposes it, so default to default_lang when the client omits it.
     const initialLang = optionalString(body, "initialLang") ?? defaultLang;
-    const enabledLanguages = parseLanguageList(body.enabledLanguages, [
-      defaultLang,
-    ]);
     const adminLogo = optionalString(body, "adminLogo") ?? "";
     const themeAccent = optionalString(body, "themeAccent") ?? "#157a6e";
 
     const themeSidebar = optionalString(body, "themeSidebar") ?? "#ffffff";
     const themeMainPane = optionalString(body, "themeMainPane") ?? "#f7f8fb";
     const hasBlueskyHandle = "blueskyHandle" in body;
-    const hasBlueskyShowFeed = "blueskyShowFeed" in body;
-    const hasBlueskyFeedPosition = "blueskyFeedPosition" in body;
     const hasBlueskySid = "blueskySid" in body;
     const blueskyHandle = optionalString(body, "blueskyHandle") ?? "";
-    const blueskyShowFeed =
-      body.blueskyShowFeed === true || body.blueskyShowFeed === "true";
-    const blueskyFeedPosition =
-      optionalString(body, "blueskyFeedPosition") === "right"
-        ? "right"
-        : "left";
     const blueskySid = optionalString(body, "blueskySid") ?? "";
     // Bluesky app password: only update when a non-empty value is sent, so saving
     // the form without re-typing the password keeps the stored one.
@@ -3161,14 +3137,6 @@ async function settings(
     const hasXLinkInReply = "xLinkInReply" in body;
     const xLinkInReply =
       body.xLinkInReply === true || body.xLinkInReply === "true";
-    // threads_* are NOT sent by the current settings form (Threads/X/etc. are
-    // managed via external_connections). Like ga4/siteDescription, only update
-    // them when explicitly present so a settings save doesn't reset them.
-    const hasThreadsHandle = "threadsHandle" in body;
-    const hasThreadsShowFeed = "threadsShowFeed" in body;
-    const threadsHandle = optionalString(body, "threadsHandle") ?? "";
-    const threadsShowFeed =
-      body.threadsShowFeed === true || body.threadsShowFeed === "true";
 
     if (publicDomain) validateDomain(publicDomain, "publicDomain");
     if (ga4MeasurementId && !/^G-[A-Z0-9]+$/.test(ga4MeasurementId)) {
@@ -3180,9 +3148,6 @@ async function settings(
     }
     validateLanguage(defaultLang, "defaultLang");
     validateLanguage(initialLang, "initialLang");
-    for (const lang of enabledLanguages) {
-      validateLanguage(lang, "enabledLanguages");
-    }
     validateHexColor(themeAccent, "themeAccent");
     validateHexColor(themeSidebar, "themeSidebar");
     validateHexColor(themeMainPane, "themeMainPane");
@@ -3190,10 +3155,8 @@ async function settings(
     const settingsToSave: Record<string, string | number> = {
       site_name: siteName,
       public_domain: publicDomain,
-      development_domain: developmentDomain,
       default_lang: defaultLang,
       initial_lang: initialLang,
-      enabled_languages: enabledLanguages.join(","),
       admin_logo: adminLogo,
       theme_accent: themeAccent,
       theme_sidebar: themeSidebar,
@@ -3201,18 +3164,9 @@ async function settings(
     };
     // Preserve unless explicitly provided (see notes above).
     if (hasBlueskyHandle) settingsToSave.bluesky_handle = blueskyHandle;
-    // INTEGER columns: store 1/0, not "true"/"false". A text value left the
-    // admin GET (`=== 1`) and public read (truthy) disagreeing.
-    if (hasBlueskyShowFeed)
-      settingsToSave.bluesky_show_feed = blueskyShowFeed ? 1 : 0;
-    if (hasBlueskyFeedPosition)
-      settingsToSave.bluesky_feed_position = blueskyFeedPosition;
     if (hasBlueskySid) settingsToSave.bluesky_sid = blueskySid;
     if (hasSiteDescription) settingsToSave.site_description = siteDescription;
     if (hasGa4) settingsToSave.ga4_measurement_id = ga4MeasurementId;
-    if (hasThreadsHandle) settingsToSave.threads_handle = threadsHandle;
-    if (hasThreadsShowFeed)
-      settingsToSave.threads_show_feed = threadsShowFeed ? 1 : 0;
     if (hasBlueskyToken) settingsToSave.bluesky_token = blueskyToken;
     // Threads access token: only update when non-empty; a new token may belong
     // to a different account, so the cached threads_user_id is reset with it.
@@ -3231,10 +3185,8 @@ async function settings(
     await logActivity(env, user, "settings.update", "settings", "site", {
       siteName,
       publicDomain,
-      developmentDomain,
       defaultLang,
       initialLang,
-      enabledLanguages,
       themeAccent,
       themeSidebar,
       themeMainPane,
@@ -8505,24 +8457,6 @@ function isSensitiveDebugKey(key: string): boolean {
   );
 }
 
-function parseLanguageList(value: unknown, fallback: string[]): string[] {
-  const fallbackList = fallback.map((item) => item.toLowerCase());
-  const source = Array.isArray(value)
-    ? value
-    : typeof value === "string"
-      ? value
-          .split(",")
-          .map((item) => item.trim())
-          .filter(Boolean)
-      : [];
-  const normalized = source
-    .filter((item): item is string => typeof item === "string")
-    .map((item) => item.trim().toLowerCase())
-    .filter(Boolean);
-  const unique = Array.from(new Set(normalized));
-  return unique.length ? unique : fallbackList;
-}
-
 async function countUsers(env: Env): Promise<number> {
   const row = await env.DB.prepare(
     "SELECT COUNT(*) AS count FROM users",
@@ -8537,17 +8471,13 @@ const SETTINGS_COLS = new Set([
   "site_description",
   "ga4_measurement_id",
   "public_domain",
-  "development_domain",
   "default_lang",
   "initial_lang",
-  "enabled_languages",
   "admin_logo",
   "theme_accent",
   "theme_sidebar",
   "theme_main_pane",
   "bluesky_handle",
-  "bluesky_show_feed",
-  "bluesky_feed_position",
   "bluesky_sid",
   "bluesky_token",
   "x_api_key",
@@ -8556,8 +8486,6 @@ const SETTINGS_COLS = new Set([
   "x_access_secret",
   "x_link_in_reply",
   "sns_auto_post",
-  "threads_handle",
-  "threads_show_feed",
   "threads_token",
   "threads_user_id",
   "license_accepted_at",

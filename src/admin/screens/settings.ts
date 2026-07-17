@@ -669,10 +669,6 @@ async function settings() {
         themeSidebar: "#ffffff",
         themeMainPane: "#ffffff",
         blueskyHandle: "kuroboo.bsky.social",
-        blueskyShowFeed: true,
-        blueskyFeedPosition: "left",
-        threadsHandle: "",
-        threadsShowFeed: false,
         licenseName: "Kuro License",
         licenseAttributionPhrase: "with KuroCMS",
         licenseAcceptedAt: new Date().toISOString(),
@@ -688,10 +684,7 @@ async function settings() {
       languageOptions = (langData.languages || []).map((r: Dynamic) => r.lang);
     }
 
-    if (!languageOptions.length)
-      languageOptions = normalizeLanguages(s.enabledLanguages, [
-        s.defaultLang || "en",
-      ]);
+    if (!languageOptions.length) languageOptions = [s.defaultLang || "en"];
     renderLanguageSelects(languageOptions, s.defaultLang);
 
     // Basic (siteName moved to the Site Management screen)

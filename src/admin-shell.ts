@@ -81,7 +81,6 @@ export function adminHtml(
       body.sidebarResizing { user-select: none; cursor: col-resize; }
       aside { position: sticky; top: 0; height: 100vh; border-right: 1px solid var(--line); background: var(--theme-sidebar); color: var(--ink); padding: 24px 18px; transition: width 220ms ease; display: flex; flex-direction: column; z-index: 50; }
       .brand { display: grid; grid-template-columns: 40px 1fr; gap: 12px; align-items: center; margin-bottom: 30px; }
-      .brandMark { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 10px; background: var(--heading); color: #fff; font-weight: 800; flex-shrink: 0; }
       aside h1 { margin: 0; font-size: 18px; line-height: 1.1; letter-spacing: -0.02em; color: var(--heading) !important; font-weight: 800; display: flex; align-items: baseline; gap: 2px; }
       .brandAccent { color: var(--ink); opacity: 0.6; font-weight: 600; }
       .brandSub { color: var(--muted); font-size: 11px; margin-top: 4px; font-weight: 600; }
@@ -762,7 +761,7 @@ export function adminHtml(
     <div class="app">
       <aside>
         <div class="brand">
-          <div class="brandMark"></div>
+          <div style="width:40px;height:40px;flex-shrink:0"></div>
           <div>
             <h1>Kuro<span class="brandAccent">CMS</span></h1>
             <div class="brandSub"></div>

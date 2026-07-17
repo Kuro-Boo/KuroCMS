@@ -75,8 +75,7 @@ export interface RenderContext {
    *     with [[...]] refs already expanded.
    *   - CMS-injected computed data (underscore-prefixed, read-only):
    *       _site-name, _nav-types, _nav-categories, _articles, _pagination,
-   *       _type-name, _category-name, _bluesky-handle, _bluesky-show-feed,
-   *       _bluesky-feed-position, _article-summary
+   *       _type-name, _category-name, _bluesky-handle, _article-summary
    */
   content: Record<string, string>;
   /** Article data — only present on article pages. */
