@@ -2404,12 +2404,12 @@ async function siteManagement() {
         try {
           await api(
             "/api/v1/content/" +
-              item.id +
-              "?lang=" +
+              encodeURIComponent(item.id) +
+              "/translations/" +
               encodeURIComponent(_contentActiveLang),
             {
               method: "PUT",
-              body: JSON.stringify({ name, lang: _contentActiveLang }),
+              body: JSON.stringify({ name }),
             },
           );
           destroyDlgKe();

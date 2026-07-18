@@ -121,7 +121,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.8.48";
+export const KUROCMS_VERSION = "1.8.49";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -282,8 +282,10 @@ async function handleApiDispatch(
             // management) — see guides.siteText.
             siteText: [
               "GET /api/v1/content?lang=<code> (list site-text keys + this language's values)",
+              "GET /api/v1/content/:id/translations[/:lang] (one key's languages, or one value)",
               "POST /api/v1/content (Admin; create a key across all languages)",
-              "PUT /api/v1/content/:id (Admin; set { name, lang } — value is KuroEditor HTML)",
+              "PUT /api/v1/content/:id/translations/:lang (Admin; body { name } = KuroEditor HTML)",
+              "DELETE /api/v1/content/:id/translations/:lang (Admin; clear one language)",
               "DELETE /api/v1/content/:id (Admin; remove a key in every language)",
             ],
             media: [
@@ -332,8 +334,8 @@ async function handleApiDispatch(
                 "'Site text' is the template's FIXED content blocks (footer, hero, about, logo, favicon, etc.) — the admin 'サイト文字編集' tab — and is SEPARATE from articles/translations. Each block is a key (id, e.g. about-body, footer-text, top-hero-title) holding a per-language value. Values are KuroEditor HTML and may contain [[mid]] media refs. NOTE: these endpoints are on the older /api/v1/* family (shared with template/community management), not the unversioned core API.",
               list: "GET /api/v1/content?lang=<code> -> { items:[{ id, name (the value), is_system, is_inherited, updated_at }], lang, defaultLang }. is_inherited=1 means this language has no own value yet and falls back to defaultLang. This is the key list to enumerate site text.",
               update:
-                "PUT /api/v1/content/:id { name, lang } upserts ONE key's value for ONE language (Admin). name is the KuroEditor HTML value; it may be empty to blank a block, and has no length cap. Repeat per language for multilingual text.",
-              keys: "POST /api/v1/content { id } creates a new key across every registered language with empty values (Admin). DELETE /api/v1/content/:id removes a key in ALL languages (Admin).",
+                "PUT /api/v1/content/:id/translations/:lang { name } upserts ONE key's value for ONE language (Admin) — the language is a PATH segment, mirroring article translations (/api/documents/:id/translations/:lang). name is the KuroEditor HTML value; it may be empty to blank a block, and has no length cap. Repeat per language for multilingual text. Read back with GET /api/v1/content/:id/translations/:lang (or omit :lang for all languages of the key).",
+              keys: "POST /api/v1/content { id } creates a new key across every registered language with empty values (Admin). DELETE /api/v1/content/:id/translations/:lang clears ONE language's value; DELETE /api/v1/content/:id removes the key in ALL languages (Admin).",
               publish:
                 "Site-text edits do NOT auto-rebuild (unlike article saves). Call POST /api/build (admin '今すぐビルド') to reflect them on the public site.",
             },
@@ -937,21 +939,34 @@ async function handleApiDispatch(
         await siteTemplateDelete(env, user, tmplDetailMatch[1]),
       );
     }
-    // ── Site management: single content ─────────────────────────────────────
+    // ── Site management: site text (template fixed-content blocks) ──────────
+    // Per-language values mirror the article translations shape — the language
+    // lives in the PATH: GET/PUT/DELETE /api/v1/content/:id/translations/:lang.
+    // The cross-key list stays a query (all keys for one language), which is the
+    // language-axis counterpart of GET /api/documents?lang=.
     if (request.method === "GET" && path === "/api/v1/content") {
       return withJsonHeaders(await siteContentList(request, env, user));
     }
     if (request.method === "POST" && path === "/api/v1/content") {
       return withJsonHeaders(await siteContentCreate(request, env, user));
     }
+    const siteContentTranslationMatch = path.match(
+      new RegExp("^/api/v1/content/([^/]+)/translations(?:/([^/]+))?$"),
+    );
+    if (siteContentTranslationMatch) {
+      return withJsonHeaders(
+        await siteContentTranslations(
+          request,
+          env,
+          user,
+          siteContentTranslationMatch[1],
+          siteContentTranslationMatch[2],
+        ),
+      );
+    }
     const siteContentMatch = path.match(
       new RegExp("^/api/v1/content/([^/]+)$"),
     );
-    if (request.method === "PUT" && siteContentMatch) {
-      return withJsonHeaders(
-        await siteContentUpdate(request, env, user, siteContentMatch[1]),
-      );
-    }
     if (request.method === "DELETE" && siteContentMatch) {
       return withJsonHeaders(
         await siteContentDelete(request, env, user, siteContentMatch[1]),
@@ -7845,30 +7860,96 @@ async function siteContentCreate(
   return json({ ok: true, id }, { status: 201 });
 }
 
-async function siteContentUpdate(
+// Per-language site-text values, mirroring documentTranslations: the language
+// is a PATH segment, never taken from the body. A missing :lang is a LIST
+// (GET only) — a mutation without :lang is rejected so a value is never written
+// or cleared implicitly.
+async function siteContentTranslations(
   request: Request,
   env: Env,
   user: AuthUser,
   id: string,
+  lang?: string,
 ): Promise<Response> {
-  requireAdmin(user);
-  const body = await readJson(request);
-  // Site-text values are rich KuroEditor HTML (same render path as article
-  // bodies, incl. [[mid]] refs), so they are not capped at a short length. An
-  // empty value is allowed (min: 0) so a content block can be intentionally
-  // cleared/left blank.
-  const name = requireString(body, "name", { min: 0 });
-  const lang = optionalString(body, "lang") ?? "";
-  const now = nowIso();
-  await env.DB.prepare(
-    `INSERT INTO taxonomy_items (id, kind, lang, name, is_system, created_at, updated_at)
-     VALUES (?, 'template', ?, ?, 0, ?, ?)
-     ON CONFLICT(id, kind, lang) DO UPDATE SET name = excluded.name, updated_at = excluded.updated_at`,
-  )
-    .bind(id, lang, name, now, now)
-    .run();
-  await logActivity(env, user, "site_content.update", "template", id, { lang });
-  return json({ ok: true });
+  // GET is the only method allowed without :lang (it lists a key's languages);
+  // handle it first so the guard below can narrow `lang` to a definite string
+  // for the mutation branches.
+  if (request.method === "GET") {
+    requireAuthor(user);
+    if (!lang) {
+      const rows = await env.DB.prepare(
+        "SELECT lang, name, is_system, created_at, updated_at FROM taxonomy_items WHERE id = ? AND kind = 'template' ORDER BY lang",
+      )
+        .bind(id)
+        .all();
+      return json({ id, translations: rows.results as JsonValue });
+    }
+    const row = await env.DB.prepare(
+      "SELECT id, lang, name, is_system, created_at, updated_at FROM taxonomy_items WHERE id = ? AND kind = 'template' AND lang = ?",
+    )
+      .bind(id, lang)
+      .first();
+    if (!row) {
+      throw new HttpError(404, "not_found", "Site-text value was not found.");
+    }
+    return json({ content: row as JsonValue });
+  }
+
+  // Mutations MUST target an explicit language so a value is never written or
+  // cleared implicitly (this also narrows `lang` to string below).
+  if (!lang) {
+    throw new HttpError(
+      400,
+      "lang_required",
+      "Language is required: use /api/v1/content/:id/translations/{lang}.",
+    );
+  }
+
+  if (request.method === "PUT") {
+    requireAdmin(user);
+    const body = await readJson(request);
+    // Site-text values are rich KuroEditor HTML (same render path as article
+    // bodies, incl. [[mid]] refs), so they are not capped at a short length. An
+    // empty value is allowed (min: 0) so a content block can be intentionally
+    // cleared/left blank. is_system is preserved: ON CONFLICT updates only the
+    // value/timestamp, so a system key stays flagged.
+    const name = requireString(body, "name", { min: 0 });
+    const now = nowIso();
+    await env.DB.prepare(
+      `INSERT INTO taxonomy_items (id, kind, lang, name, is_system, created_at, updated_at)
+       VALUES (?, 'template', ?, ?, 0, ?, ?)
+       ON CONFLICT(id, kind, lang) DO UPDATE SET name = excluded.name, updated_at = excluded.updated_at`,
+    )
+      .bind(id, lang, name, now, now)
+      .run();
+    await logActivity(env, user, "site_content.update", "template", id, {
+      lang,
+    });
+    return json({ ok: true, id, lang });
+  }
+
+  if (request.method === "DELETE") {
+    requireAdmin(user);
+    const existing = await env.DB.prepare(
+      "SELECT id FROM taxonomy_items WHERE id = ? AND kind = 'template' AND lang = ?",
+    )
+      .bind(id, lang)
+      .first();
+    if (!existing) {
+      throw new HttpError(404, "not_found", "Site-text value was not found.");
+    }
+    await env.DB.prepare(
+      "DELETE FROM taxonomy_items WHERE id = ? AND kind = 'template' AND lang = ?",
+    )
+      .bind(id, lang)
+      .run();
+    await logActivity(env, user, "site_content.delete", "template", id, {
+      lang,
+    });
+    return json({ ok: true, id, lang });
+  }
+
+  throw new HttpError(405, "method_not_allowed", "Method is not allowed.");
 }
 
 async function siteContentDelete(
