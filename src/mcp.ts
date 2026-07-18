@@ -277,8 +277,8 @@ const TOOLS: ToolDef[] = [
     },
     build: (a) => ({
       method: "PUT",
-      path: `/api/v1/content/${seg(a, "id")}`,
-      body: { name: str(a, "value"), lang: str(a, "lang") },
+      path: `/api/v1/content/${seg(a, "id")}/translations/${seg(a, "lang")}`,
+      body: { name: str(a, "value") },
     }),
   },
   {
