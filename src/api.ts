@@ -121,7 +121,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.8.45";
+export const KUROCMS_VERSION = "1.8.46";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -297,7 +297,9 @@ async function handleApiDispatch(
             translations: {
               model:
                 "Article text is stored PER LANGUAGE in translations. The base language is simply the translation whose lang == the article's initialLang — there is no separate 'site text' store, so editing base-language text is the same call as adding another language.",
-              ids: ":id is the did (doc_<hex>) OR the globally-unique slug, interchangeably.",
+              ids: ":id in every /api/documents/:id[/...] route is the did (doc_<hex>) OR the globally-unique slug, interchangeably — take a slug straight from /api/documents/slugs and pass it in as :id; no did lookup step is needed.",
+              update:
+                "GET /api/documents/slugs -> pick a slug -> update it directly: PUT /api/documents/:slug/translations/:lang edits the body text (see upsertFields), PUT /api/documents/:slug edits publish state / type. There is no separate by-slug update route — the slug IS the :id.",
               list: "To enumerate editable content, GET /api/documents/slugs — a lightweight index of { slug, tid, title, initialLang, languages[], updatedAt } (no bodies). ?q=<slug/title substring> filters; ?lang=<code> picks the title language AND restricts to slugs that already have that language. (GET /api/documents returns the same set with full fields.)",
               read: "GET /api/documents/:id/translations lists an article's languages (lang, title, summary, updated_at). GET /api/documents/:id/translations/:lang returns that language's full title/summary/bodyHtml/seo/hashtags.",
               create: [

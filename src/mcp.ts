@@ -46,7 +46,7 @@ const pick = (
 const ID = {
   type: "string",
   description:
-    "Article identifier — the did (doc_<hex>) OR the globally-unique slug.",
+    "Article identifier — the did (doc_<hex>) OR the globally-unique slug. Pass a slug from list_articles straight through; no lookup step is needed.",
 };
 const LANG = { type: "string", description: "Language code, e.g. ja, en." };
 
