@@ -121,7 +121,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.8.43";
+export const KUROCMS_VERSION = "1.8.44";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -288,6 +288,32 @@ async function handleApiDispatch(
             ],
             settings: ["GET|PUT /api/settings"],
             operations: ["POST /api/build", "GET|POST /api/backups"],
+          },
+          // Step-by-step procedures the flat endpoint index above can't convey.
+          // Kept here so a client can drive content/translations correctly from
+          // /api/help ALONE, without the separate spec document.
+          guides: {
+            translations: {
+              model:
+                "Article text is stored PER LANGUAGE in translations. The base language is simply the translation whose lang == the article's initialLang — there is no separate 'site text' store, so editing base-language text is the same call as adding another language.",
+              ids: ":id is the did (doc_<hex>) OR the globally-unique slug, interchangeably.",
+              list: "GET /api/documents lists every article (newest first, up to 1000) with slug, languages (CSV of the langs that have a translation) and title. Filter with ?q=<slug/title substring>; pick the title language with ?lang=<code>.",
+              read: "GET /api/documents/:id/translations lists an article's languages (lang, title, summary, updated_at). GET /api/documents/:id/translations/:lang returns that language's full title/summary/bodyHtml/seo/hashtags.",
+              create: [
+                "1. POST /api/documents { tid (an ALREADY-registered type), slug (globally unique, must not start with doc_), initialLang } -> 201 with the new did. This creates only the shell (no text); 409 if the slug exists.",
+                "2. PUT /api/documents/:id/translations/:initialLang { title, bodyHtml } -> writes the base-language text.",
+              ],
+              addLanguage:
+                "PUT /api/documents/:id/translations/:lang { title, bodyHtml } for any other language. An unregistered language is auto-registered on write, so no separate 'create language' step is required.",
+              upsertFields:
+                "PUT body: title (required, 1-240) | bodyHtml (required when CREATING a translation; OPTIONAL on update — omit to keep the stored body) | summary (optional, <=200) | seo (object) | hashtags (string[]) | baseBodyHash (optional) | createdAt/updatedAt (optional ISO 8601, for imports).",
+              optimisticLock:
+                "To avoid clobbering a concurrent edit, send baseBodyHash = SHA-256 hex of the bodyHtml you loaded. On mismatch the PUT returns 409 body_conflict (the current stored version is snapshotted to revision history first). Omit baseBodyHash to force-overwrite.",
+              rules:
+                ":lang is MANDATORY on PUT/DELETE (400 lang_required — the base language is never written/deleted implicitly). DELETE /api/documents/:id/translations/:lang cannot remove the base language or the last remaining translation; delete the whole article via DELETE /api/documents/:id instead.",
+              publish:
+                "A LIVE article rebuilds its public pages automatically after a translation save. A draft (or a full-site refresh) is materialized via POST /api/build.",
+            },
           },
         },
         { headers: jsonHeaders },

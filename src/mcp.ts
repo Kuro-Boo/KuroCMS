@@ -79,7 +79,10 @@ const TOOLS: ToolDef[] = [
   {
     name: "get_article",
     description:
-      "Get one article (document fields + the list of its translations).",
+      "Get one article (document fields + the list of its translations). " +
+      "Translation bodyHtml may carry data-bid attributes on top-level elements: " +
+      "they are stable block ids used for 3-way merging. Treat them as opaque and " +
+      "preserve them verbatim when sending an edited body back via update_article_body.",
     inputSchema: { type: "object", properties: { id: ID }, required: ["id"] },
     build: (a) => ({ method: "GET", path: `/api/documents/${seg(a, "id")}` }),
   },
@@ -125,7 +128,10 @@ const TOOLS: ToolDef[] = [
   {
     name: "update_article_body",
     description:
-      "Upsert the body of an article in a specific language (title + bodyHtml required). :lang is mandatory — content is never written to the base language by default.",
+      "Upsert the body of an article in a specific language (title + bodyHtml required). :lang is mandatory — content is never written to the base language by default. " +
+      "This is also how you ADD a translation: call it with a new lang and that language auto-registers (no separate step). Editing the base-language text means passing the article's initialLang as lang. " +
+      "When editing an existing body, keep the data-bid attribute of every top-level element you did not add (unchanged AND edited blocks alike — data-bid is a stable block id used for 3-way merging, not a content hash). " +
+      "Never invent or renumber data-bid values; leave them off blocks you newly insert.",
     inputSchema: {
       type: "object",
       properties: {
@@ -134,7 +140,9 @@ const TOOLS: ToolDef[] = [
         title: { type: "string", description: "1-240 chars." },
         bodyHtml: {
           type: "string",
-          description: "Article body HTML (>=1 char).",
+          description:
+            "Article body HTML (>=1 char). Preserve existing data-bid attributes " +
+            "on top-level elements; omit them on newly added blocks.",
         },
         summary: { type: "string", description: "<=200 chars." },
         seo: {

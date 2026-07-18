@@ -14,6 +14,7 @@ import {
 } from "./templates/html-template";
 import { KE_VERSION } from "./admin-assets";
 import { buildFontHead, type LoadedFont } from "./fonts";
+import { stripInternalIds } from "./strip-internal-ids";
 import type { Env } from "./types";
 
 // Bump when the page-rendering OUTPUT changes in a way the per-page source_hash
@@ -619,7 +620,8 @@ async function expandContentRefs(
               type: r.tid,
               title: r.title || r.slug,
               summary: r.summary || "",
-              bodyHtml: r.body_html || "",
+              // data-bid / data-cbid は編集用の内部キーなので公開 JSON にも出さない
+              bodyHtml: stripInternalIds(r.body_html || ""),
               publishAt: r.publish_at,
               updatedAt: r.updated_at,
             } satisfies ArticleData);
@@ -1379,6 +1381,8 @@ const ARCHIVE_LATEST_LABEL: Record<string, string> = {
   zh: "最新",
   ko: "최신",
   uk: "Останні",
+  ar: "الأحدث",
+  pt: "Mais recentes",
 };
 function archiveLatestLabel(lang: string): string {
   return (
@@ -2326,10 +2330,13 @@ function adminAssetBase(env: Env): string {
  * public site. ke-content.css scopes those rules under `.kuro-content` (and is
  * unlayered so it beats the template's `.prose`); without this wrapper a callout
  * renders as plain text. Mirrors how the in-editor preview wraps content.
+ * data-bid / data-cbid はここで必ず剥がす (認可済み経路 = 記事本文 / about /
+ * privacy / terms がすべてこの関数を通るため、公開面の単一チョークポイント)。
+ * 除去ロジックは strip-internal-ids.ts (構造走査・F0-2 の '>' 属性値バグを修正済み)。
  */
 function wrapKuroContent(html: string): string {
-  const h = (html || "").trim();
-  return h ? `<div class="kuro-content">${html}</div>` : "";
+  const h = stripInternalIds((html || "").trim());
+  return h ? `<div class="kuro-content">${h}</div>` : "";
 }
 
 /** "Written by" label per site language (falls back to English). */
@@ -2343,6 +2350,8 @@ const BYLINE_LABELS: Record<string, string> = {
   it: "Autore",
   es: "Autor",
   uk: "Автор",
+  ar: "بقلم",
+  pt: "Escrito por",
 };
 
 // Localized names of the dedicated legal pages. Used as the [[privacy]]/
@@ -2359,6 +2368,8 @@ const LEGAL_PAGE_LABELS: Record<"privacy" | "terms", Record<string, string>> = {
     it: "Informativa sulla privacy",
     es: "Política de privacidad",
     uk: "Політика конфіденційності",
+    ar: "سياسة الخصوصية",
+    pt: "Política de Privacidade",
   },
   terms: {
     ja: "利用規約",
@@ -2370,6 +2381,8 @@ const LEGAL_PAGE_LABELS: Record<"privacy" | "terms", Record<string, string>> = {
     it: "Termini di servizio",
     es: "Términos de servicio",
     uk: "Умови використання",
+    ar: "شروط الخدمة",
+    pt: "Termos de Serviço",
   },
 };
 
