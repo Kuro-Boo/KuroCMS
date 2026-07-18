@@ -121,7 +121,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.8.46";
+export const KUROCMS_VERSION = "1.8.47";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -276,6 +276,16 @@ async function handleApiDispatch(
               "GET|POST /api/languages",
               "DELETE /api/languages/:lang",
             ],
+            // "Site text" = the template's fixed content blocks (footer, hero,
+            // about, logo…), edited on the admin "サイト文字編集" tab. These live
+            // on the older /api/v1/* family (shared with template/community
+            // management) — see guides.siteText.
+            siteText: [
+              "GET /api/v1/content?lang=<code> (list site-text keys + this language's values)",
+              "POST /api/v1/content (Admin; create a key across all languages)",
+              "PUT /api/v1/content/:id (Admin; set { name, lang } — value is KuroEditor HTML)",
+              "DELETE /api/v1/content/:id (Admin; remove a key in every language)",
+            ],
             media: [
               "POST /api/media/images",
               "POST /api/media/videos",
@@ -316,6 +326,16 @@ async function handleApiDispatch(
                 ":lang is MANDATORY on PUT/DELETE (400 lang_required — the base language is never written/deleted implicitly). DELETE /api/documents/:id/translations/:lang cannot remove the base language or the last remaining translation; delete the whole article via DELETE /api/documents/:id instead.",
               publish:
                 "A LIVE article rebuilds its public pages automatically after a translation save. A draft (or a full-site refresh) is materialized via POST /api/build.",
+            },
+            siteText: {
+              model:
+                "'Site text' is the template's FIXED content blocks (footer, hero, about, logo, favicon, etc.) — the admin 'サイト文字編集' tab — and is SEPARATE from articles/translations. Each block is a key (id, e.g. about-body, footer-text, top-hero-title) holding a per-language value. Values are KuroEditor HTML and may contain [[mid]] media refs. NOTE: these endpoints are on the older /api/v1/* family (shared with template/community management), not the unversioned core API.",
+              list: "GET /api/v1/content?lang=<code> -> { items:[{ id, name (the value), is_system, is_inherited, updated_at }], lang, defaultLang }. is_inherited=1 means this language has no own value yet and falls back to defaultLang. This is the key list to enumerate site text.",
+              update:
+                "PUT /api/v1/content/:id { name, lang } upserts ONE key's value for ONE language (Admin). name is the KuroEditor HTML value; it may be empty to blank a block, and has no length cap. Repeat per language for multilingual text.",
+              keys: "POST /api/v1/content { id } creates a new key across every registered language with empty values (Admin). DELETE /api/v1/content/:id removes a key in ALL languages (Admin).",
+              publish:
+                "Site-text edits do NOT auto-rebuild (unlike article saves). Call POST /api/build (admin '今すぐビルド') to reflect them on the public site.",
             },
           },
         },
