@@ -121,7 +121,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.8.44";
+export const KUROCMS_VERSION = "1.8.45";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -261,6 +261,7 @@ async function handleApiDispatch(
             ],
             content: [
               "GET|POST /api/documents (POST=create; 409 if slug exists)",
+              "GET /api/documents/slugs (slug index: slug/tid/title/languages, no bodies; ?q= ?lang=)",
               "GET|PUT|DELETE /api/documents/:id (:id = did or globally-unique slug)",
               "GET|PUT|DELETE /api/documents/:id/translations/:lang (PUT upserts)",
               "GET|PUT /api/documents/:id/categories",
@@ -297,7 +298,7 @@ async function handleApiDispatch(
               model:
                 "Article text is stored PER LANGUAGE in translations. The base language is simply the translation whose lang == the article's initialLang — there is no separate 'site text' store, so editing base-language text is the same call as adding another language.",
               ids: ":id is the did (doc_<hex>) OR the globally-unique slug, interchangeably.",
-              list: "GET /api/documents lists every article (newest first, up to 1000) with slug, languages (CSV of the langs that have a translation) and title. Filter with ?q=<slug/title substring>; pick the title language with ?lang=<code>.",
+              list: "To enumerate editable content, GET /api/documents/slugs — a lightweight index of { slug, tid, title, initialLang, languages[], updatedAt } (no bodies). ?q=<slug/title substring> filters; ?lang=<code> picks the title language AND restricts to slugs that already have that language. (GET /api/documents returns the same set with full fields.)",
               read: "GET /api/documents/:id/translations lists an article's languages (lang, title, summary, updated_at). GET /api/documents/:id/translations/:lang returns that language's full title/summary/bodyHtml/seo/hashtags.",
               create: [
                 "1. POST /api/documents { tid (an ALREADY-registered type), slug (globally unique, must not start with doc_), initialLang } -> 201 with the new did. This creates only the shell (no text); 409 if the slug exists.",
@@ -668,6 +669,12 @@ async function handleApiDispatch(
     // otherwise swallow "cleanup-styles" as a slug.
     if (request.method === "POST" && path === "/api/documents/cleanup-styles") {
       return withJsonHeaders(await cleanupCopyNoise(env, user));
+    }
+
+    // Slug index for content discovery. MUST precede the generic
+    // /api/documents/:id matcher, which would otherwise treat "slugs" as a slug.
+    if (request.method === "GET" && path === "/api/documents/slugs") {
+      return withJsonHeaders(await documentSlugs(env, url));
     }
 
     const documentMatch = path.match(/^\/api\/documents\/([^/]+)$/);
@@ -5319,6 +5326,67 @@ const DID_RE = /^doc_[0-9a-f]{12}$/;
 async function resolveDid(env: Env, idOrSlug: string): Promise<string> {
   if (DID_RE.test(idOrSlug)) return idOrSlug;
   return resolveDidBySlug(env, idOrSlug);
+}
+
+// Lightweight slug index for content-discovery clients (other AIs kept failing
+// to realize `GET /api/documents` was the way to enumerate editable content).
+// Returns ONLY slug + minimal metadata — no bodies — so it stays cheap and its
+// purpose is obvious. `?q=` filters slug/title (substring); `?lang=` both picks
+// the title language and, when set, restricts to slugs that HAVE a translation
+// in that language (so a client can find what still needs translating).
+async function documentSlugs(env: Env, url: URL): Promise<Response> {
+  const query = url.searchParams.get("q")?.trim() ?? "";
+  const lang = url.searchParams.get("lang")?.trim() ?? "";
+  const conds: string[] = [];
+  const bindings: (string | number)[] = [lang];
+  if (query) {
+    conds.push("(d.slug LIKE ? OR dt.title LIKE ?)");
+    bindings.push(`%${query}%`, `%${query}%`);
+  }
+  if (lang) {
+    conds.push(
+      "EXISTS (SELECT 1 FROM document_translations x WHERE x.did = d.did AND x.lang = ?)",
+    );
+    bindings.push(lang);
+  }
+  const where = conds.length ? `WHERE ${conds.join(" AND ")}` : "";
+  const result = await env.DB.prepare(
+    `SELECT
+      d.slug AS slug,
+      d.tid AS tid,
+      d.initial_lang AS initialLang,
+      d.updated_at AS updatedAt,
+      COALESCE(
+        (SELECT title FROM document_translations WHERE did = d.did AND lang = ?),
+        (SELECT title FROM document_translations WHERE did = d.did AND lang = d.initial_lang),
+        MIN(dt.title)
+      ) AS title,
+      GROUP_CONCAT(dt.lang) AS languages
+    FROM documents d
+    LEFT JOIN document_translations dt ON dt.did = d.did
+    ${where}
+    GROUP BY d.did
+    ORDER BY d.updated_at DESC
+    LIMIT 1000`,
+  )
+    .bind(...bindings)
+    .all<{
+      slug: string;
+      tid: string;
+      initialLang: string;
+      updatedAt: string;
+      title: string | null;
+      languages: string | null;
+    }>();
+  const slugs = (result.results ?? []).map((r) => ({
+    slug: r.slug,
+    tid: r.tid,
+    title: r.title ?? "",
+    initialLang: r.initialLang,
+    languages: r.languages ? r.languages.split(",").sort() : [],
+    updatedAt: r.updatedAt,
+  }));
+  return json({ count: slugs.length, slugs });
 }
 
 async function documents(
