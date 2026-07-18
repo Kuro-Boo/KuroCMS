@@ -54,7 +54,8 @@ const TOOLS: ToolDef[] = [
   {
     name: "list_articles",
     description:
-      "List articles (newest first, up to 1000). Optional full-text q (slug/title) and display lang.",
+      "Enumerate site content. Returns a lightweight index (newest first, up to 1000) where each entry has the article's slug (the id you pass to every other tool), tid, title, initialLang, languages[] and updatedAt — no bodies. " +
+      "Optional q (slug/title substring). Optional lang picks the title language AND restricts to articles that already have a translation in that language (use it to find what still needs translating).",
     inputSchema: {
       type: "object",
       properties: {
@@ -64,7 +65,8 @@ const TOOLS: ToolDef[] = [
         },
         lang: {
           type: "string",
-          description: "Preferred display language for titles.",
+          description:
+            "Title language; also restricts results to slugs that have this language.",
         },
       },
     },
@@ -73,7 +75,10 @@ const TOOLS: ToolDef[] = [
       if (str(a, "q")) qs.set("q", str(a, "q"));
       if (str(a, "lang")) qs.set("lang", str(a, "lang"));
       const q = qs.toString();
-      return { method: "GET", path: "/api/documents" + (q ? `?${q}` : "") };
+      return {
+        method: "GET",
+        path: "/api/documents/slugs" + (q ? `?${q}` : ""),
+      };
     },
   },
   {
