@@ -121,7 +121,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.8.47";
+export const KUROCMS_VERSION = "1.8.48";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -306,7 +306,7 @@ async function handleApiDispatch(
           guides: {
             translations: {
               model:
-                "Article text is stored PER LANGUAGE in translations. The base language is simply the translation whose lang == the article's initialLang — there is no separate 'site text' store, so editing base-language text is the same call as adding another language.",
+                "Article text is stored PER LANGUAGE in translations. The base language is simply the translation whose lang == the article's initialLang, so editing base-language text is the same call as adding another language. NOTE: 'site text' is a DIFFERENT concept (the template's fixed content blocks — footer, hero, about, etc.), stored separately — see guides.siteText; do not confuse the two.",
               ids: ":id in every /api/documents/:id[/...] route is the did (doc_<hex>) OR the globally-unique slug, interchangeably — take a slug straight from /api/documents/slugs and pass it in as :id; no did lookup step is needed.",
               update:
                 "GET /api/documents/slugs -> pick a slug -> update it directly: PUT /api/documents/:slug/translations/:lang edits the body text (see upsertFields), PUT /api/documents/:slug edits publish state / type. There is no separate by-slug update route — the slug IS the :id.",
