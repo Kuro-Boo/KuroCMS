@@ -243,6 +243,45 @@ const TOOLS: ToolDef[] = [
     build: () => ({ method: "GET", path: "/api/categories" }),
   },
   {
+    name: "list_site_text",
+    description:
+      "List the site's FIXED content blocks (footer, hero, about, logo, favicon, etc.) — the admin 'サイト文字編集' site text, SEPARATE from articles. Returns each block's key (id, e.g. footer-text, top-hero-title) and its value for the given language, plus is_inherited (1 = no own value in this language, falls back to the default language). Values are KuroEditor HTML and may contain [[mid]] media refs. Edit a value with update_site_text.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        lang: { type: "string", description: "Language code, e.g. ja, en." },
+      },
+      required: ["lang"],
+    },
+    build: (a) => ({
+      method: "GET",
+      path: `/api/v1/content?lang=${encodeURIComponent(str(a, "lang"))}`,
+    }),
+  },
+  {
+    name: "update_site_text",
+    description:
+      "Set one site-text block's value for one language (Admin token). id is a key from list_site_text (e.g. footer-text). value is KuroEditor HTML — it may be empty to blank the block; preserve any [[mid]] media refs. Repeat per language for multilingual text. Site-text edits do NOT auto-publish — call build_site afterwards to reflect them.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Site-text key, e.g. footer-text." },
+        lang: LANG,
+        value: {
+          type: "string",
+          description:
+            "KuroEditor HTML value; may be empty to blank the block.",
+        },
+      },
+      required: ["id", "lang", "value"],
+    },
+    build: (a) => ({
+      method: "PUT",
+      path: `/api/v1/content/${seg(a, "id")}`,
+      body: { name: str(a, "value"), lang: str(a, "lang") },
+    }),
+  },
+  {
     name: "build_site",
     description:
       "Rebuild the public site (incremental — unchanged pages skip). One pass per call.",
