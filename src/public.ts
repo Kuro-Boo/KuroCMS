@@ -1850,6 +1850,51 @@ export async function generatePage(
       : "";
     sourceHtml = sourceHtml.split(token).join(link);
   }
+  // Reserved "related-<N>" site-text slugs. On an article page, expand any
+  // [[html:content.related-<N>]] the template placed into a same-category
+  // neighbour strip: N cards total, split around the current article (older on
+  // the left, newer on the right, with a ←・→ marker for "this article").
+  // Rendered here rather than stored — it depends on the article being built.
+  if (ctx.article) {
+    const wantN = new Set<number>();
+    for (const m of sourceHtml.matchAll(/content\.related-(\d+)/g)) {
+      const n = parseInt(m[1], 10);
+      if (n >= 1 && n <= 20) wantN.add(n);
+    }
+    if (wantN.size) {
+      let cats: Array<{ slug?: string; id?: string }> = [];
+      try {
+        cats = JSON.parse(ctx.content["_article-categories"] || "[]");
+      } catch {
+        /* ignore */
+      }
+      const catSlug = cats[0]?.slug || cats[0]?.id || "";
+      if (catSlug) {
+        const defLang = s.default_lang || lang;
+        const pool = await fetchCategoryPool(
+          env,
+          catSlug,
+          lang,
+          defLang,
+          filter,
+        );
+        for (const n of wantN) {
+          const { left, right } = pickCategoryNeighbours(
+            pool,
+            ctx.article.slug,
+            n,
+          );
+          ctx.content[`related-${n}`] = buildRelatedHtml(
+            left,
+            right,
+            ctx.basePath,
+            lang,
+            defLang,
+          );
+        }
+      }
+    }
+  }
   const adminBase = adminAssetBase(env);
   let html = injectContentStyles(renderTemplate(sourceHtml, ctx), adminBase);
   html = applyRtlDir(html, lang);
@@ -2425,6 +2470,166 @@ function buildBylineHtml(
   return (
     `<div class="kuro-byline" style="margin-top:2.5rem;padding-top:.9rem;border-top:1px solid rgba(128,128,128,.3);font-size:.85rem;opacity:.85">` +
     `${seoText(label)}: <a href="${seoAttr(href)}" rel="author">${seoText(authorName)}</a></div>`
+  );
+}
+
+// ─── Related-articles strip ([[html:content.related-<N>]]) ──────────────────
+
+const RELATED_LABELS: Record<string, string> = {
+  ja: "関連記事",
+  en: "Related articles",
+  ko: "관련 기사",
+  zh: "相关文章",
+  de: "Ähnliche Artikel",
+  fr: "Articles liés",
+  it: "Articoli correlati",
+  es: "Artículos relacionados",
+  pt: "Artigos relacionados",
+  ar: "مقالات ذات صلة",
+  uk: "Схожі статті",
+};
+
+interface RelatedPoolItem {
+  did: string;
+  slug: string;
+  tid: string;
+  title: string;
+  cover: string | null;
+}
+
+// All published articles in one category, newest first (publish_at DESC). Light
+// projection — title + cover only, no bodies. Capped defensively; a strip only
+// ever needs the current article's immediate neighbours plus wrap-around fill.
+async function fetchCategoryPool(
+  env: Env,
+  categorySlug: string,
+  lang: string,
+  defaultLang: string,
+  filter: PubFilter,
+): Promise<RelatedPoolItem[]> {
+  const rows = await env.DB.prepare(
+    `SELECT d.did, d.slug, d.tid,
+       COALESCE(NULLIF(NULLIF(dt_req.title, ''), d.slug), NULLIF(NULLIF(dt_en.title, ''), d.slug), NULLIF(NULLIF(dt_fb.title, ''), d.slug), NULLIF(NULLIF(dt_init.title, ''), d.slug), NULLIF(NULLIF(dt_site.title, ''), d.slug), NULLIF(NULLIF(dt_any.title, ''), d.slug)) AS title,
+       COALESCE(NULLIF(NULLIF(dt_req.seo_json, ''), '{}'), NULLIF(NULLIF(dt_en.seo_json, ''), '{}'), NULLIF(NULLIF(dt_fb.seo_json, ''), '{}'), NULLIF(NULLIF(dt_init.seo_json, ''), '{}'), NULLIF(NULLIF(dt_site.seo_json, ''), '{}'), NULLIF(NULLIF(dt_any.seo_json, ''), '{}')) AS seo_json
+     FROM documents d
+     JOIN document_categories dc ON dc.did = d.did
+     JOIN categories ti ON ti.id = dc.cid AND (ti.slug = ? OR ti.id = ?)
+     ${ARTICLE_TR_JOINS}
+     WHERE ${publishedSql("d.", filter)}
+     ORDER BY d.publish_at DESC, d.did DESC
+     LIMIT 500`,
+  )
+    .bind(categorySlug, categorySlug, lang, defaultLang || lang)
+    .all<{
+      did: string;
+      slug: string;
+      tid: string;
+      title: string;
+      seo_json: string;
+    }>();
+  return (rows.results ?? []).map((r) => {
+    let cover: string | null = null;
+    if (r.seo_json) {
+      try {
+        const seo = JSON.parse(r.seo_json) as { coverPath?: string };
+        if (seo.coverPath) cover = seo.coverPath;
+      } catch {
+        /* ignore */
+      }
+    }
+    return {
+      did: r.did,
+      slug: r.slug,
+      tid: r.tid,
+      title: r.title || r.slug,
+      cover,
+    };
+  });
+}
+
+// Split N cards around the current article: older on the left, newer on the
+// right. When a side runs out (the article is the newest/oldest in its
+// category), fill from the far end — no newer → oldest; no older → newest — so
+// the strip keeps N cards. Never repeats the current article. `pool` is DESC
+// (index 0 = newest). Returned `left` reads farthest→closest-older toward the
+// centre; `right` reads closest→farthest-newer.
+function pickCategoryNeighbours(
+  pool: RelatedPoolItem[],
+  currentSlug: string,
+  n: number,
+): { left: RelatedPoolItem[]; right: RelatedPoolItem[] } {
+  const idx = pool.findIndex((a) => a.slug === currentSlug);
+  if (idx < 0) return { left: [], right: [] };
+  const olderCount = Math.floor(n / 2);
+  const newerCount = n - olderCount;
+  const used = new Set<string>([pool[idx].did]);
+  const take = (src: RelatedPoolItem[], count: number): RelatedPoolItem[] => {
+    const out: RelatedPoolItem[] = [];
+    for (const a of src) {
+      if (out.length >= count) break;
+      if (used.has(a.did)) continue;
+      used.add(a.did);
+      out.push(a);
+    }
+    return out;
+  };
+  const newerClosestFirst: RelatedPoolItem[] = [];
+  for (let i = idx - 1; i >= 0; i--) newerClosestFirst.push(pool[i]);
+  const oldestFirst: RelatedPoolItem[] = [];
+  for (let i = pool.length - 1; i > idx; i--) oldestFirst.push(pool[i]);
+  let right = take(newerClosestFirst, newerCount);
+  if (right.length < newerCount)
+    right = right.concat(take(oldestFirst, newerCount - right.length));
+  const olderClosestFirst: RelatedPoolItem[] = [];
+  for (let i = idx + 1; i < pool.length; i++) olderClosestFirst.push(pool[i]);
+  const newestFirst: RelatedPoolItem[] = [];
+  for (let i = 0; i < idx; i++) newestFirst.push(pool[i]);
+  let left = take(olderClosestFirst, olderCount);
+  if (left.length < olderCount)
+    left = left.concat(take(newestFirst, olderCount - left.length));
+  left.reverse(); // closest-older ends adjacent to the centre marker
+  return { left, right };
+}
+
+function relatedCardHtml(
+  a: RelatedPoolItem,
+  basePath: string,
+  lang: string,
+  defaultLang: string,
+): string {
+  const href =
+    `${basePath}/${a.tid}/${a.slug}/` +
+    (lang && lang !== defaultLang ? `?lang=${encodeURIComponent(lang)}` : "");
+  const cover = a.cover ? `${basePath}${a.cover}` : "";
+  const img = cover
+    ? `<img src="${seoAttr(cover)}" alt="" loading="lazy" style="width:100%;height:100%;object-fit:cover;display:block" />`
+    : "";
+  return (
+    `<a class="kuro-related__item" href="${seoAttr(href)}" style="flex:1 1 0;min-width:0;text-decoration:none;color:inherit;display:flex;flex-direction:column;gap:.4rem">` +
+    `<span style="display:block;width:100%;aspect-ratio:16/10;border-radius:.5rem;overflow:hidden;background:rgba(128,128,128,.12)">${img}</span>` +
+    `<span style="font-size:.72rem;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${seoText(a.title)}</span>` +
+    `</a>`
+  );
+}
+
+function buildRelatedHtml(
+  left: RelatedPoolItem[],
+  right: RelatedPoolItem[],
+  basePath: string,
+  lang: string,
+  defaultLang: string,
+): string {
+  if (!left.length && !right.length) return "";
+  const label = RELATED_LABELS[lang] || RELATED_LABELS.en;
+  const cards = (arr: RelatedPoolItem[]) =>
+    arr.map((a) => relatedCardHtml(a, basePath, lang, defaultLang)).join("");
+  const marker = `<span aria-hidden="true" style="flex:0 0 auto;align-self:center;color:rgba(128,128,128,.55);font-size:.8rem;white-space:nowrap;padding:0 .1rem">←・→</span>`;
+  return (
+    `<nav class="kuro-related" aria-label="${seoAttr(label)}" style="margin-top:1.75rem;padding-top:1rem;border-top:1px solid rgba(128,128,128,.2);display:flex;align-items:flex-start;gap:.5rem">` +
+    cards(left) +
+    marker +
+    cards(right) +
+    `</nav>`
   );
 }
 
