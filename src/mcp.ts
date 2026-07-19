@@ -54,8 +54,8 @@ const TOOLS: ToolDef[] = [
   {
     name: "list_articles",
     description:
-      "Enumerate site content. Returns a lightweight index (newest first, up to 1000) where each entry has the article's slug (the id you pass to every other tool), tid, title, initialLang, languages[] and updatedAt — no bodies. " +
-      "Optional q (slug/title substring). Optional lang picks the title language AND restricts to articles that already have a translation in that language (use it to find what still needs translating).",
+      "Enumerate articles (newest first, up to 1000). Each entry carries the article's slug (the id you pass to every other tool), tid, title, initial_lang, languages (CSV of the langs that have a translation) and timestamps — no bodies. " +
+      "Optional q (slug/title substring). Optional lang picks the display-title language.",
     inputSchema: {
       type: "object",
       properties: {
@@ -65,8 +65,7 @@ const TOOLS: ToolDef[] = [
         },
         lang: {
           type: "string",
-          description:
-            "Title language; also restricts results to slugs that have this language.",
+          description: "Display-title language.",
         },
       },
     },
@@ -77,7 +76,7 @@ const TOOLS: ToolDef[] = [
       const q = qs.toString();
       return {
         method: "GET",
-        path: "/api/documents/slugs" + (q ? `?${q}` : ""),
+        path: "/api/documents" + (q ? `?${q}` : ""),
       };
     },
   },
