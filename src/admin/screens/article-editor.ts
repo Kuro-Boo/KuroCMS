@@ -1105,6 +1105,13 @@ async function newArticle(editDid: Dynamic) {
     destroyArticleEditor();
     const ke = new KE(ta, {
       modalToolbar: byId("arKeToolbar") || undefined,
+      // 安定ブロック ID (data-bid) を本文に付与・維持する (KE 2.0.15+)。
+      // AI/REST の同時編集をブロック単位 3-way マージで統合するための主キー。
+      // 公開面は public.ts の stripInternalIds が必ず除去する (C1 と同時リリース必須)
+      blockIds: true,
+      // KE 内蔵のバージョンバッジは隠す (KuroCMS が下部に自前の "KuroEditor v…"
+      // ラベルを出すため二重表示になる。I3)。
+      versionUi: false,
       // Host-managed saving: hide KuroEditor's own 保存 button + 自動保存 checkbox
       // and disable its internal autosave timer. KuroCMS owns the save/autosave UI
       // (bottom bar), so the two never disagree. onDirty still fires for every
