@@ -15,6 +15,9 @@ import {
 import { KE_VERSION } from "./admin-assets";
 import { buildFontHead, type LoadedFont } from "./fonts";
 import { stripInternalIds } from "./strip-internal-ids";
+// [[...]] 判定は KuroEditor と共有（vendored kuro-links.js の単一の正）。公開側は
+// この記述子から公開用マークアップだけを emit する。判定ロジックは再実装しない。
+import { classifyLink, LINK_TOKEN_RE, MEDIA_ID_RE } from "./kuro-links.js";
 import type { Env } from "./types";
 
 // Bump when the page-rendering OUTPUT changes in a way the per-page source_hash
@@ -1147,84 +1150,12 @@ const KE_URL_CARD_ICON =
   '<line x1="1.5" y1="8" x2="14.5" y2="8"/>' +
   "</svg>";
 
-// KuroEditor の MEDIA_EXT_RE / VIDEO_EXT_RE / AUDIO_EXT_RE と同一定義。
-const KE_MEDIA_EXT_RE =
-  /\.(jpe?g|png|gif|webp|svg|avif|mp4|webm|ogg|mov|mp3|wav|aac|flac|m4a)(\?.*)?$/i;
-const KE_VIDEO_EXT_RE = /\.(mp4|webm|mov)(\?.*)?$/i;
-const KE_AUDIO_EXT_RE = /\.(mp3|wav|aac|flac|m4a|oga)(\?.*)?$/i;
+// ── [[...]] メディア/リンク判定は共有 classifyLink に一本化した（kuro-links.js）。
+// 旧 ke* 再実装（KE_*_EXT_RE / keParseMediaParams / keLooksLikeMediaParams /
+// keResolveEmbedUrl）はドリフト源だったため削除。以下は公開用マークアップの
+// emit だけを担う（editor の data-kuro-* を付けない・loading=lazy・エスケープ）。
 
-/** KuroEditor parseMediaParams と同一: "60%,right|https://…" を分解。 */
-function keParseMediaParams(params: string): {
-  size: string | null;
-  align: string | null;
-  link: string | null;
-} {
-  const result: {
-    size: string | null;
-    align: string | null;
-    link: string | null;
-  } = { size: null, align: null, link: null };
-  if (!params) return result;
-  let sizeAlignPart = params;
-  const pipeIdx = params.indexOf("|");
-  if (pipeIdx !== -1) {
-    result.link = params.slice(pipeIdx + 1).trim() || null;
-    sizeAlignPart = params.slice(0, pipeIdx);
-  }
-  for (const part of sizeAlignPart
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean)) {
-    if (/^\d+%$/.test(part)) result.size = part;
-    else if (part === "left" || part === "right" || part === "center")
-      result.align = part;
-  }
-  return result;
-}
-
-/** KuroEditor _looksLikeMediaParams と同一のヒューリスティック。 */
-function keLooksLikeMediaParams(label: string): boolean {
-  if (!label) return false;
-  const paramsPart =
-    label.indexOf("|") !== -1 ? label.slice(0, label.indexOf("|")) : label;
-  const trimmed = paramsPart.trim();
-  if (trimmed === "") return true; // "|https://…" = リンクのみ
-  return trimmed
-    .split(",")
-    .map((s) => s.trim())
-    .every(
-      (t) =>
-        /^\d+%$/.test(t) || t === "left" || t === "right" || t === "center",
-    );
-}
-
-/** KuroEditor resolveEmbedUrl と同一: YouTube / Vimeo の埋め込み URL 解決。 */
-function keResolveEmbedUrl(url: string): string | null {
-  if (!url) return null;
-  try {
-    const u = new URL(url);
-    const host = u.hostname.replace(/^www\./, "");
-    if (host === "youtube.com") {
-      const v = u.searchParams.get("v");
-      if (v) return `https://www.youtube.com/embed/${v}`;
-      const shorts = u.pathname.match(/^\/shorts\/([^/]+)/);
-      if (shorts) return `https://www.youtube.com/embed/${shorts[1]}`;
-    }
-    if (host === "youtu.be") {
-      const id = u.pathname.slice(1);
-      if (id) return `https://www.youtube.com/embed/${id}`;
-    }
-    if (host === "vimeo.com") {
-      const id = u.pathname.replace(/\D/g, "");
-      if (id) return `https://player.vimeo.com/video/${id}`;
-    }
-  } catch {
-    /* not a URL */
-  }
-  return null;
-}
-
-/** 16:9 iframe figure（KuroEditor _buildIframeFigure の公開版）。 */
+/** 16:9 iframe figure（KuroEditor iframe 分岐の公開版）。 */
 function keIframeFigure(
   embedUrl: string,
   size: string | null,
@@ -1240,12 +1171,14 @@ function keIframeFigure(
   );
 }
 
-/** メディア figure（KuroEditor wiki/hyper メディア分岐の公開版）。 */
+/** メディア figure（KuroEditor wiki/hyper メディア分岐の公開版）。種別は
+ *  classifyLink の descriptor（mediaKind）に従う（拡張子再判定はしない）。 */
 function keMediaFigure(
   src: string,
   size: string | null,
   align: string | null,
   link: string | null,
+  mediaKind: "video" | "audio" | "image",
 ): string {
   const sizeStyle = size && size !== "100%" ? ` style="width:${size}"` : "";
   const alignClass = align ? ` kuro-media-wrap--${align}` : "";
@@ -1253,10 +1186,10 @@ function keMediaFigure(
     ? `<a class="kuro-media-open-link" href="${escHtml(link)}" target="_blank" rel="noopener">↗ URLを新規タブで開く</a>`
     : "";
   const esc = escHtml(src);
-  if (KE_VIDEO_EXT_RE.test(src)) {
+  if (mediaKind === "video") {
     return `<figure class="kuro-media-wrap kuro-media-wrap--video${alignClass}"${sizeStyle}><video src="${esc}" controls class="kuro-media kuro-media--video"></video>${linkBtn}</figure>`;
   }
-  if (KE_AUDIO_EXT_RE.test(src)) {
+  if (mediaKind === "audio") {
     return `<figure class="kuro-media-wrap kuro-media-wrap--audio${alignClass}"${sizeStyle}><audio src="${esc}" controls class="kuro-media kuro-media--audio"></audio>${linkBtn}</figure>`;
   }
   return `<figure class="kuro-media-wrap${alignClass}"${sizeStyle}><img src="${esc}" alt="" loading="lazy" class="kuro-media">${linkBtn}</figure>`;
@@ -1295,75 +1228,52 @@ function expandSpecialLinks(
   basePath: string,
   resolveMid: MidResolver = () => null,
 ): string {
-  const resolve = (slug: string): string | null => {
-    if (/^https?:\/\//i.test(slug)) return slug;
-    if (/^(img|vid|aud|mid)-/.test(slug)) return resolveMid(slug);
-    return `${basePath}/${slug.replace(/^\/+/, "")}`;
-  };
-  // KuroEditor renderSpecialLinks と同じ単一パス・同じ優先順位
-  // （card > wiki > hyper）。
-  const RE =
-    /\[\[\[([^\]]+)\]\]\]|\[\[([^\]|]+)\|([^\]]*)\]\]|\[\[([^\]]+)\]\]/g;
+  // slug → URL 解決。http は外部、メディア ID(MEDIA_ID_RE) は resolveMid、他は
+  // 内部パス。未解決メディア ID は resolveMid→null → 空文字にして下で
+  // 「media not found」に落とす（旧挙動を保持）。
+  const resolve = (slug: string): string =>
+    /^https?:\/\//i.test(slug)
+      ? slug
+      : MEDIA_ID_RE.test(slug)
+        ? (resolveMid(slug) ?? "")
+        : `${basePath}/${slug.replace(/^\/+/, "")}`;
+  // 判定は共有 classifyLink（editor と同一の単一の正）。ここは公開用マークアップ
+  // だけを emit する（data-kuro-* を付けない・loading=lazy・URL エスケープ・target）。
   return html.replace(
-    RE,
+    LINK_TOKEN_RE,
     (
-      match,
+      match: string,
       card?: string,
       wikiSlug?: string,
       wikiLabel?: string,
       hyper?: string,
     ) => {
-      if (card !== undefined) {
-        const url = resolve(card);
-        if (!url) return `<!-- media not found: ${escHtml(card)} -->`;
-        return `<a href="${escHtml(url)}" target="_blank" rel="noopener" class="kuro-card-link">${escHtml(card)}</a>`;
+      const d = classifyLink({ card, wikiSlug, wikiLabel, hyper }, resolve);
+      // 未解決メディア ID（url が空）は「media not found」コメント。
+      if ("url" in d && !d.url) {
+        const raw = "raw" in d ? d.raw : "slug" in d ? d.slug : "";
+        return `<!-- media not found: ${escHtml(raw)} -->`;
       }
-
-      if (wikiSlug !== undefined && wikiLabel !== undefined) {
-        const url = resolve(wikiSlug);
-        if (!url) return `<!-- media not found: ${escHtml(wikiSlug)} -->`;
-        // ⓪ 空ラベル = 表題なしの明示 → URL カード
-        if (wikiLabel === "") return keUrlCard(wikiSlug, url);
-        // ① iframe embed（メディア拡張子より先に判定 — KE と同順）
-        const embedUrl = keResolveEmbedUrl(url);
-        if (embedUrl) {
-          const { size, align } = keParseMediaParams(wikiLabel);
-          return keIframeFigure(embedUrl, size, align);
+      switch (d.kind) {
+        case "card":
+          return `<a href="${escHtml(d.url)}" target="_blank" rel="noopener" class="kuro-card-link">${escHtml(d.raw)}</a>`;
+        case "urlcard":
+          return keUrlCard(d.slug, d.url);
+        case "iframe":
+          return keIframeFigure(d.embedUrl, d.size, d.align);
+        case "media":
+          return keMediaFigure(d.url, d.size, d.align, d.link, d.mediaKind);
+        case "wikilink": {
+          const ext = d.isExternal ? ' target="_blank" rel="noopener"' : "";
+          return `<a href="${escHtml(d.url)}"${ext}>${escHtml(d.label)}</a>`;
         }
-        // ② メディア（mid 系 / 拡張子 / params らしきラベルの http URL）
-        const isMedia =
-          /^(img|vid|aud|mid)-/.test(wikiSlug) ||
-          KE_MEDIA_EXT_RE.test(url) ||
-          (/^https?:\/\//i.test(wikiSlug) && keLooksLikeMediaParams(wikiLabel));
-        if (isMedia) {
-          const { size, align, link } = keParseMediaParams(wikiLabel);
-          return keMediaFigure(url, size, align, link);
+        case "hyperlink": {
+          const ext = d.isExternal ? ' target="_blank" rel="noopener"' : "";
+          return `<a href="${escHtml(d.url)}"${ext}>${escHtml(d.slug)}</a>`;
         }
-        // ③ 通常の wiki リンク [[slug|表示テキスト]]
-        const ext = /^https?:\/\//i.test(wikiSlug)
-          ? ' target="_blank" rel="noopener"'
-          : "";
-        return `<a href="${escHtml(url)}"${ext}>${escHtml(wikiLabel)}</a>`;
+        default:
+          return match;
       }
-
-      if (hyper !== undefined) {
-        const url = resolve(hyper);
-        if (!url) return `<!-- media not found: ${escHtml(hyper)} -->`;
-        // ① iframe embed
-        const embedUrl = keResolveEmbedUrl(url);
-        if (embedUrl) return keIframeFigure(embedUrl, null, null);
-        // ② メディアファイル
-        if (/^(img|vid|aud|mid)-/.test(hyper) || KE_MEDIA_EXT_RE.test(url)) {
-          return keMediaFigure(url, null, null, null);
-        }
-        // ③ 素リンク
-        const ext = /^https?:\/\//i.test(hyper)
-          ? ' target="_blank" rel="noopener"'
-          : "";
-        return `<a href="${escHtml(url)}"${ext}>${escHtml(hyper)}</a>`;
-      }
-
-      return match;
     },
   );
 }

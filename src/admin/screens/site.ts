@@ -2437,6 +2437,11 @@ async function siteManagement() {
         // KuroEditor v2.3.0+ のホスト設定でどちらもマウント自体を止める。
         modalMenu: false,
         saveUi: false,
+        versionUi: false, // KE 内蔵バージョンバッジは非表示 (I3)
+
+        // 記事エディタと同じく安定ブロック ID を付与 (「blockIds は基本 ON」方針。
+        // サイトテキストも保存形式を統一する。公開面の除去は stripInternalIds が担う)
+        blockIds: true,
         // サイトテキスト編集もキャンバスを実サイト配色に合わせる（記事エディタ
         // と同じ: 両モードのスロットに同じテンプレート配色、モードは自動決定）
         canvasColors: state.editorCanvasColors || undefined,

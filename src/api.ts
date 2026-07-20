@@ -24,6 +24,11 @@ import {
   type BuildMode,
 } from "./public";
 import { cacheVersion, makeId, nowIso, randomToken, sha256Hex } from "./crypto";
+import {
+  mergeBlocks,
+  normalizeBlockIds,
+  type MergeConflict,
+} from "./kuro-blocks.js";
 import { KUROMAILER_SHARED_SECRET } from "./kuromailer-secret";
 import { verifyRegistration, verifyAuthentication } from "./webauthn";
 import {
@@ -121,7 +126,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.8.51";
+export const KUROCMS_VERSION = "1.8.52";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -5624,13 +5629,29 @@ async function documentDetail(
       throw new HttpError(404, "document_not_found", "Document was not found.");
     }
     const translations = await env.DB.prepare(
-      "SELECT lang, title, summary, updated_at FROM document_translations WHERE did = ? ORDER BY lang",
+      "SELECT lang, title, summary, body_html, updated_at FROM document_translations WHERE did = ? ORDER BY lang",
     )
       .bind(did)
-      .all();
+      .all<{
+        lang: string;
+        title: string | null;
+        summary: string | null;
+        body_html: string | null;
+        updated_at: string | null;
+      }>();
+    // body_html: AI/REST が編集前に本文を読むため (data-bid 込み)。
+    // body_hash: その版のキー。次回 update の baseBodyHash にそのまま渡すと、
+    //            他クライアントと交錯した場合にサーバーがブロック単位で 3-way
+    //            マージする (C4)。
+    const rows = await Promise.all(
+      translations.results.map(async (r) => ({
+        ...r,
+        body_hash: r.body_html ? await sha256Hex(r.body_html) : null,
+      })),
+    );
     return json({
       document: document as JsonValue,
-      translations: translations.results as JsonValue,
+      translations: rows as JsonValue,
     });
   }
 
@@ -5814,8 +5835,8 @@ async function snapshotTranslationStatement(
   return env.DB.prepare(
     `INSERT INTO document_translation_revisions
        (revision_id, did, lang, revision_no, title, body_html, seo_json,
-        hashtag_json, snapshot_at, snapshot_by)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        hashtag_json, snapshot_at, snapshot_by, body_hash)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).bind(
     makeId("rev"),
     did,
@@ -5827,6 +5848,8 @@ async function snapshotTranslationStatement(
     existing.hashtag_json,
     nowIso(),
     snapshotBy,
+    // 3-way マージの base 検索キー (baseBodyHash → この版のリビジョン)
+    await sha256Hex(existing.body_html),
   );
 }
 
@@ -6164,20 +6187,48 @@ async function documentTranslations(
         "bodyHtml is required when creating a translation.",
       );
     }
+    // 書き込み境界の不変条件 (C3): 保存される本文は常に一意な data-bid を持つ。
+    // 編集画面 (blockIds:true) 由来は no-op。bid を持たない AI/REST 由来や
+    // 新規ブロックはここで採番される (壊れた HTML は normalize が無変換で通す)。
+    const incomingBody =
+      bodyHtmlInput === null ? null : normalizeBlockIds(bodyHtmlInput);
+
+    // 楽観ロック → サーバー 3-way マージ (C4):
+    // baseBodyHash が現在の本文と一致しない = 他クライアントが先に保存した。
+    // 旧来は 409 で突き返すだけだったが、申告 base のリビジョンが履歴にあれば
+    // ブロック単位 3-way マージで両者の編集を統合する (別ブロックの編集は両立、
+    // 同一ブロックの分岐は現在値を保持し conflicts で申告側に返す = local-wins
+    // + report。人間と AI の同時編集を双方向とも無音で失わない)。
+    let mergeConflicts: MergeConflict[] | null = null;
+    let bodyHtml = incomingBody ?? (document.translation_body_html as string);
     if (
-      bodyHtmlInput !== null &&
+      incomingBody !== null &&
       baseBodyHash &&
       document.translation_body_html !== null &&
       (await sha256Hex(document.translation_body_html)) !== baseBodyHash
     ) {
-      throw new HttpError(
-        409,
-        "body_conflict",
-        "The body was updated by another client after it was loaded. Reload it, or resend without baseBodyHash to overwrite (the current version is snapshotted to revision history).",
+      const baseRev = await env.DB.prepare(
+        `SELECT body_html FROM document_translation_revisions
+         WHERE did = ? AND lang = ? AND body_hash = ?
+         ORDER BY revision_no DESC LIMIT 1`,
+      )
+        .bind(did, lang, baseBodyHash)
+        .first<{ body_html: string }>();
+      if (!baseRev) {
+        throw new HttpError(
+          409,
+          "body_conflict",
+          "The body was updated by another client after it was loaded, and the declared base revision is unknown so it cannot be merged. Re-fetch the article (GET returns bodyHtml + bodyHash) and retry with that bodyHash, or resend without baseBodyHash to overwrite (the current version is snapshotted to revision history).",
+        );
+      }
+      const merged = mergeBlocks(
+        baseRev.body_html,
+        document.translation_body_html,
+        incomingBody,
       );
+      bodyHtml = merged.html;
+      mergeConflicts = merged.conflicts;
     }
-    const bodyHtml =
-      bodyHtmlInput ?? (document.translation_body_html as string);
 
     // No-op guard: the editor PUTs the full metadata payload on EVERY save.
     // When the stored translation is byte-identical, skip the write — the
@@ -6194,6 +6245,8 @@ async function documentTranslations(
       hashtags === (document.translation_hashtag_json ?? "") &&
       bodyHtml === document.translation_body_html;
     if (translationUnchanged) {
+      // マージの結果「保存済みと同一」に収束した場合もここに来る。申告側 (AI 等)
+      // が正しい base を掴み直せるよう bodyHash と、分岐があったなら conflicts を返す
       return json({
         ok: true,
         did,
@@ -6201,6 +6254,10 @@ async function documentTranslations(
         createdAt: document.translation_created_at,
         updatedAt: document.translation_updated_at,
         changed: false,
+        bodyHash: await sha256Hex(bodyHtml),
+        ...(mergeConflicts !== null
+          ? { merged: true, bodyHtml, conflicts: mergeConflicts }
+          : {}),
       });
     }
 
@@ -6296,7 +6353,21 @@ async function documentTranslations(
         }),
       );
     }
-    return json({ ok: true, did, lang, createdAt, updatedAt, changed: true });
+    // bodyHash は次回保存の baseBodyHash としてそのまま使える (再 GET 不要)。
+    // マージが走った場合は正準の統合結果 bodyHtml と分岐 conflicts を返す —
+    // 申告側 (AI) は conflicts の各 remote が「取り込まれなかった自分の版」。
+    return json({
+      ok: true,
+      did,
+      lang,
+      createdAt,
+      updatedAt,
+      changed: true,
+      bodyHash: await sha256Hex(bodyHtml),
+      ...(mergeConflicts !== null
+        ? { merged: true, bodyHtml, conflicts: mergeConflicts }
+        : {}),
+    });
   }
 
   if (request.method === "DELETE" && lang) {
