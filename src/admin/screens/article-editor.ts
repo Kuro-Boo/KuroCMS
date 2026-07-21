@@ -1133,6 +1133,34 @@ async function newArticle(editDid: Dynamic) {
         if (slug.startsWith("http")) return slug;
         return bodyMidUrlCache[slug] || slug;
       },
+      // URL カード [[url|]] の 2 段階リッチ表示（I4）。まず簡易カードが即描画され、
+      // ここで解決したメタでそのカードだけ差し替わる（公開ページと同一の共有描画）。
+      // 外部 URL はサーバー側 unfurl (/api/unfurl) 経由（CORS で外部 <title> を
+      // 読めないため）。404/到達不可と確定したら {error:'target'} を返し「読込みエラー」
+      // 枠に（公開ページと一致）。内部 slug と一時障害は null（簡易表示のまま）。
+      onFetchUrlMeta: async function (slug: string) {
+        if (!/^https?:\/\//i.test(slug)) return null;
+        try {
+          const headers: Record<string, string> = {};
+          if (state.token) headers.authorization = "Bearer " + state.token;
+          const resp = await fetch(
+            withBase("/api/unfurl?url=" + encodeURIComponent(slug)),
+            { headers },
+          );
+          if (!resp.ok) return null;
+          const d = await resp.json();
+          if (d && d.ok && d.meta && typeof d.meta === "object") return d.meta;
+          if (
+            d &&
+            d.ok === false &&
+            (d.reason === "target_404" || d.reason === "target_unreachable")
+          )
+            return { error: "target" };
+        } catch {
+          /* 一時障害は簡易表示のまま */
+        }
+        return null;
+      },
       // KuroEditor calls onSave from its toolbar Save button AND its periodic
       // autosave (which only runs while the editor's 自動保存 checkbox is ON —
       // this is the ONLY path that autosaves the body, so the checkbox really

@@ -50,6 +50,7 @@ import {
 } from "./templates/font-catalog";
 import type { AuthUser, Env, JsonValue } from "./types";
 import { handleMcp } from "./mcp";
+import { unfurlVerify, unfurlUrlAllowed, fetchUnfurl } from "./unfurl";
 
 interface DocumentRow {
   did: string;
@@ -126,7 +127,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.8.52";
+export const KUROCMS_VERSION = "1.8.53";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -417,6 +418,23 @@ async function handleApiDispatch(
     // same PAT, then dispatches each tool call back through handleApi.
     if (path === "/api/mcp") {
       return handleMcp(request, env, ctx);
+    }
+
+    // URL カードのリッチ表示メタ取得（unfurl）。公開ページのクライアントが叩くため
+    // 認証不要だが、開放プロキシ化を防ぐため「認証済み(Author)」か「ビルドが発行した
+    // HMAC 署名」のどちらかを要求する。詳細は unfurlEndpoint。
+    if (request.method === "OPTIONS" && path === "/api/unfurl") {
+      return new Response(null, {
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "GET,OPTIONS",
+          "Access-Control-Allow-Headers": "authorization",
+          "Access-Control-Max-Age": "86400",
+        },
+      });
+    }
+    if (request.method === "GET" && path === "/api/unfurl") {
+      return unfurlEndpoint(request, env);
     }
 
     const user = await requireAuth(env, request);
@@ -3111,6 +3129,51 @@ async function systemUpdate(
     version: release.tag_name,
     channel,
     migrationsApplied,
+  });
+}
+
+// URL カードのリッチ表示メタ取得。認証済み(Author=編集キャンバス)か、ビルドが発行した
+// HMAC 署名(公開ページのカード)のどちらかを要求 → 任意 URL 代理(オープンプロキシ)を封じる。
+// SSRF ガード + KV キャッシュ。結果は { ok:true, meta } / { ok:false, reason }。
+async function unfurlEndpoint(request: Request, env: Env): Promise<Response> {
+  const cors = { "Access-Control-Allow-Origin": "*" };
+  const jhead = { "content-type": "application/json; charset=utf-8", ...cors };
+  const u = new URL(request.url);
+  const target = u.searchParams.get("url") || "";
+  const sig = u.searchParams.get("sig") || "";
+  let authed = false;
+  try {
+    await requireAuth(env, request);
+    authed = true;
+  } catch {
+    /* 未認証 → 署名で判定 */
+  }
+  if (!authed && !(await unfurlVerify(env, target, sig))) {
+    return new Response(JSON.stringify({ ok: false, reason: "forbidden" }), {
+      status: 403,
+      headers: jhead,
+    });
+  }
+  if (!unfurlUrlAllowed(target)) {
+    return new Response(JSON.stringify({ ok: false, reason: "invalid_url" }), {
+      status: 400,
+      headers: jhead,
+    });
+  }
+  const cacheKey = "unfurl:" + (await sha256Hex(target));
+  const cached = await env.PUBLIC_PAGES.get(cacheKey);
+  if (cached)
+    return new Response(cached, {
+      headers: { ...jhead, "Cache-Control": "public, max-age=1800" },
+    });
+  const result = await fetchUnfurl(target);
+  const body = JSON.stringify(result);
+  // 成功は長め・失敗は短めにキャッシュ（対象が復活する可能性を考慮）。
+  await env.PUBLIC_PAGES.put(cacheKey, body, {
+    expirationTtl: result.ok ? 21600 : 900,
+  }).catch(() => {});
+  return new Response(body, {
+    headers: { ...jhead, "Cache-Control": "public, max-age=1800" },
   });
 }
 

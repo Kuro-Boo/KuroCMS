@@ -29,6 +29,30 @@ export const VIDEO_EXT_RE = /\.(mp4|webm|mov)(\?.*)?$/i
 
 export const AUDIO_EXT_RE = /\.(mp3|wav|aac|flac|m4a|oga)(\?.*)?$/i
 
+/**
+ * Media kind ('image' | 'video' | 'audio') for a media slug/url.
+ * The typed ID PREFIX is authoritative — `vid-`→video, `aud-`→audio,
+ * `img-`/`mid-`→image — so the kind is correct even when the resolved URL has
+ * no file extension (e.g. a blob: ObjectURL). Only when the prefix is untyped
+ * (a bare http URL) do we fall back to the URL extension, defaulting to image.
+ * @param {string} slug
+ * @param {string} url
+ * @returns {'image'|'video'|'audio'}
+ */
+export function mediaKindFromSlug(slug, url = '') {
+  if (/^vid-/.test(slug)) return 'video'
+  if (/^aud-/.test(slug)) return 'audio'
+  if (/^(img|mid)-/.test(slug)) return 'image'
+  return VIDEO_EXT_RE.test(url) ? 'video' : AUDIO_EXT_RE.test(url) ? 'audio' : 'image'
+}
+
+/** Normalize a host's supported-kinds declaration to a Set (null → all kinds). */
+export function normalizeMediaKinds(kinds) {
+  if (!kinds) return null // null / undefined = all kinds supported
+  const set = new Set(Array.isArray(kinds) ? kinds : [kinds])
+  return set.size ? set : null
+}
+
 /** Inline globe icon for URL cards (self-contained SVG, currentColor). */
 export const URL_CARD_ICON =
   '<svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true">' +
@@ -108,6 +132,38 @@ export function _urlCardInner(slug, url, meta = null) {
 }
 
 /**
+ * URL カードの「読込みエラー」内側マークアップ。対象ページが 404/到達不可と
+ * 確定したとき、カード内側をこれに差し替える（呼び手は `kuro-url-card--error`
+ * クラスを付与）。エディタ側の 2 段階表示（onFetchUrlMeta が {error:'target'} を
+ * 返した場合）と公開ページのクライアント enrich が同一マークアップを出すための
+ * 単一の正。`_urlCardInner` と同じ骨格でタイトルだけ固定文言にする。
+ */
+export function _urlCardErrorInner(slug, url) {
+  const isHttp = /^https?:\/\//i.test(slug)
+  const sub = isHttp ? slug : url
+  return `<span class="kuro-url-card__icon">${URL_CARD_ICON}</span>` +
+    `<span class="kuro-url-card__body">` +
+      `<span class="kuro-url-card__title">読込みエラー</span>` +
+      `<span class="kuro-url-card__url">${_escapeHtml(sub)}</span>` +
+    `</span>` +
+    `<span class="kuro-url-card__arrow">↗</span>`
+}
+
+/**
+ * メディア（img/vid/aud）の src ロード失敗プレースホルダ（.kuro-media-broken）の
+ * マークアップ。エディタ（wysiwyg の error イベントハンドラ）と公開ページ（同等の
+ * error リスナ）が同一の壊れ表示を出すための単一の正。CSS は content.css に置き、
+ * 公開・編集の双方に配られる。src はテキストとして安全にエスケープする。
+ */
+export function buildBrokenMedia(src) {
+  return `<div class="kuro-media-broken" contenteditable="false">` +
+    `<span class="kuro-media-broken__icon">🔗</span>` +
+    `<span class="kuro-media-broken__label">メディアを読込できません</span>` +
+    `<span class="kuro-media-broken__url">${_escapeHtml(src)}</span>` +
+    `</div>`
+}
+
+/**
  * Build the URL card anchor for [[slug|]] — the "explicitly no title" form.
  * contenteditable=false so the card behaves as one atomic object while editing
  * (deleted in one Backspace, no caret inside).
@@ -128,10 +184,15 @@ export const LINK_TOKEN_RE = /\[\[\[([^\]]+)\]\]\]|\[\[([^\]|]+)\|([^\]]*)\]\]|\
  * @param {{card?:string, wikiSlug?:string, wikiLabel?:string, hyper?:string}} groups
  *   Regex capture groups from LINK_TOKEN_RE.
  * @param {(slug:string)=>string} [resolver]
+ * @param {Set<string>|null} [supportedKinds] host's supported media kinds
+ *   (null = all). A media token whose kind is not in the set is returned with
+ *   `unsupported: true` so the host can render a placeholder instead of a
+ *   broken player. Use normalizeMediaKinds() to build the Set.
  * @returns {{kind:string,[k:string]:any}} descriptor (kind: card|urlcard|iframe|media|wikilink|hyperlink|text)
  */
-export function classifyLink(groups, resolver = defaultResolver) {
+export function classifyLink(groups, resolver = defaultResolver, supportedKinds = null) {
   const { card, wikiSlug, wikiLabel, hyper } = groups
+  const unsupported = (kind) => !!supportedKinds && !supportedKinds.has(kind)
   if (card !== undefined) {
     return { kind: 'card', raw: card, url: resolver(card) }
   }
@@ -148,8 +209,8 @@ export function classifyLink(groups, resolver = defaultResolver) {
       || (wikiSlug.startsWith('http') && _looksLikeMediaParams(wikiLabel))
     if (isMedia) {
       const { size, align, link } = parseMediaParams(wikiLabel)
-      const mediaKind = VIDEO_EXT_RE.test(url) ? 'video' : AUDIO_EXT_RE.test(url) ? 'audio' : 'image'
-      return { kind: 'media', slug: wikiSlug, url, size, align, link, mediaKind }
+      const mediaKind = mediaKindFromSlug(wikiSlug, url)
+      return { kind: 'media', slug: wikiSlug, url, size, align, link, mediaKind, unsupported: unsupported(mediaKind) }
     }
     return { kind: 'wikilink', slug: wikiSlug, url, label: wikiLabel, isExternal: wikiSlug.startsWith('http') }
   }
@@ -159,8 +220,8 @@ export function classifyLink(groups, resolver = defaultResolver) {
     if (embedUrl) return { kind: 'iframe', slug: hyper, url, embedUrl, size: null, align: null }
     const isMedia = MEDIA_ID_RE.test(hyper) || MEDIA_EXT_RE.test(url)
     if (isMedia) {
-      const mediaKind = VIDEO_EXT_RE.test(url) ? 'video' : AUDIO_EXT_RE.test(url) ? 'audio' : 'image'
-      return { kind: 'media', slug: hyper, url, size: null, align: null, link: null, mediaKind }
+      const mediaKind = mediaKindFromSlug(hyper, url)
+      return { kind: 'media', slug: hyper, url, size: null, align: null, link: null, mediaKind, unsupported: unsupported(mediaKind) }
     }
     return { kind: 'hyperlink', slug: hyper, url, isExternal: hyper.startsWith('http') }
   }
@@ -173,11 +234,14 @@ export function classifyLink(groups, resolver = defaultResolver) {
  * Judgment is delegated to classifyLink(); this only emits markup.
  * @param {string} text
  * @param {(slug: string) => string} [resolver]
+ * @param {Set<string>|null} [supportedKinds] host's supported media kinds
+ *   (null = all). Unsupported-kind media renders a neutral placeholder that
+ *   still round-trips its token (data-kuro-media) and is selectable/deletable.
  * @returns {string}
  */
-export function renderSpecialLinks(text, resolver = defaultResolver) {
+export function renderSpecialLinks(text, resolver = defaultResolver, supportedKinds = null) {
   return text.replace(LINK_TOKEN_RE, (match, card, wikiSlug, wikiLabel, hyper) => {
-    const d = classifyLink({ card, wikiSlug, wikiLabel, hyper }, resolver)
+    const d = classifyLink({ card, wikiSlug, wikiLabel, hyper }, resolver, supportedKinds)
     switch (d.kind) {
       case 'card':
         return `<a href="${d.url}" target="_blank" rel="noopener" class="kuro-card-link" data-kuro-card="${encodeURIComponent('[[[' + d.raw + ']]]')}">${d.raw}</a>`
@@ -193,6 +257,20 @@ export function renderSpecialLinks(text, resolver = defaultResolver) {
         const alignClass = d.align ? ` kuro-media-wrap--${d.align}` : ''
         const hrefAttr = d.link ? ` data-kuro-href="${d.link}"` : ''
         const linkBtn = d.link ? `<a class="kuro-media-open-link" href="${d.link}" target="_blank" rel="noopener" contenteditable="false">↗ URLを新規タブで開く</a>` : ''
+        if (d.unsupported) {
+          // このホストが対応しない種別（例: 画像のみのアプリに動画/音声）。壊れた
+          // プレーヤーではなく【リンクカード】へ落とす。data-kuro-media を保持するので
+          // getContent() でトークンは失われず（保存フォーマットは対応ホストと同一）、
+          // 対応ホストでは元どおり再生される。URL 指定（解決後が http(s)）ならクリック
+          // で開けるカード、内部 ID など URL が無い場合は href なしのカード。
+          // ⚠ kuro-url-card クラスは付けない — URL カードの編集 UI が data-kuro-wiki
+          // 前提でトークンを [[slug|]] へ書き換え、メディアトークンを壊すため。専用
+          // クラスにして見た目（ボックス）だけ url-card と共有する。
+          const isHttp = /^https?:\/\//i.test(d.url)
+          const linkUrl = d.link || (isHttp ? d.url : null)
+          const attrs = linkUrl ? ` href="${linkUrl}" target="_blank" rel="noopener"` : ''
+          return `<a class="kuro-media-fallback-card"${attrs} contenteditable="false" data-kuro-media="${enc}">${_urlCardInner(d.slug, d.slug)}</a>`
+        }
         if (d.mediaKind === 'video') {
           return `<figure class="kuro-media-wrap kuro-media-wrap--video${alignClass}"${sizeStyle} data-kuro-media="${enc}"${hrefAttr}><video src="${d.url}" controls class="kuro-media kuro-media--video"></video>${linkBtn}</figure>`
         }

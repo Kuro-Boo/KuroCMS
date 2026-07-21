@@ -2450,6 +2450,33 @@ async function siteManagement() {
         urlResolver: function (slug: string) {
           return slug.startsWith("http") ? slug : midUrlCache[slug] || slug;
         },
+        // URL カード [[url|]] の 2 段階リッチ表示（I4・公開ページと同一の共有描画）。
+        // 外部 URL はサーバー側 unfurl (/api/unfurl) 経由。404/到達不可は {error:'target'}
+        // で「読込みエラー」枠。内部 slug と一時障害は null（簡易表示のまま）。
+        onFetchUrlMeta: async function (slug: string) {
+          if (!/^https?:\/\//i.test(slug)) return null;
+          try {
+            const headers: Record<string, string> = {};
+            if (state.token) headers.authorization = "Bearer " + state.token;
+            const resp = await fetch(
+              withBase("/api/unfurl?url=" + encodeURIComponent(slug)),
+              { headers },
+            );
+            if (!resp.ok) return null;
+            const d = await resp.json();
+            if (d && d.ok && d.meta && typeof d.meta === "object")
+              return d.meta;
+            if (
+              d &&
+              d.ok === false &&
+              (d.reason === "target_404" || d.reason === "target_unreachable")
+            )
+              return { error: "target" };
+          } catch {
+            /* 一時障害は簡易表示のまま */
+          }
+          return null;
+        },
         onMediaUpload: async function (file: File) {
           const fd = new FormData();
           const mime = file.type || "";

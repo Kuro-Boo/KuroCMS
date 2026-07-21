@@ -22,6 +22,9 @@ export type LinkDescriptor =
       align: string | null;
       link: string | null;
       mediaKind: "video" | "audio" | "image";
+      /** ホストの supportedKinds に mediaKind が含まれないとき true。ホストは
+       *  再生要素でなく通常リンクに落とす（data-kuro-media でトークンは保持）。 */
+      unsupported: boolean;
     }
   | { kind: "wikilink"; slug: string; url: string; label: string; isExternal: boolean }
   | { kind: "hyperlink"; slug: string; url: string; isExternal: boolean }
@@ -45,15 +48,41 @@ export const LINK_TOKEN_RE: RegExp;
  */
 export const MEDIA_ID_RE: RegExp;
 
+/** ホストが表示に対応するメディア種別の集合（null = 全対応）。 */
+export type MediaKind = "image" | "video" | "audio";
+export type SupportedKinds = Set<MediaKind> | null;
+
+/**
+ * メディア種別を【接頭辞】で確定する（vid-→video / aud-→audio / img-・mid-→image）。
+ * 接頭辞が付かない裸 http URL のときだけ URL 拡張子でフォールバック（既定 image）。
+ * blob: の様に拡張子の無い URL でも接頭辞から正しく判定できる。
+ */
+export function mediaKindFromSlug(slug: string, url?: string): MediaKind;
+
+/** ホストの mediaKinds 宣言を Set に正規化（falsy / 空 → null = 全対応）。 */
+export function normalizeMediaKinds(
+  kinds: MediaKind[] | MediaKind | null | undefined,
+): SupportedKinds;
+
 /**
  * 1 つの [[...]] トークンをホスト非依存の記述子へ分類する。メディア判定・埋め込み
  * 判定・パラメータ解析・優先順位という「editor と public で一致すべき判定」を
  * 一本化する。マークアップの emit は各ホストが記述子から行う。
+ * supportedKinds を渡すと、対応外種別のメディアに unsupported:true を立てる。
  */
-export function classifyLink(groups: LinkGroups, resolver?: SlugResolver): LinkDescriptor;
+export function classifyLink(
+  groups: LinkGroups,
+  resolver?: SlugResolver,
+  supportedKinds?: SupportedKinds,
+): LinkDescriptor;
 
-/** [[...]] を editor 用マークアップ（round-trip 用 data-kuro-* 付き）へ展開。 */
-export function renderSpecialLinks(text: string, resolver?: SlugResolver): string;
+/** [[...]] を editor 用マークアップ（round-trip 用 data-kuro-* 付き）へ展開。
+ *  supportedKinds を渡すと、対応外種別は通常リンクに落として描画する。 */
+export function renderSpecialLinks(
+  text: string,
+  resolver?: SlugResolver,
+  supportedKinds?: SupportedKinds,
+): string;
 
 /** 既定 slug→URL 解決（http は外部、その他は相対パス）。 */
 export function defaultResolver(slug: string): string;
@@ -88,6 +117,14 @@ export function _urlCardInner(
 
 /** URL カードのアンカー（[[slug|]]、editor 用）。 */
 export function _buildUrlCard(slug: string, url: string): string;
+
+/** URL カードの「読込みエラー」内側マークアップ（対象 404/到達不可）。呼び手は
+ *  `kuro-url-card--error` を付与。editor と公開クライアントが同一表示を出す単一の正。 */
+export function _urlCardErrorInner(slug: string, url: string): string;
+
+/** メディア(img/vid/aud)の src ロード失敗プレースホルダ `.kuro-media-broken` の
+ *  マークアップ。editor の error ハンドラと公開の error リスナが共有する単一の正。 */
+export function buildBrokenMedia(src: string): string;
 
 /** 埋め込み iframe の figure（editor 用）。 */
 export function _buildIframeFigure(

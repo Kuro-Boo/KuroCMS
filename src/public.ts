@@ -18,6 +18,7 @@ import { stripInternalIds } from "./strip-internal-ids";
 // [[...]] 判定は KuroEditor と共有（vendored kuro-links.js の単一の正）。公開側は
 // この記述子から公開用マークアップだけを emit する。判定ロジックは再実装しない。
 import { classifyLink, LINK_TOKEN_RE, MEDIA_ID_RE } from "./kuro-links.js";
+import { unfurlSign } from "./unfurl";
 import type { Env } from "./types";
 
 // Bump when the page-rendering OUTPUT changes in a way the per-page source_hash
@@ -1124,6 +1125,16 @@ function escHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
+// escHtml の逆（属性値から元 URL を復元）。ブラウザが getAttribute で返す
+// 復号済み値と一致させるため、署名対象は復号後の URL にそろえる。
+function decodeHtml(s: string): string {
+  return String(s ?? "")
+    .replace(/&quot;/g, '"')
+    .replace(/&gt;/g, ">")
+    .replace(/&lt;/g, "<")
+    .replace(/&amp;/g, "&");
+}
+
 // ─── KuroEditor リンク記法の公開ビルド展開 ────────────────────────────────────
 // KuroEditor は保存本文（body_html）にリンク・メディアを [[...]] トークンで
 // 保持する（getContent → unrenderSpecialLinks）。公開ビルドは KuroEditor の
@@ -1208,8 +1219,12 @@ function keUrlCard(slug: string, href: string): string {
   }
   const sub = isHttp ? slug : href;
   const ext = isHttp ? ' target="_blank" rel="noopener"' : "";
+  // 外部 URL は data-kuro-unfurl を付け、ビルド後処理(signUnfurlCards)が HMAC 署名を
+  // 足す。公開ページのクライアントが表示時に最新メタでカードをリッチ化する（I4）。
+  // 内部 slug は unfurl しない（安定なので簡易表示のまま）。
+  const unfurlAttr = isHttp ? ` data-kuro-unfurl="${escHtml(slug)}"` : "";
   return (
-    `<a href="${escHtml(href)}"${ext} class="kuro-url-card">` +
+    `<a href="${escHtml(href)}"${ext} class="kuro-url-card"${unfurlAttr}>` +
     `<span class="kuro-url-card__icon">${KE_URL_CARD_ICON}</span>` +
     `<span class="kuro-url-card__body">` +
     `<span class="kuro-url-card__title">${escHtml(title)}</span>` +
@@ -1218,6 +1233,74 @@ function keUrlCard(slug: string, href: string): string {
     `<span class="kuro-url-card__arrow">↗</span>` +
     `</a>`
   );
+}
+
+// I4 / WYSIWYG: ビルド後処理。公開ページのクライアント動的化を 1 つの ES module
+// スクリプトで注入する。描画は【エディタと同一の共有モジュール kuro-links.js】
+// (_urlCardInner / _urlCardErrorInner / buildBrokenMedia) を import して行うため、
+// URL カードのリッチ化・読込みエラー枠・壊れメディア枠がエディタと同一マークアップ
+// になる（＝ ke-content.css で同一表示＝ WYSIWYG の単一の正）。
+//  - URL カード: keUrlCard が付けた data-kuro-unfurl に HMAC 署名(data-kuro-sig)を
+//    足し（署名でオープンプロキシ化を防ぐ）、表示時にクライアントが /api/unfurl で
+//    最新メタを取って _urlCardInner で差し替え。404/到達不可は _urlCardErrorInner。
+//    自サービスの一時障害は簡易表示のまま。取得メタは保存しない（原本は [[url|]]）。
+//  - 壊れメディア: img/vid/aud の src ロード失敗を捕捉し buildBrokenMedia へ差し替え
+//    （エディタの error ハンドラと同一表示）。
+async function injectKuroLinksClient(
+  html: string,
+  env: Env,
+  apiBase: string,
+): Promise<string> {
+  const UNFURL_ATTR_RE = /data-kuro-unfurl="([^"]*)"/g;
+  const urls = new Set<string>();
+  for (const m of html.matchAll(UNFURL_ATTR_RE)) {
+    const u = decodeHtml(m[1]);
+    if (u) urls.add(u);
+  }
+  const hasUnfurl = urls.size > 0;
+  const hasMedia = html.includes("kuro-media-wrap");
+  if (!hasUnfurl && !hasMedia) return html;
+
+  let out = html;
+  if (hasUnfurl) {
+    const sigByUrl = new Map<string, string>();
+    for (const u of urls) sigByUrl.set(u, await unfurlSign(env, u));
+    out = out.replace(UNFURL_ATTR_RE, (full, enc: string) => {
+      const sig = sigByUrl.get(decodeHtml(enc));
+      return sig ? `${full} data-kuro-sig="${escHtml(sig)}"` : full;
+    });
+  }
+
+  const base = apiBase.replace(/\/+$/, "");
+  const moduleUrl = `${base}/_admin/kuro-links.${KE_VERSION}.js`;
+  const endpoint = `${base}/api/unfurl`;
+  const brokenBlock = hasMedia
+    ? `function fixBroken(el){if(!el||!el.classList||!el.classList.contains("kuro-media"))return;` +
+      `var fig=el.closest(".kuro-media-wrap");if(!fig)return;fig.innerHTML=buildBrokenMedia(el.getAttribute("src")||"");}` +
+      `window.addEventListener("error",function(e){fixBroken(e.target);},true);` +
+      `document.querySelectorAll("img.kuro-media").forEach(function(img){if(img.complete&&img.naturalWidth===0)fixBroken(img);});`
+    : "";
+  const unfurlBlock = hasUnfurl
+    ? `var A=${JSON.stringify(endpoint)};` +
+      `function apply(a,d,slug){if(!d)return;var url=a.getAttribute("href")||slug;` +
+      `if(d.ok===false){if(d.reason==="target_404"||d.reason==="target_unreachable"){a.innerHTML=_urlCardErrorInner(slug,url);a.classList.add("kuro-url-card--error");}return;}` +
+      `a.innerHTML=_urlCardInner(slug,url,d.meta||null);a.classList.add("kuro-url-card--rich");}` +
+      `function load(a){var u=a.getAttribute("data-kuro-unfurl"),s=a.getAttribute("data-kuro-sig");if(!u||!s)return;a.removeAttribute("data-kuro-unfurl");` +
+      `var ck="kuf:"+u;try{var c=sessionStorage.getItem(ck);if(c){apply(a,JSON.parse(c),u);return;}}catch(e){}` +
+      `fetch(A+"?url="+encodeURIComponent(u)+"&sig="+encodeURIComponent(s)).then(function(r){return r.ok?r.json():null;}).then(function(d){if(d){try{sessionStorage.setItem(ck,JSON.stringify(d));}catch(e){}}apply(a,d,u);}).catch(function(){});}` +
+      `var cs=[].slice.call(document.querySelectorAll("a.kuro-url-card[data-kuro-sig]"));` +
+      `if(cs.length){if("IntersectionObserver" in window){var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){io.unobserve(e.target);load(e.target);}});},{rootMargin:"200px"});cs.forEach(function(a){io.observe(a);});}else{cs.forEach(load);}}`
+    : "";
+  const script =
+    `<script type="module">` +
+    `import { _urlCardInner, _urlCardErrorInner, buildBrokenMedia } from ${JSON.stringify(moduleUrl)};` +
+    brokenBlock +
+    unfurlBlock +
+    `</script>`;
+  out = out.includes("</body>")
+    ? out.replace("</body>", `${script}</body>`)
+    : out + script;
+  return out;
 }
 
 /** mid / URL / 内部 slug を href に解決する（mid は resolveMid に委譲）。 */
@@ -1812,6 +1895,7 @@ export async function generatePage(
   html = injectFontHead(s, html, lang);
   html = injectSeoHead(html, s, ctx, pageLangs);
   html = injectGa4Head(html, s);
+  html = await injectKuroLinksClient(html, env, adminBase);
   return html;
 }
 
