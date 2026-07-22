@@ -676,13 +676,15 @@ async function newArticle(editDid: Dynamic) {
           // materialize, so it stays visible-but-disabled while in draft mode
           // (the label explains why via title=).
           "<div class='editorHeadBtnRow'>" +
-          "<button type='button' id='arBuildOneBtn' class='editorHeadBtn editorBuildOneBtn'" +
+          // Same class as the draft toggle so the font / frame / padding match.
+          // The glyph is a TEXT arrow (not a color emoji) for the same reason.
+          "<button type='button' id='arBuildOneBtn' class='editorDraftBtn'" +
           (ro ? "" : " disabled") +
           " title='" +
           escapeHtml(
             ro ? t("buildThisArticleBtn") : t("buildThisArticleDraftHint"),
           ) +
-          "'>&#128736; " +
+          "'>&#8635; " +
           escapeHtml(t("buildThisArticleBtn")) +
           "</button>" +
           "</div>"
