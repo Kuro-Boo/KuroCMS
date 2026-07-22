@@ -671,6 +671,20 @@ async function newArticle(editDid: Dynamic) {
           "<button type='button' id='arDeleteBtn' class='editorHeadBtn editorDelBtn'>&#128465; " +
           escapeHtml(t("delete")) +
           "</button>" +
+          "</div>" +
+          // Single-article build. Only a PUBLISHED article has public pages to
+          // materialize, so it stays visible-but-disabled while in draft mode
+          // (the label explains why via title=).
+          "<div class='editorHeadBtnRow'>" +
+          "<button type='button' id='arBuildOneBtn' class='editorHeadBtn editorBuildOneBtn'" +
+          (ro ? "" : " disabled") +
+          " title='" +
+          escapeHtml(
+            ro ? t("buildThisArticleBtn") : t("buildThisArticleDraftHint"),
+          ) +
+          "'>&#128736; " +
+          escapeHtml(t("buildThisArticleBtn")) +
+          "</button>" +
           "</div>"
         : "") +
       "</div>" +
@@ -1706,6 +1720,30 @@ async function newArticle(editDid: Dynamic) {
         toast(errorMessage(err), true);
         const b = byId("arDraftBtn") as Dynamic;
         if (b) b.disabled = false;
+      }
+    });
+    // Build just this article's public pages (POST /api/documents/:did/build,
+    // promote: true). Used to pick up template/CSS changes without running a
+    // full-site rebuild. Disabled while the article is a draft.
+    byId("arBuildOneBtn")?.addEventListener("click", async function () {
+      if (!art.did || art.mode === 0) return;
+      const btn = byId("arBuildOneBtn") as Dynamic;
+      const label = btn ? btn.innerHTML : "";
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = escapeHtml(t("buildThisArticleBusy"));
+      }
+      try {
+        await api("/api/documents/" + art.did + "/build", { method: "POST" });
+        toast(t("buildThisArticleDone"), false);
+      } catch (err) {
+        toast(errorMessage(err), true);
+      } finally {
+        const b = byId("arBuildOneBtn") as Dynamic;
+        if (b) {
+          b.disabled = false;
+          b.innerHTML = label;
+        }
       }
     });
     byId("arCatBtn")?.addEventListener("click", function (e) {

@@ -293,6 +293,10 @@ export function adminHtml(
       .editorDraftBtn { font-size: 13px !important; font-weight: 700 !important; padding: 8px 16px !important; white-space: nowrap; }
       .editorHeadBtn { font-size: 13px; padding: 7px 14px; white-space: nowrap; }
       .editorDelBtn { border: 2px solid var(--danger) !important; color: var(--danger) !important; background: transparent !important; box-shadow: none !important; }
+      /* Single-article build — secondary outline action. Stays visible while the
+         article is a draft; the global disabled rule greys it out. */
+      .editorBuildOneBtn { border: 1.5px solid var(--line-strong) !important; color: var(--ink) !important; background: transparent !important; box-shadow: none !important; font-weight: 700; }
+      .editorBuildOneBtn:hover:not(:disabled) { background: var(--surface-2) !important; }
       .editorBody { position: relative; }
       .editorLockOverlay { position: absolute; inset: 0; z-index: 5; background: rgba(100,105,120,.45); display: flex; align-items: flex-start; justify-content: center; padding-top: 60px; border-radius: var(--radius); }
       .editorLockOverlay span { font-weight: 700; font-size: 16px; color: #fff; background: rgba(15,20,30,.80); padding: 12px 22px; border-radius: 12px; text-align: center; max-width: 90%; box-shadow: 0 6px 24px rgba(0,0,0,.3); }

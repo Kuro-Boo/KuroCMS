@@ -961,6 +961,11 @@ const i18n = {
     enterTitleMsg: "Please enter a title",
     changeToDraftEditable: "Switch to Draft (editable)",
     changeToPublished: "Switch to Published",
+    buildThisArticleBtn: "Build this article only",
+    buildThisArticleDraftHint:
+      "Only a published article can be built. Switch it to Published first.",
+    buildThisArticleBusy: "Building…",
+    buildThisArticleDone: "Rebuilt this article's public pages.",
     editLockedHint:
       "To edit, switch to draft mode using the button at the top right.",
     articleTypeLabel: "Article Type",
@@ -1698,6 +1703,11 @@ const i18n = {
     enterTitleMsg: "タイトルを入力してください",
     changeToDraftEditable: "下書き（編集可能）に変更",
     changeToPublished: "公開に切り替え",
+    buildThisArticleBtn: "この記事だけビルド",
+    buildThisArticleDraftHint:
+      "ビルドできるのは公開中の記事だけです。先に「公開に切り替え」てください。",
+    buildThisArticleBusy: "ビルド中…",
+    buildThisArticleDone: "この記事の公開ページを再ビルドしました。",
     editLockedHint:
       "編集するには右上のボタンで下書きモードに切り替えてください",
     articleTypeLabel: "記事タイプ",
