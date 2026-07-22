@@ -639,10 +639,26 @@ async function expandContentRefs(
     }
   }
 
-  // ── Media refs: [[mid-xxx]] ───────────────────────────────────────────────
+  // ── Media refs: [[mid-xxx]] and [[mid-xxx|params]] ────────────────────────
+  // Both token shapes must be collected. The bare form is expanded by `expand`
+  // below; the parameterized form ([[img-816|50%,right]] — size/alignment, or a
+  // label) is expanded later by expandSpecialLinks via resolveMid. BOTH read
+  // the same mediaMap, so a mid that only ever appears with parameters must
+  // still be fetched here — otherwise resolveMid returns null and the media
+  // silently becomes "<!-- media not found -->" even though the asset exists.
+  // That is exactly what happened to [[img-816|50%,right]]: the image rendered
+  // fine until size/align was set on it, and then vanished on the next build.
   const midPattern = /\[\[([a-z0-9_-]+)\]\]/g;
+  const midWithParamsPattern = /\[\[([a-z0-9_-]+)\|[^\]]*\]\]/g;
   const allRefs = [
-    ...new Set([...allHtml.matchAll(midPattern)].map((m) => m[1])),
+    ...new Set([
+      ...[...allHtml.matchAll(midPattern)].map((m) => m[1]),
+      // Only media-shaped slugs: a wiki link to an article ([[slug|label]])
+      // is not a media reference and must not consume a lookup slot.
+      ...[...allHtml.matchAll(midWithParamsPattern)]
+        .map((m) => m[1])
+        .filter((ref) => MEDIA_ID_RE.test(ref)),
+    ]),
   ];
 
   // Separate SNS SIDs from media MIDs
