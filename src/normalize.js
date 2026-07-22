@@ -154,6 +154,25 @@ function attrMap(attrs) {
   return out
 }
 
+/**
+ * true when this element's attributes mark it as a structural CONTAINER —
+ * a callout, a table wrapper, a code-block widget. A <p> can never legitimately
+ * carry these, so seeing them on one means the tag was rewritten by mistake.
+ *
+ * This exists because an earlier revision of R3 renamed attribute-carrying divs
+ * to <p>, which converted 44 callouts and 44 code-block wrappers in the live
+ * corpus. Restoring them here makes the normalizer self-healing: re-running it
+ * repairs documents damaged by that version instead of needing a rollback.
+ */
+function isStructuralContainer(attrs) {
+  const a = attrMap(attrs)
+  if (a['data-language'] !== undefined) return true
+  if (a['spellcheck'] !== undefined) return true
+  if (a['contenteditable'] !== undefined) return true
+  const cls = a['class'] || ''
+  return /\bkuro-(callout|table|code|roundbox|media)/.test(cls)
+}
+
 /** true when the element carries no attribute other than block identity. */
 function hasOnlyIdentityAttrs(attrs) {
   const a = attrMap(attrs)
@@ -254,6 +273,14 @@ function transformChildren(children, topLevel) {
       node.attrs = identityAttrsOnly(node.attrs)
     }
 
+    // R5 — repair: a <p> wearing container attributes is a container that was
+    // wrongly renamed. Put the tag back before any other block rule looks at it.
+    if (node.name === 'p' && isStructuralContainer(node.attrs)) {
+      node.name = 'div'
+      out.push(node)
+      continue
+    }
+
     if (node.name === 'div' || node.name === 'p') {
       // R4 — a blank block. Only its TAG is normalized; whether it occupies a
       // line is preserved exactly, so the rewrite never adds or removes
@@ -280,15 +307,21 @@ function transformChildren(children, topLevel) {
         out.push(node)
         continue
       }
-      // R3 — a <div> is either a paragraph (rename) or a bare wrapper around
-      // blocks (unwrap). Only attribute-less wrappers are unwrapped: a div with
-      // a style/class is carrying layout we must not discard.
-      if (node.name === 'div') {
-        if (hasBlockChild(node)) {
-          if (hasOnlyIdentityAttrs(node.attrs)) { out.push(...node.children); continue }
-        } else {
-          node.name = 'p'
-        }
+      // R3 — only a BARE <div> is treated as a paragraph.
+      //
+      // "It has no block children, so it must be a paragraph" is wrong: the
+      // corpus stores real containers as divs — kuro-callout (402), code-block
+      // wrappers carrying spellcheck / data-language (99), kuro-table (22) —
+      // and an earlier version of this rule renamed 44 callouts and 44 code
+      // blocks into <p>, which is destructive (a <p> cannot hold block content,
+      // and the editor's callout/code handling looks for the container).
+      //
+      // So the tag is only rewritten when the div carries NOTHING but block
+      // identity. Anything with a class / style / data-* is left exactly as it
+      // is: we cannot prove it is a paragraph, so we do not claim it is one.
+      if (node.name === 'div' && hasOnlyIdentityAttrs(node.attrs)) {
+        if (hasBlockChild(node)) { out.push(...node.children); continue }
+        node.name = 'p'
       }
     }
     out.push(node)

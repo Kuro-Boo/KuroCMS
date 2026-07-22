@@ -129,7 +129,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.8.60";
+export const KUROCMS_VERSION = "1.8.61";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -6167,7 +6167,11 @@ async function normalizeBodyFormat(
   const rows = await env.DB.prepare(
     `SELECT did, lang, body_html FROM document_translations
      WHERE body_html LIKE '%<b>%' OR body_html LIKE '%<b %'
-        OR body_html LIKE '%<div%' OR body_html LIKE '%font-weight%'`,
+        OR body_html LIKE '%<div%' OR body_html LIKE '%font-weight%'
+        -- 復旧対象: 旧版が段落化してしまった構造コンテナ（callout / code block）。
+        -- これらは <div> が残っていない行もあるため、上の条件では拾えない。
+        OR body_html LIKE '%<p class="kuro-%' OR body_html LIKE '%<p data-%'
+        OR body_html LIKE '%<p spellcheck%'`,
   ).all<{ did: string; lang: string; body_html: string | null }>();
   const candidates = rows.results ?? [];
 
@@ -6242,7 +6246,11 @@ async function normalizeBodyFormatPreview(
   const rows = await env.DB.prepare(
     `SELECT body_html FROM document_translations
      WHERE body_html LIKE '%<b>%' OR body_html LIKE '%<b %'
-        OR body_html LIKE '%<div%' OR body_html LIKE '%font-weight%'`,
+        OR body_html LIKE '%<div%' OR body_html LIKE '%font-weight%'
+        -- 復旧対象: 旧版が段落化してしまった構造コンテナ（callout / code block）。
+        -- これらは <div> が残っていない行もあるため、上の条件では拾えない。
+        OR body_html LIKE '%<p class="kuro-%' OR body_html LIKE '%<p data-%'
+        OR body_html LIKE '%<p spellcheck%'`,
   ).all<{ body_html: string | null }>();
   const totals = { bTags: 0, boldSpans: 0, divBlocks: 0, emptyBlocks: 0 };
   let affected = 0;
