@@ -107,9 +107,17 @@ function parseTree(html) {
     const name = nameMatch[1].toLowerCase()
 
     if (tag[1] === '/') {
-      // closing tag — unwind to the matching open element
+      // Closing tag. It must close the element we are actually inside; anything
+      // else is mismatched nesting and the whole document is refused.
+      //
+      // This is not hypothetical: a body containing an unescaped "<A função …>"
+      // parses as an <a> that is never closed, and a lenient unwind would make
+      // the following </b> close BOTH — emitting a </a> that was never in the
+      // source. Browsers recover from that their own way; a normalizer must not
+      // guess, so it declines to touch such a document.
       const idx = stack.map((s) => s.name).lastIndexOf(name)
       if (idx <= 0) { ok = false; continue }
+      if (idx !== stack.length - 1) { ok = false; break }
       stack.length = idx
       continue
     }
@@ -178,18 +186,32 @@ function isBoldOnlySpan(node) {
   return decls.length === 1 && decls[0][0] === 'font-weight' && BOLD_WEIGHTS.has(decls[0][1])
 }
 
-/** true when the node subtree renders nothing but (optional) line breaks. */
-function isBlankContent(children) {
+/**
+ * Classify a block's content for the empty-block rule.
+ *
+ * The distinction matters because the two blank shapes render DIFFERENTLY:
+ *   <p><br></p>  — the <br> forces a line box → one blank line high
+ *   <p>\n</p>    — whitespace collapses, no line box → zero height
+ * Rewriting the second into the first would insert visible blank lines all
+ * through an article, so the two are kept apart.
+ *
+ * @returns {'content'|'collapsed'|'break'}
+ *   content   — renders something
+ *   collapsed — whitespace only, occupies no line
+ *   break     — one or more <br>, occupies a line
+ */
+function blankKind(children) {
+  let sawBreak = false
   for (const c of children) {
     if (c.type === 'text') {
-      // &nbsp; counts as content; plain whitespace does not
-      if (c.raw.trim() !== '' && !/^(?:\s|<!--[\s\S]*?-->)*$/.test(c.raw)) return false
+      // &nbsp; is content; plain whitespace and comments are not
+      if (c.raw.trim() !== '' && !/^(?:\s|<!--[\s\S]*?-->)*$/.test(c.raw)) return 'content'
     } else if (c.type === 'el') {
-      if (c.name === 'br') continue
-      return false
+      if (c.name === 'br') { sawBreak = true; continue }
+      return 'content'
     }
   }
-  return true
+  return sawBreak ? 'break' : 'collapsed'
 }
 
 /** true when any direct child is a block element. */
@@ -233,16 +255,29 @@ function transformChildren(children, topLevel) {
     }
 
     if (node.name === 'div' || node.name === 'p') {
-      // R4 — an empty block. At the top level it is a blank PARAGRAPH; nested
-      // inside another block it cannot be one, so it degrades to a line break.
-      if (isBlankContent(node.children)) {
+      // R4 — a blank block. Only its TAG is normalized; whether it occupies a
+      // line is preserved exactly, so the rewrite never adds or removes
+      // vertical space (see blankKind).
+      const kind = blankKind(node.children)
+      if (kind === 'break') {
         if (topLevel) {
+          // canonical blank paragraph — one <br>, however many it had
           node.name = 'p'
           node.children = [{ type: 'el', name: 'br', attrs: '', children: [], void: true }]
           out.push(node)
         } else {
+          // nested: cannot be a paragraph, but the line it occupied must stay
           out.push({ type: 'el', name: 'br', attrs: '', children: [], void: true })
         }
+        continue
+      }
+      if (kind === 'collapsed') {
+        // Occupies no line. A nested one contributes nothing at all → drop it;
+        // a top-level one only gets its tag unified (content left untouched, so
+        // it keeps collapsing).
+        if (!topLevel) continue
+        if (node.name === 'div') node.name = 'p'
+        out.push(node)
         continue
       }
       // R3 — a <div> is either a paragraph (rename) or a bare wrapper around
@@ -300,7 +335,8 @@ export function inspectContentHtml(html) {
       if (node.name === 'b') stats.bTags++
       else if (isBoldOnlySpan(node)) stats.boldSpans++
       else if (node.name === 'div' || node.name === 'p') {
-        if (isBlankContent(node.children)) { if (node.name === 'div' || !topLevel) stats.emptyBlocks++ }
+        const kind = blankKind(node.children)
+        if (kind !== 'content') { if (node.name === 'div' || !topLevel) stats.emptyBlocks++ }
         else if (node.name === 'div') stats.divBlocks++
       }
       walk(node.children, false)
