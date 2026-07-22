@@ -246,6 +246,20 @@ async function settings() {
       escapeHtml(t("cleanupStylesButton")) +
       "</button></div>" +
       "<div id='cleanupStylesResult' class='muted' style='font-size:12px'></div>" +
+      // ── Body formatting normalization (<b>→<strong>, <div>→<p>, empty blocks)
+      "<hr style='border:0;border-top:1px solid var(--line);margin:4px 0'>" +
+      "<div class='muted' style='font-size:12px'>" +
+      escapeHtml(t("normalizeFormatHelp")) +
+      "</div>" +
+      "<div class='toolbar' style='gap:8px'>" +
+      "<button type='button' id='normalizeFormatCheckBtn' class='secondary'>" +
+      escapeHtml(t("normalizeFormatCheck")) +
+      "</button>" +
+      "<button type='button' id='normalizeFormatBtn' class='secondary'>" +
+      escapeHtml(t("normalizeFormatButton")) +
+      "</button>" +
+      "</div>" +
+      "<div id='normalizeFormatResult' class='muted' style='font-size:12px'></div>" +
       "</div>" +
       "</div>" +
       // ── SNS ──────────────────────────────────────────────────────────
@@ -634,6 +648,68 @@ async function settings() {
                 .replace("{s}", String(scanned))
             : t("cleanupStylesNothing");
       toast(t("cleanupStylesToast"), false, btn);
+    } catch (error) {
+      toast(errorMessage(error), true, btn);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  // Maintenance: body formatting normalization. Dry-run first so the admin can
+  // see the scale before any body is rewritten.
+  byId("normalizeFormatCheckBtn")?.addEventListener("click", async () => {
+    const btn = byId("normalizeFormatCheckBtn") as Dynamic;
+    const out = byId("normalizeFormatResult");
+    btn.disabled = true;
+    try {
+      const res = await api("/api/documents/normalize-format");
+      if (out)
+        out.textContent = Number(res.affected || 0)
+          ? t("normalizeFormatPreview")
+              .replace("{a}", String(res.affected || 0))
+              .replace("{b}", String(res.bTags || 0))
+              .replace("{w}", String(res.boldSpans || 0))
+              .replace("{d}", String(res.divBlocks || 0))
+              .replace("{e}", String(res.emptyBlocks || 0))
+          : t("normalizeFormatPreviewNone");
+    } catch (error) {
+      toast(errorMessage(error), true, btn);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  // Same loop shape as the copy-noise sweep: the server changes at most 50 rows
+  // per call and reports `more` until the corpus is converged.
+  byId("normalizeFormatBtn")?.addEventListener("click", async () => {
+    const btn = byId("normalizeFormatBtn") as Dynamic;
+    const out = byId("normalizeFormatResult");
+    if (state.preview) {
+      toast(t("previewReadOnly"), false, btn);
+      return;
+    }
+    btn.disabled = true;
+    try {
+      let total = 0;
+      let scanned = 0;
+      for (let pass = 0; pass < 40; pass++) {
+        const res = await api("/api/documents/normalize-format", {
+          method: "POST",
+        });
+        total += Number(res.changed || 0);
+        scanned = Number(res.scanned || 0);
+        if (out)
+          out.textContent = t("normalizeFormatProgress") + " " + total + "…";
+        if (!res.more) break;
+      }
+      if (out)
+        out.textContent =
+          total > 0
+            ? t("normalizeFormatDone")
+                .replace("{n}", String(total))
+                .replace("{s}", String(scanned))
+            : t("normalizeFormatNothing");
+      toast(t("normalizeFormatToast"), false, btn);
     } catch (error) {
       toast(errorMessage(error), true, btn);
     } finally {

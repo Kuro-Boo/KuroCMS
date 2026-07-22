@@ -699,6 +699,20 @@ const i18n = {
       "Done: cleaned {n} translation(s) (scan matched {s}). Run a build to publish the cleaned pages.",
     cleanupStylesNothing: "No copy-noise styles found. Nothing to clean.",
     cleanupStylesToast: "Style cleanup finished",
+    normalizeFormatHelp:
+      "Unifies how body formatting is SPELLED, without changing how anything looks. Bold written as <b> or as a font-weight-only <span> becomes <strong>; paragraphs written as <div> become <p>; bare <div> wrappers around blocks are unwrapped; empty blocks become a single blank paragraph. These variants accumulated because the editor left the browser's contenteditable defaults unset, so Chrome produced <div> and <b> while the API wrote <p> and <strong>. New edits are normalized automatically — this button is for articles saved before that. Deliberate styling (alignment, size, colour) is preserved, code blocks are never touched, and the previous body of every changed article is saved to revision history. Run a build afterwards to regenerate the pages.",
+    normalizeFormatButton: "Normalize body formatting",
+    normalizeFormatCheck: "Check what would change",
+    normalizeFormatProgress: "Normalizing… changed so far:",
+    normalizeFormatDone:
+      "Done: normalized {n} translation(s) (scan matched {s}). Run a build to publish them.",
+    normalizeFormatNothing:
+      "Body formatting is already consistent. Nothing to do.",
+    normalizeFormatToast: "Formatting normalization finished",
+    normalizeFormatPreview:
+      "{a} translation(s) would change — <b>: {b}, bold spans: {w}, <div> paragraphs: {d}, empty blocks: {e}",
+    normalizeFormatPreviewNone:
+      "Nothing to change — all bodies are already canonical.",
     siteSettingsSaved: "Site settings saved.",
     name: "Name",
     newType: "New Type",
@@ -1439,6 +1453,18 @@ const i18n = {
       "完了: {n} 件の翻訳を掃除しました（対象候補 {s} 件）。ビルドを実行すると掃除後のページが公開されます。",
     cleanupStylesNothing: "コピー由来のスタイルノイズは見つかりませんでした。",
     cleanupStylesToast: "スタイル掃除が完了しました",
+    normalizeFormatHelp:
+      "本文の装飾の「書き方」を統一します。見た目は一切変わりません。<b> や font-weight だけの <span> で書かれた太字は <strong> に、<div> で書かれた段落は <p> に、ブロックを包んだだけの素の <div> は展開、空ブロックは空段落 1 つに揃えます。これらが混在したのは、エディタが contenteditable の既定値を設定していなかったため Chrome が <div>・<b> を作る一方、API は <p>・<strong> を書いていたからです。今後の編集は自動で正規化されるので、このボタンはそれ以前に保存された記事のためのものです。意図的な装飾（配置・サイズ・色）は保持し、コードブロックには触れません。変更された記事の元本文はリビジョン履歴に保存されます。実行後はビルドを実行してページを再生成してください。",
+    normalizeFormatButton: "本文フォーマットの正規化",
+    normalizeFormatCheck: "変更対象を確認",
+    normalizeFormatProgress: "正規化中… ここまでの変更:",
+    normalizeFormatDone:
+      "完了: {n} 件の翻訳を正規化しました（対象候補 {s} 件）。ビルドを実行すると反映されます。",
+    normalizeFormatNothing: "本文フォーマットは既に統一されています。",
+    normalizeFormatToast: "フォーマット正規化が完了しました",
+    normalizeFormatPreview:
+      "{a} 件の翻訳が変更されます — <b>: {b} 個、太字span: {w} 個、<div>段落: {d} 個、空ブロック: {e} 個",
+    normalizeFormatPreviewNone: "変更対象はありません。すべて正規形です。",
     siteSettingsSaved: "サイト設定を保存しました。",
     name: "名前",
     newType: "新規タイプ",

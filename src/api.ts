@@ -29,6 +29,8 @@ import {
   normalizeBlockIds,
   type MergeConflict,
 } from "./kuro-blocks.js";
+// 本文 HTML の正規化（KuroEditor の paste と完全に同一実装の vendored コピー）。
+import { normalizeContentHtml, inspectContentHtml } from "./normalize.js";
 import { KUROMAILER_SHARED_SECRET } from "./kuromailer-secret";
 import { verifyRegistration, verifyAuthentication } from "./webauthn";
 import {
@@ -127,7 +129,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.8.58";
+export const KUROCMS_VERSION = "1.8.59";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -715,6 +717,22 @@ async function handleApiDispatch(
     // otherwise swallow "cleanup-styles" as a slug.
     if (request.method === "POST" && path === "/api/documents/cleanup-styles") {
       return withJsonHeaders(await cleanupCopyNoise(env, user));
+    }
+
+    // Maintenance: canonicalize body formatting (<b>/bold spans → <strong>,
+    // <div> paragraphs → <p>, empty blocks). Same must-be-before-:id rule as
+    // cleanup-styles above.
+    if (
+      request.method === "GET" &&
+      path === "/api/documents/normalize-format"
+    ) {
+      return withJsonHeaders(await normalizeBodyFormatPreview(env, user));
+    }
+    if (
+      request.method === "POST" &&
+      path === "/api/documents/normalize-format"
+    ) {
+      return withJsonHeaders(await normalizeBodyFormat(env, user));
     }
 
     const documentMatch = path.match(/^\/api\/documents\/([^/]+)$/);
@@ -6123,6 +6141,129 @@ async function cleanupCopyNoise(env: Env, user: AuthUser): Promise<Response> {
 }
 
 /**
+ * Maintenance sweep: apply normalizeContentHtml — the SAME normalization the
+ * editor runs on paste and on save — to every stored translation body, so
+ * articles written before the rule existed get the canonical spelling too.
+ *
+ *   <b> / font-weight-only <span> → <strong>
+ *   <div> paragraph               → <p>   (attributes preserved)
+ *   bare <div> block wrapper      → unwrapped
+ *   empty block                   → <p><br></p>, or <br> when nested
+ *
+ * Rendering is unchanged by every one of those rewrites — this is a spelling
+ * fix, not a restyle. Changed rows are revision-snapshotted first (recoverable
+ * from the article's history), then written with a fresh updated_at so the next
+ * build regenerates their pages. Same 50-changed-rows-per-invocation budget as
+ * cleanupCopyNoise; `more: true` asks the client for another pass.
+ */
+async function normalizeBodyFormat(
+  env: Env,
+  user: AuthUser,
+): Promise<Response> {
+  requireAdmin(user);
+  const MAX_CHANGED_PER_RUN = 50;
+  // Cheap pre-filter — only bodies that can possibly contain a target. The
+  // authoritative decision is normalizeContentHtml's own output comparison.
+  const rows = await env.DB.prepare(
+    `SELECT did, lang, body_html FROM document_translations
+     WHERE body_html LIKE '%<b>%' OR body_html LIKE '%<b %'
+        OR body_html LIKE '%<div%' OR body_html LIKE '%font-weight%'`,
+  ).all<{ did: string; lang: string; body_html: string | null }>();
+  const candidates = rows.results ?? [];
+
+  let changed = 0;
+  const touchedDids = new Set<string>();
+  const now = nowIso();
+  for (const row of candidates) {
+    if (changed >= MAX_CHANGED_PER_RUN) break;
+    const original = row.body_html || "";
+    const cleaned = normalizeContentHtml(original);
+    if (cleaned === original) continue;
+    const statements: D1PreparedStatement[] = [];
+    const snapshot = await snapshotTranslationStatement(
+      env,
+      row.did,
+      row.lang,
+      user.uid,
+    );
+    if (snapshot) statements.push(snapshot);
+    statements.push(
+      env.DB.prepare(
+        `UPDATE document_translations SET body_html = ?, updated_at = ?
+         WHERE did = ? AND lang = ?`,
+      ).bind(cleaned, now, row.did, row.lang),
+      // 可視テキストは変わらない設計だが、索引は本文から機械的に作るので
+      // 念のため同じ変換後の HTML から張り直しておく。
+      env.DB.prepare(
+        `UPDATE search_entries SET body_text = ?, updated_at = ?
+         WHERE did = ? AND lang = ?`,
+      ).bind(stripHtml(cleaned), now, row.did, row.lang),
+    );
+    await env.DB.batch(statements);
+    touchedDids.add(row.did);
+    changed++;
+  }
+  if (touchedDids.size) {
+    await env.DB.batch(
+      Array.from(touchedDids).map((did) =>
+        env.DB.prepare(
+          "UPDATE documents SET updated_at = ? WHERE did = ?",
+        ).bind(now, did),
+      ),
+    );
+  }
+  const more = changed >= MAX_CHANGED_PER_RUN;
+  await logActivity(
+    env,
+    user,
+    "document.normalize_format",
+    "system",
+    "content",
+    {
+      scanned: candidates.length,
+      changed,
+      more,
+    },
+  );
+  return json({ ok: true, scanned: candidates.length, changed, more });
+}
+
+/**
+ * Report — without writing anything — how many stored translations the format
+ * normalization would change, and the per-rule totals. Backs the maintenance
+ * screen's "check first" affordance so an admin can see the scale before
+ * rewriting bodies.
+ */
+async function normalizeBodyFormatPreview(
+  env: Env,
+  user: AuthUser,
+): Promise<Response> {
+  requireAdmin(user);
+  const rows = await env.DB.prepare(
+    `SELECT body_html FROM document_translations
+     WHERE body_html LIKE '%<b>%' OR body_html LIKE '%<b %'
+        OR body_html LIKE '%<div%' OR body_html LIKE '%font-weight%'`,
+  ).all<{ body_html: string | null }>();
+  const totals = { bTags: 0, boldSpans: 0, divBlocks: 0, emptyBlocks: 0 };
+  let affected = 0;
+  for (const row of rows.results ?? []) {
+    const s = inspectContentHtml(row.body_html || "");
+    if (!s.changed) continue;
+    affected++;
+    totals.bTags += s.bTags;
+    totals.boldSpans += s.boldSpans;
+    totals.divBlocks += s.divBlocks;
+    totals.emptyBlocks += s.emptyBlocks;
+  }
+  return json({
+    ok: true,
+    scanned: (rows.results ?? []).length,
+    affected,
+    ...totals,
+  });
+}
+
+/**
  * Build an idempotent statement that registers `lang` as a site language
  * (kind='language') if it isn't already. Used when a translation is upserted so
  * REST/AI-posted translations never become orphaned/invisible. An existing
@@ -6253,8 +6394,15 @@ async function documentTranslations(
     // 書き込み境界の不変条件 (C3): 保存される本文は常に一意な data-bid を持つ。
     // 編集画面 (blockIds:true) 由来は no-op。bid を持たない AI/REST 由来や
     // 新規ブロックはここで採番される (壊れた HTML は normalize が無変換で通す)。
+    // 正規化 → ブロック ID 採番の順。normalizeContentHtml は段落の <div> を <p>
+    // にしたり素のラッパー <div> を unwrap したりしてトップレベルの構成を変える
+    // ので、ID は「正規形になった後のブロック」に振る。エディタ側も getContent()
+    // で同じ関数を通すため、保存経路がどこでも同一の形になる（＝ AI/REST が
+    // 書いた本文と人が書いた本文で綴りが割れない）。
     const incomingBody =
-      bodyHtmlInput === null ? null : normalizeBlockIds(bodyHtmlInput);
+      bodyHtmlInput === null
+        ? null
+        : normalizeBlockIds(normalizeContentHtml(bodyHtmlInput));
 
     // 楽観ロック → サーバー 3-way マージ (C4):
     // baseBodyHash が現在の本文と一致しない = 他クライアントが先に保存した。
