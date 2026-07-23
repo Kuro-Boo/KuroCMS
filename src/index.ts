@@ -1,7 +1,7 @@
 import { adminHtml } from "./admin-shell";
 import { serveAdminAsset } from "./asset-serve";
 import { serveFont } from "./fonts";
-import { handleApi } from "./api";
+import { handleApi, unfurlEndpoint } from "./api";
 import { html, notFound, notFoundPage } from "./http";
 import {
   buildCountsJs,
@@ -178,6 +178,14 @@ export default {
             "Cache-Control": "public, max-age=60, s-maxage=300",
           },
         });
+      }
+      // URL-card unfurl for the PUBLISHED page. Must be on the PUBLIC base (not
+      // {admin}/api/unfurl): on a production host the admin base is shadowed by
+      // the promotion worker and only /_admin/* is carved out, so the admin API
+      // path 404s from the public page. The public base is served by THIS worker
+      // (like rss.xml / _counts.js above), so the enrich fetch reaches it.
+      if (publicPath === "/_unfurl") {
+        return unfurlEndpoint(request, env);
       }
       // Per-type feed: /{type}-rss.xml
       const rssM = publicPath.match(

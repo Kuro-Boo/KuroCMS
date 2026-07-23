@@ -1266,6 +1266,7 @@ async function injectKuroLinksClient(
   html: string,
   env: Env,
   apiBase: string,
+  publicBase: string,
 ): Promise<string> {
   const UNFURL_ATTR_RE = /data-kuro-unfurl="([^"]*)"/g;
   const urls = new Set<string>();
@@ -1289,7 +1290,14 @@ async function injectKuroLinksClient(
 
   const base = apiBase.replace(/\/+$/, "");
   const moduleUrl = `${base}/_admin/kuro-links.${KE_VERSION}.js`;
-  const endpoint = `${base}/api/unfurl`;
+  // The unfurl endpoint MUST live on the PUBLIC base, not the admin base. On a
+  // production host the admin base ({site}/kurocms/*) is shadowed by the
+  // promotion worker — only {site}/kurocms/_admin/* has a carve-out — so
+  // {admin}/api/unfurl 404s and the published page can never enrich. The public
+  // base is where the pages themselves (and rss.xml / _counts.js) are served by
+  // THIS worker, so /_unfurl there is reachable. (Same-origin; unfurlEndpoint
+  // also sets CORS.)
+  const endpoint = `${publicBase.replace(/\/+$/, "")}/_unfurl`;
   const brokenBlock = hasMedia
     ? `function fixBroken(el){if(!el||!el.classList||!el.classList.contains("kuro-media"))return;` +
       `var fig=el.closest(".kuro-media-wrap");if(!fig)return;fig.innerHTML=buildBrokenMedia(el.getAttribute("src")||"");}` +
@@ -1911,7 +1919,7 @@ export async function generatePage(
   html = injectFontHead(s, html, lang);
   html = injectSeoHead(html, s, ctx, pageLangs);
   html = injectGa4Head(html, s);
-  html = await injectKuroLinksClient(html, env, adminBase);
+  html = await injectKuroLinksClient(html, env, adminBase, s.base_path || "");
   return html;
 }
 

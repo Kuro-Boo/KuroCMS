@@ -129,7 +129,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.8.66";
+export const KUROCMS_VERSION = "1.8.67";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -3153,7 +3153,10 @@ async function systemUpdate(
 // URL カードのリッチ表示メタ取得。認証済み(Author=編集キャンバス)か、ビルドが発行した
 // HMAC 署名(公開ページのカード)のどちらかを要求 → 任意 URL 代理(オープンプロキシ)を封じる。
 // SSRF ガード + KV キャッシュ。結果は { ok:true, meta } / { ok:false, reason }。
-async function unfurlEndpoint(request: Request, env: Env): Promise<Response> {
+export async function unfurlEndpoint(
+  request: Request,
+  env: Env,
+): Promise<Response> {
   const cors = { "Access-Control-Allow-Origin": "*" };
   const jhead = { "content-type": "application/json; charset=utf-8", ...cors };
   const u = new URL(request.url);
