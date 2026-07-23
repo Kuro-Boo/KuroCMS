@@ -706,6 +706,24 @@ export function adminHtml(
       .kuro-editor textarea { all: revert-layer; }
       .kuro-editor label { all: revert-layer; }
       .kuro-editor a { all: revert-layer; }
+      /* KuroEditor's floating popups (link edit/open, image & table menus, the
+         font/line/roundbox/emoji/colour pickers, media dialog) are appended to
+         document.body — OUTSIDE .kuro-editor — so the reverts above never reach
+         them and admin's bare-element rules leak in. Concretely the bare
+         label{display:grid} rule (line ~112) stacked the link popup's card
+         checkbox onto a second line. Apply the same isolation to every KE popup
+         root that floats on body. (Buttons handled by the kuro-class guard above.) */
+      .kuro-link-edit label, .kuro-link-edit input, .kuro-link-edit a,
+      .kuro-link-open label, .kuro-link-open input, .kuro-link-open a,
+      .kuro-image-menu label, .kuro-image-menu input, .kuro-image-menu a,
+      .kuro-table-menu label, .kuro-table-menu input, .kuro-table-menu a,
+      .kuro-line-popm label, .kuro-line-popm input, .kuro-line-popm a,
+      .kuro-roundbox-menu label, .kuro-roundbox-menu input, .kuro-roundbox-menu a,
+      .kuro-media-dialog label, .kuro-media-dialog input, .kuro-media-dialog a,
+      .kuro-emoji-panel label, .kuro-emoji-panel input, .kuro-emoji-panel a,
+      .kuro-popm label, .kuro-popm input, .kuro-popm a,
+      .kuro-color-picker label, .kuro-color-picker input, .kuro-color-picker a,
+      .kuro-mmenu label, .kuro-mmenu input, .kuro-mmenu a { all: revert-layer; }
       /* Bare-element admin rules in @layer kurocms (the top layer) otherwise win
          over KuroEditor's lower-layer content styles and leak into the editor.
          The admin table rule (table-layout:auto; overflow:hidden) made content
