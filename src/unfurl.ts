@@ -2,6 +2,7 @@
 // api.ts（公開エンドポイント）と public.ts（ビルド時のカード署名）の両方から使う
 // 共有モジュール（循環 import 回避）。取得メタは保存せず表示専用（原本は [[url|]]）。
 import type { Env } from "./types";
+import { randomToken } from "./crypto";
 
 export interface UnfurlMeta {
   title?: string;
@@ -32,14 +33,44 @@ function b64urlDecode(str: string): Uint8Array {
 }
 
 // ── 署名（ビルドが「公開コンテンツに実在した URL」だけを許可する）───────────
-// 鍵は既存の Worker Secret から派生（新規シークレット不要）。未設定ならサーバー
-// のみ（Author 認証）で動く。
+// 目的: /api/unfurl をオープンプロキシにしないため、「公開コンテンツに実在した
+// URL」だけを HMAC 署名で許可する。鍵はサーバー側の非公開な安定値であれば何でも
+// よい。
+//
+// 【なぜ専用鍵にしたか】以前は鍵を env.KUROCMS_AND_KUROMAILER_PAT（メール用の
+// 共有 Secret）から派生していた。「新規 Secret を設定させたくない」ため既存の
+// Secret を流用したものだが、KuroMailer は未設定時に埋め込み定数へフォールバック
+// するので、この env Secret は【ほとんどのインストールで未設定】。結果 unfurlSign
+// が空文字を返し、公開ページのカードに署名が付かず、リッチ化が黙って無効化されて
+// いた（エディタは Author 認証なので動くが公開だけ簡易表示、という不一致）。加えて
+// カード表示とメールという無関係な機能が 1 つの Secret に相乗りしていた。
+//
+// そこで unfurl 専用のランダム鍵を KV に一度だけ自動生成・保存して使う。ユーザー
+// 設定は不要、鍵は非公開（KV は外部露出しない）、メールとは完全に分離。埋め込み
+// 定数を鍵にする案は不可 — 公開ミラーに載っているので署名を誰でも偽造できてしまう。
+const UNFURL_KEY_KV = "unfurl:sigkey:v2";
+// per-isolate キャッシュ。KV 値はインストール毎に安定なので使い回してよい
+// （injectKuroLinksClient がページ内 URL 数だけ unfurlSign を呼ぶ際の KV 読みを削減）。
+let cachedKeyMaterial: string | null = null;
+
+async function unfurlKeyMaterial(env: Env): Promise<string | null> {
+  if (cachedKeyMaterial) return cachedKeyMaterial;
+  if (!env.PUBLIC_PAGES) return null;
+  let material = (await env.PUBLIC_PAGES.get(UNFURL_KEY_KV)) || "";
+  if (!material) {
+    material = randomToken();
+    await env.PUBLIC_PAGES.put(UNFURL_KEY_KV, material);
+  }
+  cachedKeyMaterial = material;
+  return material;
+}
+
 async function sigKey(env: Env): Promise<CryptoKey | null> {
-  const material = (env.KUROCMS_AND_KUROMAILER_PAT || "").trim();
+  const material = await unfurlKeyMaterial(env);
   if (!material) return null;
   return crypto.subtle.importKey(
     "raw",
-    new TextEncoder().encode("kurocms-unfurl-v1:" + material),
+    new TextEncoder().encode("kurocms-unfurl-v2:" + material),
     { name: "HMAC", hash: "SHA-256" },
     false,
     ["sign", "verify"],
