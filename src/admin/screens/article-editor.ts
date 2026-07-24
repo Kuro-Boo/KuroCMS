@@ -1729,18 +1729,27 @@ async function newArticle(editDid: Dynamic) {
     // full-site rebuild. Disabled while the article is a draft.
     byId("arBuildOneBtn")?.addEventListener("click", async function () {
       if (!art.did || art.mode === 0) return;
+      const did = art.did;
       const btn = byId("arBuildOneBtn") as Dynamic;
       const label = btn ? btn.innerHTML : "";
       if (btn) {
         btn.disabled = true;
         btn.innerHTML = escapeHtml(t("buildThisArticleBusy"));
       }
+      // Mark this article as building. The fetch below survives SPA navigation,
+      // so if the user returns to the article list while it runs, that screen
+      // reads buildingDocs and shows a "ビルド中" badge (dashboard.ts).
+      buildingDocs.add(did);
       try {
-        await api("/api/documents/" + art.did + "/build", { method: "POST" });
+        await api("/api/documents/" + did + "/build", { method: "POST" });
         toast(t("buildThisArticleDone"), false);
       } catch (err) {
         toast(errorMessage(err), true);
       } finally {
+        buildingDocs.delete(did);
+        // If the list is on screen, drop the live badge now (else the next
+        // render just won't add it, since the set no longer has the did).
+        byId("buildBadge-" + did)?.remove();
         const b = byId("arBuildOneBtn") as Dynamic;
         if (b) {
           b.disabled = false;

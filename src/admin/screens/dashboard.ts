@@ -1141,6 +1141,16 @@ function renderArticleTable(documents: Dynamic) {
     const modeBtnStyle = isPublished
       ? "background:rgba(120,120,120,.1);color:var(--muted);border:1px solid var(--line)"
       : "";
+    // "ビルド中" badge — shown while this article's single-article build is in
+    // flight (buildingDocs, set by the editor's build button). The id lets that
+    // handler remove it live when the build finishes.
+    const buildingBadge = buildingDocs.has(doc.did)
+      ? "<span id='buildBadge-" +
+        escapeHtml(doc.did) +
+        "' class='badge buildingBadge'>" +
+        escapeHtml(t("buildingBadge")) +
+        "</span>"
+      : "";
 
     if (isMobile) {
       // Card layout for mobile
@@ -1152,6 +1162,7 @@ function renderArticleTable(documents: Dynamic) {
         "' style='font-weight:700;font-size:14px;color:var(--ink);text-decoration:none;display:block;line-height:1.4;margin-bottom:3px'>" +
         escapeHtml(doc.title || t("untitled")) +
         "</a>" +
+        buildingBadge +
         "<button type='button' class='artSlugCode' data-copy-slug='" +
         escapeHtml(doc.slug) +
         "' title='" +
@@ -1207,6 +1218,7 @@ function renderArticleTable(documents: Dynamic) {
       "' class='artTitleLink'>" +
       escapeHtml(doc.title || t("untitled")) +
       "</a>" +
+      buildingBadge +
       "<button type='button' class='artSlugCode' data-copy-slug='" +
       escapeHtml(doc.slug) +
       "' title='" +

@@ -343,6 +343,10 @@ export function adminHtml(
       .tableCompact td:not(.flexible), .tableCompact th:not(.flexible) { width: 1%; white-space: nowrap; }
       .tableCompact td.flexible, .tableCompact th.flexible { width: auto; }
       .badge { display: inline-flex; padding: 4px 9px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-2); font-size: 12px; font-weight: 700; }
+      /* "ビルド中" badge on an article row — pulses while a single-article build is in flight. */
+      .buildingBadge { margin-left: 8px; background: rgba(245,158,11,.15); color: #b45309; animation: buildingPulse 1.1s ease-in-out infinite; }
+      .buildingBadge::before { content: "●"; margin-right: 5px; font-size: 9px; }
+      @keyframes buildingPulse { 0%,100% { opacity: 1; } 50% { opacity: .45; } }
       .notice { border: 1px solid var(--line); background: var(--surface-2); padding: 12px 14px; border-radius: 10px; margin-bottom: 18px; }
       .toastWrap { position: fixed; bottom: 24px; right: 24px; z-index: 9000; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
       .toastItem { pointer-events: auto; padding: 10px 16px; border-radius: 10px; font-size: 13px; font-weight: 600; max-width: 320px; box-shadow: 0 4px 16px rgba(0,0,0,.18); animation: fadeIn .15s ease; background: var(--surface-2); color: var(--ink); border: 1px solid var(--line); }

@@ -976,6 +976,7 @@ const i18n = {
     changeToDraftEditable: "Switch to Draft (editable)",
     changeToPublished: "Switch to Published",
     buildThisArticleBtn: "Build this article only",
+    buildingBadge: "Building…",
     buildThisArticleDraftHint:
       "Only a published article can be built. Switch it to Published first.",
     buildThisArticleBusy: "Building…",
@@ -1730,6 +1731,7 @@ const i18n = {
     changeToDraftEditable: "下書き（編集可能）に変更",
     changeToPublished: "公開に切り替え",
     buildThisArticleBtn: "この記事だけビルド",
+    buildingBadge: "ビルド中",
     buildThisArticleDraftHint:
       "ビルドできるのは公開中の記事だけです。先に「公開に切り替え」てください。",
     buildThisArticleBusy: "ビルド中…",
@@ -2056,6 +2058,12 @@ const state: AdminState = {
   storageAlert: false,
   editorCanvasColors: null,
 };
+
+// Dids whose single-article build ("この記事だけビルド") is in flight. The build
+// runs server-side and the fetch survives SPA navigation, so the article list
+// (dashboard.ts) reads this to show a "ビルド中" badge after the title, and the
+// editor's build handler clears it (and removes the live badge) when done.
+const buildingDocs = new Set<string>();
 
 // ---- Passkey / WebAuthn helpers ----
 function b64uEncode(buffer: ArrayBuffer): string {
