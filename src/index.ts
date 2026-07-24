@@ -13,6 +13,7 @@ import {
   isPublicPath,
   resolveFaviconPath,
   runScheduledAutoBuild,
+  searchEndpoint,
   serveTemplateCss,
 } from "./public";
 import type { Env } from "./types";
@@ -186,6 +187,12 @@ export default {
       // (like rss.xml / _counts.js above), so the enrich fetch reaches it.
       if (publicPath === "/_unfurl") {
         return unfurlEndpoint(request, env);
+      }
+      // Public article search backing the [[search]] widget. Same reasoning as
+      // /_unfurl: must be on the PUBLIC base (the admin base is shadowed by the
+      // promotion worker on production hosts).
+      if (publicPath === "/_search") {
+        return searchEndpoint(request, env);
       }
       // Per-type feed: /{type}-rss.xml
       const rssM = publicPath.match(

@@ -19,13 +19,14 @@ import { stripInternalIds } from "./strip-internal-ids";
 // この記述子から公開用マークアップだけを emit する。判定ロジックは再実装しない。
 import { classifyLink, LINK_TOKEN_RE, MEDIA_ID_RE } from "./kuro-links.js";
 import { unfurlSign } from "./unfurl";
-import type { Env } from "./types";
+import { json } from "./http";
+import type { Env, JsonValue } from "./types";
 
 // Bump when the page-rendering OUTPUT changes in a way the per-page source_hash
 // can't see (e.g. the <head> content-CSS <link>, template-model shape). The
 // build salts every page hash with this, so cached builds are invalidated and
 // all pages regenerate even when their underlying content is unchanged.
-const RENDER_FORMAT_VERSION = "18";
+const RENDER_FORMAT_VERSION = "19";
 
 /** Cheap, synchronous string hash (FNV-1a, base36) for cache keys. Not crypto. */
 export function cheapHash(s: string): string {
@@ -455,6 +456,97 @@ function buildLanguageWidget(
     if(document.readyState!=="loading"){decAll();}else{document.addEventListener("DOMContentLoaded",decAll);}
     document.addEventListener("click",function(e){var a=e.target&&e.target.closest?e.target.closest("a[href]"):null;if(a)dec(a);},true);
   }
+})();
+</script>`;
+}
+
+/**
+ * `[[search]]` → article-search widget (same source-token family as `[[lang]]`;
+ * template authors place it in the nav, e.g. just left of the TYPE link).
+ * Inline styles + a scoped <style> only (must render on non-Tailwind templates);
+ * the returned <script> uses no regex literals. Desktop shows a 15ch input plus a
+ * search icon with a results dropdown; on ≤640px only the icon shows and tapping
+ * it opens a full-width dialog. Results come from `{publicBase}/_search`
+ * (searchEndpoint), which returns live-published articles only.
+ */
+function buildSearchWidget(publicBase: string, lang: string): string {
+  const esc = (s: string) =>
+    String(s ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  const base = (publicBase || "").replace(/\/+$/, "");
+  const isJa = (lang || "").toLowerCase().startsWith("ja");
+  const ph = isJa ? "記事を検索" : "Search";
+  const noRes = isJa ? "該当する記事がありません" : "No matching articles";
+  const uid = "ks_" + (lang || "x").replace(/[^a-z0-9]/gi, "_");
+  const icon =
+    '<svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="9" cy="9" r="6"/><line x1="13.5" y1="13.5" x2="18" y2="18"/></svg>';
+  return `<div id="${uid}" class="kuro-search" style="position:relative;display:inline-flex;align-items:center;vertical-align:middle">
+  <style>
+  #${uid} .kuro-search__bar{display:inline-flex;align-items:center;gap:2px;border:1px solid #cbd5e1;border-radius:8px;padding:2px 4px 2px 8px;background:#fff}
+  #${uid} .kuro-search__input{border:0;outline:none;background:transparent;font-size:13px;color:#0f172a;width:15ch;padding:2px 0;line-height:1.2}
+  #${uid} .kuro-search__btn{display:inline-flex;align-items:center;justify-content:center;border:0;background:transparent;color:#64748b;cursor:pointer;padding:4px;border-radius:6px}
+  #${uid} .kuro-search__panel{position:absolute;right:0;top:calc(100% + 6px);width:320px;max-width:80vw;max-height:70vh;overflow:auto;background:#fff;border:1px solid #e2e8f0;border-radius:10px;box-shadow:0 10px 30px rgba(15,23,42,.15);padding:4px;z-index:1000;display:none}
+  #${uid} .kuro-search__item{display:block;text-decoration:none;color:#0f172a;padding:8px 10px;border-radius:7px;line-height:1.35}
+  #${uid} .kuro-search__item:hover{background:#f1f5f9}
+  #${uid} .kuro-search__title{display:block;font-size:13px;font-weight:600}
+  #${uid} .kuro-search__snip{display:block;font-size:11px;color:#64748b;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #${uid} .kuro-search__empty{padding:10px;font-size:12px;color:#94a3b8;text-align:center}
+  #${uid} .kuro-search__dialog{display:none;position:fixed;inset:0;z-index:2000;background:rgba(15,23,42,.45)}
+  #${uid} .kuro-search__sheet{position:absolute;left:0;right:0;top:0;background:#fff;padding:12px;box-shadow:0 6px 24px rgba(0,0,0,.2)}
+  #${uid} .kuro-search__dhead{display:flex;align-items:center;gap:8px}
+  #${uid} .kuro-search__dinput{flex:1;min-width:0;border:1px solid #cbd5e1;border-radius:8px;padding:10px 12px;font-size:16px;outline:none;color:#0f172a}
+  #${uid} .kuro-search__dclose{border:0;background:transparent;font-size:15px;color:#475569;cursor:pointer;padding:8px}
+  #${uid} .kuro-search__dresults{margin-top:8px;max-height:calc(100vh - 90px);overflow:auto}
+  @media(max-width:640px){#${uid} .kuro-search__bar{border:0;padding:0}#${uid} .kuro-search__input{display:none}#${uid} .kuro-search__panel{display:none!important}}
+  @media(min-width:641px){#${uid} .kuro-search__dialog{display:none!important}}
+  </style>
+  <div class="kuro-search__bar">
+    <input type="search" class="kuro-search__input" placeholder="${esc(ph)}" aria-label="${esc(ph)}" maxlength="80" autocomplete="off">
+    <button type="button" class="kuro-search__btn" data-ks-btn aria-label="${esc(ph)}">${icon}</button>
+  </div>
+  <div class="kuro-search__panel" data-ks-panel></div>
+  <div class="kuro-search__dialog" data-ks-dialog>
+    <div class="kuro-search__sheet">
+      <div class="kuro-search__dhead">
+        <input type="search" class="kuro-search__dinput" placeholder="${esc(ph)}" aria-label="${esc(ph)}" maxlength="80" autocomplete="off">
+        <button type="button" class="kuro-search__dclose" data-ks-close aria-label="Close">✕</button>
+      </div>
+      <div class="kuro-search__dresults" data-ks-dresults></div>
+    </div>
+  </div>
+</div>
+<script>
+(function(){
+  var root=document.getElementById("${uid}");if(!root)return;
+  var EP=${JSON.stringify(base)}+"/_search",KEY="kurocms_lang",EMPTY=${JSON.stringify(noRes)};
+  var input=root.querySelector(".kuro-search__input"),btn=root.querySelector("[data-ks-btn]"),panel=root.querySelector("[data-ks-panel]");
+  var dialog=root.querySelector("[data-ks-dialog]"),dinput=root.querySelector(".kuro-search__dinput"),dres=root.querySelector("[data-ks-dresults]"),dclose=root.querySelector("[data-ks-close]");
+  function lang(){try{var u=new URL(location.href);return u.searchParams.get("lang")||localStorage.getItem(KEY)||"";}catch(e){return"";}}
+  function isMobile(){return !!(window.matchMedia&&window.matchMedia("(max-width:640px)").matches);}
+  function render(box,items){box.textContent="";if(!items||!items.length){var e=document.createElement("div");e.className="kuro-search__empty";e.textContent=EMPTY;box.appendChild(e);return;}
+    items.forEach(function(r){var a=document.createElement("a");a.className="kuro-search__item";a.href=r.url;
+      var t=document.createElement("span");t.className="kuro-search__title";t.textContent=r.title||r.url;a.appendChild(t);
+      if(r.snippet){var s=document.createElement("span");s.className="kuro-search__snip";s.textContent=r.snippet;a.appendChild(s);}
+      box.appendChild(a);});}
+  var seq=0;
+  function run(q,box,show){q=(q||"").trim();if(!q){box.textContent="";if(show)show(false);return;}
+    var my=++seq;
+    fetch(EP+"?q="+encodeURIComponent(q)+"&lang="+encodeURIComponent(lang())).then(function(r){return r.ok?r.json():{results:[]};}).then(function(d){if(my!==seq)return;render(box,d&&d.results);if(show)show(true);}).catch(function(){if(my!==seq)return;render(box,[]);if(show)show(true);});}
+  function debounce(fn){var t;return function(){var a=arguments,c=this;clearTimeout(t);t=setTimeout(function(){fn.apply(c,a);},220);};}
+  if(input){var showPanel=function(on){panel.style.display=on?"block":"none";};
+    input.addEventListener("input",debounce(function(){run(input.value,panel,showPanel);}));
+    input.addEventListener("focus",function(){if(input.value.trim())showPanel(true);});
+    document.addEventListener("click",function(e){if(!root.contains(e.target))showPanel(false);});}
+  function openDialog(){dialog.style.display="block";dinput.value=input?input.value:"";if(dinput.value.trim())run(dinput.value,dres,null);setTimeout(function(){dinput.focus();},30);}
+  function closeDialog(){dialog.style.display="none";}
+  if(btn)btn.addEventListener("click",function(e){e.preventDefault();if(isMobile()){openDialog();}else if(input){input.focus();run(input.value,panel,function(on){panel.style.display=on?"block":"none";});}});
+  if(dinput)dinput.addEventListener("input",debounce(function(){run(dinput.value,dres,null);}));
+  if(dclose)dclose.addEventListener("click",closeDialog);
+  if(dialog)dialog.addEventListener("click",function(e){if(e.target===dialog)closeDialog();});
+  document.addEventListener("keydown",function(e){if(e.key==="Escape")closeDialog();});
 })();
 </script>`;
 }
@@ -1132,6 +1224,79 @@ export async function buildCountsJs(env: Env): Promise<string> {
   );
 }
 
+// ─── Public article search (`{publicBase}/_search`) ───────────────────────────
+// Dynamic JSON endpoint backing the [[search]] widget. Queries the search_entries
+// index (synced on save/build) joined to documents so ONLY live-published articles
+// surface — publishedSql("d.","live") keeps drafts / future-dated posts out even
+// though the index itself holds every translation. Served by THIS worker on the
+// PUBLIC base (like /_counts.js, /_unfurl); the admin base is shadowed by the
+// promotion worker on production hosts, so the widget must fetch it here.
+
+/** Escape LIKE wildcards so a query of "50%" matches the literal text. */
+function escapeLike(s: string): string {
+  return s.replace(/[\\%_]/g, (c) => "\\" + c);
+}
+
+/** ~80-char excerpt of body_text centred on the first match of `q`. */
+function searchSnippet(body: string, q: string): string {
+  const text = body || "";
+  const idx = text.toLowerCase().indexOf(q.toLowerCase());
+  if (idx < 0) return text.slice(0, 80);
+  const start = Math.max(0, idx - 30);
+  const end = Math.min(text.length, idx + q.length + 50);
+  return (
+    (start > 0 ? "…" : "") +
+    text.slice(start, end) +
+    (end < text.length ? "…" : "")
+  );
+}
+
+export async function searchEndpoint(
+  request: Request,
+  env: Env,
+): Promise<Response> {
+  const url = new URL(request.url);
+  const q = (url.searchParams.get("q") || "").trim().slice(0, 80);
+  const lang = (url.searchParams.get("lang") || "").trim().slice(0, 20);
+  let limit = Number(url.searchParams.get("limit") || 10);
+  if (!Number.isFinite(limit) || limit < 1) limit = 10;
+  if (limit > 20) limit = 20;
+  const noStore = { headers: { "Cache-Control": "public, max-age=30" } };
+  if (!q) return json({ results: [] } as unknown as JsonValue, noStore);
+
+  const like = `%${escapeLike(q)}%`;
+  const settings = await fetchSettings(env);
+  const basePath = settings.base_path || "";
+  const langCond = lang ? "AND se.lang = ?" : "";
+  const bindings: (string | number)[] = [like, like, like, like];
+  if (lang) bindings.push(lang);
+  bindings.push(like, limit); // ORDER BY title-priority, then LIMIT
+
+  const rows = await env.DB.prepare(
+    `SELECT se.title AS title, se.body_text AS body_text, se.tid AS tid,
+            d.slug AS slug
+       FROM search_entries se
+       JOIN documents d ON d.did = se.did
+      WHERE ${publishedSql("d.", "live")}
+        AND (se.title LIKE ? ESCAPE '\\' OR se.body_text LIKE ? ESCAPE '\\'
+             OR se.category_text LIKE ? ESCAPE '\\'
+             OR se.hashtag_text LIKE ? ESCAPE '\\')
+        ${langCond}
+      ORDER BY (se.title LIKE ? ESCAPE '\\') DESC, d.updated_at DESC
+      LIMIT ?`,
+  )
+    .bind(...bindings)
+    .all<{ title: string; body_text: string; tid: string; slug: string }>();
+
+  const results = (rows.results || []).map((r) => ({
+    title: r.title,
+    type: r.tid,
+    url: `${basePath}/${r.tid}/${r.slug}/`,
+    snippet: searchSnippet(r.body_text, q),
+  }));
+  return json({ results } as unknown as JsonValue, noStore);
+}
+
 // ─── Archives dropdown widget (replaces the page/N pagination) ────────────────
 function escHtml(s: string): string {
   return String(s ?? "")
@@ -1304,6 +1469,18 @@ async function injectKuroLinksClient(
       `window.addEventListener("error",function(e){fixBroken(e.target);},true);` +
       `document.querySelectorAll("img.kuro-media").forEach(function(img){if(img.complete&&img.naturalWidth===0)fixBroken(img);});`
     : "";
+  // Mobile-only tap-to-zoom for ARTICLE BODY images (img.kuro-media, i.e. media
+  // figures). Tapping an image opens a full-screen overlay; tapping the overlay
+  // (or Esc) returns to normal. Desktop and non-content images (logo/nav/card
+  // thumbs) are untouched. Uses no regex literals (template-literal safe).
+  const zoomBlock = hasMedia
+    ? `var _zmq=window.matchMedia?window.matchMedia("(max-width:640px)"):null,_zov=null;` +
+      `function _zClose(){if(_zov){if(_zov.parentNode)_zov.parentNode.removeChild(_zov);_zov=null;document.documentElement.style.overflow="";}}` +
+      `function _zOpen(src){_zClose();_zov=document.createElement("div");_zov.setAttribute("data-kuro-zoom","");_zov.style.cssText="position:fixed;inset:0;z-index:3000;background:rgba(0,0,0,.92);display:flex;align-items:center;justify-content:center;touch-action:none;cursor:zoom-out";var im=document.createElement("img");im.src=src;im.style.cssText="max-width:100vw;max-height:100vh;width:auto;height:auto;object-fit:contain";_zov.appendChild(im);_zov.addEventListener("click",_zClose);document.body.appendChild(_zov);document.documentElement.style.overflow="hidden";}` +
+      `function _zAble(img){return img&&img.tagName==="IMG"&&img.classList&&img.classList.contains("kuro-media")&&!(img.closest&&img.closest("a"));}` +
+      `document.addEventListener("click",function(e){if(!_zmq||!_zmq.matches)return;var img=e.target;if(!_zAble(img))return;e.preventDefault();_zOpen(img.currentSrc||img.src);},false);` +
+      `window.addEventListener("keydown",function(e){if(e.key==="Escape")_zClose();});`
+    : "";
   const unfurlBlock = hasUnfurl
     ? `var A=${JSON.stringify(endpoint)};` +
       `function apply(a,d,slug){if(!d)return;var url=a.getAttribute("href")||slug;` +
@@ -1319,6 +1496,7 @@ async function injectKuroLinksClient(
     `<script type="module">` +
     `import { _urlCardInner, _urlCardErrorInner, buildBrokenMedia } from ${JSON.stringify(moduleUrl)};` +
     brokenBlock +
+    zoomBlock +
     unfurlBlock +
     `</script>`;
   out = out.includes("</body>")
@@ -1853,6 +2031,12 @@ export async function generatePage(
     sourceHtml = sourceHtml
       .split("[[lang]]")
       .join(buildLanguageWidget(lang, availableLangs, new Set(pageLangs)));
+  }
+  // `[[search]]` → article-search widget (same source-token family as [[lang]]).
+  if (sourceHtml.includes("[[search]]")) {
+    sourceHtml = sourceHtml
+      .split("[[search]]")
+      .join(buildSearchWidget(s.base_path || "", lang));
   }
   // `[[privacy]]` / `[[terms]]` → links to the dedicated legal pages (same
   // source-token family as [[lang]]/[[sid]]). Expanded to a plain inheriting
