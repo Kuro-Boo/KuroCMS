@@ -26,7 +26,7 @@ import type { Env, JsonValue } from "./types";
 // can't see (e.g. the <head> content-CSS <link>, template-model shape). The
 // build salts every page hash with this, so cached builds are invalidated and
 // all pages regenerate even when their underlying content is unchanged.
-const RENDER_FORMAT_VERSION = "19";
+const RENDER_FORMAT_VERSION = "20";
 
 /** Cheap, synchronous string hash (FNV-1a, base36) for cache keys. Not crypto. */
 export function cheapHash(s: string): string {
@@ -1441,7 +1441,11 @@ async function injectKuroLinksClient(
   }
   const hasUnfurl = urls.size > 0;
   const hasMedia = html.includes("kuro-media-wrap");
-  if (!hasUnfurl && !hasMedia) return html;
+  // Tap-to-zoom applies to EVERY image on the page (media figures, table cells,
+  // cover images, imported HTML), so its gate is "does this page have an <img>"
+  // — not the narrower kuro-media-wrap check the broken-media fixup needs.
+  const hasImg = html.includes("<img");
+  if (!hasUnfurl && !hasMedia && !hasImg) return html;
 
   let out = html;
   if (hasUnfurl) {
@@ -1469,15 +1473,22 @@ async function injectKuroLinksClient(
       `window.addEventListener("error",function(e){fixBroken(e.target);},true);` +
       `document.querySelectorAll("img.kuro-media").forEach(function(img){if(img.complete&&img.naturalWidth===0)fixBroken(img);});`
     : "";
-  // Mobile-only tap-to-zoom for ARTICLE BODY images (img.kuro-media, i.e. media
-  // figures). Tapping an image opens a full-screen overlay; tapping the overlay
-  // (or Esc) returns to normal. Desktop and non-content images (logo/nav/card
-  // thumbs) are untouched. Uses no regex literals (template-literal safe).
-  const zoomBlock = hasMedia
+  // Mobile-only tap-to-zoom for EVERY image on the page: media figures, images
+  // inside tables, article cover images, and images from imported HTML (which
+  // carry no kuro-media class). Tapping an image opens a full-screen overlay;
+  // tapping the overlay (or Esc) returns to normal. Only three exclusions:
+  //   - images inside an <a> (card thumbs, header logo) — the tap must navigate
+  //   - the overlay's own <img> — it would re-open on every tap
+  //   - data-kuro-nozoom opt-out
+  // Desktop is untouched. Uses no regex literals (template-literal safe).
+  const zoomBlock = hasImg
     ? `var _zmq=window.matchMedia?window.matchMedia("(max-width:640px)"):null,_zov=null;` +
       `function _zClose(){if(_zov){if(_zov.parentNode)_zov.parentNode.removeChild(_zov);_zov=null;document.documentElement.style.overflow="";}}` +
       `function _zOpen(src){_zClose();_zov=document.createElement("div");_zov.setAttribute("data-kuro-zoom","");_zov.style.cssText="position:fixed;inset:0;z-index:3000;background:rgba(0,0,0,.92);display:flex;align-items:center;justify-content:center;touch-action:none;cursor:zoom-out";var im=document.createElement("img");im.src=src;im.style.cssText="max-width:100vw;max-height:100vh;width:auto;height:auto;object-fit:contain";_zov.appendChild(im);_zov.addEventListener("click",_zClose);document.body.appendChild(_zov);document.documentElement.style.overflow="hidden";}` +
-      `function _zAble(img){return img&&img.tagName==="IMG"&&img.classList&&img.classList.contains("kuro-media")&&!(img.closest&&img.closest("a"));}` +
+      `function _zAble(img){if(!img||img.tagName!=="IMG"||!img.closest)return false;` +
+      `if(img.getAttribute("data-kuro-nozoom")!==null)return false;` +
+      `if(img.closest("a"))return false;` +
+      `if(img.closest("[data-kuro-zoom]"))return false;return true;}` +
       `document.addEventListener("click",function(e){if(!_zmq||!_zmq.matches)return;var img=e.target;if(!_zAble(img))return;e.preventDefault();_zOpen(img.currentSrc||img.src);},false);` +
       `window.addEventListener("keydown",function(e){if(e.key==="Escape")_zClose();});`
     : "";
@@ -1492,9 +1503,15 @@ async function injectKuroLinksClient(
       `var cs=[].slice.call(document.querySelectorAll("a.kuro-url-card[data-kuro-sig]"));` +
       `if(cs.length){if("IntersectionObserver" in window){var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){io.unobserve(e.target);load(e.target);}});},{rootMargin:"200px"});cs.forEach(function(a){io.observe(a);});}else{cs.forEach(load);}}`
     : "";
+  // Only the broken-media / URL-card blocks need the shared module. A page that
+  // merely has images (zoom only) must NOT import it: a failed import kills the
+  // whole module script, and tap-to-zoom would silently stop working.
+  const needsModule = hasUnfurl || hasMedia;
   const script =
     `<script type="module">` +
-    `import { _urlCardInner, _urlCardErrorInner, buildBrokenMedia } from ${JSON.stringify(moduleUrl)};` +
+    (needsModule
+      ? `import { _urlCardInner, _urlCardErrorInner, buildBrokenMedia } from ${JSON.stringify(moduleUrl)};`
+      : "") +
     brokenBlock +
     zoomBlock +
     unfurlBlock +
