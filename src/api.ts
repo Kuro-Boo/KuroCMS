@@ -31,6 +31,7 @@ import {
 } from "./kuro-blocks.js";
 // 本文 HTML の正規化（KuroEditor の paste と完全に同一実装の vendored コピー）。
 import { normalizeContentHtml, inspectContentHtml } from "./normalize.js";
+import { RECIPE_TYPE_ID, checkRecipeCards } from "./recipe-guard.js";
 import { KUROMAILER_SHARED_SECRET } from "./kuromailer-secret";
 import { verifyRegistration, verifyAuthentication } from "./webauthn";
 import {
@@ -129,7 +130,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.8.73";
+export const KUROCMS_VERSION = "1.8.74";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -6450,6 +6451,24 @@ async function documentTranslations(
       );
       bodyHtml = merged.html;
       mergeConflicts = merged.conflicts;
+    }
+
+    // RecipeCard の検証（仕様 §7・§10）。エディタ側の検証は「親切」であって
+    // 「保証」ではない（REST/MCP/インポートも同じ列へ書く）ので、**保存前に
+    // 必ずここで見る**。マージ後の最終形を対象にするのが要点 — 3-way マージの
+    // 結果としてカードが 2 枚になることもある。
+    if (incomingBody !== null) {
+      const check = checkRecipeCards(
+        bodyHtml,
+        String(document.tid ?? "") === RECIPE_TYPE_ID,
+      );
+      if (check.errors.length) {
+        throw new HttpError(
+          422,
+          "invalid_recipe_card",
+          check.errors.join(" / "),
+        );
+      }
     }
 
     // No-op guard: the editor PUTs the full metadata payload on EVERY save.

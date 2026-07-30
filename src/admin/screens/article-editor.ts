@@ -1,5 +1,10 @@
 // KuroCMS admin screen module. Concatenated by scripts/build-admin.js.
 
+// レシピ専用タイプの type ID（仕様「レシピ専用タイプの追加の仕様」§3）。
+// Worker 側は src/recipe-guard.ts の RECIPE_TYPE_ID が同じ値を持つ。管理画面は
+// concat バンドル（import 不可）なので、ここで 1 度だけ定義して使い回す。
+const RECIPE_TYPE_ID = "recipe";
+
 // The most recently mounted article editor's state (or null). Read by
 // hasUnsavedArticleEdits() so a background auto-reload can defer while the user
 // has unsaved edits open. Concatenated build → this is a shared global.
@@ -1145,6 +1150,12 @@ async function newArticle(editDid: Dynamic) {
       // ままなので手動トグルのチェックボックスは表示されない。モードは
       // caret/placeholder 等の未指定キーの既定パレットを左右する。
       canvasDark: editorCanvasDark(),
+      // レシピカード（鍋ボタン）は **recipe タイプの記事だけ**（仕様 §7）。
+      // 他タイプの本文にカードがあると保存 API が 422 invalid_recipe_card を返す
+      // ので、そもそも挿入できないようにしておく。KE 側は既定 true なので明示的に
+      // false を渡すことが必要。タイプを変えたときは remountBodyEditorForType()
+      // がエディタを作り直して可否を更新する。
+      recipeUi: art.tid === RECIPE_TYPE_ID,
       urlResolver: function (slug: string) {
         if (slug.startsWith("http")) return slug;
         return bodyMidUrlCache[slug] || slug;
@@ -1648,6 +1659,23 @@ async function newArticle(editDid: Dynamic) {
     ].forEach(function (id) {
       byId(id)?.addEventListener("input", markDirty);
       byId(id)?.addEventListener("change", markDirty);
+    });
+    // 記事タイプを変えたら本文エディタを作り直す（仕様 §7）。レシピカードの
+    // 挿入可否（鍋ボタン）は生成時のオプションで決まるので、張り替えないと
+    // 「recipe に変えたのに挿入できない / 他タイプなのに挿入できてしまう」が起きる。
+    // ⚠ 本文は KuroEditor が持っているので、作り直す前に textarea へ書き戻す
+    //   （remount は textarea の値から初期化する）。
+    byId("arType")?.addEventListener("change", function () {
+      const nextIsRecipe = (byId("arType")?.value || "") === RECIPE_TYPE_ID;
+      if (nextIsRecipe === (art.tid === RECIPE_TYPE_ID)) {
+        art.tid = byId("arType")?.value || "";
+        return; // レシピ可否が変わらないなら張り替えない（キャレットを失わせない）
+      }
+      art.tid = byId("arType")?.value || "";
+      // 本文は KuroEditor が持っているので、作り直す前に art.body へ回収する
+      // （mountBodyEditor は art.body から setContent する）
+      readFields();
+      mountBodyEditor();
     });
     // The language dropdown is a TRANSLATION SWITCHER, not a plain field: pick a
     // language to view/edit that translation (or create a new one).

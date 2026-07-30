@@ -55,6 +55,27 @@ export interface ArticleData {
   /** Author display name (users.display_name via documents.created_by).
    *  Empty/undefined when the creating user has no display name. */
   authorName?: string | null;
+  /**
+   * レシピ記事（type = "recipe"）の RecipeCard の内容。本文 HTML に埋まっている
+   * `data-recipe`（正本）をビルド時に読み出したもの。テンプレートは型比較を
+   * せず `page.isRecipe` で分岐する（仕様「レシピ専用タイプ」§7）。
+   * カードが無い/壊れている記事では undefined。
+   */
+  recipe?: RecipeData | null;
+}
+
+/** RecipeCard の内容（KuroEditor の共有純関数が正規化した形）。 */
+export interface RecipeData {
+  /** 人数（自由文字列。Schema.org recipeYield）。 */
+  yield: string;
+  /** 下準備（分）。未入力なら無い。 */
+  prepTimeMinutes?: number;
+  /** 調理（分）。未入力なら無い。 */
+  cookTimeMinutes?: number;
+  /** 下準備 + 調理。保存はせず表示のたびに導出する。 */
+  totalMinutes: number | null;
+  ingredients: { name: string; amount?: string }[];
+  instructions: { text: string }[];
 }
 
 /**

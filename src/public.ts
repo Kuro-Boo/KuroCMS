@@ -4,6 +4,7 @@ import type {
   ArticleData,
   CategoryItem,
   Pagination,
+  RecipeData,
   RenderContext,
   TypeItem,
 } from "./templates/types";
@@ -18,6 +19,10 @@ import { stripInternalIds } from "./strip-internal-ids";
 // [[...]] 判定は KuroEditor と共有（vendored kuro-links.js の単一の正）。公開側は
 // この記述子から公開用マークアップだけを emit する。判定ロジックは再実装しない。
 import { classifyLink, LINK_TOKEN_RE, MEDIA_ID_RE } from "./kuro-links.js";
+// RecipeCard の読み出しは KuroEditor 上流の共有純関数に委譲する
+// （エディタ・保存 API・公開ビルドで実装を 1 つに保つ）。
+import { totalMinutes } from "./kuro-recipe.js";
+import { RECIPE_TYPE_ID, checkRecipeCards } from "./recipe-guard.js";
 import { unfurlSign } from "./unfurl";
 import { json } from "./http";
 import type { Env, JsonValue } from "./types";
@@ -29,6 +34,18 @@ import type { Env, JsonValue } from "./types";
 const RENDER_FORMAT_VERSION = "20";
 
 /** Cheap, synchronous string hash (FNV-1a, base36) for cache keys. Not crypto. */
+/**
+ * 分 → ISO-8601 duration（Schema.org の prepTime/cookTime/totalTime）。
+ * 60 分以上は時間へ繰り上げる（PT1H5M）。0 以下は空文字＝キーごと出さない。
+ */
+function isoDuration(minutes: number): string {
+  if (!Number.isFinite(minutes) || minutes <= 0) return "";
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  // 0 分は上で弾いているので、ここは必ず H か M のどちらかが立つ
+  return `PT${h ? `${h}H` : ""}${m ? `${m}M` : ""}`;
+}
+
 export function cheapHash(s: string): string {
   let h = 0x811c9dc5;
   for (let i = 0; i < s.length; i++) {
@@ -1874,6 +1891,30 @@ async function buildRenderContext(
       .catch(() => [] as { code: string; name: string }[]));
   content["_available-langs"] = JSON.stringify(availableLangs);
 
+  /**
+   * 本文から RecipeCard の内容を取り出す（recipe タイプのときだけ）。
+   * ⚠ 表示も JSON-LD も **同じ 1 つの正本**（data-recipe）から作る。二重入力を
+   *   生まないための決めごとなので、ここで読んだ値を両方へ渡す。
+   * 壊れている/無い場合は null（テンプレートは通常記事として描ける）。
+   */
+  const readRecipe = (tid: string, bodyHtml: string): RecipeData | null => {
+    if (tid !== RECIPE_TYPE_ID) return null;
+    const { recipe } = checkRecipeCards(bodyHtml, true);
+    if (!recipe) return null;
+    return {
+      yield: recipe.yield,
+      ...(recipe.prepTimeMinutes !== undefined
+        ? { prepTimeMinutes: recipe.prepTimeMinutes }
+        : {}),
+      ...(recipe.cookTimeMinutes !== undefined
+        ? { cookTimeMinutes: recipe.cookTimeMinutes }
+        : {}),
+      totalMinutes: totalMinutes(recipe),
+      ingredients: recipe.ingredients,
+      instructions: recipe.instructions,
+    };
+  };
+
   let article: ArticleData | undefined;
   const defaultLang = settings.default_lang ?? "";
 
@@ -1934,6 +1975,9 @@ async function buildRenderContext(
       coverUrl: articleCover,
       date: formatCardDate(r.publish_at).date,
       authorName: authorName || null,
+      // レシピ記事なら本文の RecipeCard(data-recipe = 正本)を読み出してモデルへ。
+      // テンプレートは型比較をせず page.isRecipe / article.recipe で分岐する。
+      recipe: readRecipe(r.tid, r.body_html || ""),
     };
   }
 
@@ -2481,35 +2525,82 @@ function injectSeoHead(
   const jsonLd: Record<string, unknown>[] = [];
   if (origin) {
     if (isArticle && article) {
-      const articleLd: Record<string, unknown> = {
-        "@context": "https://schema.org",
-        "@type": "Article",
-        headline: article.title,
-        ...(imageUrl ? { image: [imageUrl] } : {}),
-        ...(article.publishAt ? { datePublished: article.publishAt } : {}),
-        ...(article.updatedAt ? { dateModified: article.updatedAt } : {}),
-        ...(description ? { description } : {}),
-        // Author: a named Person linking to the About page (E-E-A-T; pairs
-        // with the visible byline the CMS appends to the body). Falls back to
-        // the site Organization when the creating user has no display name.
-        ...(article.authorName
-          ? {
-              author: {
-                "@type": "Person",
-                name: article.authorName,
-                url: `${siteBase}/about/`,
-              },
-            }
-          : siteName
-            ? { author: { "@type": "Organization", name: siteName } }
-            : {}),
-        ...(siteName
-          ? { publisher: { "@type": "Organization", name: siteName } }
-          : {}),
-        ...(canonical
-          ? { mainEntityOfPage: { "@type": "WebPage", "@id": canonical } }
-          : {}),
-      };
+      // レシピ記事は Article ではなく **Recipe** を主構造化データにする（仕様 §9）。
+      // ⚠ 値は利用者に見える RecipeCard と記事情報から作る。表示と構造化データが
+      //   食い違うのは検索エンジンにとってスパム扱いの対象。
+      // ⚠ ISO-8601 duration（PT25M）。分をそのまま出さない。
+      // ⚠ Article と併記しない（同じページに 2 つの主エンティティを置かない）。
+      const isRecipeArticle = !!article.recipe;
+      const articleLd: Record<string, unknown> = isRecipeArticle
+        ? {
+            "@context": "https://schema.org",
+            "@type": "Recipe",
+            name: article.title,
+            ...(imageUrl ? { image: [imageUrl] } : {}),
+            ...(description ? { description } : {}),
+            ...(article.publishAt ? { datePublished: article.publishAt } : {}),
+            ...(article.updatedAt ? { dateModified: article.updatedAt } : {}),
+            ...(article.authorName
+              ? {
+                  author: {
+                    "@type": "Person",
+                    name: article.authorName,
+                    url: `${siteBase}/about/`,
+                  },
+                }
+              : siteName
+                ? { author: { "@type": "Organization", name: siteName } }
+                : {}),
+            recipeYield: article.recipe!.yield,
+            ...(article.recipe!.prepTimeMinutes !== undefined
+              ? { prepTime: isoDuration(article.recipe!.prepTimeMinutes) }
+              : {}),
+            ...(article.recipe!.cookTimeMinutes !== undefined
+              ? { cookTime: isoDuration(article.recipe!.cookTimeMinutes) }
+              : {}),
+            ...(article.recipe!.totalMinutes
+              ? { totalTime: isoDuration(article.recipe!.totalMinutes) }
+              : {}),
+            recipeIngredient: article.recipe!.ingredients.map((i) =>
+              i.amount ? `${i.name} ${i.amount}` : i.name,
+            ),
+            recipeInstructions: article.recipe!.instructions.map((s) => ({
+              "@type": "HowToStep",
+              text: s.text,
+            })),
+            ...(canonical
+              ? { mainEntityOfPage: { "@type": "WebPage", "@id": canonical } }
+              : {}),
+          }
+        : {
+            "@context": "https://schema.org",
+            "@type": "Article",
+            headline: article.title,
+            ...(imageUrl ? { image: [imageUrl] } : {}),
+            ...(article.publishAt ? { datePublished: article.publishAt } : {}),
+            ...(article.updatedAt ? { dateModified: article.updatedAt } : {}),
+            ...(description ? { description } : {}),
+            // Author: a named Person linking to the About page (E-E-A-T; pairs
+            // with the visible byline the CMS appends to the body). Falls back to
+            // the site Organization when the creating user has no display name.
+            ...(article.authorName
+              ? {
+                  author: {
+                    "@type": "Person",
+                    name: article.authorName,
+                    url: `${siteBase}/about/`,
+                  },
+                }
+              : siteName
+                ? { author: { "@type": "Organization", name: siteName } }
+                : {}),
+            ...(siteName
+              ? { publisher: { "@type": "Organization", name: siteName } }
+              : {}),
+            ...(canonical
+              ? { mainEntityOfPage: { "@type": "WebPage", "@id": canonical } }
+              : {}),
+          };
       jsonLd.push(articleLd);
 
       // Breadcrumb: Home → Type index → Article.
