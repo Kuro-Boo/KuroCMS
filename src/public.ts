@@ -157,29 +157,80 @@ interface SettingsMap {
   fonts_json?: string;
   base_font?: string;
   font_configs_json?: string;
+  /**
+   * Content generation stamp — changes whenever anything that renders into a
+   * public page changes (articles, site texts, categories, settings, template).
+   * Mixed into the edge cache key so a change ORPHANS every cached object
+   * instead of waiting out max-age / stale-while-revalidate. See
+   * `handlePublicRoute`.
+   */
+  cache_gen?: string;
 }
 
 // ─── DB fetchers ──────────────────────────────────────────────────────────────
 
 async function fetchSettings(env: Env): Promise<SettingsMap> {
-  const row = await env.DB.prepare(
-    `SELECT site_name, site_description, public_domain, ga4_measurement_id,
+  // The trailing sub-selects compute the public cache generation in the SAME
+  // round trip (see SettingsMap.cache_gen). They are the same signals the build
+  // already trusts to decide what to rebuild (`contentHash` / `siteHash`):
+  //   documents      … MAX(updated_at) + COUNT(*). Translation / category /
+  //                    publish / type edits all bump documents.updated_at, and
+  //                    the count catches deleting a row that was not the newest.
+  //                    (data_revision('documents') would be cheaper but only
+  //                    exists after migration 0061 — the public site must not
+  //                    depend on a migration having run.)
+  //   taxonomy_items … site texts (top-hero-cover 等), languages, types
+  //   page_templates … template HTML / compiled CSS / activation
+  //   site_settings.updated_at … site name, description, default lang, …
+  //   categories     … category names/slugs rendered in nav and chips
+  const BASE_COLS = `site_name, site_description, public_domain, ga4_measurement_id,
             bluesky_handle, bluesky_sid, template_id, default_lang,
-            fonts_json, base_font, font_configs_json
-     FROM site_settings WHERE id = 1`,
-  ).first<{
-    site_name: string;
-    site_description: string;
-    public_domain: string;
-    ga4_measurement_id: string;
-    bluesky_handle: string;
-    bluesky_sid: string;
-    template_id: string;
-    default_lang: string;
-    fonts_json: string;
-    base_font: string;
-    font_configs_json: string;
-  }>();
+            fonts_json, base_font, font_configs_json`;
+  // CORE: tables/columns guaranteed by migration 0001 — this variant cannot fail
+  // on any schema old enough to serve pages at all.
+  const GEN_CORE = `updated_at AS settings_ts,
+            (SELECT COALESCE(MAX(updated_at), '') FROM documents) AS doc_ts,
+            (SELECT COUNT(*) FROM documents) AS doc_n,
+            (SELECT COALESCE(MAX(updated_at), '') FROM taxonomy_items) AS tax_ts,
+            (SELECT COALESCE(MAX(updated_at), '') FROM page_templates) AS tpl_ts`;
+  // `categories` only exists from migration 0047 (before that, categories lived
+  // in taxonomy_items and are already covered by tax_ts), so it is asked for
+  // separately and dropped if the table is not there.
+  const GEN_CAT = `(SELECT COALESCE(MAX(updated_at), '') FROM categories) AS cat_ts`;
+  // The generation must never be able to take the public site down: a 500 here
+  // would break every page. Modern installs answer the first query; older ones
+  // fall back to CORE (still catches article / site-text / template / settings
+  // changes).
+  const read = async (cols: string) =>
+    await env.DB.prepare(
+      `SELECT ${cols} FROM site_settings WHERE id = 1`,
+    ).first<{
+      site_name: string;
+      site_description: string;
+      public_domain: string;
+      ga4_measurement_id: string;
+      bluesky_handle: string;
+      bluesky_sid: string;
+      template_id: string;
+      default_lang: string;
+      fonts_json: string;
+      base_font: string;
+      font_configs_json: string;
+      settings_ts: string;
+      doc_ts: string;
+      doc_n: number;
+      tax_ts: string;
+      cat_ts?: string;
+      tpl_ts: string;
+    }>();
+  let row: Awaited<ReturnType<typeof read>>;
+  try {
+    row = await read(
+      `${BASE_COLS},\n            ${GEN_CORE},\n            ${GEN_CAT}`,
+    );
+  } catch {
+    row = await read(`${BASE_COLS},\n            ${GEN_CORE}`); // categories 以前の install
+  }
   let basePath = "";
   try {
     const pd = row?.public_domain || "";
@@ -200,6 +251,23 @@ async function fetchSettings(env: Env): Promise<SettingsMap> {
     fonts_json: row?.fonts_json || "[]",
     base_font: row?.base_font || "",
     font_configs_json: row?.font_configs_json || "{}",
+    // Short, opaque stamp — only ever compared for change, never interpreted.
+    // Include template_id too: switching template swaps every page's markup and
+    // (on an unchanged template row) would not move any updated_at.
+    cache_gen:
+      row && row.settings_ts !== undefined
+        ? cheapHash(
+            [
+              row.doc_ts || "",
+              row.doc_n ?? 0,
+              row.settings_ts || "",
+              row.tax_ts || "",
+              row.cat_ts || "",
+              row.tpl_ts || "",
+              row.template_id || "",
+            ].join("|"),
+          )
+        : "",
   };
 }
 
@@ -4627,11 +4695,29 @@ export async function handlePublicRoute(
     url.searchParams.get("lang") ||
     detectAcceptLang(request, registeredLangs, siteLang);
 
-  // Edge cache check — avoids KV read on repeat requests at same datacenter
+  // Edge cache check — avoids KV read on repeat requests at same datacenter.
+  //
+  // ⚠ The key carries the CONTENT GENERATION (`_ck_g`), not just the language.
+  //   Without it there is nothing that retires a cached object when the site
+  //   changes: `max-age`/`s-maxage` only decide *when* to revalidate, and
+  //   `stale-while-revalidate=86400` lets a colo hand back a stale page for a
+  //   whole day (and a hit is returned here WITHOUT revalidating). A settings /
+  //   site-text edit therefore kept being served from the old page — including
+  //   its baked-in `og:image`, which pointed at an image that no longer existed,
+  //   so link cards elsewhere rendered a broken thumbnail (2026-07-30 incident).
+  //   Stamping the generation makes any change orphan every old object
+  //   instantly: new content = new key = guaranteed miss. Manual "Purge
+  //   Everything" is no longer part of the deploy/edit loop.
+  //   `settings.cache_gen` costs no extra round trip (see fetchSettings).
+  //   Trade-off: the generation is SITE-WIDE, so editing one article orphans
+  //   every page's cached object, not just that page's. Chosen deliberately —
+  //   per-page precision would need a per-path lookup on the request path, and
+  //   a miss here only costs one KV read (the build stays the sole KV writer).
   const edgeCache = caches.default;
   const edgeCacheKey = (() => {
     const u = new URL(request.url);
     u.searchParams.set("_ck_lang", lang);
+    u.searchParams.set("_ck_g", settings.cache_gen || "0");
     return new Request(u.toString());
   })();
   const edgeCached = await edgeCache.match(edgeCacheKey);
