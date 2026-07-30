@@ -86,9 +86,13 @@ export default {
           /* R2 unavailable (cancelled / deleted bucket) — fall back to ASSETS */
         }
       }
-      const assetRes = await env.ASSETS.fetch(
-        rewriteRequestPath(request, mediaStrippedPath),
-      );
+      // ⚠ ASSETS はローカル開発にしか無い（インストール済み本番 Worker には無い —
+      //    asset-serve.ts と同じ前提）。ガードせずに .fetch すると
+      //    **存在しない画像へのリクエストが毎回 500 になる**（TypeError が投げられ、
+      //    すぐ下のプレースホルダ処理にも到達しない）。無ければ 404 として扱う。
+      const assetRes = env.ASSETS
+        ? await env.ASSETS.fetch(rewriteRequestPath(request, mediaStrippedPath))
+        : new Response(null, { status: 404 });
       // Image not found anywhere (R2 unavailable / object missing and no static
       // fallback): return an inline SVG placeholder with status 200 so <img>
       // renders it instead of the browser's broken-image glyph. Video/audio

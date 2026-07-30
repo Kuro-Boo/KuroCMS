@@ -1,7 +1,11 @@
 export interface Env {
   DB: D1Database;
   DEBUG_DB?: D1Database;
-  ASSETS: Fetcher;
+  // ⚠ optional。ローカル開発（public/ を wrangler が配る）にだけ存在し、
+  //    **インストール済みの本番 Worker には無い**（アセットは KV → GitHub release で解決する）。
+  //    必須で宣言すると、無い環境で `env.ASSETS.fetch` が
+  //    "Cannot read properties of undefined" を投げるのを型検査が見逃す。
+  ASSETS?: Fetcher;
   // PUBLIC_PAGES is a required core binding. Do not make it optional or silently
   // tolerate missing KV; public-page persistence and cache behavior depend on it.
   PUBLIC_PAGES: KVNamespace;
