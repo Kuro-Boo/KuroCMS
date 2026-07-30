@@ -279,6 +279,9 @@ function buildTemplateModel(ctx: RenderContext): TemplateObject {
       isArticle: Boolean(ctx.article),
       isType: Boolean(ctx.params.type && !ctx.article),
       isCategory: Boolean(ctx.params.category),
+      // レシピ記事（RecipeCard を読み出せた記事）。テンプレートは type 名の
+      // 文字列比較をせず、これで分岐する（仕様「レシピ専用タイプ」§7）。
+      isRecipe: Boolean(ctx.article?.recipe),
     },
     site: {
       name: ctx.content["_site-name"] || "",
@@ -294,6 +297,23 @@ function buildTemplateModel(ctx: RenderContext): TemplateObject {
     article: ctx.article
       ? {
           ...ctx.article,
+          // TemplateValue は undefined を持てない。省略キー（未入力の時間）は
+          // null へ寄せて、テンプレート側が [[#if]] で素直に判定できる形にする。
+          recipe: ctx.article.recipe
+            ? {
+                yield: ctx.article.recipe.yield,
+                prepTimeMinutes: ctx.article.recipe.prepTimeMinutes ?? null,
+                cookTimeMinutes: ctx.article.recipe.cookTimeMinutes ?? null,
+                totalMinutes: ctx.article.recipe.totalMinutes,
+                ingredients: ctx.article.recipe.ingredients.map((i) => ({
+                  name: i.name,
+                  amount: i.amount ?? "",
+                })),
+                instructions: ctx.article.recipe.instructions.map((s) => ({
+                  text: s.text,
+                })),
+              }
+            : null,
           categories: articleCategories,
         }
       : null,
