@@ -130,7 +130,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.8.75";
+export const KUROCMS_VERSION = "1.8.76";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -8267,7 +8267,7 @@ async function uploadMediaFile(
     throw new HttpError(
       503,
       "r2_not_configured",
-      "R2 storage is not configured. Add MEDIA_BUCKET binding to wrangler.toml.",
+      "メディアの保存先（R2）が接続されていません。管理画面の「設定 → 基本 → R2 ストレージ」から接続してください。Cloudflare で R2 をまだ有効にしていない場合は、ダッシュボードで有効化してから同じボタンを押してください。",
     );
   }
   const formData = await request.formData();
@@ -8543,7 +8543,7 @@ async function backupMedia(env: Env, mid: string): Promise<Response> {
     throw new HttpError(
       503,
       "r2_not_configured",
-      "R2 storage is not configured.",
+      "メディアの保存先（R2）が接続されていません。管理画面の「設定 → 基本 → R2 ストレージ」から接続してください。Cloudflare で R2 をまだ有効にしていない場合は、ダッシュボードで有効化してから同じボタンを押してください。",
     );
   }
   const row = await env.DB.prepare(
@@ -8673,7 +8673,7 @@ async function restoreMedia(
     throw new HttpError(
       503,
       "r2_not_configured",
-      "R2 storage is not configured.",
+      "メディアの保存先（R2）が接続されていません。管理画面の「設定 → 基本 → R2 ストレージ」から接続してください。Cloudflare で R2 をまだ有効にしていない場合は、ダッシュボードで有効化してから同じボタンを押してください。",
     );
   }
   const row = await env.DB.prepare(
