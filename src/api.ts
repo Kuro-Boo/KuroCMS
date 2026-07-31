@@ -33,6 +33,7 @@ import {
 import { normalizeContentHtml, inspectContentHtml } from "./normalize.js";
 import { checkRecipeCards } from "./recipe-guard.js";
 import { KUROMAILER_SHARED_SECRET } from "./kuromailer-secret";
+import { COMMUNITY_SHARED_PAT } from "./community-secret";
 import { verifyRegistration, verifyAuthentication } from "./webauthn";
 import {
   HttpError,
@@ -130,7 +131,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.8.80";
+export const KUROCMS_VERSION = "1.8.81";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -7066,11 +7067,11 @@ async function siteTemplateDeleteCommunity(
   id: string,
 ): Promise<Response> {
   requireAdmin(user);
-  if (!env.COMMUNITY_PAT)
+  if (!communityPat(env))
     throw new HttpError(
       503,
       "no_community_pat",
-      "COMMUNITY_PAT not configured.",
+      "Community PAT is not available (neither the COMMUNITY_PAT Worker Secret nor the built-in shared PAT).",
     );
 
   const authorProfile = await getTemplateAuthorProfile(env, user);
@@ -7134,7 +7135,7 @@ async function siteTemplateDeleteCommunity(
     `${KUROCMS_COMMUNITY_BASE_URL}/api/v1/delete/${encodeURIComponent(targetId)}`,
     {
       method: "DELETE",
-      headers: { Authorization: `Bearer ${env.COMMUNITY_PAT}` },
+      headers: { Authorization: `Bearer ${communityPat(env)}` },
     },
   );
   const res = await (env.COMMUNITY_API
@@ -7427,6 +7428,19 @@ async function siteTemplateServeThumbnail(
 // Community Library API へのサブリクエスト。Worker から直接 fetch() で kuro.boo/kurocms/* を
 // 叩くと同一ゾーン宛サブリクエストが Routes を経由せず本体サイトを返すため、
 // COMMUNITY_API サービスバインディング経由を優先する。
+/**
+ * Community テンプレート API 用の PAT を解決する。
+ *
+ * 優先順位は **Worker Secret `COMMUNITY_PAT` → 埋め込み共有 PAT**。
+ * 埋め込みを用意しているのは、Community が「全 KuroCMS が共有する 1 つのライブラリ」
+ * であり、インストールごとに鍵を配る UI も API も無いため — 必須にすると新規
+ * インストールでは「公開」が常に 503 になる（実際にそうなっていた）。
+ * 運用者が自分のトークンを Worker Secret で入れた場合はそちらが勝つ。
+ */
+function communityPat(env: Env): string {
+  return (env.COMMUNITY_PAT || COMMUNITY_SHARED_PAT || "").trim();
+}
+
 function communityFetch(
   env: Env,
   path: string,
@@ -7475,11 +7489,11 @@ async function siteTemplatePublish(
   id: string,
 ): Promise<Response> {
   requireAdmin(user);
-  if (!env.COMMUNITY_PAT)
+  if (!communityPat(env))
     throw new HttpError(
       503,
       "no_community_pat",
-      "COMMUNITY_PAT not configured.",
+      "Community PAT is not available (neither the COMMUNITY_PAT Worker Secret nor the built-in shared PAT).",
     );
   const tpl = await env.DB.prepare(
     `SELECT id, name, author, author_id, version, description, tags_json, bg,
@@ -7597,7 +7611,7 @@ async function siteTemplatePublish(
   const tags = parseJsonArray(tpl.tags_json);
   const contentKeys = parseJsonArray(tpl.content_keys_json);
   const apiVersion = Number(tpl.api_version) || 1;
-  const authHeader = `Bearer ${env.COMMUNITY_PAT}`;
+  const authHeader = `Bearer ${communityPat(env)}`;
   const jsonCt = {
     Authorization: authHeader,
     "Content-Type": "application/json",
