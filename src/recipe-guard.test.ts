@@ -17,9 +17,9 @@ type Case = [name: string, run: () => boolean];
 
 const cases: Case[] = [
   [
-    "recipe タイプ + カード 1 枚 → OK・内容を返す",
+    "カード 1 枚 → レシピ記事とみなす・内容を返す",
     () => {
-      const c = checkRecipeCards(`<p>まえがき</p>${card()}`, true);
+      const c = checkRecipeCards(`<p>まえがき</p>${card()}`);
       return (
         c.errors.length === 0 &&
         c.count === 1 &&
@@ -29,37 +29,33 @@ const cases: Case[] = [
     },
   ],
   [
-    "recipe タイプ + カード 0 枚 → エラー",
+    "カード 0 枚 → OK（レシピ記事ではないだけ。recipe は null）",
     () => {
-      const c = checkRecipeCards("<p>本文だけ</p>", true);
-      return c.count === 0 && c.errors.join().includes("1 つ必要");
+      const c = checkRecipeCards("<p>普通の記事</p>");
+      return c.errors.length === 0 && c.count === 0 && c.recipe === null;
     },
   ],
   [
-    "recipe タイプ + カード 2 枚 → エラー（1 記事 1 レシピ）",
+    "カード 2 枚 → エラー（1 記事 1 レシピ）",
     () => {
-      const c = checkRecipeCards(`${card()}${card()}`, true);
+      const c = checkRecipeCards(`${card()}${card()}`);
       return c.count === 2 && c.errors.join().includes("1 つだけ");
     },
   ],
   [
-    "他タイプにカードがある → エラー",
+    "記事タイプに依存しない（同じ本文なら常に同じ結果）",
     () => {
-      const c = checkRecipeCards(card(), false);
-      return c.errors.join().includes("レシピタイプの記事にだけ");
+      const body = `<p>まえがき</p>${card()}`;
+      const c = checkRecipeCards(body);
+      // タイプ引数はもう存在しない。以前は「他タイプ + カード」が 422 だった。
+      return c.errors.length === 0 && c.count === 1;
     },
-  ],
-  [
-    "他タイプ + カード無し → OK",
-    () => checkRecipeCards("<p>普通の記事</p>", false).errors.length === 0,
   ],
   [
     "data-recipe が壊れている → エラー",
     () => {
       const broken = card().replace(/data-recipe="[^"]*"/, 'data-recipe="%%%"');
-      return checkRecipeCards(broken, true)
-        .errors.join()
-        .includes("読み取れません");
+      return checkRecipeCards(broken).errors.join().includes("読み取れません");
     },
   ],
   [
@@ -68,14 +64,14 @@ const cases: Case[] = [
       const empty = buildRecipeCardHtml(
         normalizeRecipe({ ...RECIPE, ingredients: [] }),
       );
-      return checkRecipeCards(empty, true).errors.join().includes("材料");
+      return checkRecipeCards(empty).errors.join().includes("材料");
     },
   ],
   [
     "未知の属性は弾く（本文経由で任意属性を持ち込ませない）",
     () => {
       const evil = card().replace("<div ", '<div onclick="alert(1)" ');
-      const c = checkRecipeCards(evil, true);
+      const c = checkRecipeCards(evil);
       return (
         c.errors.join().includes("未知の属性") &&
         c.errors.join().includes("onclick")
@@ -89,7 +85,7 @@ const cases: Case[] = [
         'data-recipe-version="1"',
         'data-recipe-version="9"',
       );
-      return checkRecipeCards(v9, true)
+      return checkRecipeCards(v9)
         .errors.join()
         .includes("未知のレシピカード版");
     },
@@ -98,7 +94,7 @@ const cases: Case[] = [
     "属性値の中の > でタグ境界を誤らない（tokenizer 経由）",
     () => {
       const tricky = `<p title="1 > 0">まえがき</p>${card()}`;
-      const c = checkRecipeCards(tricky, true);
+      const c = checkRecipeCards(tricky);
       return c.count === 1 && c.errors.length === 0;
     },
   ],
@@ -106,14 +102,14 @@ const cases: Case[] = [
     "data-bid 付き（ブロック契約の内部 id）は許可する",
     () => {
       const withBid = card().replace("<div ", '<div data-bid="blk-1" ');
-      return checkRecipeCards(withBid, true).errors.length === 0;
+      return checkRecipeCards(withBid).errors.length === 0;
     },
   ],
   [
     "レイアウト属性（data-width / data-align / style）は許可する",
     () => {
       const laid = buildRecipeCardHtml(RECIPE, { width: "50%", align: "left" });
-      return checkRecipeCards(laid, true).errors.length === 0;
+      return checkRecipeCards(laid).errors.length === 0;
     },
   ],
 ];

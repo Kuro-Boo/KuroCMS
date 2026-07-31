@@ -18,8 +18,9 @@ import {
   validateRecipe,
 } from "./kuro-recipe.js";
 
-/** recipe タイプの type ID（仕様 §3。URL・API・テンプレートで一貫して使う）。 */
-export const RECIPE_TYPE_ID = "recipe";
+// v1.8.78 で `RECIPE_TYPE_ID = "recipe"`（レシピ専用タイプ）を撤去した。
+// `recipe` はもう予約 ID ではない — 同名のタイプを普通のタイプとして自由に
+// 作ってよい（レシピ判定には一切影響しない）。
 
 /**
  * RecipeCard の開始タグに置いてよい属性（仕様 §7 の allowlist）。
@@ -75,29 +76,30 @@ export interface RecipeCheck {
 /**
  * 本文 HTML の RecipeCard を検査する。
  *
+ * **記事タイプは見ない**（仕様 §7, v1.8.78 で変更）。「レシピ記事かどうか」は
+ * 専用の記事タイプではなく **カードの有無**で決まる。理由:
+ *   - タイプ方式では `tid === "recipe"` が唯一の入口なのに、管理画面のタイプ
+ *     作成は tid を送らず連番 ID を振るため、**UI からは有効化できなかった**。
+ *   - JSON-LD の分岐は元から `!!article.recipe`（カードの有無）だった。
+ *   - 「1 記事 = 1 レシピ」はカードの**枚数**の制約で、タイプとは無関係。
+ *     枚数は KuroEditor 側が担保する（カードが 1 枚あると鍋ボタンをロックする
+ *     `_syncRecipeBtn()`）。ここは REST / MCP / インポート用の最後の砦。
+ *
  * @param bodyHtml 保存しようとしている本文
- * @param isRecipeType 記事タイプが `recipe` か
  */
-export function checkRecipeCards(
-  bodyHtml: string,
-  isRecipeType: boolean,
-): RecipeCheck {
+export function checkRecipeCards(bodyHtml: string): RecipeCheck {
   const errors: string[] = [];
   const cards = parseBlocks(bodyHtml ?? "")
     .map((seg) => ({ seg, tag: openingTag(seg.html) }))
     .filter(({ tag }) => attrValue(tag, "data-kuro-block") === RECIPE_BLOCK);
 
-  // 個数（仕様 §7: recipe はちょうど 1 個・他タイプは 0 個）
-  if (isRecipeType && cards.length !== 1) {
+  // 個数（仕様 §7）: 0 枚 = レシピ記事ではない（正常）。1 枚 = レシピ記事。
+  // 2 枚以上だけ弾く — カードは料理名も画像も持たず記事共通のものを借りる設計
+  // なので、2 枚目には固有の name/image が無く「同名 Recipe が並ぶ壊れた構造化
+  // データ」になる。
+  if (cards.length > 1) {
     errors.push(
-      cards.length === 0
-        ? "レシピ記事にはレシピカードが 1 つ必要です。"
-        : `レシピカードは 1 記事に 1 つだけです（${cards.length} 個あります）。`,
-    );
-  }
-  if (!isRecipeType && cards.length > 0) {
-    errors.push(
-      "レシピカードはレシピタイプの記事にだけ置けます（記事タイプを recipe にするか、カードを削除してください）。",
+      `レシピカードは 1 記事に 1 つだけです（${cards.length} 個あります）。`,
     );
   }
 
