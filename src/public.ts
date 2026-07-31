@@ -597,6 +597,127 @@ function buildLanguageWidget(
  * it opens a full-width dialog. Results come from `{publicBase}/_search`
  * (searchEndpoint), which returns live-published articles only.
  */
+/**
+ * `[[carousel:{key}|{opts}]]` → 画像カルーセル。
+ *
+ * **役割分担**: 「どんな見た目・サイズか」はテンプレート（トークンのオプション）、
+ * 「どの画像を出すか」は運用者（サイトテキスト `{key}` にメディア ID をカンマ区切り）。
+ * テンプレートに画像 ID を直書きさせない（＝テンプレートにコンテンツを埋め込まない）
+ * という原則を守るための分け方。
+ *
+ * オプションは `[[img-100|60%,right]]` と同じ **カンマ区切りの位置非依存トークン**:
+ *   - サイズ   `100%` / `100%x320` / `640x360`（既定 100%x320）
+ *   - 切替方式 `fade`（既定） / `slide`
+ *   - 矢印     `arrows`（既定） / `noarrows`
+ *   - ドット   `dots`（既定） / `nodots`
+ *   - 自動送り `5s`（既定） / `0s` = 自動送りなし
+ *
+ * 画像 0 枚なら**何も出力しない**、1 枚なら切替 UI を出さずに 1 枚だけ描く
+ * （`[[ad]]` と同じ「壊れたものを残さない」方針）。
+ * ⚠ 返す <script> に**正規表現リテラルを書かない**（テンプレートリテラル内で壊れるため）。
+ */
+interface CarouselOpts {
+  width: string;
+  height: string;
+  effect: "fade" | "slide";
+  arrows: boolean;
+  dots: boolean;
+  intervalMs: number;
+}
+
+function parseCarouselOpts(raw: string | undefined): CarouselOpts {
+  const o: CarouselOpts = {
+    width: "100%",
+    height: "320px",
+    effect: "fade",
+    arrows: true,
+    dots: true,
+    intervalMs: 5000,
+  };
+  const unit = (v: string) => (/^\d+$/.test(v) ? `${v}px` : v);
+  for (const rawPart of String(raw ?? "").split(",")) {
+    const part = rawPart.trim().toLowerCase();
+    if (!part) continue;
+    if (part === "fade" || part === "slide") o.effect = part;
+    else if (part === "arrows") o.arrows = true;
+    else if (part === "noarrows") o.arrows = false;
+    else if (part === "dots") o.dots = true;
+    else if (part === "nodots") o.dots = false;
+    else if (/^\d+(\.\d+)?s$/.test(part))
+      o.intervalMs = Math.round(parseFloat(part) * 1000);
+    else {
+      const size = part.match(/^(\d+%|\d+px|\d+)(?:x(\d+%|\d+px|\d+))?$/);
+      if (size) {
+        o.width = unit(size[1]);
+        if (size[2]) o.height = unit(size[2]);
+      }
+    }
+  }
+  return o;
+}
+
+function buildCarouselWidget(urls: string[], opts: CarouselOpts): string {
+  if (!urls.length) return "";
+  const uid = "kc_" + cheapHash(urls.join("|") + JSON.stringify(opts));
+  const many = urls.length > 1;
+  const showArrows = many && opts.arrows;
+  const showDots = many && opts.dots;
+  const slides = urls
+    .map(
+      (u, i) =>
+        `<img class="kuro-carousel__slide${i === 0 ? " is-on" : ""}" src="${seoAttr(u)}" alt="" loading="${i === 0 ? "eager" : "lazy"}">`,
+    )
+    .join("");
+  const dots = showDots
+    ? `<div class="kuro-carousel__dots">${urls
+        .map(
+          (_u, i) =>
+            `<button type="button" data-kc-go="${i}" class="${i === 0 ? "is-on" : ""}" aria-label="${i + 1}"></button>`,
+        )
+        .join("")}</div>`
+    : "";
+  const arrows = showArrows
+    ? `<button type="button" class="kuro-carousel__nav kuro-carousel__nav--prev" data-kc-prev aria-label="prev">&#8249;</button>` +
+      `<button type="button" class="kuro-carousel__nav kuro-carousel__nav--next" data-kc-next aria-label="next">&#8250;</button>`
+    : "";
+  const isSlide = opts.effect === "slide";
+  const css =
+    `#${uid}{position:relative;overflow:hidden;width:${opts.width};max-width:100%}` +
+    `#${uid} .kuro-carousel__stage{position:relative;width:100%;height:${opts.height};${isSlide ? "display:flex;transition:transform .5s ease" : ""}}` +
+    (isSlide
+      ? `#${uid} .kuro-carousel__slide{flex:0 0 100%;width:100%;height:100%;object-fit:cover;display:block}`
+      : `#${uid} .kuro-carousel__slide{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0;transition:opacity .8s ease}` +
+        `#${uid} .kuro-carousel__slide.is-on{opacity:1}`) +
+    `#${uid} .kuro-carousel__nav{position:absolute;top:50%;transform:translateY(-50%);border:0;width:36px;height:36px;border-radius:50%;background:#0000005e;color:#fff;font-size:20px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center}` +
+    `#${uid} .kuro-carousel__nav:hover{background:#0000008a}` +
+    `#${uid} .kuro-carousel__nav--prev{left:10px}#${uid} .kuro-carousel__nav--next{right:10px}` +
+    `#${uid} .kuro-carousel__dots{position:absolute;left:0;right:0;bottom:10px;display:flex;justify-content:center;gap:7px}` +
+    `#${uid} .kuro-carousel__dots button{width:9px;height:9px;padding:0;border:0;border-radius:50%;background:#ffffff8c;cursor:pointer}` +
+    `#${uid} .kuro-carousel__dots button.is-on{background:#fff}` +
+    `@media(prefers-reduced-motion:reduce){#${uid} .kuro-carousel__stage,#${uid} .kuro-carousel__slide{transition:none}}`;
+  // 自動送りは reduced-motion を尊重して止める。JS に正規表現リテラルは書かない。
+  const js =
+    `(function(){var r=document.getElementById(${JSON.stringify(uid)});if(!r)return;` +
+    `var st=r.querySelector(".kuro-carousel__stage"),sl=r.querySelectorAll(".kuro-carousel__slide");` +
+    `if(sl.length<2)return;var dt=r.querySelectorAll("[data-kc-go]"),cur=0,t=null,slide=${isSlide ? "true" : "false"},iv=${opts.intervalMs};` +
+    `function show(n){cur=(n+sl.length)%sl.length;` +
+    `if(slide){st.style.transform="translateX(-"+(cur*100)+"%)";}` +
+    `else{for(var i=0;i<sl.length;i++){if(i===cur)sl[i].classList.add("is-on");else sl[i].classList.remove("is-on");}}` +
+    `for(var k=0;k<dt.length;k++){if(k===cur)dt[k].classList.add("is-on");else dt[k].classList.remove("is-on");}}` +
+    `function stop(){if(t){clearInterval(t);t=null;}}` +
+    `function start(){stop();if(!iv)return;var m=window.matchMedia&&window.matchMedia("(prefers-reduced-motion: reduce)");if(m&&m.matches)return;t=setInterval(function(){show(cur+1);},iv);}` +
+    `var p=r.querySelector("[data-kc-prev]"),n=r.querySelector("[data-kc-next]");` +
+    `if(p)p.addEventListener("click",function(){show(cur-1);start();});` +
+    `if(n)n.addEventListener("click",function(){show(cur+1);start();});` +
+    `for(var j=0;j<dt.length;j++){(function(el){el.addEventListener("click",function(){show(parseInt(el.getAttribute("data-kc-go"),10));start();});})(dt[j]);}` +
+    `r.addEventListener("mouseenter",stop);r.addEventListener("mouseleave",start);start();})();`;
+  return (
+    `<div id="${uid}" class="kuro-carousel"><style>${css}</style>` +
+    `<div class="kuro-carousel__stage">${slides}</div>${arrows}${dots}</div>` +
+    `<script>${js}</script>`
+  );
+}
+
 function buildSearchWidget(publicBase: string, lang: string): string {
   const esc = (s: string) =>
     String(s ?? "")
@@ -1996,9 +2117,24 @@ async function buildRenderContext(
   // Nav lists carry NO counts: counts fluctuate on every publish, so baking them
   // into page HTML would either go stale or force rebuilds. The nav shows names
   // only; live counts are filled client-side from the shared `__kuroCounts`.
-  content["_nav-types"] = JSON.stringify(types.map(({ count: _c, ...t }) => t));
+  // `isCurrent`: ナビの現在地ハイライト用（v1.8.80+）。
+  // ⚠ パーサーに等値比較が無いため、`[[#each navigation.types]]` の中で `slug` と
+  //   `type.id` を比べることができない。判定はここで済ませて真偽値だけ渡す。
+  //   → テンプレートは `<a class="nav[[#if isCurrent]] on[[/if]]">` と書ける。
+  // 記事ページ（/news/{slug}/）でも params.type が入るので、その型が現在地になる。
+  const curType = params.type || "";
+  const curCat = params.category || "";
+  content["_nav-types"] = JSON.stringify(
+    types.map(({ count: _c, ...t }) => ({
+      ...t,
+      isCurrent: Boolean(curType) && (t.slug === curType || t.id === curType),
+    })),
+  );
   content["_nav-categories"] = JSON.stringify(
-    categories.map(({ count: _c, ...c }) => c),
+    categories.map(({ count: _c, ...c }) => ({
+      ...c,
+      isCurrent: Boolean(curCat) && (c.slug === curCat || c.id === curCat),
+    })),
   );
   content["_bluesky-handle"] = settings.bluesky_handle || "";
 
@@ -2321,6 +2457,55 @@ export async function generatePage(
     sourceHtml = sourceHtml
       .split("[[search]]")
       .join(buildSearchWidget(s.base_path || "", lang));
+  }
+  // `[[carousel:{key}|{opts}]]` → 画像カルーセル。画像はサイトテキスト `{key}` に
+  // メディア ID（img-xxx）を**カンマ区切り**で並べる。
+  // ⚠ サイトテキストは KuroEditor 由来で <p> 等に包まれるので、タグを剥がしてから
+  //   分解する。URL 直書きも許す（http/https と / 始まり）。
+  if (sourceHtml.includes("[[carousel")) {
+    const CAROUSEL_RE = /\[\[carousel:([a-z0-9_-]+)(?:\|([^\]]*))?\]\]/g;
+    const wanted = [...sourceHtml.matchAll(CAROUSEL_RE)];
+    const midsNeeded = new Set<string>();
+    const listFor = (key: string): string[] =>
+      String(ctx.content[key] ?? "")
+        .replace(/<[^>]*>/g, " ")
+        .replace(/&nbsp;/g, " ")
+        .split(",")
+        .map((v) => v.trim())
+        .filter(Boolean);
+    for (const m of wanted)
+      for (const v of listFor(m[1])) if (MEDIA_ID_RE.test(v)) midsNeeded.add(v);
+    const midUrl: Record<string, string> = {};
+    if (midsNeeded.size) {
+      const ids = [...midsNeeded];
+      const ph = ids.map(() => "?").join(",");
+      const rows = await env.DB.prepare(
+        `SELECT mid, public_path, cache_version FROM media_assets WHERE mid IN (${ph})`,
+      )
+        .bind(...ids)
+        .all<{ mid: string; public_path: string; cache_version: string }>();
+      for (const r of rows.results ?? []) {
+        if (!r.public_path) continue;
+        midUrl[r.mid] = r.cache_version
+          ? `${r.public_path}?v=${r.cache_version}`
+          : r.public_path;
+      }
+    }
+    sourceHtml = sourceHtml.replace(
+      CAROUSEL_RE,
+      (_m, key: string, optRaw: string | undefined) => {
+        const urls = listFor(key)
+          .map((v) =>
+            MEDIA_ID_RE.test(v)
+              ? (midUrl[v] ?? "")
+              : /^(https?:\/\/|\/)/i.test(v)
+                ? v
+                : "",
+          )
+          .filter(Boolean);
+        return buildCarouselWidget(urls, parseCarouselOpts(optRaw));
+      },
+    );
   }
   // `[[ad]]` / `[[ad:N]]` → AdSense ユニット（ID はサイト文字 `ad-adsense`）。
   // ⚠ 展開した場合だけ <head> にローダーを 1 本入れる（広告を置かないページに
