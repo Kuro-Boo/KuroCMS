@@ -131,7 +131,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.8.82";
+export const KUROCMS_VERSION = "1.8.83";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -7191,9 +7191,22 @@ async function siteTemplateRegister(
   const apiVersion = parseApiVersion(body.apiVersion);
   // Community コピー(sourceUrl あり)は新規 tmpl_xxx を発番する。
   // 公開時の tid はテンプレ名の slug を使うため（siteTemplatePublish）、ローカル id は一意で良い。
+  //
+  // ⚠ id の許容文字にアンダースコアを含めること。KuroCMS 自身が発番する id は
+  //   `makeId("tmpl")` → **`tmpl_050d91e8d9fa`** の形式なので、`[a-z0-9-]` だけだと
+  //   「自分が作った id を渡した upsert」が必ず判定に落ち、**黙って別テンプレートが
+  //   新規作成される**（201 が返るので気付けない）。実際に事故を起こした。
+  // ⚠ id が指定されているのに形式不正なら、勝手に発番せず 400 で弾く。
+  //   「指定した id と違うものが出来る」のを黙認しない。
   const providedId = sourceUrl ? null : optionalString(body, "id");
-  const id =
-    providedId && /^[a-z0-9-]+$/.test(providedId) ? providedId : makeId("tmpl");
+  if (providedId && !/^[a-zA-Z0-9_-]+$/.test(providedId)) {
+    throw new HttpError(
+      400,
+      "invalid_id",
+      "id must match [a-zA-Z0-9_-]+ (a new template is NOT created silently).",
+    );
+  }
+  const id = providedId || makeId("tmpl");
 
   const now = nowIso();
   const existing = await env.DB.prepare(
@@ -8051,6 +8064,7 @@ async function siteTemplateUpdateMeta(
       bg               = COALESCE(?, bg),
       content_keys_json = COALESCE(?, content_keys_json),
       api_version = COALESCE(?, api_version),
+      source_url       = COALESCE(?, source_url),
       updated_at       = ?
     WHERE id = ?
   `,
@@ -8075,6 +8089,11 @@ async function siteTemplateUpdateMeta(
           )
         : null,
       "apiVersion" in body ? parseApiVersion(body.apiVersion) : null,
+      // sourceUrl も更新できるようにする（v1.8.83）。publish の tid 解決は
+      // community_id → **source_url の tid** → 名前の slug の順なので、Community から
+      // コピーしたテンプレートをリネームしても source_url が残っていると tid が旧名の
+      // ままになる。空文字を渡せばクリアでき、以後は名前の slug が使われる。
+      "sourceUrl" in body ? (optionalString(body, "sourceUrl") ?? "") : null,
       nowIso(),
       id,
     )
