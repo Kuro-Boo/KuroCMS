@@ -131,7 +131,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.8.84";
+export const KUROCMS_VERSION = "1.8.85";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -6954,14 +6954,44 @@ type ContentKeyDef = {
   description?: string;
 };
 
+/**
+ * contentKeys を**唯一の正規形** `{key,defaultValue,description?}` に揃える。
+ *
+ * ⚠ Community テンプレート API は contentKeys を**受け取ったまま保存して返す**
+ *   だけ（`entry.ts` の型は `unknown[]`）で、システム間の形式差は存在しない。
+ *   実際に混在していたのは**送り手ごとに形が違った**からで、文字列配列
+ *   （`["logo","favicon",…]`）で登録されたテンプレートが存在した。
+ *   読み取り側だけ寛容にするとバラバラのまま増えるので、**書き込み時にここを
+ *   必ず通して正規化する**（読み取りは互換のため引き続き両形式を受ける）。
+ */
+function normalizeContentKeys(value: unknown): ContentKeyDef[] {
+  if (!Array.isArray(value)) return [];
+  const out: ContentKeyDef[] = [];
+  const seen = new Set<string>();
+  for (const ck of value) {
+    let key = "";
+    let defaultValue = "";
+    let description: string | undefined;
+    if (typeof ck === "string") {
+      key = ck.trim();
+    } else if (ck && typeof ck === "object") {
+      const o = ck as Record<string, unknown>;
+      key = typeof o.key === "string" ? o.key.trim() : "";
+      defaultValue = typeof o.defaultValue === "string" ? o.defaultValue : "";
+      if (typeof o.description === "string" && o.description)
+        description = o.description;
+    }
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push({ key, defaultValue, ...(description ? { description } : {}) });
+  }
+  return out;
+}
+
 function parseContentKeys(raw: string | null | undefined): ContentKeyDef[] {
   if (!raw) return [];
   try {
-    const v = JSON.parse(raw);
-    if (!Array.isArray(v)) return [];
-    return v.filter(
-      (ck): ck is ContentKeyDef => ck && typeof ck.key === "string",
-    );
+    return normalizeContentKeys(JSON.parse(raw));
   } catch {
     return [];
   }
@@ -7182,11 +7212,9 @@ async function siteTemplateRegister(
     ? (body.tags as string[]).filter((t) => typeof t === "string")
     : [];
   const bg = optionalString(body, "bg") ?? "";
-  const rawContentKeys = Array.isArray(body.contentKeys)
-    ? body.contentKeys
-    : null;
-  const contentKeysJson = rawContentKeys
-    ? JSON.stringify(rawContentKeys)
+  // 保存は必ず正規形に揃える（文字列配列で来ても {key,defaultValue} へ）。
+  const contentKeysJson = Array.isArray(body.contentKeys)
+    ? JSON.stringify(normalizeContentKeys(body.contentKeys))
     : null;
   const apiVersion = parseApiVersion(body.apiVersion);
   // Community コピー(sourceUrl あり)は新規 tmpl_xxx を発番する。
@@ -7622,7 +7650,9 @@ async function siteTemplatePublish(
   }
 
   const tags = parseJsonArray(tpl.tags_json);
-  const contentKeys = parseJsonArray(tpl.content_keys_json);
+  // Community へ送るのも正規形に統一する。ここを素通しにしていたため、文字列配列で
+  // 登録されたテンプレートが Community 側にもその形のまま増えていた。
+  const contentKeys = parseContentKeys(tpl.content_keys_json);
   const apiVersion = Number(tpl.api_version) || 1;
   const authHeader = `Bearer ${communityPat(env)}`;
   const jsonCt = {
@@ -8084,9 +8114,7 @@ async function siteTemplateUpdateMeta(
         : null,
       "bg" in body ? (optionalString(body, "bg") ?? "") : null,
       "contentKeys" in body
-        ? JSON.stringify(
-            Array.isArray(body.contentKeys) ? body.contentKeys : [],
-          )
+        ? JSON.stringify(normalizeContentKeys(body.contentKeys))
         : null,
       "apiVersion" in body ? parseApiVersion(body.apiVersion) : null,
       // sourceUrl も更新できるようにする（v1.8.83）。publish の tid 解決は
