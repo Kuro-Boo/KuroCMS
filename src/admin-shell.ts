@@ -20,6 +20,10 @@ export function adminHtml(
       @layer properties, theme, base, kuroeditor, components, utilities, kurocms;
       @layer kurocms {
       :root {
+        /* モバイル下部メニュー(.mobileNav)の実高さ。記事編集の下部バーがこの値の
+           ぶん持ち上がってメニューを覆わないようにする（≤860px でのみ意味を持つ）。
+           .mobileNav a min-height 58 + padding(8+14) + border 2 = 82 */
+        --mobile-nav-h: 82px;
         --bg: #ffffff;
         --surface: #ffffff;
         --surface-2: #f0f9ff;
@@ -218,7 +222,23 @@ export function adminHtml(
       .strapiRow { overflow: hidden !important; }
       .strapiRow:hover { background: var(--surface-2); }
       .articleBottomBar { position: fixed; bottom: 0; left: calc(264px + 5%); right: 5%; min-height: 72px; background: var(--surface); border: 1.5px solid var(--line-strong); border-bottom: none; border-radius: 12px 12px 0 0; display: flex; align-items: center; justify-content: space-between; padding: 12px 20px; z-index: 500; box-shadow: 0 -4px 20px rgba(0,0,0,.10); gap: 16px; flex-wrap: wrap; }
-      @media(max-width:860px){ .articleBottomBar { left: 5%; right: 5%; } }
+      /* モバイルでは下部メニュー(.mobileNav)が bottom:10px に固定で浮いている。
+         下部バーは z-index 500 で .mobileNav(40) より前面なので、bottom:0 のままだと
+         **メニューを完全に覆い隠してしまう**（記事作成画面でナビが消える）。
+         そこでバーをメニューの分だけ持ち上げ、両方見えるようにする。
+         --mobile-nav-h = .mobileNav a の min-height 58 + padding(8+14) + border 2 = 82px。
+         .mobileNav の bottom:10px と 8px の余白を足した位置に置く。 */
+      @media(max-width:860px){
+        .articleBottomBar {
+          left: 10px; right: 10px;
+          bottom: calc(10px + var(--mobile-nav-h, 82px) + 8px);
+          border-bottom: 1.5px solid var(--line-strong);
+          border-radius: 12px;
+          box-shadow: 0 6px 24px rgba(0,0,0,.16);
+        }
+        /* バー + メニューの両方を避けるだけの余白を本文に確保する */
+        .articleEditorPage { padding-bottom: calc(var(--mobile-nav-h, 82px) + 110px); }
+      }
       /* Build-mode dropdown: opt out of the global "select{width:100%}" and the
          native arrow so the box auto-sizes to its widest option in any language
          (no clipping / no overlap) with a custom chevron in reserved padding. */
@@ -635,6 +655,9 @@ export function adminHtml(
         /* Modal: align to top on mobile to stay clear of bottom nav */
         .popupBackdrop { justify-content: flex-start; padding-top: 16px; }
         .popupCard { width: calc(100vw - 24px) !important; margin: 0 auto; max-height: calc(100svh - 128px); border-radius: 12px; }
+        /* 高さの内訳は --mobile-nav-h と一致させること（.articleBottomBar が
+           この値を使って自分の位置を決めるため）:
+           .mobileNav a の min-height 58 + padding(8+14) + border 2 = 82px */
         .mobileNav {
           display: flex;
           gap: 6px;
