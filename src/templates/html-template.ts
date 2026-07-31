@@ -233,6 +233,10 @@ function renderNodes(nodes: TemplateNode[], scopes: TemplateValue[]): string {
 
 function buildTemplateModel(ctx: RenderContext): TemplateObject {
   const articles = parseJson<TemplateValue[]>(ctx.content["_articles"], []);
+  // `[[#each type:news:5]]` などのデータ参照（generatePage が解決済み）。
+  // ref をそのままキー名にしてモデル直下へ置く: resolvePath は `.` でしか分割
+  // しないので `type:news:5` は 1 個のキーとして素直に引ける。
+  const dataRefs = parseJson<TemplateObject>(ctx.content["_data-refs"], {});
   const types = parseJson<TemplateValue[]>(ctx.content["_nav-types"], []);
   const categories = parseJson<TemplateValue[]>(
     ctx.content["_nav-categories"],
@@ -261,6 +265,9 @@ function buildTemplateModel(ctx: RenderContext): TemplateObject {
   const isPrivacy = ctx.path === "/privacy" || ctx.path === "/privacy/";
   const isTerms = ctx.path === "/terms" || ctx.path === "/terms/";
   return {
+    // データ参照（`type:news:5` 等）はモデル直下に展開する。予約名と衝突しない
+    // よう **先に** 置き、後続の固定キーが常に勝つようにする。
+    ...dataRefs,
     page: {
       path: ctx.path,
       // isHome must exclude the standalone pages (About/Privacy/Terms): they
