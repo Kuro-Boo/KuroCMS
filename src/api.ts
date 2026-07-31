@@ -130,7 +130,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.8.76";
+export const KUROCMS_VERSION = "1.8.77";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -246,6 +246,14 @@ async function handleApiDispatch(
           ok: true,
           message: "KuroCMS REST API",
           base: "/kurocms/api/",
+          // ⚠ "v1" は新しい世代ではなく **古い一族**。名前から中身を推測しない。
+          //   記事もサイト管理も無印 /api/* にある。
+          families: {
+            "/api/*":
+              "中核 API（57 本）。記事 documents/types/categories/languages、メディア、設定、利用者、認証、build、system/*。ふだん使うのはこちら。",
+            "/api/v1/*":
+              "古い一族（15 本）。テンプレート templates/*、サイト文字 content/*、そして公開フラグ published / unpublish のみ。バージョン番号ではなく歴史的な区分で、v1 が新しいわけではない。",
+          },
           auth: {
             human: "Passkey (WebAuthn) — sets session cookie",
             machine: "Authorization: Bearer kuro_<PAT>",
@@ -307,7 +315,11 @@ async function handleApiDispatch(
               "DELETE /api/users/:uid",
               "POST /api/invitations",
             ],
-            settings: ["GET|PUT /api/settings"],
+            settings: [
+              "GET|PUT /api/settings",
+              "PUT /api/v1/published { published: boolean } — サイト全体の公開/非公開（配信のキルスイッチ）。GET /api/settings が返す siteIsPublished はこの値。PUT /api/settings に siteIsPublished を含めても同じ結果になる（内部で委譲）",
+              "POST /api/v1/unpublish — 非公開に倒し、公開ページの実体も落とす",
+            ],
             operations: ["POST /api/build", "GET|POST /api/backups"],
           },
           // Step-by-step procedures the flat endpoint index above can't convey.
@@ -3334,6 +3346,23 @@ async function settings(
     if (xAccessSecret) settingsToSave.x_access_secret = xAccessSecret;
     if (hasXLinkInReply) settingsToSave.x_link_in_reply = xLinkInReply ? 1 : 0;
     await saveSettings(env, settingsToSave);
+
+    // 公開フラグは本来 PUT /api/v1/published の担当（テンプレート系の一族に
+    // 同居している歴史的経緯）。だが GET /api/settings は siteIsPublished を
+    // **返す**ので、読めた値をそのまま投げ返すクライアントが必ず現れる。
+    // 黙って捨てて 200 を返すと「保存したのに公開されない」になるため、
+    // 送られてきたときだけ専用処理と同じ更新へ委譲する。
+    // ⚠ updated_at は触らない（v1 側と同じ理由：site_is_published は配信の
+    //   キルスイッチで HTML を変えないのに、updated_at を進めると contentTs が
+    //   動き、次のビルドが全ページを無駄に作り直す）。
+    if ("siteIsPublished" in body) {
+      const published = body.siteIsPublished === true ? 1 : 0;
+      await env.DB.prepare(
+        "UPDATE site_settings SET site_is_published = ? WHERE id = 1",
+      )
+        .bind(published)
+        .run();
+    }
 
     await logActivity(env, user, "settings.update", "settings", "site", {
       siteName,
