@@ -487,6 +487,49 @@ function buildBlueskyWidget(handle: string): string {
  * same-origin links to carry `?lang=` so the choice survives navigation.
  * Inline styles only (must render on non-Tailwind templates); contains no `[[`/`]]`.
  */
+/**
+ * `[[ad]]` / `[[ad:N]]` → Google AdSense の広告ユニット。
+ *
+ * **ID だけを預かる**方式（GA4 の `injectGa4Head` と同じ思想）。サイト文字に
+ * 配布コードをそのまま貼らせると、管理者アカウントが乗っ取られたときに全ページへ
+ * 任意スクリプトを流し込める穴になるため、**スクリプト本体は CMS が組み立てる**。
+ *
+ * サイト文字 `ad-adsense` に**カンマ区切りで 1 行**に書く（キーを分けると片方の
+ * 設定漏れに気付けないため、意図的に 1 キーへまとめている）:
+ *
+ *     ca-pub-1234567890123456,1234567890,9876543210
+ *      └ クライアント          └ 枠1      └ 枠2
+ *
+ * テンプレートは `[[ad]]`（＝枠1）、`[[ad:2]]`（＝枠2）のように置く。
+ * 形式が合わない・未設定・枠番号が範囲外なら**空文字**に展開する（＝壊れた
+ * ins タグを残さない）。
+ */
+function parseAdSense(raw: string | undefined): {
+  client: string;
+  slots: string[];
+} | null {
+  const parts = String(raw ?? "")
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (!parts.length) return null;
+  const client = parts[0];
+  if (!/^ca-pub-\d{10,20}$/.test(client)) return null;
+  const slots = parts.slice(1).filter((s) => /^\d{6,20}$/.test(s));
+  return { client, slots };
+}
+
+function buildAdSenseUnit(client: string, slot: string): string {
+  const c = seoAttr(client);
+  const s = seoAttr(slot);
+  return (
+    `<ins class="kuro-ad adsbygoogle" style="display:block" ` +
+    `data-ad-client="${c}" data-ad-slot="${s}" ` +
+    `data-ad-format="auto" data-full-width-responsive="true"></ins>` +
+    `<script>(adsbygoogle=window.adsbygoogle||[]).push({});</script>`
+  );
+}
+
 function buildLanguageWidget(
   currentLang: string,
   availableLangs: Array<{ code: string; name: string }>,
@@ -692,6 +735,99 @@ function expandSnsRefs(
   return html.replace(/\[\[([a-z0-9_-]+)\]\]/g, (m, ref: string) =>
     snsSids.has(ref) ? resolveSns(ref) : m,
   );
+}
+
+/**
+ * テンプレートの `[[#each type:news:5]]` / `[[#each category:foo:3]]` /
+ * `[[#each articles:latest:8]]` を解決する。
+ *
+ * **なぜ必要か**: テンプレートモデルの `articles` は「そのページのスコープの記事」
+ * しか持たない。TOP に「お知らせ枠＝news」「製品枠＝products」のような**型別の枠**
+ * を作りたくても、パーサーには等値比較が無いので `[[#each articles]]` の中で tid に
+ * よる振り分けができず、`navigation.types` は slug と name しか持たない。
+ * そこで**テンプレート側が引きたいものを名指しできる**記法を用意する。
+ *
+ * サイト文字の同名参照（expandContentRefs）は JSON 文字列を返すが、こちらは
+ * **配列そのもの**をモデルに載せる。マークアップは 100% テンプレートの責務にする
+ * ため、CMS 側で HTML を組み立てないのが要点（`[[html:content.related-N]]` の
+ * ような自己完結ウィジェットとは役割が違う）。
+ *
+ * 解決した値は `ref` をそのままキーにしてモデル直下へ置く。パーサーの resolvePath
+ * は `.` でしか分割しないので、`type:news:5` は 1 個のキー名として素直に引ける
+ * （＝パーサーの変更は不要）。
+ */
+const DATA_REF_EACH_RE =
+  /\[\[#each\s+((?:type|category|articles):[a-z0-9_-]+(?::[a-z0-9_-]*)?)\]\]/g;
+/** 1 参照あたりの取得上限（テンプレートの書き間違いで全件引かないための蓋）。 */
+const DATA_REF_MAX = 50;
+
+async function resolveTemplateDataRefs(
+  env: Env,
+  sourceHtml: string,
+  basePath: string,
+  lang: string,
+  defaultLang: string,
+  filter: PubFilter,
+  prefetch?: RenderPrefetch,
+): Promise<Record<string, unknown[]>> {
+  const refs = [
+    ...new Set([...sourceHtml.matchAll(DATA_REF_EACH_RE)].map((m) => m[1])),
+  ];
+  const out: Record<string, unknown[]> = {};
+  for (const ref of refs) {
+    const [kind, slug, countRaw] = ref.split(":");
+    const n = Math.min(
+      Math.max(parseInt(countRaw || "10", 10) || 10, 1),
+      DATA_REF_MAX,
+    );
+    try {
+      if (kind === "type" && slug === "all") {
+        out[ref] = prefetch?.types ?? (await fetchTypesWithCounts(env, filter));
+      } else if (kind === "category" && slug === "all") {
+        out[ref] =
+          prefetch?.categories ??
+          (await fetchCategoriesWithCounts(env, filter));
+      } else if (kind === "type" && slug) {
+        const rows = await fetchArticlesByType(
+          env,
+          slug,
+          lang,
+          defaultLang,
+          1,
+          n,
+          filter,
+        );
+        out[ref] = rows.map((r) => toArticleCard(r, basePath));
+      } else if (kind === "category" && slug) {
+        const rows = await fetchArticlesByCategory(
+          env,
+          slug,
+          lang,
+          defaultLang,
+          1,
+          n,
+          filter,
+        );
+        out[ref] = rows.map((r) => toArticleCard(r, basePath));
+      } else if (kind === "articles" && slug === "latest") {
+        const rows = await fetchPublishedArticles(
+          env,
+          lang,
+          defaultLang,
+          1,
+          n,
+          filter,
+        );
+        out[ref] = rows.map((r) => toArticleCard(r, basePath));
+      } else {
+        // 未知の参照は空配列 → [[#each]] は何も出さない（テンプレートは壊れない）。
+        out[ref] = [];
+      }
+    } catch {
+      out[ref] = [];
+    }
+  }
+  return out;
 }
 
 async function expandContentRefs(
@@ -2157,6 +2293,23 @@ export async function generatePage(
     pageLangs = availableLangs.map((l) => l.code);
   }
 
+  // `[[#each type:news:5]]` 等のデータ参照を解決してモデルへ載せる。
+  // ⚠ ここで解決するのは **source_html に書かれた分だけ**（テンプレートが名指し
+  //   した参照のみ引く）。使っていないテンプレートでは 1 クエリも増えない。
+  if (sourceHtml.includes("[[#each ")) {
+    const refs = await resolveTemplateDataRefs(
+      env,
+      sourceHtml,
+      ctx.basePath,
+      lang,
+      s.default_lang ?? "",
+      filter,
+      prefetch,
+    );
+    if (Object.keys(refs).length) {
+      ctx.content["_data-refs"] = JSON.stringify(refs);
+    }
+  }
   // `[[lang]]` → language switcher widget. Expand before the parser drops it.
   if (sourceHtml.includes("[[lang]]")) {
     sourceHtml = sourceHtml
@@ -2168,6 +2321,30 @@ export async function generatePage(
     sourceHtml = sourceHtml
       .split("[[search]]")
       .join(buildSearchWidget(s.base_path || "", lang));
+  }
+  // `[[ad]]` / `[[ad:N]]` → AdSense ユニット（ID はサイト文字 `ad-adsense`）。
+  // ⚠ 展開した場合だけ <head> にローダーを 1 本入れる（広告を置かないページに
+  //   サードパーティ JS を読ませない）。
+  let adsenseUsed = false;
+  if (sourceHtml.includes("[[ad")) {
+    const ad = parseAdSense(ctx.content["ad-adsense"]);
+    sourceHtml = sourceHtml.replace(
+      /\[\[ad(?::(\d{1,2}))?\]\]/g,
+      (_m, nRaw: string | undefined) => {
+        if (!ad || !ad.slots.length) return "";
+        const idx = nRaw ? parseInt(nRaw, 10) : 1;
+        const slot = ad.slots[idx - 1];
+        if (!slot) return "";
+        adsenseUsed = true;
+        return buildAdSenseUnit(ad.client, slot);
+      },
+    );
+    if (adsenseUsed && ad) {
+      const loader = `<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${seoAttr(ad.client)}" crossorigin="anonymous"></script>`;
+      sourceHtml = sourceHtml.includes("</head>")
+        ? sourceHtml.replace("</head>", loader + "</head>")
+        : loader + sourceHtml;
+    }
   }
   // `[[privacy]]` / `[[terms]]` → links to the dedicated legal pages (same
   // source-token family as [[lang]]/[[sid]]). Expanded to a plain inheriting
