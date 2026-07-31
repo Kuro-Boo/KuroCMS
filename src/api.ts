@@ -131,7 +131,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.8.81";
+export const KUROCMS_VERSION = "1.8.82";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -7635,6 +7635,20 @@ async function siteTemplatePublish(
         }),
       },
     );
+    // ⚠ insert の結果を握り潰さない。ここを無視すると、たとえば「同じ tid を別の
+    //   所有者が既に使っている(409)」のような**本当の原因**が失われ、続く meta 更新が
+    //   404 になって `meta update HTTP 404` という無関係なエラーだけが利用者に出る
+    //   （実際にそうなっていた）。Community の応答本文をそのまま添えて即中断する。
+    if (!insRes.ok) {
+      const detail = (await insRes.text().catch(() => "")).slice(0, 500);
+      throw new HttpError(
+        insRes.status === 409 ? 409 : 502,
+        insRes.status === 409 ? "community_conflict" : "community_error",
+        insRes.status === 409
+          ? `Community 側で tid "${targetTid}" を登録できませんでした（別の所有者が使用中、または削除済みで所有者が一致しません）。${detail}`
+          : `insert HTTP ${insRes.status}: ${detail}`,
+      );
+    }
     await insRes.text().catch(() => "");
   }
 
