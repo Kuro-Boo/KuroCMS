@@ -22,7 +22,7 @@ import { classifyLink, LINK_TOKEN_RE, MEDIA_ID_RE } from "./kuro-links.js";
 // RecipeCard の読み出しは KuroEditor 上流の共有純関数に委譲する
 // （エディタ・保存 API・公開ビルドで実装を 1 つに保つ）。
 import { totalMinutes } from "./kuro-recipe.js";
-import { RECIPE_TYPE_ID, checkRecipeCards } from "./recipe-guard.js";
+import { checkRecipeCards } from "./recipe-guard.js";
 import { unfurlSign } from "./unfurl";
 import { json } from "./http";
 import type { Env, JsonValue } from "./types";
@@ -1892,14 +1892,16 @@ async function buildRenderContext(
   content["_available-langs"] = JSON.stringify(availableLangs);
 
   /**
-   * 本文から RecipeCard の内容を取り出す（recipe タイプのときだけ）。
+   * 本文から RecipeCard の内容を取り出す。
+   * ⚠ **記事タイプは見ない**（v1.8.78）。レシピ記事かどうかはカードの有無で
+   *   決まる。専用タイプ方式は管理画面から作れず（タイプ作成が tid を送らない）
+   *   実質有効化できなかったので撤去した。
    * ⚠ 表示も JSON-LD も **同じ 1 つの正本**（data-recipe）から作る。二重入力を
    *   生まないための決めごとなので、ここで読んだ値を両方へ渡す。
-   * 壊れている/無い場合は null（テンプレートは通常記事として描ける）。
+   * カードが無い/壊れている場合は null（テンプレートは通常記事として描ける）。
    */
-  const readRecipe = (tid: string, bodyHtml: string): RecipeData | null => {
-    if (tid !== RECIPE_TYPE_ID) return null;
-    const { recipe } = checkRecipeCards(bodyHtml, true);
+  const readRecipe = (bodyHtml: string): RecipeData | null => {
+    const { recipe } = checkRecipeCards(bodyHtml);
     if (!recipe) return null;
     return {
       yield: recipe.yield,
@@ -1977,7 +1979,7 @@ async function buildRenderContext(
       authorName: authorName || null,
       // レシピ記事なら本文の RecipeCard(data-recipe = 正本)を読み出してモデルへ。
       // テンプレートは型比較をせず page.isRecipe / article.recipe で分岐する。
-      recipe: readRecipe(r.tid, r.body_html || ""),
+      recipe: readRecipe(r.body_html || ""),
     };
   }
 
