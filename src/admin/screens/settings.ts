@@ -206,7 +206,14 @@ async function settings() {
       escapeHtml(t("publicDomain")) +
       "<div class='muted'>" +
       escapeHtml(t("publicDomainHelp")) +
-      "</div><input id='publicDomain' required placeholder='https://kuro.boo/' /></label>" +
+      "</div><div style='display:flex;align-items:center;gap:8px'>" +
+      "<input id='publicDomain' required placeholder='https://kuro.boo/' style='flex:1;min-width:0' />" +
+      "<a id='openPublicDomainBtn' class='secondary' target='_blank' rel='noopener' title='" +
+      escapeHtml(t("openPublicPage")) +
+      "' aria-label='" +
+      escapeHtml(t("openPublicPage")) +
+      "' style='display:none;align-items:center;justify-content:center;padding:3px 8px;text-decoration:none;font-size:14px;line-height:1;white-space:nowrap'>&#8599;</a>" +
+      "</div></label>" +
       "<div id='workerOriginSection' style='display:none'>" +
       "<div class='fieldLabel'>" +
       escapeHtml(t("workerOriginUrl")) +
@@ -219,6 +226,11 @@ async function settings() {
       "<button type='button' id='copyWorkerOriginBtn' class='secondary' style='font-size:11px;padding:3px 8px;white-space:nowrap'>" +
       escapeHtml(t("copy")) +
       "</button>" +
+      "<a id='openWorkerOriginBtn' class='secondary' target='_blank' rel='noopener' title='" +
+      escapeHtml(t("openPublicPage")) +
+      "' aria-label='" +
+      escapeHtml(t("openPublicPage")) +
+      "' style='display:inline-flex;align-items:center;justify-content:center;padding:3px 8px;text-decoration:none;font-size:14px;line-height:1;white-space:nowrap'>&#8599;</a>" +
       "</div>" +
       "</div>" +
       // Cloudflare-native custom domain manager (populated by JS from
@@ -764,7 +776,25 @@ async function settings() {
     renderLanguageSelects(languageOptions, s.defaultLang);
 
     // Basic (siteName moved to the Site Management screen)
-    byId("publicDomain")!.value = s.publicDomain || "";
+    const publicDomainInput = byId("publicDomain")!;
+    const openPublicDomainBtn = byId("openPublicDomainBtn")!;
+    publicDomainInput.value = s.publicDomain || "";
+    const syncPublicDomainOpenButton = function () {
+      const value = publicDomainInput.value.trim();
+      try {
+        const url = new URL(value);
+        if (url.protocol !== "https:" && url.protocol !== "http:") {
+          throw new Error("unsupported protocol");
+        }
+        openPublicDomainBtn.href = url.href;
+        openPublicDomainBtn.style.display = "inline-flex";
+      } catch {
+        openPublicDomainBtn.removeAttribute("href");
+        openPublicDomainBtn.style.display = "none";
+      }
+    };
+    syncPublicDomainOpenButton();
+    publicDomainInput.addEventListener("input", syncPublicDomainOpenButton);
 
     // Worker origin URL + CNAME guide
     (function () {
@@ -775,10 +805,12 @@ async function settings() {
       const originSection = byId("workerOriginSection");
       const originDisplay = byId("workerOriginDisplay");
       const copyBtn = byId("copyWorkerOriginBtn");
+      const openBtn = byId("openWorkerOriginBtn");
       if (originSection && originDisplay) {
         originSection.style.display = "";
         originDisplay.textContent = devDomain;
       }
+      if (openBtn) openBtn.href = devDomain;
       if (copyBtn) {
         copyBtn.addEventListener("click", async function (e: Dynamic) {
           try {
