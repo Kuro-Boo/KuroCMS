@@ -15,6 +15,7 @@ import {
 } from "./templates/html-template";
 import {
   findStaticPage,
+  findStaticPageRedirect,
   parseStaticPages,
   type StaticPageDefinition,
 } from "./templates/static-pages";
@@ -5199,6 +5200,18 @@ export async function handlePublicRoute(
     url.searchParams.get("lang") ||
     detectAcceptLang(request, registeredLangs, siteLang);
 
+  // Fixed-page aliases are permanent redirects. Resolve these before the edge
+  // cache and page KV so a previously-built article bundle can never mask a
+  // canonical fixed page after the template migrates it.
+  const template = await loadTemplate(env, settings.template_id);
+  const staticPages = parseStaticPages(template.sourceHtml);
+  const redirectPage = findStaticPageRedirect(staticPages, pathname);
+  if (redirectPage) {
+    const destination = new URL(request.url);
+    destination.pathname = `${settings.base_path || ""}/${redirectPage.slug}/`;
+    return Response.redirect(destination.toString(), 301);
+  }
+
   // Edge cache check — avoids KV read on repeat requests at same datacenter.
   //
   // ⚠ The key carries the CONTENT GENERATION (`_ck_g`), not just the language.
@@ -5273,8 +5286,6 @@ export async function handlePublicRoute(
   // KV miss (page not built yet): generate on-the-fly as a fallback.
   // NOTE: serving NEVER writes to KV — the build is the sole KV writer. This
   // removes user-traffic-driven writes (and the write-limit 500 risk).
-  const template = await loadTemplate(env, settings.template_id);
-  const staticPages = parseStaticPages(template.sourceHtml);
   let html: string | null = null;
 
   if (pathname === "/" || pathname === "") {
