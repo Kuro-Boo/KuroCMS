@@ -131,7 +131,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.8.91";
+export const KUROCMS_VERSION = "1.8.92";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -3242,7 +3242,6 @@ async function settings(
         developmentDomain: deriveInternalPreviewUrl(request, env),
         defaultLang,
         initialLang: (row?.initial_lang as string | undefined) ?? defaultLang,
-        adminLogo: (row?.admin_logo as string | undefined) ?? "",
         licenseAcceptedAt:
           (row?.license_accepted_at as string | undefined) ?? "",
         licenseAcceptedBy:
@@ -3288,7 +3287,6 @@ async function settings(
     // initial_lang (初期作成言語) is unified into default_lang: the admin UI no
     // longer exposes it, so default to default_lang when the client omits it.
     const initialLang = optionalString(body, "initialLang") ?? defaultLang;
-    const adminLogo = optionalString(body, "adminLogo") ?? "";
     const themeAccent = optionalString(body, "themeAccent") ?? "#157a6e";
 
     const themeSidebar = optionalString(body, "themeSidebar") ?? "#ffffff";
@@ -3329,7 +3327,6 @@ async function settings(
       public_domain: publicDomain,
       default_lang: defaultLang,
       initial_lang: initialLang,
-      admin_logo: adminLogo,
       theme_accent: themeAccent,
       theme_sidebar: themeSidebar,
       theme_main_pane: themeMainPane,
@@ -9021,7 +9018,6 @@ const SETTINGS_COLS = new Set([
   "public_domain",
   "default_lang",
   "initial_lang",
-  "admin_logo",
   "theme_accent",
   "theme_sidebar",
   "theme_main_pane",

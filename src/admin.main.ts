@@ -257,7 +257,7 @@ async function prepareImageForUpload(file: File): Promise<PreparedUploadImage> {
 const tokenKey = "kurocms_pat";
 const uiLangKey = "kurocms_ui_lang";
 const colorModeKey = "kurocms_color_mode";
-// Default brand logo = the KuroCMS brand favicon (kuro.boo). Resolved via
+// KuroCMS brand logo. Resolved via
 // the /favicon.svg route (302 to the site's configured favicon media).
 // NOTE(2026-07): this URL 404'd for a while — root cause was the
 // resolveFaviconPath() empty-language-row bug (fixed in v1.8.36), not this
@@ -2029,7 +2029,6 @@ type AdminState = {
   themeSettings: Dynamic | null;
   currentUser: Dynamic | null;
   uiLang: string;
-  adminLogo: string;
   preview: boolean;
   colorMode: "dark" | "light";
   articleEditor: KuroEditorInstance | null;
@@ -2047,7 +2046,6 @@ const state: AdminState = {
   themeSettings: null,
   currentUser: null,
   uiLang: detectLocale(),
-  adminLogo: defaultAdminLogo,
   preview: previewParams.get("preview") === "1",
   colorMode:
     savedColorMode === "dark" || (!savedColorMode && prefersDark)
@@ -2223,11 +2221,9 @@ function routePath() {
 }
 
 function renderLogoHtml() {
-  // adminLogo is never empty: normalizeAdminLogo falls back to
-  // defaultAdminLogo (the brand favicon URL) when the setting is unset.
   return (
     "<img src='" +
-    escapeHtml(state.adminLogo || defaultAdminLogo) +
+    escapeHtml(defaultAdminLogo) +
     "' style='width:38px; height:38px; border-radius:8px; object-fit:cover;' />"
   );
 }
@@ -2460,16 +2456,10 @@ function applyTheme(settings: Dynamic) {
   }
 }
 
-function normalizeAdminLogo(value: Dynamic) {
-  const logo = String(value || "").trim();
-  return logo || defaultAdminLogo;
-}
-
 async function loadTheme() {
   if (state.themeLoaded) return;
   try {
     const data = await api("/api/settings");
-    state.adminLogo = normalizeAdminLogo(data.settings.adminLogo);
     applyTheme(data.settings);
     state.themeLoaded = true;
   } catch {

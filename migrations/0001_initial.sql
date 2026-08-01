@@ -231,6 +231,7 @@ CREATE TABLE IF NOT EXISTS site_settings (
   default_lang               TEXT NOT NULL DEFAULT 'en',
   initial_lang               TEXT NOT NULL DEFAULT 'en',
   enabled_languages          TEXT NOT NULL DEFAULT 'en',
+  -- Kept here so a fresh migration chain can apply 0063_remove_admin_logo.sql.
   admin_logo                 TEXT NOT NULL DEFAULT '',
   theme_accent               TEXT NOT NULL DEFAULT '#157a6e',
   theme_sidebar              TEXT NOT NULL DEFAULT '#ffffff',
