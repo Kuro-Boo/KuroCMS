@@ -13,6 +13,11 @@ import {
   isRtlLang,
   renderTemplate,
 } from "./templates/html-template";
+import {
+  findStaticPage,
+  parseStaticPages,
+  type StaticPageDefinition,
+} from "./templates/static-pages";
 import { KE_VERSION } from "./admin-assets";
 import { buildFontHead, type LoadedFont } from "./fonts";
 import { stripInternalIds } from "./strip-internal-ids";
@@ -31,7 +36,7 @@ import type { Env, JsonValue } from "./types";
 // can't see (e.g. the <head> content-CSS <link>, template-model shape). The
 // build salts every page hash with this, so cached builds are invalidated and
 // all pages regenerate even when their underlying content is unchanged.
-const RENDER_FORMAT_VERSION = "20";
+const RENDER_FORMAT_VERSION = "21";
 
 /** Cheap, synchronous string hash (FNV-1a, base36) for cache keys. Not crypto. */
 /**
@@ -2075,6 +2080,7 @@ async function buildRenderContext(
   settings: SettingsMap,
   prefetch?: RenderPrefetch,
   filter: PubFilter = "live",
+  staticPages: StaticPageDefinition[] = [],
 ): Promise<RenderContext | null> {
   const basePath = settings.base_path || "";
   const LIMIT = 30;
@@ -2095,10 +2101,11 @@ async function buildRenderContext(
     filter,
   );
 
-  // The About page body is authored rich content too — wrap it like the article
-  // body so callouts/roundboxes render on the public page.
-  if (content["about-body"]) {
-    content["about-body"] = wrapKuroContent(content["about-body"]);
+  // Template-declared fixed-page bodies are authored rich content too — wrap
+  // them like article bodies so callouts/roundboxes render consistently.
+  for (const page of staticPages) {
+    if (content[page.bodyKey])
+      content[page.bodyKey] = wrapKuroContent(content[page.bodyKey]);
   }
   // Same for the legal pages' site texts (privacy policy / terms of service).
   if (content["privacy"])
@@ -2140,16 +2147,26 @@ async function buildRenderContext(
 
   // Site-owner display name, for the About page's ProfilePage JSON-LD
   // (earliest-created admin = the installer-created owner account).
-  if (path === "/about/" || path === "/about") {
-    const owner = await env.DB.prepare(
-      `SELECT display_name FROM users
-       WHERE is_admin = 1 AND TRIM(COALESCE(display_name, '')) != ''
-       ORDER BY created_at ASC LIMIT 1`,
-    )
-      .first<{ display_name: string }>()
-      .catch(() => null);
-    content["_author-name"] = (owner?.display_name || "").trim();
-  }
+  const staticPage = findStaticPage(staticPages, path);
+  if (staticPage && !content[staticPage.bodyKey]) return null;
+  content["_static-page"] = JSON.stringify(
+    staticPage
+      ? {
+          slug: staticPage.slug,
+          title: content[staticPage.titleKey] || staticPage.slug,
+          bodyHtml: content[staticPage.bodyKey] || "",
+        }
+      : null,
+  );
+  content["_nav-pages"] = JSON.stringify(
+    staticPages
+      .filter((page) => page.nav && Boolean(content[page.bodyKey]))
+      .map((page) => ({
+        slug: page.slug,
+        title: content[page.titleKey] || page.slug,
+        isCurrent: staticPage?.slug === page.slug,
+      })),
+  );
 
   const availableLangs =
     prefetch?.availableLangs ??
@@ -2235,9 +2252,7 @@ async function buildRenderContext(
     const authorName = (r.author_name || "").trim();
     const bodyWithByline =
       (expandedBody.body || "") +
-      (authorName
-        ? buildBylineHtml(authorName, basePath, lang, defaultLang)
-        : "");
+      (authorName ? buildBylineHtml(authorName, lang) : "");
     article = {
       slug: r.slug,
       type: r.tid,
@@ -2391,6 +2406,7 @@ export async function generatePage(
   filter: PubFilter = "live",
 ): Promise<string | null> {
   const s = settings ?? (await fetchSettings(env));
+  const staticPages = parseStaticPages(template.sourceHtml);
   const ctx = await buildRenderContext(
     env,
     path,
@@ -2399,6 +2415,7 @@ export async function generatePage(
     s,
     prefetch,
     filter,
+    staticPages,
   );
   if (!ctx) return null;
   // Spec §12: `[[sid]]` in the template body renders the SNS widget in place.
@@ -2731,11 +2748,19 @@ function injectSeoHead(
 
   const isArticle = !!(ctx.params.article && ctx.params.type);
   const article = ctx.article;
+  let staticPage: { slug?: string; title?: string } | null = null;
+  try {
+    staticPage = JSON.parse(ctx.content["_static-page"] || "null");
+  } catch {
+    /* ignore malformed computed context */
+  }
 
   // ── Title ──
   let title: string;
   if (isArticle && article) {
     title = siteName ? `${article.title}｜${siteName}` : article.title;
+  } else if (staticPage?.title) {
+    title = siteName ? `${staticPage.title}｜${siteName}` : staticPage.title;
   } else if (ctx.params.type) {
     const tn = ctx.content["_type-name"] || ctx.params.type;
     title = siteName ? `${tn}｜${siteName}` : tn;
@@ -2909,7 +2934,6 @@ function injectSeoHead(
                   author: {
                     "@type": "Person",
                     name: article.authorName,
-                    url: `${siteBase}/about/`,
                   },
                 }
               : siteName
@@ -2944,15 +2968,13 @@ function injectSeoHead(
             ...(article.publishAt ? { datePublished: article.publishAt } : {}),
             ...(article.updatedAt ? { dateModified: article.updatedAt } : {}),
             ...(description ? { description } : {}),
-            // Author: a named Person linking to the About page (E-E-A-T; pairs
-            // with the visible byline the CMS appends to the body). Falls back to
-            // the site Organization when the creating user has no display name.
+            // Author: a named Person. Falls back to the site Organization when
+            // the creating user has no display name.
             ...(article.authorName
               ? {
                   author: {
                     "@type": "Person",
                     name: article.authorName,
-                    url: `${siteBase}/about/`,
                   },
                 }
               : siteName
@@ -3000,29 +3022,14 @@ function injectSeoHead(
           item: it.item,
         })),
       });
-    } else if (path === "/about/" || path === "/about") {
-      // About = the author profile page: ProfilePage with a Person entity.
-      // This is the page article JSON-LD author.url points at, closing the
-      // author-identity loop. sameAs strengthens the entity with the site's
-      // configured social profiles.
-      const ownerName = (ctx.content["_author-name"] || "").trim();
-      if (ownerName) {
-        const sameAs: string[] = [];
-        if (settings.bluesky_handle)
-          sameAs.push(
-            `https://bsky.app/profile/${encodeURIComponent(settings.bluesky_handle)}`,
-          );
-        jsonLd.push({
-          "@context": "https://schema.org",
-          "@type": "ProfilePage",
-          mainEntity: {
-            "@type": "Person",
-            name: ownerName,
-            url: `${siteBase}/about/`,
-            ...(sameAs.length ? { sameAs } : {}),
-          },
-        });
-      }
+    } else if (staticPage?.title) {
+      jsonLd.push({
+        "@context": "https://schema.org",
+        "@type": "WebPage",
+        name: staticPage.title,
+        ...(canonical ? { url: canonical } : {}),
+        ...(description ? { description } : {}),
+      });
     } else if (path === "/" || path === "") {
       jsonLd.push({
         "@context": "https://schema.org",
@@ -3194,24 +3201,14 @@ function applyRtlDir(html: string, lang: string): string {
 
 /**
  * Author byline appended to the article body by the CMS (templates need not
- * author it — same policy as injectSeoHead). Links to /about/ in the page's
- * language so the visible byline matches the Person author in JSON-LD, which
- * is what E-E-A-T evaluation cross-checks. Inline styles only — must render
+ * author it — same policy as injectSeoHead). Inline styles only — must render
  * on non-Tailwind templates too.
  */
-function buildBylineHtml(
-  authorName: string,
-  basePath: string,
-  lang: string,
-  defaultLang: string,
-): string {
+function buildBylineHtml(authorName: string, lang: string): string {
   const label = BYLINE_LABELS[lang] || BYLINE_LABELS.en;
-  const href =
-    `${basePath}/about/` +
-    (lang && lang !== defaultLang ? `?lang=${encodeURIComponent(lang)}` : "");
   return (
     `<div class="kuro-byline" style="margin-top:2.5rem;padding-top:.9rem;border-top:1px solid rgba(128,128,128,.3);font-size:.85rem;opacity:.85">` +
-    `${seoText(label)}: <a href="${seoAttr(href)}" rel="author">${seoText(authorName)}</a></div>`
+    `${seoText(label)}: ${seoText(authorName)}</div>`
   );
 }
 
@@ -4005,6 +4002,7 @@ export async function buildAllPublicPages(
 }> {
   const settings = await fetchSettings(env);
   const template = await loadTemplate(env, settings.template_id);
+  const staticPages = parseStaticPages(template.sourceHtml);
   // The full build is the sole materializer of the publish flag: it renders
   // from mode within the publish window ("always" mode ignores the future
   // publish_at bound so scheduled posts are built and listed immediately) and
@@ -4178,6 +4176,25 @@ export async function buildAllPublicPages(
     0,
   );
 
+  // Fixed/legal pages exist only while their backing site text has content in
+  // ANY language (per-language emptiness falls back / 404s in generatePage).
+  const staticBodyKeys = [...new Set(staticPages.map((page) => page.bodyKey))];
+  const staticRows = staticBodyKeys.length
+    ? await env.DB.prepare(
+        `SELECT DISTINCT id FROM taxonomy_items
+         WHERE kind = 'template' AND id IN (${staticBodyKeys.map(() => "?").join(",")})
+           AND TRIM(COALESCE(name, '')) != ''`,
+      )
+        .bind(...staticBodyKeys)
+        .all<{ id: string }>()
+    : { results: [] as { id: string }[] };
+  const nonEmptyStaticKeys = new Set(
+    (staticRows.results ?? []).map((r) => r.id),
+  );
+  const builtStaticPages = staticPages.filter((page) =>
+    nonEmptyStaticKeys.has(page.bodyKey),
+  );
+
   // Legal pages exist only while their site text has content in ANY language
   // (per-language emptiness falls back / 404s inside generatePage).
   const legalRows = await env.DB.prepare(
@@ -4197,7 +4214,8 @@ export async function buildAllPublicPages(
   // Mirrors every path this build — or the per-document incremental builds —
   // legitimately writes. Type paths are included under BOTH the taxonomy slug
   // (full build) and the raw tid (buildDocumentPages); they usually coincide.
-  const expectedPaths = new Set<string>(["/", "/about/"]);
+  const expectedPaths = new Set<string>(["/"]);
+  for (const page of builtStaticPages) expectedPaths.add(`/${page.slug}/`);
   if (hasLegalPage.privacy) expectedPaths.add("/privacy/");
   if (hasLegalPage.terms) expectedPaths.add("/terms/");
   for (const ym of homeMonths) {
@@ -4223,10 +4241,15 @@ export async function buildAllPublicPages(
 
   // ── Compute total page count ──────────────────────────────────────────────
   // One bundle per page (all langs in one KV value) → count pages, NOT pages×langs.
-  // home + about + type-indexes + month archives (home + per type) + articles.
+  // home + fixed pages + type-indexes + month archives (home + per type) + articles.
   // Categories are NOT pre-built (served on-demand), so they are excluded here.
   const total =
-    2 + types.length + homeMonths.length + typeMonthTotal + articleCount;
+    1 +
+    builtStaticPages.length +
+    types.length +
+    homeMonths.length +
+    typeMonthTotal +
+    articleCount;
   onEvent?.({
     type: "start",
     total,
@@ -4408,22 +4431,24 @@ export async function buildAllPublicPages(
           ),
       );
     }
-    await processPageBundle(
-      "/about/",
-      allLangs,
-      () => contentHash,
-      (lang) =>
-        generatePage(
-          env,
-          "/about/",
-          {},
-          lang,
-          template,
-          settings,
-          buildPrefetch,
-          filter,
-        ),
-    );
+    for (const page of builtStaticPages) {
+      await processPageBundle(
+        `/${page.slug}/`,
+        allLangs,
+        () => `${contentHash}:${page.slug}:${page.titleKey}:${page.bodyKey}`,
+        (lang) =>
+          generatePage(
+            env,
+            `/${page.slug}/`,
+            {},
+            lang,
+            template,
+            settings,
+            buildPrefetch,
+            filter,
+          ),
+      );
+    }
     // Legal pages (/privacy/, /terms/) — built only while their site text has
     // content (hasLegalPage; generatePage also yields null per empty language).
     // When the text is emptied the path drops out of expectedPaths and the
@@ -4688,6 +4713,8 @@ interface SitemapEntry {
  */
 export async function buildSitemapXml(env: Env): Promise<string> {
   const settings = await fetchSettings(env);
+  const template = await loadTemplate(env, settings.template_id);
+  const staticPages = parseStaticPages(template.sourceHtml);
   const origin = publicOrigin(settings);
   const base = origin + (settings.base_path || "");
   const defaultLang = settings.default_lang || "";
@@ -4745,7 +4772,21 @@ export async function buildSitemapXml(env: Env): Promise<string> {
 
   const entries: SitemapEntry[] = [];
   entries.push({ path: "/", langs: registered, lastmod: siteLastmod });
-  entries.push({ path: "/about/", langs: registered });
+  if (staticPages.length) {
+    const bodyKeys = [...new Set(staticPages.map((page) => page.bodyKey))];
+    const rows = await env.DB.prepare(
+      `SELECT DISTINCT id FROM taxonomy_items
+       WHERE kind = 'template' AND id IN (${bodyKeys.map(() => "?").join(",")})
+         AND TRIM(COALESCE(name, '')) != ''`,
+    )
+      .bind(...bodyKeys)
+      .all<{ id: string }>()
+      .catch(() => ({ results: [] as { id: string }[] }));
+    const present = new Set((rows.results ?? []).map((row) => row.id));
+    for (const page of staticPages)
+      if (present.has(page.bodyKey))
+        entries.push({ path: `/${page.slug}/`, langs: registered });
+  }
   // Legal pages, only while their backing site text has content (404 otherwise).
   const legalRows = await env.DB.prepare(
     `SELECT DISTINCT id FROM taxonomy_items
@@ -4933,6 +4974,9 @@ export async function buildLlmsTxt(env: Env): Promise<string> {
 
   const registered = await fetchRegisteredLangs(env);
   const types = await fetchTypesWithCounts(env, "live");
+  const template = await loadTemplate(env, settings.template_id);
+  const staticPages = parseStaticPages(template.sourceHtml);
+  const staticContent = await fetchTemplateContent(env, lang, lang);
 
   // Markdown-safe single line: collapse whitespace, escape link brackets.
   const md = (s: string) =>
@@ -4981,7 +5025,12 @@ export async function buildLlmsTxt(env: Env): Promise<string> {
 
   lines.push("## Pages");
   lines.push("");
-  lines.push(`- [About](${base}/about/)`);
+  for (const page of staticPages) {
+    if (!staticContent[page.bodyKey]) continue;
+    lines.push(
+      `- [${md(staticContent[page.titleKey] || page.slug)}](${base}/${page.slug}/)`,
+    );
+  }
   lines.push(`- [Sitemap](${base}/sitemap.xml)`);
   lines.push(`- [RSS](${base}/rss.xml)`);
   lines.push("");
@@ -5225,20 +5274,20 @@ export async function handlePublicRoute(
   // NOTE: serving NEVER writes to KV — the build is the sole KV writer. This
   // removes user-traffic-driven writes (and the write-limit 500 risk).
   const template = await loadTemplate(env, settings.template_id);
+  const staticPages = parseStaticPages(template.sourceHtml);
   let html: string | null = null;
 
   if (pathname === "/" || pathname === "") {
     html = await generatePage(env, "/", {}, lang, template, settings);
   } else if (
-    pathname === "/about" ||
-    pathname === "/about/" ||
+    findStaticPage(staticPages, pathname) ||
     pathname === "/privacy" ||
     pathname === "/privacy/" ||
     pathname === "/terms" ||
     pathname === "/terms/"
   ) {
-    // Standalone pages. /privacy/ and /terms/ 404 (null) while their site
-    // text is empty — buildRenderContext enforces it.
+    // Template-declared fixed pages and legal pages. Empty backing content is
+    // a 404 — buildRenderContext enforces it.
     html = await generatePage(env, pathname, {}, lang, template, settings);
   } else {
     // Ordered matches: month archives (3+ segments) and category before the

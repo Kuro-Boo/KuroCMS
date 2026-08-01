@@ -242,6 +242,11 @@ function buildTemplateModel(ctx: RenderContext): TemplateObject {
     ctx.content["_nav-categories"],
     [],
   );
+  const pages = parseJson<TemplateValue[]>(ctx.content["_nav-pages"], []);
+  const staticPage = parseJson<TemplateObject | null>(
+    ctx.content["_static-page"],
+    null,
+  );
   const articleCategories = parseJson<TemplateValue[]>(
     ctx.content["_article-categories"],
     [],
@@ -259,7 +264,6 @@ function buildTemplateModel(ctx: RenderContext): TemplateObject {
       .map(([key, value]) => [key, value]),
   );
 
-  const isAbout = ctx.path === "/about" || ctx.path === "/about/";
   // Dedicated legal pages (privacy policy / terms of service), rendered from
   // the `privacy` / `terms` site texts — same standalone-page shape as About.
   const isPrivacy = ctx.path === "/privacy" || ctx.path === "/privacy/";
@@ -274,13 +278,14 @@ function buildTemplateModel(ctx: RenderContext): TemplateObject {
       // have no article/type/category params, so without this guard the home
       // block would also render on them.
       isHome:
-        !isAbout &&
+        !staticPage &&
         !isPrivacy &&
         !isTerms &&
         !ctx.article &&
         !ctx.params.type &&
         !ctx.params.category,
-      isAbout,
+      isStatic: Boolean(staticPage),
+      static: staticPage,
       isPrivacy,
       isTerms,
       isArticle: Boolean(ctx.article),
@@ -299,7 +304,7 @@ function buildTemplateModel(ctx: RenderContext): TemplateObject {
       basePath: ctx.basePath,
     },
     content,
-    navigation: { types, categories },
+    navigation: { types, categories, pages },
     articles,
     article: ctx.article
       ? {
