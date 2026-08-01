@@ -4559,22 +4559,6 @@ export async function buildAllPublicPages(
     more = true; // budget spent — more pages remain; client resumes
   }
 
-  // ── Orphan sweep (mark-and-sweep) ── only after a COMPLETED pass
-  // (more:false): expectedPaths is then authoritative, and any page key
-  // outside it is a leftover (a delete/unpublish/type change the incremental
-  // cleanup missed, or a page written by an older version, e.g. /category/,
-  // /page/N/). Serving prefers KV, so leftovers would otherwise be served
-  // forever. Non-fatal and capped per pass; the final pass of a chunked build
-  // has spent almost no budget (it mostly cache-skips), so the sweep fits.
-  let swept = 0;
-  if (!more) {
-    try {
-      swept = await sweepOrphanPages(env, expectedPaths);
-    } catch {
-      /* non-fatal: retried on the next full build */
-    }
-  }
-
   // ── Materialize the publish flag ── only after a COMPLETED pass: sync
   // documents.live to what this build just published. This is THE moment the
   // publish flag takes effect — everything served on-demand (categories,
@@ -4587,6 +4571,22 @@ export async function buildAllPublicPages(
     await env.DB.prepare(
       `UPDATE documents SET live = ${liveCase} WHERE live <> ${liveCase}`,
     ).run();
+  }
+
+  // ── Orphan sweep (mark-and-sweep) ── only after a COMPLETED pass
+  // (more:false): expectedPaths is then authoritative, and any page key
+  // outside it is a leftover (a delete/unpublish/type change the incremental
+  // cleanup missed, or a page written by an older version, e.g. /category/,
+  // /page/N/). Publish-state materialization above deliberately runs first:
+  // one completed build must both unpublish an article and reclaim its bundle.
+  // Serving prefers KV, so leftovers would otherwise be served forever.
+  let swept = 0;
+  if (!more) {
+    try {
+      swept = await sweepOrphanPages(env, expectedPaths);
+    } catch {
+      /* non-fatal: retried on the next full build */
+    }
   }
 
   // Refresh the shared nav-counts KV value (one write, filled into the nav
