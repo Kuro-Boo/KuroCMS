@@ -397,7 +397,7 @@ async function dashboard() {
         btnUpdate.textContent = t("checking");
         let ok = false;
         try {
-          applyVersionResult(await api("/api/system/version"));
+          applyVersionResult(await api("/api/system/version?refresh=1"));
           ok = true;
         } catch {
           /* ignore */

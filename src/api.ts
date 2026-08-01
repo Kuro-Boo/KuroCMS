@@ -131,7 +131,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.8.87";
+export const KUROCMS_VERSION = "1.8.88";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -468,7 +468,8 @@ async function handleApiDispatch(
 
     if (request.method === "GET" && path === "/api/system/version") {
       requireAdmin(user);
-      return withJsonHeaders(await systemVersion(env));
+      const refresh = new URL(request.url).searchParams.get("refresh") === "1";
+      return withJsonHeaders(await systemVersion(env, refresh));
     }
 
     if (request.method === "POST" && path === "/api/system/update") {
@@ -2820,8 +2821,13 @@ const UPDATE_CHANNEL_KEY = "system:update_channel"; // "stable" | "latest"
 
 type ReleaseChannels = { stable: string; latest: string };
 
-async function fetchReleaseChannels(env: Env): Promise<ReleaseChannels> {
-  const cached = await env.PUBLIC_PAGES.get(RELEASE_CHANNELS_CACHE_KEY);
+async function fetchReleaseChannels(
+  env: Env,
+  refresh = false,
+): Promise<ReleaseChannels> {
+  const cached = refresh
+    ? null
+    : await env.PUBLIC_PAGES.get(RELEASE_CHANNELS_CACHE_KEY);
   if (cached) {
     try {
       return JSON.parse(cached) as ReleaseChannels;
@@ -2867,13 +2873,13 @@ async function setUpdateChannel(request: Request, env: Env): Promise<Response> {
   return json({ ok: true, channel });
 }
 
-async function systemVersion(env: Env): Promise<Response> {
+async function systemVersion(env: Env, refresh = false): Promise<Response> {
   const current = KUROCMS_VERSION;
   const channel = await getUpdateChannel(env);
   let stable = current;
   let latest = current;
   try {
-    const channels = await fetchReleaseChannels(env);
+    const channels = await fetchReleaseChannels(env, refresh);
     stable = channels.stable;
     latest = channels.latest;
   } catch {
