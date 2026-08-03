@@ -272,6 +272,15 @@ async function settings() {
       "</button>" +
       "</div>" +
       "<div id='normalizeFormatResult' class='muted' style='font-size:12px'></div>" +
+      // ── Revision history: reclaim duplicated bodies ───────────────────
+      "<hr style='border:0;border-top:1px solid var(--line);margin:4px 0'>" +
+      "<div class='muted' style='font-size:12px'>" +
+      escapeHtml(t("dedupeRevisionsHelp")) +
+      "</div>" +
+      "<div><button type='button' id='dedupeRevisionsBtn' class='secondary'>" +
+      escapeHtml(t("dedupeRevisionsButton")) +
+      "</button></div>" +
+      "<div id='dedupeRevisionsResult' class='muted' style='font-size:12px'></div>" +
       "</div>" +
       "</div>" +
       // ── SNS ──────────────────────────────────────────────────────────
@@ -722,6 +731,46 @@ async function settings() {
                 .replace("{s}", String(scanned))
             : t("normalizeFormatNothing");
       toast(t("normalizeFormatToast"), false, btn);
+    } catch (error) {
+      toast(errorMessage(error), true, btn);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  // Maintenance: reclaim duplicated revision bodies. Same chunked loop as the
+  // sweeps above (25 groups per call). Nothing published changes — this only
+  // rewrites history rows — so no "rebuild the site" reminder is needed.
+  byId("dedupeRevisionsBtn")?.addEventListener("click", async () => {
+    const btn = byId("dedupeRevisionsBtn") as Dynamic;
+    const out = byId("dedupeRevisionsResult");
+    if (state.preview) {
+      toast(t("previewReadOnly"), false, btn);
+      return;
+    }
+    btn.disabled = true;
+    try {
+      let shared = 0;
+      let bytes = 0;
+      for (let pass = 0; pass < 200; pass++) {
+        const res = await api("/api/documents/revisions/dedupe", {
+          method: "POST",
+        });
+        shared += Number(res.shared || 0);
+        bytes += Number(res.bytesReclaimed || 0);
+        if (out)
+          out.textContent =
+            t("dedupeRevisionsProgress") + " " + shared + "… (" + pass + ")";
+        if (!res.more) break;
+      }
+      const mb = (bytes / 1048576).toFixed(2);
+      if (out)
+        out.textContent = shared
+          ? t("dedupeRevisionsDone")
+              .replace("{n}", String(shared))
+              .replace("{mb}", mb)
+          : t("dedupeRevisionsNothing");
+      toast(t("dedupeRevisionsToast"), false, btn);
     } catch (error) {
       toast(errorMessage(error), true, btn);
     } finally {

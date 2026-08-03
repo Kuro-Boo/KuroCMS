@@ -713,6 +713,15 @@ const i18n = {
       "{a} translation(s) would change — <b>: {b}, bold spans: {w}, <div> paragraphs: {d}, empty blocks: {e}",
     normalizeFormatPreviewNone:
       "Nothing to change — all bodies are already canonical.",
+    dedupeRevisionsHelp:
+      "Reclaims storage in the revision history. Revisions are full-text snapshots, and one is written whenever a save changes ANYTHING — so editing only the summary, the hashtags or the cover stored another complete copy of an unchanged body. New snapshots now reuse an identical body instead of copying it; this button applies the same sharing to history written earlier. The oldest revision keeps the text and the rest point at it, so every revision still reads back as a complete body — nothing is lost and nothing published changes.",
+    dedupeRevisionsButton: "Reclaim duplicated revision bodies",
+    dedupeRevisionsProgress: "Reclaiming… shared so far:",
+    dedupeRevisionsDone:
+      "Done: {n} revision(s) now share a body — about {mb} MB reclaimed.",
+    dedupeRevisionsNothing:
+      "No duplicated revision bodies. Nothing to reclaim.",
+    dedupeRevisionsToast: "Revision history dedupe finished",
     siteSettingsSaved: "Site settings saved.",
     name: "Name",
     newType: "New Type",
@@ -1466,6 +1475,14 @@ const i18n = {
     normalizeFormatPreview:
       "{a} 件の翻訳が変更されます — <b>: {b} 個、太字span: {w} 個、<div>段落: {d} 個、空ブロック: {e} 個",
     normalizeFormatPreviewNone: "変更対象はありません。すべて正規形です。",
+    dedupeRevisionsHelp:
+      "リビジョン履歴の容量を回収します。履歴は差分ではなく全文スナップショットで、保存内容が何か 1 つでも変われば 1 版が作られます。そのため要約・ハッシュタグ・カバー画像だけを直した保存でも、変わっていない本文の完全なコピーがもう 1 部保存されていました。今後のスナップショットは同一本文を使い回すようになりましたが、このボタンはそれ以前に溜まった履歴に同じ使い回しを適用します。最古の版が本文を保持し、残りはそれを指すだけになります。取得時はどの版も完全な本文として読めるので、履歴が失われることはなく、公開中のページにも影響しません。",
+    dedupeRevisionsButton: "リビジョン履歴の重複本文を回収",
+    dedupeRevisionsProgress: "回収中… ここまでの共有:",
+    dedupeRevisionsDone:
+      "完了: {n} 版が本文を共有するようになりました（約 {mb} MB 回収）。",
+    dedupeRevisionsNothing: "重複した本文はありません。回収対象なしです。",
+    dedupeRevisionsToast: "リビジョン履歴の重複回収が完了しました",
     siteSettingsSaved: "サイト設定を保存しました。",
     name: "名前",
     newType: "新規タイプ",

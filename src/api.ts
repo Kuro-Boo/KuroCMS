@@ -131,7 +131,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.8.93";
+export const KUROCMS_VERSION = "1.8.94";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -281,6 +281,7 @@ async function handleApiDispatch(
               "GET|POST /api/documents (GET=list: slug/tid/title/languages, no bodies, newest-updated first; filters ?slug= ?tid= ?mode= ?live= ?updatedSince= ?updatedUntil= ?q= ?lang= ?limit= ?offset= ?fields=; POST=create, 409 if slug exists)",
               "GET|PUT|DELETE /api/documents/:id (:id = did or globally-unique slug)",
               "GET /api/documents/:id/revisions (revision history, metadata only; ?lang= ?since= ?until= ?limit= ?offset=)",
+              "POST /api/documents/revisions/dedupe (Admin; maintenance — reclaim duplicated revision bodies, chunked, `more` until done)",
               "GET /api/documents/:id/revisions/:revisionNo (one revision WITH bodyHtml; ?lang=, default = the article's base language)",
               "GET|PUT|DELETE /api/documents/:id/translations/:lang (PUT upserts)",
               "GET|PUT /api/documents/:id/categories",
@@ -335,9 +336,9 @@ async function handleApiDispatch(
               ids: ":id in every /api/documents/:id[/...] route is the did (doc_<hex>) OR the globally-unique slug, interchangeably — take a slug straight from the GET /api/documents list and pass it in as :id; no did lookup step is needed.",
               update:
                 "GET /api/documents -> pick a slug -> update it directly: PUT /api/documents/:slug/translations/:lang edits the body text (see upsertFields), PUT /api/documents/:slug edits publish state / type. There is no separate by-slug update route — the slug IS the :id.",
-              list: "To enumerate editable content, GET /api/documents — each item carries slug, tid, title, initial_lang, languages (CSV of the langs that have a translation), mode/live and timestamps, but NO bodies. Rows are ordered by updated_at DESC. FILTER SERVER-SIDE instead of pulling the whole catalogue: ?slug=<exact slug, comma-separated for several> | ?q=<slug/title substring> | ?tid=<type> | ?mode=0|1 (publish flag) | ?live=0|1 (what the last build published) | ?updatedSince=/?updatedUntil=<ISO 8601 or YYYY-MM-DD, on updated_at> | ?limit=<1..1000, default 1000> | ?offset= | ?fields=<comma-separated keys to keep, e.g. slug,updated_at> | ?lang=<code> picks the display-title language. One known article needs no list call at all — GET /api/documents/<slug> directly.",
+              list: "To enumerate editable content, GET /api/documents — each item carries slug, tid, title, initial_lang, languages (CSV of the langs that have a translation), mode/live and timestamps, but NO bodies. Rows are ordered by updated_at DESC. FILTER SERVER-SIDE instead of pulling the whole catalogue: ?slug=<exact slug, comma-separated for several> | ?q=<slug/title substring> | ?tid=<type> | ?mode=0|1 (publish flag) | ?live=0|1 (what the last build published) | ?updatedSince=/?updatedUntil=<ISO 8601 or YYYY-MM-DD, on updated_at> | ?limit=<1..1000, default 1000> | ?offset= | ?fields=<comma-separated keys to keep, e.g. slug,updated_at> | ?lastEditSource=<api|mcp|admin|autosave|maintenance|unknown, comma-separated> keeps articles whose CURRENT text in any language was last written by one of these (every row carries last_edit_sources = 'lang=source' pairs) | ?lang=<code> picks the display-title language. One known article needs no list call at all — GET /api/documents/<slug> directly.",
               history:
-                "GET /api/documents/:id/revisions lists the article's revision history (?lang= ?since= ?until= ?limit=<1..200, default 50> ?offset=) -> { revisions:[{ revisionId, lang, revisionNo, title, snapshotAt, snapshotBy, bodyHash, bytes }], total, limit, offset }. Snapshots are FULL TEXT, not diffs — each revision already holds a complete bodyHtml, so nothing has to be replayed or merged; that is also why the list omits bodies. Fetch one with GET /api/documents/:id/revisions/:revisionNo (?lang= — revisionNo is sequential PER LANGUAGE and defaults to the article's base language) -> { revision:{ ..., bodyHtml, seo, hashtags } }. A revision is written BEFORE each overwrite/delete of a translation, so revision N is the text as it was before the N-th change; the current text is GET /api/documents/:id/translations/:lang. History is read-only (there is no rollback endpoint: PUT the old bodyHtml back to restore it).",
+                "GET /api/documents/:id/revisions lists the article's revision history (?lang= ?since= ?until= ?limit=<1..200, default 50> ?offset=) -> { revisions:[{ revisionId, lang, revisionNo, title, snapshotAt, snapshotBy, bodyHash, bytes }], total, limit, offset }. Snapshots are FULL TEXT, not diffs — a revision always reads back as a complete bodyHtml, so nothing has to be replayed or merged; that is also why the list omits bodies. Storage-wise an unchanged body is STORED ONCE and later revisions share it (bodyShared:true says so) — this is invisible to readers, both the body and `bytes` are always the real ones. PROVENANCE — two DIFFERENT fields, do not mix them up: `source` = who WROTE that version's text; `replacedBy` = who OVERWROTE it. Values: api (REST with a PAT) | mcp (an MCP tool call) | admin (a human clicked save) | autosave (the admin editor's timer) | maintenance (a server-side sweep) | null (before this was recorded). The machine-vs-human split comes from the auth mechanism, so it cannot be faked by a client. Filter with ?source= and ?replacedBy= (comma-separated; 'unknown' matches null). TO RECOVER TEXT AN AI DESTROYED: ?source=admin,autosave lists the versions a HUMAN wrote (newest first = what to restore), and ?source=admin,autosave&replacedBy=mcp,api narrows it to the ones a machine overwrote. Restore by PUTting that bodyHtml back. To find affected articles across the whole site in one call: GET /api/documents?lastEditSource=mcp,api (each row also carries last_edit_sources, e.g. 'ja=mcp,en=admin'). Fetch one with GET /api/documents/:id/revisions/:revisionNo (?lang= — revisionNo is sequential PER LANGUAGE and defaults to the article's base language) -> { revision:{ ..., bodyHtml, seo, hashtags } }. A revision is written BEFORE each overwrite/delete of a translation, so revision N is the text as it was before the N-th change; the current text is GET /api/documents/:id/translations/:lang. History is read-only (there is no rollback endpoint: PUT the old bodyHtml back to restore it).",
               read: "GET /api/documents/:id/translations lists an article's languages (lang, title, summary, updated_at). GET /api/documents/:id/translations/:lang returns that language's full title/summary/bodyHtml/seo/hashtags.",
               create: [
                 "1. POST /api/documents { tid (an ALREADY-registered type), slug (globally unique, must not start with doc_), initialLang } -> 201 with the new did. This creates only the shell (no text); 409 if the slug exists.",
@@ -754,6 +755,16 @@ async function handleApiDispatch(
     // otherwise swallow "cleanup-styles" as a slug.
     if (request.method === "POST" && path === "/api/documents/cleanup-styles") {
       return withJsonHeaders(await cleanupCopyNoise(env, user));
+    }
+
+    // Maintenance: reclaim duplicated revision bodies written before body
+    // sharing existed. Routed with the other maintenance sweeps, ahead of the
+    // generic /api/documents/:id matcher.
+    if (
+      request.method === "POST" &&
+      path === "/api/documents/revisions/dedupe"
+    ) {
+      return withJsonHeaders(await dedupeRevisionBodies(env, user));
     }
 
     // Maintenance: canonicalize body formatting (<b>/bold spans → <strong>,
@@ -5617,6 +5628,27 @@ async function documents(
       conds.push("datetime(d.updated_at) <= datetime(?)");
       filterBinds.push(updatedUntil);
     }
+    // ?lastEditSource=mcp,api — 「今の本文を最後に書いたのが AI の記事」を
+    // 1 回で洗い出すためのフィルタ。どれか 1 言語でも該当すれば拾う
+    // （被害の見落としより、確認対象が少し増える方を選ぶ）。'unknown' は
+    // 記録が始まる前から更新されていない翻訳。
+    const lastEditSources = (url.searchParams.get("lastEditSource") ?? "")
+      .split(",")
+      .map((v) => v.trim())
+      .filter(Boolean);
+    if (lastEditSources.length) {
+      const named = lastEditSources.filter((v) => v !== "unknown");
+      const parts: string[] = [];
+      if (named.length) {
+        parts.push(`dt2.source IN (${named.map(() => "?").join(",")})`);
+        filterBinds.push(...named);
+      }
+      if (lastEditSources.includes("unknown")) parts.push("dt2.source IS NULL");
+      conds.push(
+        `EXISTS (SELECT 1 FROM document_translations dt2
+                  WHERE dt2.did = d.did AND (${parts.join(" OR ")}))`,
+      );
+    }
     const where = conds.length ? `WHERE ${conds.join(" AND ")}` : "";
     const bindings: (string | number)[] = [
       displayLang,
@@ -5637,7 +5669,11 @@ async function documents(
         (SELECT GROUP_CONCAT(COALESCE(c.name, dc.cid))
            FROM document_categories dc
            LEFT JOIN categories c ON c.id = dc.cid
-          WHERE dc.did = d.did) AS category_names
+          WHERE dc.did = d.did) AS category_names,
+        -- 言語ごとの「今の本文を最後に書いた側」。"ja=mcp,en=admin" の形。
+        (SELECT GROUP_CONCAT(dt3.lang || '=' || COALESCE(dt3.source, 'unknown'))
+           FROM document_translations dt3
+          WHERE dt3.did = d.did) AS last_edit_sources
       FROM documents d
       LEFT JOIN document_translations dt ON dt.did = d.did
       ${where}
@@ -6063,21 +6099,84 @@ async function documentDetail(
   throw new HttpError(405, "method_not_allowed", "Method is not allowed.");
 }
 
+// ─── Revision body sharing ────────────────────────────────────────────────────
+// Revisions are FULL-TEXT snapshots (see the /revisions endpoint docs), and a
+// save only has to change SOMETHING to trigger one: editing the summary, the
+// hashtags, the cover, or a metadata autosave all snapshot the body again even
+// when the body itself is byte-identical. Measured on a real install: 2,975
+// revisions held only 1,861 distinct bodies — a third of the bytes were exact
+// duplicates.
+//
+// So a body is stored ONCE per (did, lang, content). Any later revision whose
+// body is unchanged stores `body_html = ''` and carries the SAME body_hash,
+// which points at the sibling revision that owns the text. Chosen over a
+// separate bodies table because it needs NO schema change (body_hash already
+// exists), keeps backup/restore working unchanged (the dump is still a plain
+// row dump, and an old backup with full bodies everywhere restores fine), and
+// leaves every row independently deletable — deleting a document still drops
+// its whole history in one statement.
+//
+// INVARIANT: for every (did, lang, body_hash) at least one row keeps the text.
+// Never delete a row that owns a body while a sharer still points at it — the
+// only bulk delete is per-document, which removes owners and sharers together.
+const SHARED_BODY = "";
+
+/** Correlated sub-select returning the body owned by the sibling revision that
+ *  the row aliased `alias` shares (NULL when the row owns its body itself). */
+function ownerBodySql(alias: string): string {
+  return `(SELECT o.body_html FROM document_translation_revisions o
+            WHERE o.did = ${alias}.did AND o.lang = ${alias}.lang
+              AND o.body_hash = ${alias}.body_hash AND o.body_html <> ''
+            ORDER BY o.revision_no LIMIT 1)`;
+}
+
+/** Where a write came from. The MACHINE-vs-HUMAN split is derived from the AUTH
+ *  MECHANISM, so it cannot be spoofed by a header: a PAT is always machine
+ *  traffic, a session cookie is always a signed-in human in the admin UI. The
+ *  headers only refine WITHIN each family (a client faking one can at worst
+ *  mislabel itself as its own sibling).
+ *    api | mcp         — PAT. `mcp` is set by the MCP server on the internal
+ *                        request it dispatches (src/mcp.ts).
+ *    admin | autosave  — session. `autosave` is set by the admin editor when
+ *                        the save came from a TIMER rather than a click.
+ *  Server-side sweeps pass "maintenance" directly. Returns null when the actor
+ *  is unknown — never guesses. */
+type WriteSource = "api" | "mcp" | "admin" | "autosave" | "maintenance";
+
+function writeSource(request: Request, user: AuthUser): WriteSource | null {
+  if (user.authSource === "pat") {
+    return request.headers.get("x-kurocms-client") === "mcp" ? "mcp" : "api";
+  }
+  if (user.authSource === "session") {
+    return request.headers.get("x-kurocms-save") === "auto"
+      ? "autosave"
+      : "admin";
+  }
+  return null;
+}
+
 /**
  * Build an INSERT statement that snapshots the CURRENT translation row (if one
  * exists) into document_translation_revisions, with the next sequential
  * revision_no. Returns null when there is no existing row to snapshot. The
  * caller includes the returned statement in a batch run BEFORE the overwrite/
- * delete so edits are recoverable. (This history table was previously unused.)
+ * delete so edits are recoverable.
+ *
+ * When an earlier revision of the same translation already holds this exact
+ * body, the new row shares it instead of storing a second copy (see above).
  */
 async function snapshotTranslationStatement(
   env: Env,
   did: string,
   lang: string,
   snapshotBy: string,
+  /** Who is performing the write that DISPLACES this version (stored as
+   *  replaced_by). The version's own author is carried over from the
+   *  translation row — see the column comments in migration 0064. */
+  replacedBy: WriteSource | null,
 ): Promise<D1PreparedStatement | null> {
   const existing = await env.DB.prepare(
-    `SELECT title, body_html, seo_json, hashtag_json
+    `SELECT title, body_html, seo_json, hashtag_json, source
      FROM document_translations WHERE did = ? AND lang = ?`,
   )
     .bind(did, lang)
@@ -6086,33 +6185,53 @@ async function snapshotTranslationStatement(
       body_html: string;
       seo_json: string | null;
       hashtag_json: string | null;
+      source: string | null;
     }>();
   if (!existing) return null;
-  const maxRow = await env.DB.prepare(
-    `SELECT MAX(revision_no) AS n FROM document_translation_revisions
-     WHERE did = ? AND lang = ?`,
-  )
-    .bind(did, lang)
-    .first<{ n: number | null }>();
+  // 3-way マージの base 検索キー (baseBodyHash → この版のリビジョン) 兼、
+  // 本文使い回しの同一性キー。
+  const bodyHash = await sha256Hex(existing.body_html);
+  const [maxRow, ownerRow] = await Promise.all([
+    env.DB.prepare(
+      `SELECT MAX(revision_no) AS n FROM document_translation_revisions
+       WHERE did = ? AND lang = ?`,
+    )
+      .bind(did, lang)
+      .first<{ n: number | null }>(),
+    // An empty body can't be shared: '' is also the sharing marker, so a
+    // genuinely empty body must stay literal (it costs nothing anyway).
+    existing.body_html === SHARED_BODY
+      ? Promise.resolve(null)
+      : env.DB.prepare(
+          `SELECT revision_id FROM document_translation_revisions
+            WHERE did = ? AND lang = ? AND body_hash = ? AND body_html <> ''
+            LIMIT 1`,
+        )
+          .bind(did, lang, bodyHash)
+          .first<{ revision_id: string }>(),
+  ]);
   const nextNo = (maxRow?.n ?? 0) + 1;
   return env.DB.prepare(
     `INSERT INTO document_translation_revisions
        (revision_id, did, lang, revision_no, title, body_html, seo_json,
-        hashtag_json, snapshot_at, snapshot_by, body_hash)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        hashtag_json, snapshot_at, snapshot_by, body_hash, source, replaced_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).bind(
     makeId("rev"),
     did,
     lang,
     nextNo,
     existing.title,
-    existing.body_html,
+    ownerRow ? SHARED_BODY : existing.body_html,
     existing.seo_json,
     existing.hashtag_json,
     nowIso(),
     snapshotBy,
-    // 3-way マージの base 検索キー (baseBodyHash → この版のリビジョン)
-    await sha256Hex(existing.body_html),
+    bodyHash,
+    // この版の本文を「書いた」側。復旧はこの列で人間の版を選ぶので、
+    // 「上書きした側」(replacedBy) と決して混ぜない。
+    existing.source,
+    replacedBy,
   );
 }
 
@@ -6252,6 +6371,88 @@ function normalizePlainLinks(html: string): string {
 }
 
 /**
+ * Maintenance sweep: reclaim the duplicated bodies that revisions written
+ * BEFORE body sharing left behind (see SHARED_BODY). For every group of
+ * revisions of the same translation holding byte-identical text, the oldest one
+ * keeps the body and the rest are turned into sharers (`body_html = ''` + the
+ * group's body_hash). The same pass backfills body_hash where it is NULL
+ * (rows predating the column), which is what lets FUTURE snapshots recognise an
+ * unchanged body and share it instead of storing another copy.
+ *
+ * Chunked like the other maintenance sweeps: at most MAX_GROUPS_PER_RUN groups
+ * per invocation, `more: true` while work remains. Idempotent — a processed
+ * group stops matching (its duplicates no longer have a body, its hashes are
+ * set), so re-running is a no-op.
+ */
+async function dedupeRevisionBodies(
+  env: Env,
+  user: AuthUser,
+): Promise<Response> {
+  requireAdmin(user);
+  const MAX_GROUPS_PER_RUN = 25;
+  // Groups needing work: more than one copy of the body, or a missing hash.
+  // Sharers (body_html = '') are excluded — they hold no text to reclaim.
+  const groups = await env.DB.prepare(
+    `SELECT did, lang, body_html, COUNT(*) AS n, MIN(revision_no) AS keep_no
+       FROM document_translation_revisions
+      WHERE body_html <> ''
+      GROUP BY did, lang, body_html
+     HAVING COUNT(*) > 1 OR SUM(CASE WHEN body_hash IS NULL THEN 1 ELSE 0 END) > 0
+      LIMIT ?`,
+  )
+    .bind(MAX_GROUPS_PER_RUN + 1)
+    .all<{
+      did: string;
+      lang: string;
+      body_html: string;
+      n: number;
+      keep_no: number;
+    }>();
+  const list = (groups.results ?? []).slice(0, MAX_GROUPS_PER_RUN);
+  const more = (groups.results ?? []).length > MAX_GROUPS_PER_RUN;
+
+  const statements: D1PreparedStatement[] = [];
+  let shared = 0;
+  let bytesReclaimed = 0;
+  for (const g of list) {
+    const hash = await sha256Hex(g.body_html);
+    // 所有者（最古の版）は本文を保持し、ハッシュだけ埋める。
+    statements.push(
+      env.DB.prepare(
+        `UPDATE document_translation_revisions SET body_hash = ?
+          WHERE did = ? AND lang = ? AND revision_no = ?`,
+      ).bind(hash, g.did, g.lang, g.keep_no),
+    );
+    if (g.n > 1) {
+      // 残りは本文を捨てて所有者を指す。body_html の一致で絞るので、同一
+      // 翻訳の「別の本文」を巻き込むことはない。
+      statements.push(
+        env.DB.prepare(
+          `UPDATE document_translation_revisions
+              SET body_html = '', body_hash = ?
+            WHERE did = ? AND lang = ? AND revision_no <> ? AND body_html = ?`,
+        ).bind(hash, g.did, g.lang, g.keep_no, g.body_html),
+      );
+      shared += g.n - 1;
+      bytesReclaimed += g.body_html.length * (g.n - 1);
+    }
+  }
+  if (statements.length) await env.DB.batch(statements);
+  await logActivity(env, user, "revisions.dedupe", "system", "revisions", {
+    groups: list.length,
+    shared,
+    bytesReclaimed,
+  });
+  return json({
+    ok: true,
+    groups: list.length,
+    shared,
+    bytesReclaimed,
+    more,
+  } as unknown as JsonValue);
+}
+
+/**
  * Maintenance sweep: run stripCopyNoiseStyles + normalizePlainLinks over every
  * stored translation body. Changed rows are revision-snapshotted first
  * (recoverable), then updated with a fresh updated_at so the next build
@@ -6285,6 +6486,7 @@ async function cleanupCopyNoise(env: Env, user: AuthUser): Promise<Response> {
       row.did,
       row.lang,
       user.uid,
+      "maintenance",
     );
     if (snapshot) statements.push(snapshot);
     statements.push(
@@ -6371,6 +6573,7 @@ async function normalizeBodyFormat(
       row.did,
       row.lang,
       user.uid,
+      "maintenance",
     );
     if (snapshot) statements.push(snapshot);
     statements.push(
@@ -6525,11 +6728,17 @@ async function documentRevisions(
           .first<{ initial_lang: string }>()
       )?.initial_lang ||
       "";
+    // body_html は「この行が持つ本文、無ければ共有元の本文」— 呼び出し側から
+    // 見れば使い回しは透明で、常に完全な全文が返る（bodyShared でどちらか判る）。
     const row = await env.DB.prepare(
-      `SELECT revision_id, lang, revision_no, title, body_html, seo_json,
-              hashtag_json, snapshot_at, snapshot_by, body_hash
-         FROM document_translation_revisions
-        WHERE did = ? AND lang = ? AND revision_no = ?`,
+      `SELECT r.revision_id, r.lang, r.revision_no, r.title, r.seo_json,
+              r.hashtag_json, r.snapshot_at, r.snapshot_by, r.body_hash,
+              r.source, r.replaced_by,
+              CASE WHEN r.body_html <> '' THEN r.body_html
+                   ELSE COALESCE(${ownerBodySql("r")}, '') END AS body_html,
+              (r.body_html = '') AS body_shared
+         FROM document_translation_revisions r
+        WHERE r.did = ? AND r.lang = ? AND r.revision_no = ?`,
     )
       .bind(did, targetLang, no)
       .first<{
@@ -6538,11 +6747,14 @@ async function documentRevisions(
         revision_no: number;
         title: string;
         body_html: string;
+        body_shared: number;
         seo_json: string | null;
         hashtag_json: string | null;
         snapshot_at: string;
         snapshot_by: string | null;
         body_hash: string | null;
+        source: string | null;
+        replaced_by: string | null;
       }>();
     if (!row) {
       throw new HttpError(
@@ -6562,7 +6774,11 @@ async function documentRevisions(
         hashtags: parseJson(row.hashtag_json, []),
         snapshotAt: row.snapshot_at,
         snapshotBy: row.snapshot_by,
+        source: row.source,
+        replacedBy: row.replaced_by,
         bodyHash: row.body_hash,
+        // この版は本文を別の版と共有している（同一本文なので中身は同じ）。
+        bodyShared: row.body_shared === 1,
       },
     } as unknown as JsonValue);
   }
@@ -6572,26 +6788,52 @@ async function documentRevisions(
   const until = queryIsoTimestamp(url, "until");
   const limit = queryInt(url, "limit", 1, 200) ?? 50;
   const offset = queryInt(url, "offset", 0, 1000000) ?? 0;
-  const conds = ["did = ?"];
+  const conds = ["r.did = ?"];
   const binds: (string | number)[] = [did];
   if (lang) {
-    conds.push("lang = ?");
+    conds.push("r.lang = ?");
     binds.push(lang);
   }
   if (since) {
-    conds.push("datetime(snapshot_at) >= datetime(?)");
+    conds.push("datetime(r.snapshot_at) >= datetime(?)");
     binds.push(since);
   }
   if (until) {
-    conds.push("datetime(snapshot_at) <= datetime(?)");
+    conds.push("datetime(r.snapshot_at) <= datetime(?)");
     binds.push(until);
   }
+  // ?source= はその版の本文を書いた側、?replacedBy= はその版を消した側。
+  // 両方カンマ区切りで複数指定でき、'unknown' は NULL（記録前の版）を指す。
+  //   ?source=admin,autosave                → 人が書いた版だけ＝復旧候補
+  //   ?source=admin,autosave&replacedBy=mcp,api → 人の本文を AI が消した版
+  const sourceFilter = (param: string, column: string): void => {
+    const values = (url.searchParams.get(param) ?? "")
+      .split(",")
+      .map((v) => v.trim())
+      .filter(Boolean);
+    if (!values.length) return;
+    const named = values.filter((v) => v !== "unknown");
+    const parts: string[] = [];
+    if (named.length) {
+      parts.push(`${column} IN (${named.map(() => "?").join(",")})`);
+      binds.push(...named);
+    }
+    if (values.includes("unknown")) parts.push(`${column} IS NULL`);
+    conds.push(`(${parts.join(" OR ")})`);
+  };
+  sourceFilter("source", "r.source");
+  sourceFilter("replacedBy", "r.replaced_by");
+  // bytes は「その版の本文の実サイズ」— 共有している版は共有元のサイズを返す
+  // （行の LENGTH をそのまま出すと共有版が 0 バイトに見えてしまう）。
   const rows = await env.DB.prepare(
-    `SELECT revision_id, lang, revision_no, title, snapshot_at, snapshot_by,
-            body_hash, LENGTH(body_html) AS bytes
-       FROM document_translation_revisions
+    `SELECT r.revision_id, r.lang, r.revision_no, r.title, r.snapshot_at,
+            r.snapshot_by, r.source, r.replaced_by, r.body_hash,
+            (r.body_html = '') AS body_shared,
+            CASE WHEN r.body_html <> '' THEN LENGTH(r.body_html)
+                 ELSE COALESCE(LENGTH(${ownerBodySql("r")}), 0) END AS bytes
+       FROM document_translation_revisions r
       WHERE ${conds.join(" AND ")}
-      ORDER BY snapshot_at DESC, revision_no DESC
+      ORDER BY r.snapshot_at DESC, r.revision_no DESC
       LIMIT ? OFFSET ?`,
   )
     .bind(...binds, limit, offset)
@@ -6602,11 +6844,14 @@ async function documentRevisions(
       title: string;
       snapshot_at: string;
       snapshot_by: string | null;
+      source: string | null;
+      replaced_by: string | null;
       body_hash: string | null;
+      body_shared: number;
       bytes: number;
     }>();
   const total = await env.DB.prepare(
-    `SELECT COUNT(*) AS n FROM document_translation_revisions
+    `SELECT COUNT(*) AS n FROM document_translation_revisions r
       WHERE ${conds.join(" AND ")}`,
   )
     .bind(...binds)
@@ -6619,7 +6864,10 @@ async function documentRevisions(
       title: r.title,
       snapshotAt: r.snapshot_at,
       snapshotBy: r.snapshot_by,
+      source: r.source,
+      replacedBy: r.replaced_by,
       bodyHash: r.body_hash,
+      bodyShared: r.body_shared === 1,
       bytes: r.bytes,
     })),
     total: total?.n ?? 0,
@@ -6658,7 +6906,7 @@ async function documentTranslations(
   if (request.method === "GET" && lang) {
     const row = await env.DB.prepare(
       `SELECT did, lang, title, summary, body_html, seo_json, hashtag_json,
-              created_at, updated_at, created_by, updated_by
+              created_at, updated_at, created_by, updated_by, source
        FROM document_translations
        WHERE did = ? AND lang = ?`,
     )
@@ -6765,9 +7013,12 @@ async function documentTranslations(
       document.translation_body_html !== null &&
       (await sha256Hex(document.translation_body_html)) !== baseBodyHash
     ) {
+      // `body_html <> ''` ＝ 本文を実際に持っている版だけを見る。同じ
+      // body_hash の版は定義上まったく同じ本文なので、共有側の行を飛ばして
+      // 所有者の行を拾えばよい（共有行を引くと本文が空のままマージしてしまう）。
       const baseRev = await env.DB.prepare(
         `SELECT body_html FROM document_translation_revisions
-         WHERE did = ? AND lang = ? AND body_hash = ?
+         WHERE did = ? AND lang = ? AND body_hash = ? AND body_html <> ''
          ORDER BY revision_no DESC LIMIT 1`,
       )
         .bind(did, lang, baseBodyHash)
@@ -6847,15 +7098,21 @@ async function documentTranslations(
       did,
       lang,
       user.uid,
+      writeSource(request, user),
     );
 
     const statements: D1PreparedStatement[] = [];
     if (prevRevision) statements.push(prevRevision);
     statements.push(
       env.DB.prepare(
+        // `source` = 今の本文を書いたのは誰か。次にこの行が上書きされるとき、
+        // スナップショットがこの値を引き継ぐ（＝「その版を書いた側」になる）。
+        // 保守系の一括処理はこの列を触らない（本文の綴りを直すだけで、著者を
+        // 奪うわけではないため）— それらは document_translations を直接
+        // UPDATE していて、ここは通らない。
         `INSERT INTO document_translations
-          (did, lang, title, summary, body_html, seo_json, hashtag_json, created_at, updated_at, created_by, updated_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          (did, lang, title, summary, body_html, seo_json, hashtag_json, created_at, updated_at, created_by, updated_by, source)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(did, lang) DO UPDATE SET
           title = excluded.title,
           summary = excluded.summary,
@@ -6864,7 +7121,8 @@ async function documentTranslations(
           hashtag_json = excluded.hashtag_json,
           created_at = excluded.created_at,
           updated_at = excluded.updated_at,
-          updated_by = excluded.updated_by`,
+          updated_by = excluded.updated_by,
+          source = excluded.source`,
       ).bind(
         did,
         lang,
@@ -6877,6 +7135,7 @@ async function documentTranslations(
         updatedAt,
         user.uid,
         user.uid,
+        writeSource(request, user),
       ),
       env.DB.prepare(
         `INSERT INTO search_entries
@@ -6992,6 +7251,7 @@ async function documentTranslations(
       did,
       lang,
       user.uid,
+      writeSource(request, user),
     );
     const statements: D1PreparedStatement[] = [];
     if (snapshot) statements.push(snapshot);

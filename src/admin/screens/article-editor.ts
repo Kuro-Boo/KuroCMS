@@ -411,7 +411,12 @@ async function newArticle(editDid: Dynamic) {
   //   false     → metadata-only (the periodic autosave).
   //   true      → force body inclusion (the conflict-overwrite retry).
   // Creating a translation always includes the body (the API requires it).
-  async function doSave(includeBody?: boolean) {
+  //
+  // `auto` says the save was started by a TIMER, not by the user. It is sent to
+  // the server (x-kurocms-save: auto) so the revision history can record why a
+  // version exists — most versions are automatic, and without this they are
+  // indistinguishable from someone deliberately pressing save.
+  async function doSave(includeBody?: boolean, auto?: boolean) {
     // Never autosave while a switch is in flight or before the editor has fully
     // loaded the current language's content (would persist the wrong language /
     // a half-loaded body). Explicit saves go through here too and are correctly
@@ -510,7 +515,13 @@ async function newArticle(editDid: Dynamic) {
       }
       const translationRes = await api(
         "/api/documents/" + art.did + "/translations/" + art.lang,
-        { method: "PUT", body: JSON.stringify(payload) },
+        {
+          method: "PUT",
+          body: JSON.stringify(payload),
+          // Only the translation write snapshots a revision, so this is the one
+          // request that needs the label.
+          headers: auto ? { "x-kurocms-save": "auto" } : undefined,
+        },
       );
       const translationChanged = translationRes.changed !== false;
       // categories PUT is the LAST request of this save — it fires the one
@@ -588,7 +599,7 @@ async function newArticle(editDid: Dynamic) {
   // KuroEditor's own autosave is off (saveUi:false), so this is the sole path.
   function autoSaveTick() {
     if (!autoSaveEnabled()) return; // toggled off after this tick was armed
-    doSave();
+    doSave(undefined, true);
   }
 
   // Metadata edits (title/summary/dates/hashtags/cover/categories) — arm the
@@ -1194,7 +1205,12 @@ async function newArticle(editDid: Dynamic) {
         art.body = html;
         if (art.ready && !art.switching && !art.saving && art.dirty) {
           clearTimeout(autoSaveTimer);
-          doSave();
+          // ⚠ KuroEditor の onSave はツールバーの保存ボタンと KE 自身の定期
+          //   自動保存の両方から呼ばれ、**どちらかを示す引数が無い**。KE の定期
+          //   保存はチェックが ON のときだけ動くので、ON の間はここを自動保存
+          //   として記録する（＝ON 中の手動クリックも autosave に寄る）。厳密に
+          //   分けるには KuroEditor 側で onSave に理由を渡す変更が必要。
+          doSave(undefined, autoSaveEnabled());
         }
       },
       // KuroEditor's complete change signal (MutationObserver-backed). The
