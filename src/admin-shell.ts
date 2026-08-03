@@ -576,12 +576,17 @@ export function adminHtml(
         justify-content: center;
         padding: clamp(8px, 3vw, 24px);
         overflow-y: auto;
+        /* ダイアログの上でホイールを回すと背後のページが動いてしまう
+           （スクロールチェーン）のを止める。内側が短くてスクロールできない
+           場合も、末端まで到達した場合も、ここで伝播を打ち切る。 */
+        overscroll-behavior: contain;
       }
       .popupCard {
         width: min(92vw, calc(100% - 16px));
         max-width: 92vw;
         max-height: calc(100vh - clamp(32px, 6vh, 80px));
         overflow-y: auto;
+        overscroll-behavior: contain;
         background: var(--surface);
         border: 1px solid var(--line);
         border-radius: 12px;
