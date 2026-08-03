@@ -102,7 +102,7 @@ const TOOLS: ToolDef[] = [
         lastEditSource: {
           type: "string",
           description:
-            "Keep articles whose CURRENT text (any language) was last written by these: api, mcp, admin, autosave, maintenance, unknown. Use mcp,api to find everything a machine touched last.",
+            "Keep articles whose CURRENT text (any language) was last written by these: api, mcp, admin, autosave, maintenance, import, unknown. Use mcp,api to find everything a machine touched last.",
         },
         lang: {
           type: "string",
@@ -138,7 +138,7 @@ const TOOLS: ToolDef[] = [
     name: "list_article_revisions",
     description:
       "Revision history of ONE article. Snapshots are full text, not diffs: each revision already holds a complete body, so nothing has to be replayed or merged. " +
-      "PROVENANCE: `source` = who WROTE that version, `replacedBy` = who OVERWROTE it (api | mcp | admin | autosave | maintenance | null). " +
+      "PROVENANCE: `source` = who WROTE that version, `replacedBy` = who OVERWROTE it (api | mcp | admin | autosave | maintenance | import | null). " +
       "To recover text a machine destroyed, list source=admin,autosave (versions a HUMAN wrote, newest first) and put that bodyHtml back with update_article_body. " +
       "Without revisionNo this returns METADATA ONLY (revisionNo, lang, title, snapshotAt, snapshotBy, bodyHash, bytes) — bodies are large and a long-lived article can have hundreds of revisions. " +
       "With revisionNo it returns that one revision including bodyHtml. A revision is written BEFORE each overwrite/delete, so it is the text as it was before that change; the current text comes from get_article. " +
@@ -160,7 +160,7 @@ const TOOLS: ToolDef[] = [
         source: {
           type: "string",
           description:
-            "Keep only versions WRITTEN by these (comma-separated): api, mcp, admin, autosave, maintenance, unknown. Use admin,autosave for human-written versions.",
+            "Keep only versions WRITTEN by these (comma-separated): api, mcp, admin, autosave, maintenance, import, unknown. Use admin,autosave for human-written versions.",
         },
         replacedBy: {
           type: "string",

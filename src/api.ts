@@ -7,6 +7,7 @@ import {
   requireAdmin,
   requireAuth,
   requireAuthor,
+  requireInteractiveUser,
   sessionCookieHeader,
   tryAuth,
 } from "./auth";
@@ -131,7 +132,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.9.0";
+export const KUROCMS_VERSION = "1.9.1";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -338,7 +339,7 @@ async function handleApiDispatch(
                 "GET /api/documents -> pick a slug -> update it directly: PUT /api/documents/:slug/translations/:lang edits the body text (see upsertFields), PUT /api/documents/:slug edits publish state / type. There is no separate by-slug update route — the slug IS the :id.",
               list: "To enumerate editable content, GET /api/documents — each item carries slug, tid, title, initial_lang, languages (CSV of the langs that have a translation), mode/live and timestamps, but NO bodies. Rows are ordered by updated_at DESC. FILTER SERVER-SIDE instead of pulling the whole catalogue: ?slug=<exact slug, comma-separated for several> | ?q=<slug/title substring> | ?tid=<type> | ?mode=0|1 (publish flag) | ?live=0|1 (what the last build published) | ?updatedSince=/?updatedUntil=<ISO 8601 or YYYY-MM-DD, on updated_at> | ?limit=<1..1000, default 1000> | ?offset= | ?fields=<comma-separated keys to keep, e.g. slug,updated_at> | ?lastEditSource=<api|mcp|admin|autosave|maintenance|unknown, comma-separated> keeps articles whose CURRENT text in any language was last written by one of these (every row carries last_edit_sources = 'lang=source' pairs) | ?lang=<code> picks the display-title language. One known article needs no list call at all — GET /api/documents/<slug> directly.",
               history:
-                "GET /api/documents/:id/revisions lists the article's revision history (?lang= ?since= ?until= ?limit=<1..200, default 50> ?offset=) -> { revisions:[{ revisionId, lang, revisionNo, title, snapshotAt, snapshotBy, bodyHash, bytes }], total, limit, offset }. Snapshots are FULL TEXT, not diffs — a revision always reads back as a complete bodyHtml, so nothing has to be replayed or merged; that is also why the list omits bodies. Storage-wise an unchanged body is STORED ONCE and later revisions share it (bodyShared:true says so) — this is invisible to readers, both the body and `bytes` are always the real ones. PROVENANCE — two DIFFERENT fields, do not mix them up: `source` = who WROTE that version's text; `replacedBy` = who OVERWROTE it. Values: api (REST with a PAT) | mcp (an MCP tool call) | admin (a human clicked save) | autosave (the admin editor's timer) | maintenance (a server-side sweep) | null (before this was recorded). The machine-vs-human split comes from the auth mechanism, so it cannot be faked by a client. Filter with ?source= and ?replacedBy= (comma-separated; 'unknown' matches null). TO RECOVER TEXT AN AI DESTROYED: ?source=admin,autosave lists the versions a HUMAN wrote (newest first = what to restore), and ?source=admin,autosave&replacedBy=mcp,api narrows it to the ones a machine overwrote. Restore by PUTting that bodyHtml back. To find affected articles across the whole site in one call: GET /api/documents?lastEditSource=mcp,api (each row also carries last_edit_sources, e.g. 'ja=mcp,en=admin'). Fetch one with GET /api/documents/:id/revisions/:revisionNo (?lang= — revisionNo is sequential PER LANGUAGE and defaults to the article's base language) -> { revision:{ ..., bodyHtml, seo, hashtags } }. A revision is written BEFORE each overwrite/delete of a translation, so revision N is the text as it was before the N-th change; the current text is GET /api/documents/:id/translations/:lang. History is read-only (there is no rollback endpoint: PUT the old bodyHtml back to restore it).",
+                "GET /api/documents/:id/revisions lists the article's revision history (?lang= ?since= ?until= ?limit=<1..200, default 50> ?offset=) -> { revisions:[{ revisionId, lang, revisionNo, title, snapshotAt, snapshotBy, bodyHash, bytes }], total, limit, offset }. Snapshots are FULL TEXT, not diffs — a revision always reads back as a complete bodyHtml, so nothing has to be replayed or merged; that is also why the list omits bodies. Storage-wise an unchanged body is STORED ONCE and later revisions share it (bodyShared:true says so) — this is invisible to readers, both the body and `bytes` are always the real ones. PROVENANCE — two DIFFERENT fields, do not mix them up: `source` = who WROTE that version's text; `replacedBy` = who OVERWROTE it. Values: api (REST with a PAT) | mcp (an MCP tool call) | admin (a human clicked save) | autosave (the admin editor's timer) | maintenance (a server-side sweep) | import (a bulk importer overwrote it) | null (before this was recorded). The machine-vs-human split comes from the auth mechanism, so it cannot be faked by a client. Filter with ?source= and ?replacedBy= (comma-separated; 'unknown' matches null). TO RECOVER TEXT AN AI DESTROYED: ?source=admin,autosave lists the versions a HUMAN wrote (newest first = what to restore), and ?source=admin,autosave&replacedBy=mcp,api narrows it to the ones a machine overwrote. Restore by PUTting that bodyHtml back. To find affected articles across the whole site in one call: GET /api/documents?lastEditSource=mcp,api (each row also carries last_edit_sources, e.g. 'ja=mcp,en=admin'). Fetch one with GET /api/documents/:id/revisions/:revisionNo (?lang= — revisionNo is sequential PER LANGUAGE and defaults to the article's base language) -> { revision:{ ..., bodyHtml, seo, hashtags } }. A revision is written BEFORE each overwrite/delete of a translation, so revision N is the text as it was before the N-th change; the current text is GET /api/documents/:id/translations/:lang. History is read-only (there is no rollback endpoint: PUT the old bodyHtml back to restore it).",
               read: "GET /api/documents/:id/translations lists an article's languages (lang, title, summary, updated_at). GET /api/documents/:id/translations/:lang returns that language's full title/summary/bodyHtml/seo/hashtags.",
               create: [
                 "1. POST /api/documents { tid (an ALREADY-registered type), slug (globally unique, must not start with doc_), initialLang } -> 201 with the new did. This creates only the shell (no text); 409 if the slug exists.",
@@ -6150,7 +6151,13 @@ function ownerBodySql(alias: string): string {
  *                        the save came from a TIMER rather than a click.
  *  Server-side sweeps pass "maintenance" directly. Returns null when the actor
  *  is unknown — never guesses. */
-type WriteSource = "api" | "mcp" | "admin" | "autosave" | "maintenance";
+type WriteSource =
+  | "api"
+  | "mcp"
+  | "admin"
+  | "autosave"
+  | "maintenance"
+  | "import";
 
 function writeSource(request: Request, user: AuthUser): WriteSource | null {
   if (user.authSource === "pat") {
@@ -6245,6 +6252,135 @@ async function snapshotTranslationStatement(
     existing.source,
     replacedBy,
   );
+}
+
+/**
+ * THE write path for a translation's content. Everything that stores article
+ * text goes through here — the REST/MCP upsert and both bulk importers — so the
+ * invariants hold no matter who writes:
+ *   - 本文は正規化してから保存する（綴りのブレを持ち込ませない）
+ *   - トップレベルブロックに data-bid を採番する（3-way マージの前提。C3）
+ *   - RecipeCard を検証する（壊れたカードを本文経由で持ち込ませない）
+ *   - 上書き前に必ず履歴へスナップショットを取る（復旧できる）
+ *   - source を記録する（誰が書いた本文かが後から分かる）
+ *   - search_entries を同期する（検索が本文から取り残されない）
+ * 以前はインポータだけがこの経路を通らず直接 upsert していて、正規化も
+ * data-bid も履歴も無いまま既存記事を潰していた。
+ *
+ * 呼び出し側に残すのは HTTP 都合（楽観ロック・3-way マージ・ビルド発火）だけ。
+ * `bodyHtml` は正規化前の生の HTML を渡すこと。
+ */
+async function writeTranslationContent(
+  env: Env,
+  args: {
+    did: string;
+    lang: string;
+    tid: string;
+    title: string;
+    summary: string | null;
+    bodyHtml: string;
+    seoJson: string;
+    hashtagJson: string;
+    actorUid: string;
+    source: WriteSource | null;
+    createdAt: string;
+    updatedAt: string;
+    /** 追加で同じバッチに入れたい文（インポータの documents 更新など）。 */
+    extraStatements?: D1PreparedStatement[];
+    /** 既定 true。PUT は 3-way マージ後の最終形を渡すので false にする
+     *  （本文を送らないメタだけの保存で、保存済みの古い綴りを黙って書き換えて
+     *  しまわないため）。 */
+    normalizeBody?: boolean;
+    /** 既定 true。PUT は「本文が送られたときだけ検証する」既存の挙動を保つ
+     *  ため自前で判定して渡す（既存の壊れたカードでメタ保存が 422 になるのを
+     *  避ける）。 */
+    validateRecipe?: boolean;
+  },
+): Promise<{ bodyHtml: string }> {
+  const bodyHtml =
+    args.normalizeBody === false
+      ? args.bodyHtml
+      : normalizeBlockIds(normalizeContentHtml(args.bodyHtml));
+  if (args.validateRecipe !== false) {
+    const check = checkRecipeCards(bodyHtml);
+    if (check.errors.length) {
+      throw new HttpError(422, "invalid_recipe_card", check.errors.join(" / "));
+    }
+  }
+  const now = nowIso();
+  const prevRevision = await snapshotTranslationStatement(
+    env,
+    args.did,
+    args.lang,
+    args.actorUid,
+    args.source,
+  );
+  const statements: D1PreparedStatement[] = [];
+  if (prevRevision) statements.push(prevRevision);
+  statements.push(
+    env.DB.prepare(
+      // `source` = 今の本文を書いたのは誰か。次にこの行が上書きされるとき、
+      // スナップショットがこの値を引き継ぐ（＝「その版を書いた側」になる）。
+      // 保守系の一括処理はこの列を触らない（本文の綴りを直すだけで、著者を
+      // 奪うわけではないため）— それらは document_translations を直接
+      // UPDATE していて、ここは通らない。
+      `INSERT INTO document_translations
+        (did, lang, title, summary, body_html, seo_json, hashtag_json, created_at, updated_at, created_by, updated_by, source)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(did, lang) DO UPDATE SET
+        title = excluded.title,
+        summary = excluded.summary,
+        body_html = excluded.body_html,
+        seo_json = excluded.seo_json,
+        hashtag_json = excluded.hashtag_json,
+        created_at = excluded.created_at,
+        updated_at = excluded.updated_at,
+        updated_by = excluded.updated_by,
+        source = excluded.source`,
+    ).bind(
+      args.did,
+      args.lang,
+      args.title,
+      args.summary,
+      bodyHtml,
+      args.seoJson,
+      args.hashtagJson,
+      args.createdAt,
+      args.updatedAt,
+      args.actorUid,
+      args.actorUid,
+      args.source,
+    ),
+    env.DB.prepare(
+      `INSERT INTO search_entries
+        (id, did, lang, tid, title, body_text, hashtag_text, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        title = excluded.title,
+        body_text = excluded.body_text,
+        hashtag_text = excluded.hashtag_text,
+        updated_at = excluded.updated_at`,
+    ).bind(
+      `${args.did}:${args.lang}`,
+      args.did,
+      args.lang,
+      args.tid,
+      args.title,
+      stripHtml(bodyHtml),
+      args.hashtagJson,
+      args.updatedAt,
+    ),
+    env.DB.prepare(
+      "UPDATE documents SET updated_at = ?, updated_by = ? WHERE did = ?",
+    ).bind(now, args.actorUid, args.did),
+    // Strong retention: auto-register the language so REST/AI-posted
+    // translations are never orphaned/invisible. Keeps an existing display
+    // name untouched (only inserts when the language row is missing).
+    registerLanguageStatement(env, args.lang, now),
+    ...(args.extraStatements ?? []),
+  );
+  await env.DB.batch(statements);
+  return { bodyHtml };
 }
 
 // ─── Copy-noise style cleanup (maintenance) ───────────────────────────────────
@@ -7133,86 +7269,30 @@ async function documentTranslations(
       });
     }
 
-    const now = nowIso();
+    const now0 = nowIso();
     const createdAt =
-      requestedCreatedAt ?? document.translation_created_at ?? now;
-    const updatedAt = requestedUpdatedAt ?? now;
+      requestedCreatedAt ?? document.translation_created_at ?? now0;
+    const updatedAt = requestedUpdatedAt ?? now0;
 
-    // Strong retention: snapshot the existing translation (if any) into the
-    // revision history BEFORE it is overwritten, so edits/overwrites are
-    // recoverable. Previously this table was never written.
-    const prevRevision = await snapshotTranslationStatement(
-      env,
+    // 保存の本体は共通経路へ（履歴・data-bid・検索索引・出所はそこで面倒を見る）。
+    await writeTranslationContent(env, {
       did,
       lang,
-      user.uid,
-      writeSource(request, user),
-    );
-
-    const statements: D1PreparedStatement[] = [];
-    if (prevRevision) statements.push(prevRevision);
-    statements.push(
-      env.DB.prepare(
-        // `source` = 今の本文を書いたのは誰か。次にこの行が上書きされるとき、
-        // スナップショットがこの値を引き継ぐ（＝「その版を書いた側」になる）。
-        // 保守系の一括処理はこの列を触らない（本文の綴りを直すだけで、著者を
-        // 奪うわけではないため）— それらは document_translations を直接
-        // UPDATE していて、ここは通らない。
-        `INSERT INTO document_translations
-          (did, lang, title, summary, body_html, seo_json, hashtag_json, created_at, updated_at, created_by, updated_by, source)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(did, lang) DO UPDATE SET
-          title = excluded.title,
-          summary = excluded.summary,
-          body_html = excluded.body_html,
-          seo_json = excluded.seo_json,
-          hashtag_json = excluded.hashtag_json,
-          created_at = excluded.created_at,
-          updated_at = excluded.updated_at,
-          updated_by = excluded.updated_by,
-          source = excluded.source`,
-      ).bind(
-        did,
-        lang,
-        title,
-        summary,
-        bodyHtml,
-        seo,
-        hashtags,
-        createdAt,
-        updatedAt,
-        user.uid,
-        user.uid,
-        writeSource(request, user),
-      ),
-      env.DB.prepare(
-        `INSERT INTO search_entries
-          (id, did, lang, tid, title, body_text, hashtag_text, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET
-          title = excluded.title,
-          body_text = excluded.body_text,
-          hashtag_text = excluded.hashtag_text,
-          updated_at = excluded.updated_at`,
-      ).bind(
-        `${did}:${lang}`,
-        did,
-        lang,
-        document.tid,
-        title,
-        stripHtml(bodyHtml),
-        hashtags,
-        updatedAt,
-      ),
-      env.DB.prepare(
-        "UPDATE documents SET updated_at = ?, updated_by = ? WHERE did = ?",
-      ).bind(now, user.uid, did),
-      // Strong retention: auto-register the language so REST/AI-posted
-      // translations are never orphaned/invisible. Keeps an existing display
-      // name untouched (only inserts when the language row is missing).
-      registerLanguageStatement(env, lang, now),
-    );
-    await env.DB.batch(statements);
+      tid: document.tid,
+      title,
+      summary,
+      bodyHtml,
+      seoJson: seo,
+      hashtagJson: hashtags,
+      actorUid: user.uid,
+      source: writeSource(request, user),
+      createdAt,
+      updatedAt,
+      // 本文は既に正規化＋マージ済み。メタだけの保存で保存済み本文を
+      // 触らないよう、ここで再正規化はしない。
+      normalizeBody: false,
+      validateRecipe: false,
+    });
 
     await logActivity(env, user, "translation.upsert", "document", did, {
       lang,
@@ -10762,6 +10842,8 @@ async function strapiImportExecute(
   user: AuthUser,
 ): Promise<Response> {
   requireAuthor(user);
+  // 一括上書きは管理画面からの明示操作に限る（PAT では実行させない）。
+  requireInteractiveUser(user);
   const body = await readJson(request);
   const ids: string[] | "all" =
     body.ids === "all"
@@ -11075,40 +11157,22 @@ async function strapiImportExecute(
           )
           .run();
 
-        await env.DB.prepare(
-          `INSERT INTO document_translations (did, lang, title, summary, body_html, seo_json, hashtag_json, created_at, updated_at, created_by, updated_by)
-           VALUES (?, ?, ?, ?, ?, ?, '[]', ?, ?, ?, ?)
-           ON CONFLICT(did, lang) DO UPDATE SET title=excluded.title, summary=excluded.summary, body_html=excluded.body_html, seo_json=excluded.seo_json, updated_at=excluded.updated_at, updated_by=excluded.updated_by`,
-        )
-          .bind(
-            existing.did,
-            lang,
-            title,
-            summary,
-            bodyHtml,
-            seoJson,
-            now,
-            now,
-            user.uid,
-            user.uid,
-          )
-          .run();
-
-        await env.DB.prepare(
-          `INSERT INTO search_entries (id, did, lang, tid, title, body_text, hashtag_text, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, '[]', ?)
-           ON CONFLICT(id) DO UPDATE SET title=excluded.title, body_text=excluded.body_text, updated_at=excluded.updated_at`,
-        )
-          .bind(
-            `${existing.did}:${lang}`,
-            existing.did,
-            lang,
-            destTid,
-            title,
-            stripHtml(bodyHtml),
-            now,
-          )
-          .run();
+        // 保存の本体は共通経路へ。以前ここだけが直接 upsert していて、
+        // 正規化も data-bid も履歴も無いまま既存記事を潰していた。
+        await writeTranslationContent(env, {
+          did: existing.did,
+          lang,
+          tid: destTid,
+          title,
+          summary,
+          bodyHtml,
+          seoJson: seoJson,
+          hashtagJson: "[]",
+          actorUid: user.uid,
+          source: "import",
+          createdAt: now,
+          updatedAt: now,
+        });
 
         // Import categories for overwritten document
         await importStrapiCategories(
@@ -11142,39 +11206,20 @@ async function strapiImportExecute(
           )
           .run();
 
-        await env.DB.prepare(
-          `INSERT INTO document_translations (did, lang, title, summary, body_html, seo_json, hashtag_json, created_at, updated_at, created_by, updated_by)
-           VALUES (?, ?, ?, ?, ?, ?, '[]', ?, ?, ?, ?)`,
-        )
-          .bind(
-            did,
-            lang,
-            title,
-            summary,
-            bodyHtml,
-            seoJson,
-            now,
-            now,
-            user.uid,
-            user.uid,
-          )
-          .run();
-
-        await env.DB.prepare(
-          `INSERT INTO search_entries (id, did, lang, tid, title, body_text, hashtag_text, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, '[]', ?)
-           ON CONFLICT(id) DO UPDATE SET title=excluded.title, body_text=excluded.body_text, updated_at=excluded.updated_at`,
-        )
-          .bind(
-            `${did}:${lang}`,
-            did,
-            lang,
-            destTid,
-            title,
-            stripHtml(bodyHtml),
-            now,
-          )
-          .run();
+        await writeTranslationContent(env, {
+          did,
+          lang,
+          tid: destTid,
+          title,
+          summary,
+          bodyHtml,
+          seoJson: seoJson,
+          hashtagJson: "[]",
+          actorUid: user.uid,
+          source: "import",
+          createdAt: now,
+          updatedAt: now,
+        });
 
         // Import categories for new document
         await importStrapiCategories(
@@ -11441,6 +11486,8 @@ async function kurocmsImportExecute(
   user: AuthUser,
 ): Promise<Response> {
   requireAuthor(user);
+  // 一括上書きは管理画面からの明示操作に限る（PAT では実行させない）。
+  requireInteractiveUser(user);
   const body = await readJson(request);
   const ids: string[] | "all" =
     body.ids === "all"
@@ -11549,40 +11596,20 @@ async function kurocmsImportExecute(
         )
           .bind(now, user.uid, existing.did)
           .run();
-        await env.DB.prepare(
-          `INSERT INTO document_translations (did, lang, title, summary, body_html, seo_json, hashtag_json, created_at, updated_at, created_by, updated_by)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT(did, lang) DO UPDATE SET title=excluded.title, summary=excluded.summary, body_html=excluded.body_html, seo_json=excluded.seo_json, updated_at=excluded.updated_at, updated_by=excluded.updated_by`,
-        )
-          .bind(
-            existing.did,
-            lang,
-            title,
-            summary,
-            bodyHtml,
-            seoRaw,
-            hashtagRaw,
-            now,
-            now,
-            user.uid,
-            user.uid,
-          )
-          .run();
-        await env.DB.prepare(
-          `INSERT INTO search_entries (id, did, lang, tid, title, body_text, hashtag_text, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, '[]', ?)
-           ON CONFLICT(id) DO UPDATE SET title=excluded.title, body_text=excluded.body_text, updated_at=excluded.updated_at`,
-        )
-          .bind(
-            `${existing.did}:${lang}`,
-            existing.did,
-            lang,
-            tid,
-            title,
-            stripHtml(bodyHtml),
-            now,
-          )
-          .run();
+        await writeTranslationContent(env, {
+          did: existing.did,
+          lang,
+          tid,
+          title,
+          summary,
+          bodyHtml,
+          seoJson: seoRaw,
+          hashtagJson: hashtagRaw,
+          actorUid: user.uid,
+          source: "import",
+          createdAt: now,
+          updatedAt: now,
+        });
         await importKurocmsCategories(
           env,
           cfg.url,
@@ -11612,39 +11639,20 @@ async function kurocmsImportExecute(
             user.uid,
           )
           .run();
-        await env.DB.prepare(
-          `INSERT INTO document_translations (did, lang, title, summary, body_html, seo_json, hashtag_json, created_at, updated_at, created_by, updated_by)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        )
-          .bind(
-            did,
-            lang,
-            title,
-            summary,
-            bodyHtml,
-            seoRaw,
-            hashtagRaw,
-            now,
-            now,
-            user.uid,
-            user.uid,
-          )
-          .run();
-        await env.DB.prepare(
-          `INSERT INTO search_entries (id, did, lang, tid, title, body_text, hashtag_text, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, '[]', ?)
-           ON CONFLICT(id) DO UPDATE SET title=excluded.title, body_text=excluded.body_text, updated_at=excluded.updated_at`,
-        )
-          .bind(
-            `${did}:${lang}`,
-            did,
-            lang,
-            tid,
-            title,
-            stripHtml(bodyHtml),
-            now,
-          )
-          .run();
+        await writeTranslationContent(env, {
+          did,
+          lang,
+          tid,
+          title,
+          summary,
+          bodyHtml,
+          seoJson: seoRaw,
+          hashtagJson: hashtagRaw,
+          actorUid: user.uid,
+          source: "import",
+          createdAt: now,
+          updatedAt: now,
+        });
         await importKurocmsCategories(
           env,
           cfg.url,
