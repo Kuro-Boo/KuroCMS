@@ -668,7 +668,19 @@ async function newArticle(editDid: Dynamic) {
       const titleEl = byId("arTitle") as Dynamic;
       const summaryEl = byId("arSummary") as Dynamic;
       if (titleEl) titleEl.value = rev.title || "";
-      if (summaryEl) summaryEl.value = rev.summary || "";
+      if (summaryEl) {
+        summaryEl.value = rev.summary || "";
+        // null = この版には概要が記録されていない（列を足す前の版）。空文字＝
+        // 本当に空だった、とは意味が違うので、空欄の理由を placeholder で示す。
+        summaryEl.placeholder =
+          rev.summary == null
+            ? t("revisionSummaryMissing")
+            : t("summaryPlaceholder");
+      }
+      // 文字数カウンタは input イベントでしか動かないので、値を差し替えたら
+      // ここで合わせる（さもないと前の版の文字数が残って矛盾して見える）。
+      const cntEl = byId("arSummaryCount");
+      if (cntEl) cntEl.textContent = String((rev.summary || "").length);
       art.title = rev.title || "";
       art.summary = rev.summary || "";
       art.body = rev.bodyHtml || "";
@@ -693,7 +705,7 @@ async function newArticle(editDid: Dynamic) {
       "</h3>" +
       "<button type='button' id='arHistClose' class='secondary small'>&#10005;</button>" +
       "</div>" +
-      "<div id='arHistList' class='popupBody' style='max-height:60vh;overflow:auto;margin-top:8px'></div>" +
+      "<div id='arHistList' class='popupBody' style='max-height:60vh;overflow:auto;overscroll-behavior:contain;margin-top:8px'></div>" +
       "<div id='arHistFoot' style='display:flex;align-items:center;gap:12px;margin-top:10px;font-size:12px'></div>" +
       "</div>";
     document.body.appendChild(backdrop);
@@ -711,17 +723,35 @@ async function newArticle(editDid: Dynamic) {
       if (!listEl || !footEl) return;
       listEl.innerHTML = "<div class='muted'>…</div>";
       let data: Dynamic;
+      let current: Dynamic;
       try {
-        data = await api(
-          "/api/documents/" +
-            art.did +
-            "/revisions?lang=" +
-            encodeURIComponent(art.lang) +
-            "&limit=" +
-            HISTORY_PAGE_SIZE +
-            "&offset=" +
-            (page - 1) * HISTORY_PAGE_SIZE,
-        );
+        const [list, cur] = await Promise.all([
+          api(
+            "/api/documents/" +
+              art.did +
+              "/revisions?lang=" +
+              encodeURIComponent(art.lang) +
+              "&limit=" +
+              HISTORY_PAGE_SIZE +
+              "&offset=" +
+              (page - 1) * HISTORY_PAGE_SIZE,
+          ),
+          // 現在の版は art に持っている値ではなくサーバーから取る: プレビュー中は
+          // art.title/summary が過去版で上書きされているし、他のクライアントが
+          // 更新している可能性もある。
+          page === 1
+            ? api(
+                "/api/documents/" +
+                  art.did +
+                  "/translations/" +
+                  encodeURIComponent(art.lang),
+              ).catch(function () {
+                return null;
+              })
+            : Promise.resolve(null),
+        ]);
+        data = list;
+        current = cur && cur.translation ? cur.translation : null;
       } catch (err) {
         listEl.innerHTML = "";
         toast(errorMessage(err), true);
@@ -729,7 +759,12 @@ async function newArticle(editDid: Dynamic) {
       }
       const rows: Dynamic[] = data.revisions || [];
       const total = Number(data.total || 0);
-      if (!rows.length) {
+      // ⚠ 履歴の一番上は「最新」ではない。リビジョンは上書きされる直前の版な
+      //   ので、一番上は「ひとつ前」。現在の版は document_translations 側にしか
+      //   無いので、1ページ目の先頭に別途その行を出す。ここが履歴モードから
+      //   抜ける導線も兼ねる（一覧を開いたまま現在の版へ戻れる）。
+      const cur = page === 1 ? current : null;
+      if (!rows.length && !cur) {
         listEl.innerHTML =
           "<div class='muted'>" +
           escapeHtml(t("revisionHistoryEmpty")) +
@@ -737,38 +772,83 @@ async function newArticle(editDid: Dynamic) {
         footEl.innerHTML = "";
         return;
       }
-      listEl.innerHTML = rows
-        .map(function (r) {
-          return (
-            "<button type='button' class='arHistRow' data-rev='" +
-            escapeHtml(String(r.revisionNo)) +
-            "' style='display:block;width:100%;text-align:left;background:none;border:0;border-bottom:1px solid var(--line);padding:8px 4px;cursor:pointer;color:inherit'>" +
-            // 1行目: 日付 / 更新者 / タイトル
-            "<div style='display:flex;gap:10px;align-items:baseline'>" +
-            "<span style='font-variant-numeric:tabular-nums;color:var(--muted);flex-shrink:0'>" +
-            escapeHtml(formatDateTime(r.snapshotAt)) +
-            "</span>" +
-            "<span style='flex-shrink:0;font-size:12px;padding:1px 6px;border:1px solid var(--line);border-radius:999px'>" +
-            escapeHtml(revisionSourceLabel(r.source)) +
-            "</span>" +
-            "<span style='font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'>" +
-            escapeHtml(r.title || "") +
-            "</span>" +
-            "</div>" +
-            // 2行目: 要約（無ければ本文の冒頭）を1行で省略表示
-            "<div style='color:var(--muted);font-size:12px;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'>" +
-            escapeHtml(r.excerpt || "") +
-            "</div>" +
-            "</button>"
-          );
-        })
-        .join("");
+      const rowStyle =
+        "display:block;width:100%;text-align:left;background:none;border:0;border-bottom:1px solid var(--line);padding:8px 4px;cursor:pointer;color:inherit";
+      const currentHtml = cur
+        ? "<button type='button' class='arHistRow' data-rev='current'" +
+          " style='" +
+          rowStyle +
+          (art.previewRev == null
+            ? ";box-shadow:inset 3px 0 0 var(--accent)"
+            : "") +
+          "'>" +
+          "<div style='display:flex;gap:10px;align-items:baseline'>" +
+          "<span style='font-variant-numeric:tabular-nums;color:var(--muted);flex-shrink:0'>" +
+          escapeHtml(formatDateTime(cur.updated_at)) +
+          "</span>" +
+          "<span style='flex-shrink:0;font-size:12px;padding:1px 6px;border:1px solid var(--line);border-radius:999px'>" +
+          escapeHtml(revisionSourceLabel(cur.source)) +
+          "</span>" +
+          "<span style='flex-shrink:0;font-size:11px;padding:1px 8px;border-radius:999px;background:var(--accent);color:#fff;font-weight:700'>" +
+          escapeHtml(t("revisionLatestBadge")) +
+          "</span>" +
+          "<span style='font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'>" +
+          escapeHtml(cur.title || "") +
+          "</span>" +
+          "</div>" +
+          "<div style='color:var(--muted);font-size:12px;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'>" +
+          escapeHtml(cur.summary || "") +
+          "</div>" +
+          "</button>"
+        : "";
+      listEl.innerHTML =
+        currentHtml +
+        rows
+          .map(function (r) {
+            return (
+              "<button type='button' class='arHistRow' data-rev='" +
+              escapeHtml(String(r.revisionNo)) +
+              "' style='" +
+              rowStyle +
+              (art.previewRev === r.revisionNo
+                ? ";box-shadow:inset 3px 0 0 var(--accent)"
+                : "") +
+              "'>" +
+              // 1行目: 日付 / 更新者 / タイトル
+              "<div style='display:flex;gap:10px;align-items:baseline'>" +
+              "<span style='font-variant-numeric:tabular-nums;color:var(--muted);flex-shrink:0'>" +
+              escapeHtml(formatDateTime(r.snapshotAt)) +
+              "</span>" +
+              "<span style='flex-shrink:0;font-size:12px;padding:1px 6px;border:1px solid var(--line);border-radius:999px'>" +
+              escapeHtml(revisionSourceLabel(r.source)) +
+              "</span>" +
+              "<span style='font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'>" +
+              escapeHtml(r.title || "") +
+              "</span>" +
+              "</div>" +
+              // 2行目: 要約（無ければ本文の冒頭）を1行で省略表示
+              "<div style='color:var(--muted);font-size:12px;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'>" +
+              escapeHtml(r.excerpt || "") +
+              "</div>" +
+              "</button>"
+            );
+          })
+          .join("");
       listEl
         .querySelectorAll<AdminElement>(".arHistRow")
         .forEach(function (row) {
           row.addEventListener("click", function () {
             const no = row.getAttribute("data-rev");
             close();
+            if (no === "current") {
+              // 現在の版へ戻る。画面を作り直してサーバーから読み直す
+              // （プレビュー中でなければ何もしなくてよい）。
+              if (art.previewRev != null) {
+                art.previewRev = null;
+                render();
+              }
+              return;
+            }
             showRevision(no);
           });
         });

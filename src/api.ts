@@ -131,7 +131,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.8.95";
+export const KUROCMS_VERSION = "1.8.96";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -347,7 +347,7 @@ async function handleApiDispatch(
               addLanguage:
                 "PUT /api/documents/:id/translations/:lang { title, bodyHtml } for any other language. An unregistered language is auto-registered on write, so no separate 'create language' step is required.",
               upsertFields:
-                "PUT body: title (required, 1-240) | bodyHtml (required when CREATING a translation; OPTIONAL on update — omit to keep the stored body) | summary (optional, <=200) | seo (object) | hashtags (string[]) | baseBodyHash (optional) | createdAt/updatedAt (optional ISO 8601, for imports).",
+                'PUT body: title (required, 1-240) | bodyHtml | summary (<=200) | seo (object) | hashtags (string[]) | baseBodyHash (optional) | createdAt/updatedAt (optional ISO 8601, for imports). OMITTING A FIELD KEEPS ITS STORED VALUE — this holds for bodyHtml, summary, seo AND hashtags alike, so a body-only update can no longer wipe the summary / hashtags / SEO (incl. the cover path). To CLEAR one, send it explicitly as "" / {} / []. bodyHtml is the one exception at CREATE time: a new translation must include it.',
               optimisticLock:
                 "To avoid clobbering a concurrent edit, send baseBodyHash = SHA-256 hex of the bodyHtml you loaded. On mismatch the PUT returns 409 body_conflict (the current stored version is snapshotted to revision history first). Omit baseBodyHash to force-overwrite.",
               rules:
@@ -6950,9 +6950,16 @@ async function documentTranslations(
     requireAuthor(user);
     const body = await readJson(request);
     const title = requireString(body, "title", { min: 1, max: 240 });
-    const summary =
-      optionalString(body, "summary") ?? optionalString(body, "subject");
-    if (summary && summary.length > 200) {
+    // ⚠ summary / seo / hashtags は bodyHtml と同じ「省略＝現状維持」。
+    //   以前は省略を「空で上書き」として扱っていたため、本文だけを更新する
+    //   クライアント（MCP の update_article_body は送られたキーしか転送しない）
+    //   が、概要・ハッシュタグ・SEO（カバー画像パスを含む）を毎回黙って消して
+    //   いた。空にしたいときは "" / {} / [] を明示して送る。
+    const summaryInput =
+      body.summary === undefined && body.subject === undefined
+        ? undefined
+        : (optionalString(body, "summary") ?? optionalString(body, "subject"));
+    if (summaryInput && summaryInput.length > 200) {
       throw new HttpError(400, "invalid_field", "summary is too long.");
     }
     // bodyHtml is OPTIONAL on updates: when omitted, the existing body is kept
@@ -6970,8 +6977,14 @@ async function documentTranslations(
     // Omitting baseBodyHash skips the check (existing REST/AI clients keep
     // working unchanged, and it doubles as the explicit force-overwrite path).
     const baseBodyHash = optionalString(body, "baseBodyHash");
-    const seo = JSON.stringify((body.seo ?? {}) as JsonValue);
-    const hashtags = JSON.stringify((body.hashtags ?? []) as JsonValue);
+    const seoInput =
+      body.seo === undefined
+        ? undefined
+        : JSON.stringify(body.seo as JsonValue);
+    const hashtagsInput =
+      body.hashtags === undefined
+        ? undefined
+        : JSON.stringify(body.hashtags as JsonValue);
     const requestedCreatedAt = optionalIsoTimestamp(body, "createdAt");
     const requestedUpdatedAt = optionalIsoTimestamp(body, "updatedAt");
     const document = await env.DB.prepare(
@@ -7010,6 +7023,17 @@ async function documentTranslations(
         "bodyHtml is required when creating a translation.",
       );
     }
+    // 省略されたフィールドは保存済みの値を引き継ぐ（新規作成時は空が既定）。
+    const summary =
+      summaryInput === undefined ? document.translation_summary : summaryInput;
+    const seo =
+      seoInput === undefined
+        ? (document.translation_seo_json ?? "{}")
+        : seoInput;
+    const hashtags =
+      hashtagsInput === undefined
+        ? (document.translation_hashtag_json ?? "[]")
+        : hashtagsInput;
     // 書き込み境界の不変条件 (C3): 保存される本文は常に一意な data-bid を持つ。
     // 編集画面 (blockIds:true) 由来は no-op。bid を持たない AI/REST 由来や
     // 新規ブロックはここで採番される (壊れた HTML は normalize が無変換で通す)。

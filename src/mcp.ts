@@ -256,7 +256,8 @@ const TOOLS: ToolDef[] = [
       "Upsert the body of an article in a specific language (title + bodyHtml required). :lang is mandatory — content is never written to the base language by default. " +
       "This is also how you ADD a translation: call it with a new lang and that language auto-registers (no separate step). Editing the base-language text means passing the article's initialLang as lang. " +
       "When editing an existing body, keep the data-bid attribute of every top-level element you did not add (unchanged AND edited blocks alike — data-bid is a stable block id used for 3-way merging, not a content hash). " +
-      "Never invent or renumber data-bid values; leave them off blocks you newly insert.",
+      "Never invent or renumber data-bid values; leave them off blocks you newly insert. " +
+      'Omitted fields KEEP their stored value: leaving out summary / seo / hashtags does not erase them (send "" / {} / [] to clear one on purpose).',
     inputSchema: {
       type: "object",
       properties: {

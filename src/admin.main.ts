@@ -1003,6 +1003,8 @@ const i18n = {
     revisionSource_autosave: "Admin (autosave)",
     revisionSource_maintenance: "Maintenance",
     revisionSource_unknown: "Unknown",
+    revisionSummaryMissing: "(no summary was recorded in this revision)",
+    revisionLatestBadge: "Latest",
     buildingBadge: "Building…",
     buildThisArticleDraftHint:
       "Only a published article can be built. Switch it to Published first.",
@@ -1784,6 +1786,8 @@ const i18n = {
     revisionSource_autosave: "管理画面（自動保存）",
     revisionSource_maintenance: "メンテナンス",
     revisionSource_unknown: "不明",
+    revisionSummaryMissing: "（この版には概要が記録されていません）",
+    revisionLatestBadge: "最新",
     buildingBadge: "ビルド中",
     buildThisArticleDraftHint:
       "ビルドできるのは公開中の記事だけです。先に「公開に切り替え」てください。",
