@@ -54,14 +54,50 @@ const TOOLS: ToolDef[] = [
   {
     name: "list_articles",
     description:
-      "Enumerate articles (newest first, up to 1000). Each entry carries the article's slug (the id you pass to every other tool), tid, title, initial_lang, languages (CSV of the langs that have a translation) and timestamps — no bodies. " +
-      "Optional q (slug/title substring). Optional lang picks the display-title language.",
+      "Enumerate articles, most recently updated first. Each entry carries the article's slug (the id you pass to every other tool), tid, title, initial_lang, languages (CSV of the langs that have a translation) and timestamps — no bodies. " +
+      "FILTER instead of listing everything: the unfiltered call returns up to 1000 rows. Use slug for exact article(s), q for a substring search, tid/mode/live to scope, updatedSince/updatedUntil to ask 'what changed since X', limit to cap the answer, and fields to keep only the keys you need. " +
+      "If you already know the slug and want the article itself, skip this tool and call get_article.",
     inputSchema: {
       type: "object",
       properties: {
+        slug: {
+          type: "string",
+          description:
+            "Exact slug, or several separated by commas. Not a substring match — use q for that.",
+        },
         q: {
           type: "string",
           description: "Search slug/title (partial match).",
+        },
+        tid: { type: "string", description: "Article type id." },
+        mode: {
+          type: "integer",
+          description:
+            "Publish FLAG: 1 = flagged for publication, 0 = draft. Pure state until a build runs.",
+        },
+        live: {
+          type: "integer",
+          description:
+            "What the last completed build actually published: 1 = live on the public site, 0 = not.",
+        },
+        updatedSince: {
+          type: "string",
+          description:
+            "Only articles updated at/after this ISO 8601 date-time (or YYYY-MM-DD).",
+        },
+        updatedUntil: {
+          type: "string",
+          description: "Only articles updated at/before this date-time.",
+        },
+        limit: {
+          type: "integer",
+          description: "Max rows, 1..1000 (default 1000).",
+        },
+        offset: { type: "integer", description: "Rows to skip (paging)." },
+        fields: {
+          type: "string",
+          description:
+            'Comma-separated keys to keep in each row, e.g. "slug,updated_at". Trims the response.',
         },
         lang: {
           type: "string",
@@ -71,12 +107,79 @@ const TOOLS: ToolDef[] = [
     },
     build: (a) => {
       const qs = new URLSearchParams();
-      if (str(a, "q")) qs.set("q", str(a, "q"));
-      if (str(a, "lang")) qs.set("lang", str(a, "lang"));
+      for (const k of [
+        "slug",
+        "q",
+        "tid",
+        "updatedSince",
+        "updatedUntil",
+        "fields",
+        "lang",
+      ]) {
+        if (str(a, k)) qs.set(k, str(a, k));
+      }
+      for (const k of ["mode", "live", "limit", "offset"]) {
+        if (a[k] !== undefined) qs.set(k, String(a[k]));
+      }
       const q = qs.toString();
       return {
         method: "GET",
         path: "/api/documents" + (q ? `?${q}` : ""),
+      };
+    },
+  },
+  {
+    name: "list_article_revisions",
+    description:
+      "Revision history of ONE article. Snapshots are full text, not diffs: each revision already holds a complete body, so nothing has to be replayed or merged. " +
+      "Without revisionNo this returns METADATA ONLY (revisionNo, lang, title, snapshotAt, snapshotBy, bodyHash, bytes) — bodies are large and a long-lived article can have hundreds of revisions. " +
+      "With revisionNo it returns that one revision including bodyHtml. A revision is written BEFORE each overwrite/delete, so it is the text as it was before that change; the current text comes from get_article. " +
+      "Read-only — to roll back, send an old bodyHtml through update_article_body.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: ID,
+        revisionNo: {
+          type: "integer",
+          description:
+            "Fetch this single revision WITH its body. Sequential per language.",
+        },
+        lang: {
+          type: "string",
+          description:
+            "Restrict to one language (defaults to the article's base language when revisionNo is given).",
+        },
+        since: {
+          type: "string",
+          description:
+            "Only revisions snapshotted at/after this ISO 8601 date-time (or YYYY-MM-DD).",
+        },
+        until: {
+          type: "string",
+          description: "Only revisions snapshotted at/before this date-time.",
+        },
+        limit: {
+          type: "integer",
+          description: "Max rows, 1..200 (default 50).",
+        },
+        offset: { type: "integer", description: "Rows to skip (paging)." },
+      },
+      required: ["id"],
+    },
+    build: (a) => {
+      const qs = new URLSearchParams();
+      for (const k of ["lang", "since", "until"]) {
+        if (str(a, k)) qs.set(k, str(a, k));
+      }
+      for (const k of ["limit", "offset"]) {
+        if (a[k] !== undefined) qs.set(k, String(a[k]));
+      }
+      const q = qs.toString();
+      const no = a.revisionNo !== undefined ? `/${Number(a.revisionNo)}` : "";
+      return {
+        method: "GET",
+        path:
+          `/api/documents/${seg(a, "id")}/revisions${no}` + (q ? `?${q}` : ""),
       };
     },
   },

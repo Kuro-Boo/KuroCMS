@@ -131,7 +131,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.8.92";
+export const KUROCMS_VERSION = "1.8.93";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -278,8 +278,10 @@ async function handleApiDispatch(
               "POST /api/me/tokens/:tokenId/revoke",
             ],
             content: [
-              "GET|POST /api/documents (GET=list: slug/tid/title/languages, no bodies, ?q= ?lang=; POST=create, 409 if slug exists)",
+              "GET|POST /api/documents (GET=list: slug/tid/title/languages, no bodies, newest-updated first; filters ?slug= ?tid= ?mode= ?live= ?updatedSince= ?updatedUntil= ?q= ?lang= ?limit= ?offset= ?fields=; POST=create, 409 if slug exists)",
               "GET|PUT|DELETE /api/documents/:id (:id = did or globally-unique slug)",
+              "GET /api/documents/:id/revisions (revision history, metadata only; ?lang= ?since= ?until= ?limit= ?offset=)",
+              "GET /api/documents/:id/revisions/:revisionNo (one revision WITH bodyHtml; ?lang=, default = the article's base language)",
               "GET|PUT|DELETE /api/documents/:id/translations/:lang (PUT upserts)",
               "GET|PUT /api/documents/:id/categories",
               "PUT /api/documents/:id/timestamps",
@@ -333,7 +335,9 @@ async function handleApiDispatch(
               ids: ":id in every /api/documents/:id[/...] route is the did (doc_<hex>) OR the globally-unique slug, interchangeably — take a slug straight from the GET /api/documents list and pass it in as :id; no did lookup step is needed.",
               update:
                 "GET /api/documents -> pick a slug -> update it directly: PUT /api/documents/:slug/translations/:lang edits the body text (see upsertFields), PUT /api/documents/:slug edits publish state / type. There is no separate by-slug update route — the slug IS the :id.",
-              list: "To enumerate editable content, GET /api/documents — each item carries slug, tid, title, initial_lang, languages (CSV of the langs that have a translation), mode/live and timestamps, but NO bodies. ?q=<slug/title substring> filters; ?lang=<code> picks the display-title language.",
+              list: "To enumerate editable content, GET /api/documents — each item carries slug, tid, title, initial_lang, languages (CSV of the langs that have a translation), mode/live and timestamps, but NO bodies. Rows are ordered by updated_at DESC. FILTER SERVER-SIDE instead of pulling the whole catalogue: ?slug=<exact slug, comma-separated for several> | ?q=<slug/title substring> | ?tid=<type> | ?mode=0|1 (publish flag) | ?live=0|1 (what the last build published) | ?updatedSince=/?updatedUntil=<ISO 8601 or YYYY-MM-DD, on updated_at> | ?limit=<1..1000, default 1000> | ?offset= | ?fields=<comma-separated keys to keep, e.g. slug,updated_at> | ?lang=<code> picks the display-title language. One known article needs no list call at all — GET /api/documents/<slug> directly.",
+              history:
+                "GET /api/documents/:id/revisions lists the article's revision history (?lang= ?since= ?until= ?limit=<1..200, default 50> ?offset=) -> { revisions:[{ revisionId, lang, revisionNo, title, snapshotAt, snapshotBy, bodyHash, bytes }], total, limit, offset }. Snapshots are FULL TEXT, not diffs — each revision already holds a complete bodyHtml, so nothing has to be replayed or merged; that is also why the list omits bodies. Fetch one with GET /api/documents/:id/revisions/:revisionNo (?lang= — revisionNo is sequential PER LANGUAGE and defaults to the article's base language) -> { revision:{ ..., bodyHtml, seo, hashtags } }. A revision is written BEFORE each overwrite/delete of a translation, so revision N is the text as it was before the N-th change; the current text is GET /api/documents/:id/translations/:lang. History is read-only (there is no rollback endpoint: PUT the old bodyHtml back to restore it).",
               read: "GET /api/documents/:id/translations lists an article's languages (lang, title, summary, updated_at). GET /api/documents/:id/translations/:lang returns that language's full title/summary/bodyHtml/seo/hashtags.",
               create: [
                 "1. POST /api/documents { tid (an ALREADY-registered type), slug (globally unique, must not start with doc_), initialLang } -> 201 with the new did. This creates only the shell (no text); 409 if the slug exists.",
@@ -677,6 +681,24 @@ async function handleApiDispatch(
           user,
           await resolveDid(env, documentTranslationTimestampsMatch[1]),
           documentTranslationTimestampsMatch[2],
+        ),
+      );
+    }
+
+    // Revision history (read-only). Metadata list, or one revision's full body
+    // by revision_no — see documentRevisions for why the body is never in the
+    // list. Routed before the generic /api/documents/:id matcher for the same
+    // reason the translation routes are.
+    const documentRevisionsMatch = path.match(
+      /^\/api\/documents\/([^/]+)\/revisions(?:\/(\d+))?$/,
+    );
+    if (request.method === "GET" && documentRevisionsMatch) {
+      return withJsonHeaders(
+        await documentRevisions(
+          env,
+          await resolveDid(env, documentRevisionsMatch[1]),
+          url,
+          documentRevisionsMatch[2],
         ),
       );
     }
@@ -5360,6 +5382,43 @@ function optionalIsoTimestamp(
   return new Date(value).toISOString();
 }
 
+/** Query-string counterpart of optionalIsoTimestamp. Accepts a bare date
+ *  (`2026-08-01` → start of that UTC day) too, since a date is the natural
+ *  thing to type into a `?updatedSince=` filter. */
+function queryIsoTimestamp(url: URL, key: string): string | null {
+  const value = url.searchParams.get(key)?.trim();
+  if (!value) return null;
+  const iso = /^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T00:00:00Z` : value;
+  if (!Number.isFinite(Date.parse(iso))) {
+    throw new HttpError(
+      400,
+      "invalid_timestamp",
+      `${key} must be an ISO 8601 date-time (or a YYYY-MM-DD date).`,
+    );
+  }
+  return new Date(iso).toISOString();
+}
+
+/** Bounded integer query param (`?limit=20`). Returns null when absent. */
+function queryInt(
+  url: URL,
+  key: string,
+  min: number,
+  max: number,
+): number | null {
+  const raw = url.searchParams.get(key)?.trim();
+  if (!raw) return null;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < min || n > max) {
+    throw new HttpError(
+      400,
+      "invalid_field",
+      `${key} must be an integer between ${min} and ${max}.`,
+    );
+  }
+  return n;
+}
+
 async function updateContentTimestamps(
   request: Request,
   env: Env,
@@ -5494,10 +5553,77 @@ async function documents(
     // (initial_lang) → any (so the base-language title isn't hidden just because
     // another translation sorts earlier alphabetically).
     const displayLang = url.searchParams.get("lang")?.trim() ?? "";
-    const where = query ? "WHERE (d.slug LIKE ? OR dt.title LIKE ?)" : "";
-    const bindings = query
-      ? [displayLang, `%${query}%`, `%${query}%`]
-      : [displayLang];
+    // ── Server-side filters ───────────────────────────────────────────────
+    // The unfiltered list is the admin article table's data source, so it stays
+    // (newest-updated first, capped at 1000). Everything below exists so a REST
+    // / MCP client can ask for the few rows it actually wants instead of pulling
+    // the whole catalogue and filtering client-side:
+    //   ?slug=a,b   exact slug(s) — ?q= is a LIKE substring match, not this
+    //   ?tid=       article type
+    //   ?mode= / ?live=   publish FLAG state / last built state (0|1)
+    //   ?updatedSince= / ?updatedUntil=   updated_at window (ISO or YYYY-MM-DD)
+    //   ?limit= / ?offset=                paging (limit 1..1000)
+    //   ?fields=slug,updated_at           trim the response to these keys
+    // datetime() on both sides so imported rows stored as "YYYY-MM-DD HH:MM:SS"
+    // compare correctly against an ISO bound.
+    const slugs = (url.searchParams.get("slug") ?? "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .slice(0, 100);
+    const tid = url.searchParams.get("tid")?.trim() ?? "";
+    const updatedSince = queryIsoTimestamp(url, "updatedSince");
+    const updatedUntil = queryIsoTimestamp(url, "updatedUntil");
+    const limit = queryInt(url, "limit", 1, 1000) ?? 1000;
+    const offset = queryInt(url, "offset", 0, 1000000) ?? 0;
+    const flagFilter = (key: "mode" | "live"): number | null => {
+      const raw = url.searchParams.get(key)?.trim();
+      if (!raw) return null;
+      if (raw !== "0" && raw !== "1") {
+        throw new HttpError(400, "invalid_field", `${key} must be 0 or 1.`);
+      }
+      return Number(raw);
+    };
+    const modeFilter = flagFilter("mode");
+    const liveFilter = flagFilter("live");
+
+    const conds: string[] = [];
+    const filterBinds: (string | number)[] = [];
+    if (query) {
+      conds.push("(d.slug LIKE ? OR dt.title LIKE ?)");
+      filterBinds.push(`%${query}%`, `%${query}%`);
+    }
+    if (slugs.length) {
+      conds.push(`d.slug IN (${slugs.map(() => "?").join(",")})`);
+      filterBinds.push(...slugs);
+    }
+    if (tid) {
+      conds.push("d.tid = ?");
+      filterBinds.push(tid);
+    }
+    if (modeFilter !== null) {
+      conds.push("d.mode = ?");
+      filterBinds.push(modeFilter);
+    }
+    if (liveFilter !== null) {
+      conds.push("d.live = ?");
+      filterBinds.push(liveFilter);
+    }
+    if (updatedSince) {
+      conds.push("datetime(d.updated_at) >= datetime(?)");
+      filterBinds.push(updatedSince);
+    }
+    if (updatedUntil) {
+      conds.push("datetime(d.updated_at) <= datetime(?)");
+      filterBinds.push(updatedUntil);
+    }
+    const where = conds.length ? `WHERE ${conds.join(" AND ")}` : "";
+    const bindings: (string | number)[] = [
+      displayLang,
+      ...filterBinds,
+      limit,
+      offset,
+    ];
     const result = await env.DB.prepare(
       `SELECT
         d.*,
@@ -5517,11 +5643,30 @@ async function documents(
       ${where}
       GROUP BY d.did
       ORDER BY d.updated_at DESC
-      LIMIT 1000`,
+      LIMIT ? OFFSET ?`,
     )
       .bind(...bindings)
       .all<DocumentRow>();
-    return json({ documents: result.results as unknown as JsonValue });
+    // ?fields= trims each row to the requested keys (unknown names ignored; an
+    // all-unknown list is treated as "no trimming" rather than empty objects).
+    const wanted = new Set(
+      (url.searchParams.get("fields") ?? "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean),
+    );
+    let rows = (result.results ?? []) as unknown as Array<
+      Record<string, unknown>
+    >;
+    if (wanted.size) {
+      const trimmed = rows.map((row) =>
+        Object.fromEntries(
+          Object.entries(row).filter(([key]) => wanted.has(key)),
+        ),
+      );
+      if (trimmed.some((row) => Object.keys(row).length)) rows = trimmed;
+    }
+    return json({ documents: rows as unknown as JsonValue });
   }
 
   if (request.method === "POST") {
@@ -6324,6 +6469,163 @@ function registerLanguageStatement(
      VALUES (?, 'language', '', ?, ?, ?)
      ON CONFLICT(id, kind, lang) DO NOTHING`,
   ).bind(lang, lang, now, now);
+}
+
+/**
+ * Read side of the revision history (`document_translation_revisions`), which
+ * until now was write-only from the API's point of view (snapshot on save /
+ * overwrite / delete, read back only internally as the 3-way merge base, and
+ * dumped whole into backups).
+ *
+ * Storage is FULL-TEXT, not diffs: every row already holds the complete
+ * body_html of the version it snapshots, so a single revision is self-contained
+ * and nothing has to be replayed or merged on read. The flip side is size (a
+ * long-lived article accumulates hundreds of full copies), which is exactly why
+ * this endpoint is filter-first:
+ *   - the LIST never returns bodies — only metadata plus `bytes`/`bodyHash`
+ *   - one revision's body is fetched explicitly, by number
+ *   - `lang` / `since` / `until` / `limit` / `offset` narrow it server-side
+ */
+async function documentRevisions(
+  env: Env,
+  did: string,
+  url: URL,
+  revisionNo?: string,
+): Promise<Response> {
+  const lang = url.searchParams.get("lang")?.trim() ?? "";
+  // Stored JSON columns are handed back parsed (a malformed value must not turn
+  // a history read into a 500 — the snapshot is still worth returning).
+  const parseJson = (raw: string | null, fallback: JsonValue): JsonValue => {
+    if (!raw) return fallback;
+    try {
+      return JSON.parse(raw) as JsonValue;
+    } catch {
+      return fallback;
+    }
+  };
+
+  // ── One revision, WITH the full body ──────────────────────────────────────
+  if (revisionNo !== undefined) {
+    const no = Number(revisionNo);
+    if (!Number.isInteger(no) || no < 1) {
+      throw new HttpError(
+        400,
+        "invalid_field",
+        "revisionNo must be a positive integer.",
+      );
+    }
+    // revision_no is sequential PER LANGUAGE (UNIQUE(did, lang, revision_no)),
+    // so an omitted lang is resolved to the article's base language rather than
+    // silently returning whichever language sorts first.
+    const targetLang =
+      lang ||
+      (
+        await env.DB.prepare("SELECT initial_lang FROM documents WHERE did = ?")
+          .bind(did)
+          .first<{ initial_lang: string }>()
+      )?.initial_lang ||
+      "";
+    const row = await env.DB.prepare(
+      `SELECT revision_id, lang, revision_no, title, body_html, seo_json,
+              hashtag_json, snapshot_at, snapshot_by, body_hash
+         FROM document_translation_revisions
+        WHERE did = ? AND lang = ? AND revision_no = ?`,
+    )
+      .bind(did, targetLang, no)
+      .first<{
+        revision_id: string;
+        lang: string;
+        revision_no: number;
+        title: string;
+        body_html: string;
+        seo_json: string | null;
+        hashtag_json: string | null;
+        snapshot_at: string;
+        snapshot_by: string | null;
+        body_hash: string | null;
+      }>();
+    if (!row) {
+      throw new HttpError(
+        404,
+        "revision_not_found",
+        `Revision ${no} was not found for language "${targetLang}".`,
+      );
+    }
+    return json({
+      revision: {
+        revisionId: row.revision_id,
+        lang: row.lang,
+        revisionNo: row.revision_no,
+        title: row.title,
+        bodyHtml: row.body_html,
+        seo: parseJson(row.seo_json, {}),
+        hashtags: parseJson(row.hashtag_json, []),
+        snapshotAt: row.snapshot_at,
+        snapshotBy: row.snapshot_by,
+        bodyHash: row.body_hash,
+      },
+    } as unknown as JsonValue);
+  }
+
+  // ── List: metadata only ───────────────────────────────────────────────────
+  const since = queryIsoTimestamp(url, "since");
+  const until = queryIsoTimestamp(url, "until");
+  const limit = queryInt(url, "limit", 1, 200) ?? 50;
+  const offset = queryInt(url, "offset", 0, 1000000) ?? 0;
+  const conds = ["did = ?"];
+  const binds: (string | number)[] = [did];
+  if (lang) {
+    conds.push("lang = ?");
+    binds.push(lang);
+  }
+  if (since) {
+    conds.push("datetime(snapshot_at) >= datetime(?)");
+    binds.push(since);
+  }
+  if (until) {
+    conds.push("datetime(snapshot_at) <= datetime(?)");
+    binds.push(until);
+  }
+  const rows = await env.DB.prepare(
+    `SELECT revision_id, lang, revision_no, title, snapshot_at, snapshot_by,
+            body_hash, LENGTH(body_html) AS bytes
+       FROM document_translation_revisions
+      WHERE ${conds.join(" AND ")}
+      ORDER BY snapshot_at DESC, revision_no DESC
+      LIMIT ? OFFSET ?`,
+  )
+    .bind(...binds, limit, offset)
+    .all<{
+      revision_id: string;
+      lang: string;
+      revision_no: number;
+      title: string;
+      snapshot_at: string;
+      snapshot_by: string | null;
+      body_hash: string | null;
+      bytes: number;
+    }>();
+  const total = await env.DB.prepare(
+    `SELECT COUNT(*) AS n FROM document_translation_revisions
+      WHERE ${conds.join(" AND ")}`,
+  )
+    .bind(...binds)
+    .first<{ n: number }>();
+  return json({
+    revisions: (rows.results ?? []).map((r) => ({
+      revisionId: r.revision_id,
+      lang: r.lang,
+      revisionNo: r.revision_no,
+      title: r.title,
+      snapshotAt: r.snapshot_at,
+      snapshotBy: r.snapshot_by,
+      bodyHash: r.body_hash,
+      bytes: r.bytes,
+    })),
+    total: total?.n ?? 0,
+    limit,
+    offset,
+  } as unknown as JsonValue);
 }
 
 async function documentTranslations(

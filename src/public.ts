@@ -206,6 +206,18 @@ async function fetchSettings(env: Env): Promise<SettingsMap> {
   //   page_templates … template HTML / compiled CSS / activation
   //   site_settings.updated_at … site name, description, default lang, …
   //   categories     … category names/slugs rendered in nav and chips
+  //   page_build_cache.MAX(built_at) … the BUILD generation (see
+  //                    `bumpPublishGen`). Every signal above is a D1 EDIT, and
+  //                    an edit is not what changes the served page — the build
+  //                    is. Without this term the generation moves when the flag
+  //                    is flipped and then stays put while the build rewrites
+  //                    KV, so any request in between (the author checking the
+  //                    site, a crawler) caches the PRE-build page under the
+  //                    post-edit key and the edge keeps serving it — the
+  //                    unpublished article stays on the top page for the whole
+  //                    stale-while-revalidate window. Scheduled publish /
+  //                    unpublish_at expiry is worse still: no D1 edit happens at
+  //                    all, so the build was the ONLY thing that could move it.
   const BASE_COLS = `site_name, site_description, public_domain, ga4_measurement_id,
             bluesky_handle, bluesky_sid, template_id, default_lang,
             fonts_json, base_font, font_configs_json`;
@@ -220,10 +232,14 @@ async function fetchSettings(env: Env): Promise<SettingsMap> {
   // in taxonomy_items and are already covered by tax_ts), so it is asked for
   // separately and dropped if the table is not there.
   const GEN_CAT = `(SELECT COALESCE(MAX(updated_at), '') FROM categories) AS cat_ts`;
+  // `page_build_cache` only exists from migration 0018, so it is asked for
+  // separately too — and independently of GEN_CAT, because an install can have
+  // one without the other.
+  const GEN_BUILD = `(SELECT COALESCE(MAX(built_at), '') FROM page_build_cache) AS build_ts`;
   // The generation must never be able to take the public site down: a 500 here
   // would break every page. Modern installs answer the first query; older ones
-  // fall back to CORE (still catches article / site-text / template / settings
-  // changes).
+  // fall back through the narrower variants to CORE (still catches article /
+  // site-text / template / settings changes).
   const read = async (cols: string) =>
     await env.DB.prepare(
       `SELECT ${cols} FROM site_settings WHERE id = 1`,
@@ -244,15 +260,22 @@ async function fetchSettings(env: Env): Promise<SettingsMap> {
       doc_n: number;
       tax_ts: string;
       cat_ts?: string;
+      build_ts?: string;
       tpl_ts: string;
     }>();
   let row: Awaited<ReturnType<typeof read>>;
   try {
     row = await read(
-      `${BASE_COLS},\n            ${GEN_CORE},\n            ${GEN_CAT}`,
+      `${BASE_COLS},\n            ${GEN_CORE},\n            ${GEN_CAT},\n            ${GEN_BUILD}`,
     );
   } catch {
-    row = await read(`${BASE_COLS},\n            ${GEN_CORE}`); // categories 以前の install
+    try {
+      row = await read(
+        `${BASE_COLS},\n            ${GEN_CORE},\n            ${GEN_BUILD}`,
+      ); // categories 以前の install
+    } catch {
+      row = await read(`${BASE_COLS},\n            ${GEN_CORE}`); // page_build_cache 以前の install
+    }
   }
   let basePath = "";
   try {
@@ -286,6 +309,7 @@ async function fetchSettings(env: Env): Promise<SettingsMap> {
               row.settings_ts || "",
               row.tax_ts || "",
               row.cat_ts || "",
+              row.build_ts || "",
               row.tpl_ts || "",
               row.template_id || "",
             ].join("|"),
@@ -3651,6 +3675,29 @@ async function saveBuildCache(
     .run();
 }
 
+// ─── Publish generation ───────────────────────────────────────────────────────
+// Reserved page_build_cache row (never a real page path — those all start with
+// "/") whose built_at stamps WHEN THE PUBLISHED OUTPUT LAST CHANGED. The edge
+// cache key folds it in via `cache_gen`, so finishing a build orphans every
+// cached object; without it the key only moves on D1 edits, which happen BEFORE
+// the build, and the pre-build HTML stays cached (see fetchSettings).
+const PUBLISH_GEN_PATH = "_gen";
+
+/** Stamp a new publish generation. Called by every path that writes or deletes
+ *  a page in KV (full build, per-document build, index refresh, page delete),
+ *  once per operation rather than per page. Never throws: a missed bump only
+ *  costs edge freshness, and must not fail a build. */
+async function bumpPublishGen(env: Env): Promise<void> {
+  await saveBuildCache(
+    env,
+    PUBLISH_GEN_PATH,
+    "*",
+    new Date().toISOString(),
+  ).catch(() => {
+    /* non-fatal: the next build stamps it */
+  });
+}
+
 // ─── Build helpers ────────────────────────────────────────────────────────────
 
 /** Shared setup for the incremental (re)builds triggered by one document's
@@ -3860,6 +3907,8 @@ export async function buildDocumentPages(
 
   // One shared KV value for all type+category nav counts (filled client-side).
   await writeNavCounts(env);
+  // The pages above changed: retire every edge-cached object of this site.
+  await bumpPublishGen(env);
 }
 
 /** Refresh the index pages after a document is REMOVED entirely (deleted): the
@@ -3895,6 +3944,7 @@ export async function rebuildIndexPages(
     }
   }
   await writeNavCounts(env);
+  await bumpPublishGen(env);
 }
 
 /** Remove a (formerly) published article's detail page from KV so the old URL
@@ -3922,6 +3972,8 @@ export async function deleteArticlePages(
     .bind(path)
     .run()
     .catch(() => {});
+  // The URL just stopped existing — the edge must not keep answering it.
+  await bumpPublishGen(env);
 }
 
 /** Cap on KV deletes per sweep pass: the sweep runs inside the final build
@@ -3971,7 +4023,9 @@ async function sweepOrphanPages(
     .catch(() => ({ results: [] as { path: string }[] }));
   const stale = (cacheRows.results ?? [])
     .map((r) => r.path)
-    .filter((p) => !expected.has(normPath(p)));
+    // PUBLISH_GEN_PATH is a generation stamp, not a page — it has no KV key and
+    // must survive the prune (dropping it would rewind the publish generation).
+    .filter((p) => p !== PUBLISH_GEN_PATH && !expected.has(normPath(p)));
   for (let i = 0; i < stale.length; i += 50) {
     const chunk = stale.slice(i, i + 50);
     await env.DB.prepare(
@@ -4593,6 +4647,14 @@ export async function buildAllPublicPages(
   // client-side). Cheap and independent of the per-page build budget. Runs
   // after the live sync so the counts match the pages just published.
   await writeNavCounts(env);
+
+  // Stamp the publish generation LAST — after the live sync, the sweep and the
+  // nav counts — so the edge cache is retired only once everything this pass
+  // publishes is in place. Every pass stamps it (a chunked build changes the
+  // served pages on each pass), and it runs even when nothing was built: the
+  // sweep alone can remove a page, and the live sync alone can change what the
+  // on-demand routes (categories, /page/N/, sitemap, RSS, search) return.
+  await bumpPublishGen(env);
 
   onEvent?.({ type: "done", built, skipped, errors, more, swept });
   return {
