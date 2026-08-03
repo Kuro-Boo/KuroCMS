@@ -309,9 +309,15 @@ export function adminHtml(
       .headerRight { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; margin-left: auto; }
       .editorHeadActions { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; flex: 0 0 auto; margin-left: auto; }
       .editorHeadTools { display: flex; align-items: center; gap: 8px; }
-      .editorHeadBtnRow { display: flex; align-items: center; gap: 8px; }
+      /* nowrap は意図的: 履歴ボタンとバッジを足しても段が増えないようにする
+         （小さいピル型にしてあるので 1 行に収まる）。 */
+      .editorHeadBtnRow { display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; }
       .editorDraftBtn { font-size: 13px !important; font-weight: 700 !important; padding: 8px 16px !important; white-space: nowrap; }
       .editorHeadBtn { font-size: 13px; padding: 7px 14px; white-space: nowrap; }
+      /* Rarely-used header actions (revision history + the previewing badge):
+         deliberately small so they never compete with save / publish / build. */
+      .editorSubBtn { font-size: 11px !important; font-weight: 600 !important; padding: 3px 9px !important; border-radius: 12px !important; white-space: nowrap; box-shadow: none !important; background: rgba(128,128,128,.12) !important; border: 1px solid var(--line) !important; color: var(--muted) !important; cursor: pointer; }
+      .editorSubBtn:hover { background: rgba(128,128,128,.22) !important; }
       .editorDelBtn { border: 2px solid var(--danger) !important; color: var(--danger) !important; background: transparent !important; box-shadow: none !important; }
       /* Single-article build reuses .editorDraftBtn so its font / frame / padding
          match the draft toggle above it. Draft mode just disables it (the global

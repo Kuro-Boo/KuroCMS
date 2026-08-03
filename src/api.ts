@@ -131,7 +131,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.8.94";
+export const KUROCMS_VERSION = "1.8.95";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -6121,6 +6121,15 @@ async function documentDetail(
 // only bulk delete is per-document, which removes owners and sharers together.
 const SHARED_BODY = "";
 
+/** HTML から表示テキストだけを取り出して `max` 文字に切る（履歴一覧の説明文用。
+ *  切り詰めの見せ方は UI 側の責務なので、ここでは省略記号を足さない）。 */
+function plainExcerpt(html: string | null, max: number): string {
+  return decodeBasicEntities(String(html ?? "").replace(/<[^>]*>/g, " "))
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, max);
+}
+
 /** Correlated sub-select returning the body owned by the sibling revision that
  *  the row aliased `alias` shares (NULL when the row owns its body itself). */
 function ownerBodySql(alias: string): string {
@@ -6176,12 +6185,13 @@ async function snapshotTranslationStatement(
   replacedBy: WriteSource | null,
 ): Promise<D1PreparedStatement | null> {
   const existing = await env.DB.prepare(
-    `SELECT title, body_html, seo_json, hashtag_json, source
+    `SELECT title, summary, body_html, seo_json, hashtag_json, source
      FROM document_translations WHERE did = ? AND lang = ?`,
   )
     .bind(did, lang)
     .first<{
       title: string;
+      summary: string | null;
       body_html: string;
       seo_json: string | null;
       hashtag_json: string | null;
@@ -6213,15 +6223,17 @@ async function snapshotTranslationStatement(
   const nextNo = (maxRow?.n ?? 0) + 1;
   return env.DB.prepare(
     `INSERT INTO document_translation_revisions
-       (revision_id, did, lang, revision_no, title, body_html, seo_json,
-        hashtag_json, snapshot_at, snapshot_by, body_hash, source, replaced_by)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (revision_id, did, lang, revision_no, title, summary, body_html,
+        seo_json, hashtag_json, snapshot_at, snapshot_by, body_hash, source,
+        replaced_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).bind(
     makeId("rev"),
     did,
     lang,
     nextNo,
     existing.title,
+    existing.summary,
     ownerRow ? SHARED_BODY : existing.body_html,
     existing.seo_json,
     existing.hashtag_json,
@@ -6731,7 +6743,7 @@ async function documentRevisions(
     // body_html は「この行が持つ本文、無ければ共有元の本文」— 呼び出し側から
     // 見れば使い回しは透明で、常に完全な全文が返る（bodyShared でどちらか判る）。
     const row = await env.DB.prepare(
-      `SELECT r.revision_id, r.lang, r.revision_no, r.title, r.seo_json,
+      `SELECT r.revision_id, r.lang, r.revision_no, r.title, r.summary, r.seo_json,
               r.hashtag_json, r.snapshot_at, r.snapshot_by, r.body_hash,
               r.source, r.replaced_by,
               CASE WHEN r.body_html <> '' THEN r.body_html
@@ -6746,6 +6758,7 @@ async function documentRevisions(
         lang: string;
         revision_no: number;
         title: string;
+        summary: string | null;
         body_html: string;
         body_shared: number;
         seo_json: string | null;
@@ -6769,6 +6782,7 @@ async function documentRevisions(
         lang: row.lang,
         revisionNo: row.revision_no,
         title: row.title,
+        summary: row.summary,
         bodyHtml: row.body_html,
         seo: parseJson(row.seo_json, {}),
         hashtags: parseJson(row.hashtag_json, []),
@@ -6826,9 +6840,14 @@ async function documentRevisions(
   // bytes は「その版の本文の実サイズ」— 共有している版は共有元のサイズを返す
   // （行の LENGTH をそのまま出すと共有版が 0 バイトに見えてしまう）。
   const rows = await env.DB.prepare(
-    `SELECT r.revision_id, r.lang, r.revision_no, r.title, r.snapshot_at,
-            r.snapshot_by, r.source, r.replaced_by, r.body_hash,
+    `SELECT r.revision_id, r.lang, r.revision_no, r.title, r.summary,
+            r.snapshot_at, r.snapshot_by, r.source, r.replaced_by, r.body_hash,
             (r.body_html = '') AS body_shared,
+            -- 一覧の説明文は要約が正。要約を記録する前の版もあるので、本文の
+            -- 冒頭を代替として返す（タグを剥がす分の余裕を見て多めに取る）。
+            substr(CASE WHEN r.body_html <> '' THEN r.body_html
+                        ELSE COALESCE(${ownerBodySql("r")}, '') END,
+                   1, 1200) AS body_head,
             CASE WHEN r.body_html <> '' THEN LENGTH(r.body_html)
                  ELSE COALESCE(LENGTH(${ownerBodySql("r")}), 0) END AS bytes
        FROM document_translation_revisions r
@@ -6842,6 +6861,8 @@ async function documentRevisions(
       lang: string;
       revision_no: number;
       title: string;
+      summary: string | null;
+      body_head: string | null;
       snapshot_at: string;
       snapshot_by: string | null;
       source: string | null;
@@ -6862,6 +6883,9 @@ async function documentRevisions(
       lang: r.lang,
       revisionNo: r.revision_no,
       title: r.title,
+      summary: r.summary,
+      // 説明文として使える1行。要約 → 無ければ本文の冒頭。
+      excerpt: (r.summary || "").trim() || plainExcerpt(r.body_head, 200),
       snapshotAt: r.snapshot_at,
       snapshotBy: r.snapshot_by,
       source: r.source,

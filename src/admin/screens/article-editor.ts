@@ -171,6 +171,11 @@ async function newArticle(editDid: Dynamic) {
     summary: "",
     body: "",
     dirty: false,
+    // Revision number currently being VIEWED instead of the live content
+    // (null = normal editing). While set, every save path is refused: the
+    // editor is showing an old version, so persisting it would silently
+    // republish it. Cleared by leaving the preview (which reloads the screen).
+    previewRev: null,
     // dirty is the OR of these two. Split so the periodic autosave can persist
     // metadata without touching the body: the body is saved only when it was
     // edited HERE (bodyDirty), never as a side effect — otherwise a stale local
@@ -380,7 +385,16 @@ async function newArticle(editDid: Dynamic) {
   // render and on every dirty/save state change.
   function updateSaveButtons() {
     const btn = byId("arSaveBtn") as Dynamic;
-    if (btn) btn.disabled = !art.dirty || art.saving;
+    // While a past revision is on screen the save button stays disabled — see
+    // art.previewRev. doSave() refuses too, so the editor's own toolbar save
+    // and the periodic autosave cannot get around it either.
+    if (btn) btn.disabled = !art.dirty || art.saving || art.previewRev != null;
+    // Say WHY it is greyed out while a past revision is on screen.
+    const wrap = byId("arSaveBtnWrap") as Dynamic;
+    if (wrap) {
+      if (art.previewRev != null) wrap.title = t("revisionPreviewNoSave");
+      else wrap.removeAttribute("title");
+    }
   }
 
   function readFields() {
@@ -422,6 +436,9 @@ async function newArticle(editDid: Dynamic) {
     // a half-loaded body). Explicit saves go through here too and are correctly
     // blocked during a switch — switchToLanguage saves BEFORE setting `switching`.
     if (art.saving || art.switching || !art.ready) return;
+    // Viewing an old revision: never write. Reached from the save button, the
+    // editor toolbar, the periodic autosave and the publish toggle alike.
+    if (art.previewRev != null) return;
     readFields();
     const withBody = (includeBody ?? art.bodyDirty) || !art.hasTranslation;
     if (!art.tid) {
@@ -597,6 +614,206 @@ async function newArticle(editDid: Dynamic) {
   // includes the body exactly when it was edited here (art.bodyDirty), so an
   // untouched local body still never overwrites server-side (AI) body edits.
   // KuroEditor's own autosave is off (saveUi:false), so this is the sole path.
+  // ── Revision history ──────────────────────────────────────────────────────
+  // Read-only view over GET /api/documents/:id/revisions. Scoped to the language
+  // currently open in the editor, because revision_no is per (did, lang) — a
+  // mixed-language list would show two independent numbering sequences.
+  const HISTORY_PAGE_SIZE = 30;
+
+  /** Localized label for a revision's provenance (who WROTE that version). */
+  function revisionSourceLabel(source: Dynamic): string {
+    const key = "revisionSource_" + (source || "unknown");
+    const label = t(key);
+    // Unknown future values must not render as a raw i18n key.
+    return label === key ? String(source) : label;
+  }
+
+  function updateHistoryBadge() {
+    const badge = byId("arHistoryBadge") as Dynamic;
+    if (!badge) return;
+    if (art.previewRev == null) {
+      badge.style.display = "none";
+      badge.textContent = "";
+    } else {
+      badge.style.display = "";
+      badge.textContent = t("revisionPreviewBadge").replace(
+        "{n}",
+        String(art.previewRev),
+      );
+    }
+    updateSaveButtons();
+  }
+
+  /** Load one past revision INTO the editor, read-only. Leaving the preview
+   *  re-renders the screen, which reloads the live content from the server —
+   *  no local copy of it is kept, so it cannot drift. */
+  async function showRevision(no: Dynamic) {
+    try {
+      const res = await api(
+        "/api/documents/" +
+          art.did +
+          "/revisions/" +
+          encodeURIComponent(String(no)) +
+          "?lang=" +
+          encodeURIComponent(art.lang),
+      );
+      const rev = res.revision;
+      if (!rev) return;
+      clearTimeout(autoSaveTimer);
+      art.previewRev = rev.revisionNo;
+      // The editor now holds old text: it must never look like a pending edit.
+      art.dirty = false;
+      art.bodyDirty = false;
+      art.metaDirty = false;
+      const titleEl = byId("arTitle") as Dynamic;
+      const summaryEl = byId("arSummary") as Dynamic;
+      if (titleEl) titleEl.value = rev.title || "";
+      if (summaryEl) summaryEl.value = rev.summary || "";
+      art.title = rev.title || "";
+      art.summary = rev.summary || "";
+      art.body = rev.bodyHtml || "";
+      if (state.articleEditor) state.articleEditor.setContent(art.body);
+      updateHistoryBadge();
+      setSaveStatus(
+        t("revisionPreviewStatus").replace("{n}", String(rev.revisionNo)),
+        "",
+      );
+    } catch (err) {
+      toast(errorMessage(err), true);
+    }
+  }
+
+  function openHistoryDialog() {
+    const backdrop = createPopupBackdrop();
+    backdrop.innerHTML =
+      "<div class='popupCard' role='dialog' aria-modal='true' style='width:min(94vw,760px)'>" +
+      "<div style='display:flex;align-items:center;gap:8px'>" +
+      "<h3 class='popupTitle' style='flex:1;margin:0'>" +
+      escapeHtml(t("revisionHistoryTitle")) +
+      "</h3>" +
+      "<button type='button' id='arHistClose' class='secondary small'>&#10005;</button>" +
+      "</div>" +
+      "<div id='arHistList' class='popupBody' style='max-height:60vh;overflow:auto;margin-top:8px'></div>" +
+      "<div id='arHistFoot' style='display:flex;align-items:center;gap:12px;margin-top:10px;font-size:12px'></div>" +
+      "</div>";
+    document.body.appendChild(backdrop);
+    const close = () => backdrop.remove();
+    backdrop.addEventListener("click", (event) => {
+      if (event.target === backdrop) close();
+    });
+    backdrop
+      .querySelector<AdminElement>("#arHistClose")
+      ?.addEventListener("click", close);
+
+    async function loadPage(page: Dynamic) {
+      const listEl = backdrop.querySelector<AdminElement>("#arHistList");
+      const footEl = backdrop.querySelector<AdminElement>("#arHistFoot");
+      if (!listEl || !footEl) return;
+      listEl.innerHTML = "<div class='muted'>…</div>";
+      let data: Dynamic;
+      try {
+        data = await api(
+          "/api/documents/" +
+            art.did +
+            "/revisions?lang=" +
+            encodeURIComponent(art.lang) +
+            "&limit=" +
+            HISTORY_PAGE_SIZE +
+            "&offset=" +
+            (page - 1) * HISTORY_PAGE_SIZE,
+        );
+      } catch (err) {
+        listEl.innerHTML = "";
+        toast(errorMessage(err), true);
+        return;
+      }
+      const rows: Dynamic[] = data.revisions || [];
+      const total = Number(data.total || 0);
+      if (!rows.length) {
+        listEl.innerHTML =
+          "<div class='muted'>" +
+          escapeHtml(t("revisionHistoryEmpty")) +
+          "</div>";
+        footEl.innerHTML = "";
+        return;
+      }
+      listEl.innerHTML = rows
+        .map(function (r) {
+          return (
+            "<button type='button' class='arHistRow' data-rev='" +
+            escapeHtml(String(r.revisionNo)) +
+            "' style='display:block;width:100%;text-align:left;background:none;border:0;border-bottom:1px solid var(--line);padding:8px 4px;cursor:pointer;color:inherit'>" +
+            // 1行目: 日付 / 更新者 / タイトル
+            "<div style='display:flex;gap:10px;align-items:baseline'>" +
+            "<span style='font-variant-numeric:tabular-nums;color:var(--muted);flex-shrink:0'>" +
+            escapeHtml(formatDateTime(r.snapshotAt)) +
+            "</span>" +
+            "<span style='flex-shrink:0;font-size:12px;padding:1px 6px;border:1px solid var(--line);border-radius:999px'>" +
+            escapeHtml(revisionSourceLabel(r.source)) +
+            "</span>" +
+            "<span style='font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'>" +
+            escapeHtml(r.title || "") +
+            "</span>" +
+            "</div>" +
+            // 2行目: 要約（無ければ本文の冒頭）を1行で省略表示
+            "<div style='color:var(--muted);font-size:12px;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'>" +
+            escapeHtml(r.excerpt || "") +
+            "</div>" +
+            "</button>"
+          );
+        })
+        .join("");
+      listEl
+        .querySelectorAll<AdminElement>(".arHistRow")
+        .forEach(function (row) {
+          row.addEventListener("click", function () {
+            const no = row.getAttribute("data-rev");
+            close();
+            showRevision(no);
+          });
+        });
+
+      // 30 件を超えるときだけページ選択。左に表示中の範囲を出す。
+      const from = (page - 1) * HISTORY_PAGE_SIZE + 1;
+      const to = Math.min(page * HISTORY_PAGE_SIZE, total);
+      const pages = Math.ceil(total / HISTORY_PAGE_SIZE);
+      footEl.innerHTML =
+        "<span class='muted'>" +
+        escapeHtml(
+          t("revisionHistoryRange")
+            .replace("{from}", String(from))
+            .replace("{to}", String(to))
+            .replace("{total}", String(total)),
+        ) +
+        "</span>" +
+        (pages > 1
+          ? "<span style='margin-left:auto;display:flex;align-items:center;gap:6px'>" +
+            escapeHtml(t("revisionHistoryPage")) +
+            "<select id='arHistPage'>" +
+            Array.from({ length: pages }, function (_, i) {
+              return (
+                "<option value='" +
+                (i + 1) +
+                "'" +
+                (i + 1 === page ? " selected" : "") +
+                ">" +
+                (i + 1) +
+                " / " +
+                pages +
+                "</option>"
+              );
+            }).join("") +
+            "</select></span>"
+          : "");
+      footEl
+        .querySelector<AdminElement>("#arHistPage")
+        ?.addEventListener("change", function (event) {
+          loadPage(Number((event.target as Dynamic).value) || 1);
+        });
+    }
+    loadPage(1);
+  }
+
   function autoSaveTick() {
     if (!autoSaveEnabled()) return; // toggled off after this tick was armed
     doSave(undefined, true);
@@ -687,6 +904,20 @@ async function newArticle(editDid: Dynamic) {
           // materialize, so it stays visible-but-disabled while in draft mode
           // (the label explains why via title=).
           "<div class='editorHeadBtnRow'>" +
+          // Shows which revision is on screen while previewing one. Sits to the
+          // LEFT of the history button and doubles as the way back to the live
+          // version. Hidden during normal editing.
+          "<button type='button' id='arHistoryBadge' class='editorSubBtn' " +
+          "style='display:none;border-color:var(--accent) !important;color:var(--accent) !important' " +
+          "title='" +
+          escapeHtml(t("revisionPreviewExitHint")) +
+          "'></button>" +
+          // Revision history sits immediately left of the build button and is
+          // always available (a draft has history too — that is exactly when an
+          // unwanted overwrite needs finding).
+          "<button type='button' id='arHistoryBtn' class='editorSubBtn'>&#128340; " +
+          escapeHtml(t("revisionHistoryBtn")) +
+          "</button>" +
           // Same class as the draft toggle so the font / frame / padding match.
           // The glyph is a TEXT arrow (not a color emoji) for the same reason.
           "<button type='button' id='arBuildOneBtn' class='editorDraftBtn'" +
@@ -896,9 +1127,14 @@ async function newArticle(editDid: Dynamic) {
           escapeHtml(t("autoSaveLabel")) +
           "</label>"
         : "") +
+      // ⚠ ツールチップは BUTTON ではなく WRAPPER に付ける。disabled なフォーム
+      //   コントロールはポインタイベントを受け取らないので、ボタン自身の title
+      //   はホバーしても出ない（＝「なぜ押せないか」が伝わらない）。
+      "<span id='arSaveBtnWrap'>" +
       "<button type='button' id='arSaveBtn' style='min-width:80px'>" +
       escapeHtml(t("save")) +
       "</button>" +
+      "</span>" +
       "</div>";
     bindLocaleSelect();
   }
@@ -1603,6 +1839,8 @@ async function newArticle(editDid: Dynamic) {
 
   // Language dropdown change → switch to / create that translation.
   async function switchToLanguage(target: Dynamic) {
+    // Switching language reloads the content, which ends any revision preview.
+    art.previewRev = null;
     const sel = byId("arLang");
     // Cancel any pending debounced autosave: it would otherwise fire mid-switch
     // and read the (shared) editor / DOM that is being rebuilt for the new
@@ -1690,6 +1928,19 @@ async function newArticle(editDid: Dynamic) {
     byId("arSaveBtn")?.addEventListener("click", function () {
       clearTimeout(autoSaveTimer);
       doSave();
+    });
+    byId("arHistoryBtn")?.addEventListener("click", function () {
+      // Opening a revision REPLACES what is in the editor, so unsaved work has
+      // to be dealt with first rather than silently thrown away.
+      if (art.dirty && !window.confirm(t("revisionPreviewDiscardConfirm")))
+        return;
+      openHistoryDialog();
+    });
+    // The badge is also the way out: re-render the screen so the live content
+    // is re-fetched (nothing local is trusted to restore it).
+    byId("arHistoryBadge")?.addEventListener("click", function () {
+      art.previewRev = null;
+      render();
     });
     byId("arAutoSaveCheck")?.addEventListener("change", function () {
       const on = !!(byId("arAutoSaveCheck") as Dynamic)?.checked;
