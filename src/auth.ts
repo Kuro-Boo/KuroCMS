@@ -256,6 +256,27 @@ export function requireAdmin(user: AuthUser): void {
   }
 }
 
+/**
+ * Reject machine credentials: the caller must be a signed-in human in the admin
+ * UI (session cookie), not a PAT. For operations whose blast radius makes a
+ * stray script token unacceptable — today the bulk importers, which overwrite
+ * many articles at once. A PAT that leaks (or an old automation nobody
+ * remembers) must not be able to mass-overwrite content.
+ *
+ * NOT a substitute for keeping history: the admin UI can still overwrite, so
+ * the importers snapshot every translation they replace. This only narrows WHO
+ * can start such an operation.
+ */
+export function requireInteractiveUser(user: AuthUser): void {
+  if (user.authSource !== "session") {
+    throw new HttpError(
+      403,
+      "session_required",
+      "This operation is only available from the admin UI (a signed-in session). Machine tokens (PAT) cannot run it.",
+    );
+  }
+}
+
 export function requireAuthor(user: AuthUser): void {
   if (!user.isAuthor) {
     throw new HttpError(
