@@ -643,6 +643,26 @@ async function newArticle(editDid: Dynamic) {
   // mixed-language list would show two independent numbering sequences.
   const HISTORY_PAGE_SIZE = 30;
 
+  /** 出所ごとのチップ配色。ひと目で「人が書いた版か・機械が書いた版か」を
+   *  見分けるための控えめな色分け。8 桁 HEX の薄い背景を敷いているので、
+   *  ライト/ダークどちらのテーマでも枠と文字が沈まない。 */
+  function revisionSourceColor(source: Dynamic): string {
+    switch (source) {
+      case "admin":
+        return "#22c55e"; // 人が保存
+      case "autosave":
+        return "#14b8a6"; // 人・自動保存
+      case "api":
+        return "#f59e0b"; // 機械 (REST)
+      case "mcp":
+        return "#a855f7"; // AI (MCP)
+      case "import":
+        return "#06b6d4"; // インポート
+      default:
+        return ""; // maintenance / 不明は既定色
+    }
+  }
+
   /** Localized label for a revision's provenance (who WROTE that version). */
   function revisionSourceLabel(source: Dynamic): string {
     const key = "revisionSource_" + (source || "unknown");
@@ -898,23 +918,36 @@ async function newArticle(editDid: Dynamic) {
         source: Dynamic,
         title: string,
         latest: boolean,
-      ) =>
-        "<div style='display:flex;gap:10px;align-items:baseline'>" +
-        "<span style='font-variant-numeric:tabular-nums;color:var(--muted);flex-shrink:0'>" +
-        escapeHtml(formatDateTime(date)) +
-        "</span>" +
-        "<span style='flex-shrink:0;font-size:12px;padding:1px 6px;border:1px solid var(--line);border-radius:999px'>" +
-        escapeHtml(revisionSourceLabel(source)) +
-        "</span>" +
-        (latest
-          ? "<span style='flex-shrink:0;font-size:11px;padding:1px 8px;border-radius:999px;background:var(--accent);color:#fff;font-weight:700'>" +
-            escapeHtml(t("revisionLatestBadge")) +
-            "</span>"
-          : "") +
-        "<span style='font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'>" +
-        escapeHtml(title || "") +
-        "</span>" +
-        "</div>";
+        revNo?: number,
+      ) => {
+        const c = revisionSourceColor(source);
+        return (
+          "<div style='display:flex;gap:10px;align-items:baseline'>" +
+          "<span style='font-variant-numeric:tabular-nums;color:var(--muted);flex-shrink:0'>" +
+          // 履歴の行だけ「Rev.n」を前置きする（現在の版には付けない）。
+          (revNo != null
+            ? "<b style='color:var(--ink)'>Rev." + revNo + "</b> "
+            : "") +
+          escapeHtml(formatDateTime(date)) +
+          "</span>" +
+          "<span style='flex-shrink:0;font-size:12px;padding:1px 6px;border:1px solid " +
+          (c || "var(--line)") +
+          ";border-radius:999px" +
+          (c ? ";color:" + c + ";background:" + c + "1f" : "") +
+          "'>" +
+          escapeHtml(revisionSourceLabel(source)) +
+          "</span>" +
+          (latest
+            ? "<span style='flex-shrink:0;font-size:11px;padding:1px 8px;border-radius:999px;background:var(--accent);color:#fff;font-weight:700'>" +
+              escapeHtml(t("revisionLatestBadge")) +
+              "</span>"
+            : "") +
+          "<span style='font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'>" +
+          escapeHtml(title || "") +
+          "</span>" +
+          "</div>"
+        );
+      };
       const line2 = (text: string) =>
         "<div style='color:var(--muted);font-size:12px;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'>" +
         escapeHtml(text || "") +
@@ -949,10 +982,10 @@ async function newArticle(editDid: Dynamic) {
               rowStyle +
               mark(art.previewRev === r.revisionNo) +
               "'>" +
-              line1(r.snapshotAt, r.source, r.title, false) +
+              line1(r.snapshotAt, r.source, r.title, false, r.revisionNo) +
               line2(r.excerpt || "") +
               "</button>" +
-              "<button type='button' class='secondary small arHistRestore' data-rev='" +
+              "<button type='button' class='secondary arHistRestore' data-rev='" +
               escapeHtml(String(r.revisionNo)) +
               "'" +
               (canRestore ? "" : " disabled") +
@@ -962,8 +995,9 @@ async function newArticle(editDid: Dynamic) {
                   ? t("revisionRestoreBtn")
                   : t("revisionRestoreDraftOnly"),
               ) +
-              "' style='flex-shrink:0;white-space:nowrap'>" +
-              escapeHtml(t("revisionRestoreBtn")) +
+              // 2 行に畳んだ小さいボタン。日付・タイトルより目立たせない。
+              "' style='flex-shrink:0;font-size:10px;line-height:1.25;padding:3px 8px;text-align:center;white-space:normal'>" +
+              escapeHtml(t("revisionRestoreBtnWrap")).replace(/\n/g, "<br>") +
               "</button>" +
               "</div>"
             );
