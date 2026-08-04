@@ -970,8 +970,10 @@ const i18n = {
     saveStatusSaving: "Saving…",
     saveStatusFailed: "Save failed: ",
     bodyConflictMsg: "body was updated elsewhere",
+    appNoticeTitle: "Notice from KuroCMS",
     bodyConflictConfirm:
-      "The body of this article was updated by another client (e.g. an AI) after you opened it.\n\nOK: overwrite with your version (the other version is kept in revision history)\nCancel: don't save now (reopen the article to load the latest version)",
+      "The body of this article was updated by another client (e.g. an AI) after you opened it.\n\nOverwriting keeps the other version in the revision history, so it can be restored later. If you cancel, nothing is saved now — reopen the article to load the latest version.",
+    bodyConflictOverwrite: "Overwrite with my version",
     articleSavedToast: "Saved",
     mediaReusedToast: "Identical image already exists — reused {mid}",
     typeNotSelectedErr: "Type not selected",
@@ -1006,6 +1008,22 @@ const i18n = {
     revisionSource_unknown: "Unknown",
     revisionSummaryMissing: "(no summary was recorded in this revision)",
     revisionLatestBadge: "Latest",
+    revisionRestoreBtn: "Copy to latest",
+    revisionRestoreDraftOnly:
+      "Only a draft can be restored. Switch the article to draft first.",
+    revisionRestoreTitle: "Restore this revision",
+    revisionRestoreLead:
+      "A NEW version will be created from #{n} ({date} / {who}).",
+    revisionRestoreIncludes:
+      "Restored: title, summary, body, SEO (cover), hashtags",
+    revisionRestoreExcludes:
+      "NOT restored: categories, publish date, article type (they are not part of a revision)",
+    revisionRestoreKeepsSummary:
+      "This revision has no recorded summary, so the current summary is kept as-is",
+    revisionRestoreUndoNote:
+      "The content being replaced is saved to history first, so this can be undone.",
+    revisionRestoreAction: "Copy to latest",
+    revisionRestoreDone: "Restored #{n} as the latest version.",
     buildingBadge: "Building…",
     buildThisArticleDraftHint:
       "Only a published article can be built. Switch it to Published first.",
@@ -1754,8 +1772,10 @@ const i18n = {
     saveStatusSaving: "保存中…",
     saveStatusFailed: "保存失敗: ",
     bodyConflictMsg: "本文が別の場所で更新されています",
+    appNoticeTitle: "KuroCMS からの通知",
     bodyConflictConfirm:
-      "この記事の本文は、開いた後に別のクライアント（AI など）によって更新されています。\n\nOK: 自分の本文で上書きする（相手の版はリビジョン履歴に残ります）\nキャンセル: 今は保存しない（最新版を読むには記事を開き直してください）",
+      "この記事の本文は、開いた後に別のクライアント（AI など）によって更新されています。\n\n上書きしても相手の版はリビジョン履歴に残るので、後から戻せます。キャンセルすると今は保存しません（最新版を読むには記事を開き直してください）。",
+    bodyConflictOverwrite: "自分の本文で上書き",
     articleSavedToast: "保存しました",
     mediaReusedToast: "同じ内容の画像が既にあるため {mid} を再利用しました",
     typeNotSelectedErr: "タイプ未選択",
@@ -1790,6 +1810,22 @@ const i18n = {
     revisionSource_unknown: "不明",
     revisionSummaryMissing: "（この版には概要が記録されていません）",
     revisionLatestBadge: "最新",
+    revisionRestoreBtn: "コピーして最新に",
+    revisionRestoreDraftOnly:
+      "復元できるのは下書きのときだけです。先に下書きに切り替えてください。",
+    revisionRestoreTitle: "この版に戻す",
+    revisionRestoreLead:
+      "#{n}（{date} ・ {who}）の内容で、新しい版を作ります。",
+    revisionRestoreIncludes:
+      "戻すもの: タイトル / 概要 / 本文 / SEO（カバー画像）/ ハッシュタグ",
+    revisionRestoreExcludes:
+      "戻らないもの: カテゴリ / 公開日 / 記事タイプ（履歴に含まれないため）",
+    revisionRestoreKeepsSummary:
+      "この版には概要が記録されていないため、概要は現在のままにします",
+    revisionRestoreUndoNote:
+      "置き換えられる今の内容は先に履歴へ保存されるので、元に戻せます。",
+    revisionRestoreAction: "コピーして最新に",
+    revisionRestoreDone: "#{n} の内容を最新の版として保存しました。",
     buildingBadge: "ビルド中",
     buildThisArticleDraftHint:
       "ビルドできるのは公開中の記事だけです。先に「公開に切り替え」てください。",

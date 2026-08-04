@@ -189,6 +189,12 @@ async function newArticle(editDid: Dynamic) {
     // body_html as loaded from (or last saved to) the server — the optimistic-
     // lock base for body-including saves. null = nothing loaded/saved yet.
     baseBody: null,
+    // サーバーが保存後に返す本文ハッシュ（次回保存の baseBodyHash）。
+    // ⚠ 送った本文を自分でハッシュしてはいけない: サーバーは保存前に本文を
+    //   正規化する（<b>→<strong>、data-bid 採番など）ので、送った文字列と
+    //   保存された文字列は一致しないことがある。自前ハッシュだと次の保存が
+    //   「別のクライアントが更新した」と誤検知されて 409 になる。
+    baseBodyHash: null,
     saving: false,
     // Autosave is gated on `ready`: it stays false from (re)load start until the
     // editor is fully mounted AND the language's content is on screen. While a
@@ -267,6 +273,7 @@ async function newArticle(editDid: Dynamic) {
           art.body = tData.translation.body_html || "";
           art.hasTranslation = true;
           art.baseBody = art.body;
+          art.baseBodyHash = null; // 読み込み直後は baseBody＝保存済み本文なので自前計算でよい
           try {
             const hj = JSON.parse(tData.translation.hashtag_json || "[]");
             art.hashtag = Array.isArray(hj)
@@ -527,7 +534,10 @@ async function newArticle(editDid: Dynamic) {
         // baseBody === null means either a fresh translation (nothing to
         // protect) or an explicit overwrite after a conflict prompt.
         if (art.hasTranslation && art.baseBody !== null) {
-          payload.baseBodyHash = await sha256Hex(art.baseBody);
+          // 保存後に受け取ったハッシュが最優先。無いのは記事を開いた直後だけで、
+          // そのときの baseBody は GET した保存済み本文そのものなので自前計算で合う。
+          payload.baseBodyHash =
+            art.baseBodyHash ?? (await sha256Hex(art.baseBody));
         }
       }
       const translationRes = await api(
@@ -554,9 +564,11 @@ async function newArticle(editDid: Dynamic) {
       });
       art.hasTranslation = true;
       if (withBody) {
-        // The server now holds exactly what we sent — update the lock base even
-        // when newer local edits arrived while the request was in flight.
-        art.baseBody = payload.bodyHtml;
+        // ロック基準を更新する。サーバーは本文を正規化してから保存するので
+        // 「送ったものがそのまま入っている」とは限らない。返ってきた bodyHash を
+        // そのまま基準にする（マージが走ったときは統合結果の本文も返るので拾う）。
+        art.baseBody = translationRes.bodyHtml ?? payload.bodyHtml;
+        art.baseBodyHash = translationRes.bodyHash ?? null;
       }
       if (editRevision === saveRevision) {
         // Only clear the flags when nothing changed mid-flight; otherwise the
@@ -587,15 +599,26 @@ async function newArticle(editDid: Dynamic) {
       if ((err as Dynamic)?.code === "body_conflict") {
         // The server body changed after we loaded it (e.g. an AI client).
         setSaveStatus(t("saveStatusFailed") + t("bodyConflictMsg"), "err");
-        if (window.confirm(t("bodyConflictConfirm"))) {
-          // Force-overwrite: drop the lock base and retry once with the body.
-          // The server snapshots the other version into revision history
-          // before overwriting, so nothing is lost irrecoverably.
-          art.baseBody = null;
-          art.saving = false;
-          updateSaveButtons();
-          return doSave(true);
-        }
+        // ⚠ window.confirm は使わない: ブラウザが見出しに出すのはオリジン
+        //   （kurocms.kuro.boo の内容）で、こちらからは変えられない。
+        openEntryDialog(
+          t("appNoticeTitle"),
+          "<p>" +
+            escapeHtml(t("bodyConflictConfirm")).replace(/\n/g, "<br>") +
+            "</p>",
+          t("bodyConflictOverwrite"),
+          async function (_: Dynamic, close: Dynamic) {
+            close();
+            // Force-overwrite: drop the lock base and retry once with the body.
+            // The server snapshots the other version into revision history
+            // before overwriting, so nothing is lost irrecoverably.
+            art.baseBody = null;
+            art.baseBodyHash = null;
+            art.saving = false;
+            updateSaveButtons();
+            await doSave(true);
+          },
+        );
       } else {
         setSaveStatus(
           t("saveStatusFailed") + (errorMessage(err) || t("error")),
@@ -695,6 +718,95 @@ async function newArticle(editDid: Dynamic) {
     }
   }
 
+  /** 「コピーして最新に」— その版の内容で NEW な版を作る（巻き戻しではない）。
+   *  共通の保存経路を通すので、置き換えられる現在の内容は自動で履歴に残り、
+   *  復元そのものもやり直せる。戻せるのは翻訳が持つ 5 項目だけで、カテゴリ・
+   *  公開日・記事タイプは履歴に無いので変わらない（ダイアログで明示する）。 */
+  function confirmRestoreRevision(row: Dynamic, closeList: Dynamic) {
+    const item = (label: string) =>
+      "<li style='margin:2px 0'>" + escapeHtml(label) + "</li>";
+    const note =
+      "<p>" +
+      escapeHtml(
+        t("revisionRestoreLead")
+          .replace("{n}", String(row.revisionNo))
+          .replace("{date}", formatDateTime(row.snapshotAt))
+          .replace("{who}", revisionSourceLabel(row.source)),
+      ) +
+      "</p>" +
+      "<ul style='margin:6px 0 0 18px;font-size:13px'>" +
+      item(t("revisionRestoreIncludes")) +
+      item(t("revisionRestoreExcludes")) +
+      // 概要が記録されていない版を戻すと、現在の概要を消してしまう。維持する。
+      (row.summary == null ? item(t("revisionRestoreKeepsSummary")) : "") +
+      "</ul>" +
+      "<p style='font-size:12px;color:var(--muted);margin-top:8px'>" +
+      escapeHtml(t("revisionRestoreUndoNote")) +
+      "</p>";
+    openEntryDialog(
+      t("revisionRestoreTitle"),
+      note,
+      t("revisionRestoreAction"),
+      async function (_: Dynamic, close: Dynamic) {
+        try {
+          const [revRes, curRes] = await Promise.all([
+            api(
+              "/api/documents/" +
+                art.did +
+                "/revisions/" +
+                encodeURIComponent(String(row.revisionNo)) +
+                "?lang=" +
+                encodeURIComponent(art.lang),
+            ),
+            api(
+              "/api/documents/" +
+                art.did +
+                "/translations/" +
+                encodeURIComponent(art.lang),
+            ),
+          ]);
+          const rev = revRes.revision;
+          const curT = curRes.translation;
+          if (!rev || !curT) throw new Error(t("error"));
+          await api(
+            "/api/documents/" +
+              art.did +
+              "/translations/" +
+              encodeURIComponent(art.lang),
+            {
+              method: "PUT",
+              body: JSON.stringify({
+                title: rev.title,
+                // 未記録（列を足す前の版）は現在値を維持する。null をそのまま
+                // 送ると「復元したのに概要が消えた」というデータ消失になる。
+                summary: rev.summary == null ? curT.summary : rev.summary,
+                bodyHtml: rev.bodyHtml,
+                seo: rev.seo,
+                hashtags: rev.hashtags,
+                // ⚠ baseBodyHash は付けない。付けると、見ている間に他クライアント
+                //   （AI 等）が本文を変えていた場合に 409 ではなく 3-way マージが
+                //   走り、local-wins で相手の本文が残る＝「成功したのに何も戻って
+                //   いない」になる（実測: merged:true で本文が相手のまま）。復元は
+                //   「その版と寸分違わぬ状態にする」操作なので、混ぜてはいけない。
+                //   置き換えられる内容は保存経路が履歴へ退避するので失われない。
+              }),
+            },
+          );
+          close();
+          closeList();
+          art.previewRev = null;
+          render();
+          toast(
+            t("revisionRestoreDone").replace("{n}", String(row.revisionNo)),
+            false,
+          );
+        } catch (err) {
+          toast(errorMessage(err), true);
+        }
+      },
+    );
+  }
+
   function openHistoryDialog() {
     const backdrop = createPopupBackdrop();
     backdrop.innerHTML =
@@ -772,65 +884,88 @@ async function newArticle(editDid: Dynamic) {
         footEl.innerHTML = "";
         return;
       }
+      // ⚠ 行そのものを <button> にはできない（復元ボタンを入れ子にすると
+      //   不正な HTML になる）。行＝クリックできる本体 + 右端のボタン、の
+      //   2 要素を並べる。
+      const rowWrapStyle =
+        "display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--line)";
       const rowStyle =
-        "display:block;width:100%;text-align:left;background:none;border:0;border-bottom:1px solid var(--line);padding:8px 4px;cursor:pointer;color:inherit";
+        "flex:1;min-width:0;display:block;text-align:left;background:none;border:0;padding:8px 4px;cursor:pointer;color:inherit";
+      const mark = (on: boolean) =>
+        on ? ";box-shadow:inset 3px 0 0 var(--accent)" : "";
+      const line1 = (
+        date: string,
+        source: Dynamic,
+        title: string,
+        latest: boolean,
+      ) =>
+        "<div style='display:flex;gap:10px;align-items:baseline'>" +
+        "<span style='font-variant-numeric:tabular-nums;color:var(--muted);flex-shrink:0'>" +
+        escapeHtml(formatDateTime(date)) +
+        "</span>" +
+        "<span style='flex-shrink:0;font-size:12px;padding:1px 6px;border:1px solid var(--line);border-radius:999px'>" +
+        escapeHtml(revisionSourceLabel(source)) +
+        "</span>" +
+        (latest
+          ? "<span style='flex-shrink:0;font-size:11px;padding:1px 8px;border-radius:999px;background:var(--accent);color:#fff;font-weight:700'>" +
+            escapeHtml(t("revisionLatestBadge")) +
+            "</span>"
+          : "") +
+        "<span style='font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'>" +
+        escapeHtml(title || "") +
+        "</span>" +
+        "</div>";
+      const line2 = (text: string) =>
+        "<div style='color:var(--muted);font-size:12px;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'>" +
+        escapeHtml(text || "") +
+        "</div>";
+      // 復元は下書きのときだけ。公開中はエディタ自体がロックされているので、
+      // ここだけ迂回できると一貫性がない（理由は title で示す）。
+      const canRestore = art.mode === 0;
       const currentHtml = cur
-        ? "<button type='button' class='arHistRow' data-rev='current'" +
-          " style='" +
-          rowStyle +
-          (art.previewRev == null
-            ? ";box-shadow:inset 3px 0 0 var(--accent)"
-            : "") +
+        ? "<div style='" +
+          rowWrapStyle +
           "'>" +
-          "<div style='display:flex;gap:10px;align-items:baseline'>" +
-          "<span style='font-variant-numeric:tabular-nums;color:var(--muted);flex-shrink:0'>" +
-          escapeHtml(formatDateTime(cur.updated_at)) +
-          "</span>" +
-          "<span style='flex-shrink:0;font-size:12px;padding:1px 6px;border:1px solid var(--line);border-radius:999px'>" +
-          escapeHtml(revisionSourceLabel(cur.source)) +
-          "</span>" +
-          "<span style='flex-shrink:0;font-size:11px;padding:1px 8px;border-radius:999px;background:var(--accent);color:#fff;font-weight:700'>" +
-          escapeHtml(t("revisionLatestBadge")) +
-          "</span>" +
-          "<span style='font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'>" +
-          escapeHtml(cur.title || "") +
-          "</span>" +
-          "</div>" +
-          "<div style='color:var(--muted);font-size:12px;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'>" +
-          escapeHtml(cur.summary || "") +
-          "</div>" +
-          "</button>"
+          "<button type='button' class='arHistRow' data-rev='current' style='" +
+          rowStyle +
+          mark(art.previewRev == null) +
+          "'>" +
+          line1(cur.updated_at, cur.source, cur.title, true) +
+          line2(cur.summary || "") +
+          "</button>" +
+          "</div>"
         : "";
       listEl.innerHTML =
         currentHtml +
         rows
           .map(function (r) {
             return (
+              "<div style='" +
+              rowWrapStyle +
+              "'>" +
               "<button type='button' class='arHistRow' data-rev='" +
               escapeHtml(String(r.revisionNo)) +
               "' style='" +
               rowStyle +
-              (art.previewRev === r.revisionNo
-                ? ";box-shadow:inset 3px 0 0 var(--accent)"
-                : "") +
+              mark(art.previewRev === r.revisionNo) +
               "'>" +
-              // 1行目: 日付 / 更新者 / タイトル
-              "<div style='display:flex;gap:10px;align-items:baseline'>" +
-              "<span style='font-variant-numeric:tabular-nums;color:var(--muted);flex-shrink:0'>" +
-              escapeHtml(formatDateTime(r.snapshotAt)) +
-              "</span>" +
-              "<span style='flex-shrink:0;font-size:12px;padding:1px 6px;border:1px solid var(--line);border-radius:999px'>" +
-              escapeHtml(revisionSourceLabel(r.source)) +
-              "</span>" +
-              "<span style='font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'>" +
-              escapeHtml(r.title || "") +
-              "</span>" +
-              "</div>" +
-              // 2行目: 要約（無ければ本文の冒頭）を1行で省略表示
-              "<div style='color:var(--muted);font-size:12px;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'>" +
-              escapeHtml(r.excerpt || "") +
-              "</div>" +
-              "</button>"
+              line1(r.snapshotAt, r.source, r.title, false) +
+              line2(r.excerpt || "") +
+              "</button>" +
+              "<button type='button' class='secondary small arHistRestore' data-rev='" +
+              escapeHtml(String(r.revisionNo)) +
+              "'" +
+              (canRestore ? "" : " disabled") +
+              " title='" +
+              escapeHtml(
+                canRestore
+                  ? t("revisionRestoreBtn")
+                  : t("revisionRestoreDraftOnly"),
+              ) +
+              "' style='flex-shrink:0;white-space:nowrap'>" +
+              escapeHtml(t("revisionRestoreBtn")) +
+              "</button>" +
+              "</div>"
             );
           })
           .join("");
@@ -850,6 +985,17 @@ async function newArticle(editDid: Dynamic) {
               return;
             }
             showRevision(no);
+          });
+        });
+      listEl
+        .querySelectorAll<AdminElement>(".arHistRestore")
+        .forEach(function (btn) {
+          btn.addEventListener("click", function (event) {
+            // 行のクリック（プレビュー）と同時に発火させない。
+            event.stopPropagation();
+            const no = Number(btn.getAttribute("data-rev"));
+            const row = rows.find((r) => r.revisionNo === no);
+            if (row) confirmRestoreRevision(row, close);
           });
         });
 
@@ -2012,8 +2158,18 @@ async function newArticle(editDid: Dynamic) {
     byId("arHistoryBtn")?.addEventListener("click", function () {
       // Opening a revision REPLACES what is in the editor, so unsaved work has
       // to be dealt with first rather than silently thrown away.
-      if (art.dirty && !window.confirm(t("revisionPreviewDiscardConfirm")))
+      if (art.dirty) {
+        openEntryDialog(
+          t("appNoticeTitle"),
+          "<p>" + escapeHtml(t("revisionPreviewDiscardConfirm")) + "</p>",
+          t("revisionHistoryBtn"),
+          function (_: Dynamic, close: Dynamic) {
+            close();
+            openHistoryDialog();
+          },
+        );
         return;
+      }
       openHistoryDialog();
     });
     // The badge is also the way out: re-render the screen so the live content
