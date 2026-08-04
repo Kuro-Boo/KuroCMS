@@ -1116,9 +1116,11 @@ async function expandContentRefs(
   const midWithParamsPattern = /\[\[([a-z0-9_-]+)\|[^\]]*\]\]/g;
   const allRefs = [
     ...new Set([
-      ...[...allHtml.matchAll(midPattern)].map((m) => m[1]),
-      // Only media-shaped slugs: a wiki link to an article ([[slug|label]])
-      // is not a media reference and must not consume a lookup slot.
+      // Only media-shaped slugs: [[記事slug]] や [[slug|label]] はメディア参照
+      // ではないので、lookup 枠を使わせない（判定は expandSpecialLinks）。
+      ...[...allHtml.matchAll(midPattern)]
+        .map((m) => m[1])
+        .filter((ref) => MEDIA_ID_RE.test(ref)),
       ...[...allHtml.matchAll(midWithParamsPattern)]
         .map((m) => m[1])
         .filter((ref) => MEDIA_ID_RE.test(ref)),
@@ -1131,6 +1133,39 @@ async function expandContentRefs(
   const { snsSids, resolveSns } = buildSnsContext(settings, extConns);
 
   const mids = allRefs.filter((ref) => !snsSids.has(ref));
+
+  // 記事 slug → 公開 URL の解決。記事の URL は /{tid}/{slug}/ なので、slug だけ
+  // では組み立てられない（従来は /{slug} を作っていて、これはタイプ索引の
+  // ルートに食われて必ず 404 になっていた）。slug はグローバル一意なので
+  // 1 回の IN で引ける。公開状態では絞らない — 下書き宛てのリンクは公開されれば
+  // そのまま有効になるべきで、URL を間違えるより 404 のままの方が直しやすい。
+  const docSlugCandidates = [
+    ...new Set(
+      [
+        ...[...allHtml.matchAll(midPattern)].map((m) => m[1]),
+        ...[...allHtml.matchAll(midWithParamsPattern)].map((m) => m[1]),
+      ].filter((ref) => !MEDIA_ID_RE.test(ref) && !snsSids.has(ref)),
+    ),
+  ];
+  const docPathMap: Record<string, string> = {};
+  if (docSlugCandidates.length) {
+    const BATCH = 50;
+    for (let i = 0; i < docSlugCandidates.length; i += BATCH) {
+      const chunk = docSlugCandidates.slice(i, i + BATCH);
+      const rows = await env.DB.prepare(
+        `SELECT slug, tid FROM documents WHERE slug IN (${chunk
+          .map(() => "?")
+          .join(",")})`,
+      )
+        .bind(...chunk)
+        .all<{ slug: string; tid: string }>()
+        .catch(() => ({ results: [] as { slug: string; tid: string }[] }));
+      for (const r of rows.results ?? [])
+        docPathMap[r.slug] = `${basePath}/${r.tid}/${r.slug}/`;
+    }
+  }
+  const resolveDocPath = (slug: string): string | null =>
+    docPathMap[slug] ?? null;
 
   const mediaMap: Record<
     string,
@@ -1161,6 +1196,12 @@ async function expandContentRefs(
       if (snsSids.has(ref)) {
         return resolveSns(ref);
       }
+      // ⚠ メディア ID の形（img-/vid-/aud-/mid-）でないものはここで扱わない。
+      //   素の [[slug]] は記事や固定ページへのリンクであって、メディア参照では
+      //   ない。以前はここが全部を飲み込んでいたので、[[記事slug]] や [[about]]
+      //   が「media not found」のコメントに化けて消えていた（リンクの形にすら
+      //   ならない）。そのまま残して、下の expandSpecialLinks に判定を任せる。
+      if (!MEDIA_ID_RE.test(ref)) return `[[${ref}]]`;
       // Media reference
       const m = mediaMap[ref];
       if (!m) return `<!-- media not found: ${ref} -->`;
@@ -1203,7 +1244,7 @@ async function expandContentRefs(
   return Object.fromEntries(
     Object.entries(afterData).map(([k, v]) => [
       k,
-      expandSpecialLinks(expand(v), basePath, resolveMid),
+      expandSpecialLinks(expand(v), basePath, resolveMid, resolveDocPath),
     ]),
   );
 }
@@ -1913,16 +1954,21 @@ function expandSpecialLinks(
   html: string,
   basePath: string,
   resolveMid: MidResolver = () => null,
+  /** slug → 記事の公開パス（/{tid}/{slug}/）。該当が無ければ null。 */
+  resolveDocPath: (slug: string) => string | null = () => null,
 ): string {
-  // slug → URL 解決。http は外部、メディア ID(MEDIA_ID_RE) は resolveMid、他は
-  // 内部パス。未解決メディア ID は resolveMid→null → 空文字にして下で
+  // slug → URL 解決。http は外部、メディア ID(MEDIA_ID_RE) は resolveMid、
+  // 記事 slug は /{tid}/{slug}/、それ以外はサイト内パスとして扱う。
+  // 未解決メディア ID は resolveMid→null → 空文字にして下で
   // 「media not found」に落とす（旧挙動を保持）。
   const resolve = (slug: string): string =>
     /^https?:\/\//i.test(slug)
       ? slug
       : MEDIA_ID_RE.test(slug)
         ? (resolveMid(slug) ?? "")
-        : `${basePath}/${slug.replace(/^\/+/, "")}`;
+        : // 記事があればその URL。無ければ従来どおりサイト内パス扱い
+          // （固定ページ [[about]] → /about などはこれで動き続ける）。
+          (resolveDocPath(slug) ?? `${basePath}/${slug.replace(/^\/+/, "")}`);
   // 判定は共有 classifyLink（editor と同一の単一の正）。ここは公開用マークアップ
   // だけを emit する（data-kuro-* を付けない・loading=lazy・URL エスケープ・target）。
   return html.replace(

@@ -1614,6 +1614,11 @@ async function newArticle(editDid: Dynamic) {
   // which would otherwise drop KuroEditor and leave a plain textarea. The media
   // URL cache + "loaded" flag persist across re-mounts (no re-fetch, no flicker).
   const bodyMidUrlCache: Record<string, string> = {};
+  // 記事 slug → 公開 URL。記事の URL は /{tid}/{slug}/ なので slug だけでは
+  // 組み立てられず、素の slug をそのまま href にすると 404 になる（公開側の
+  // ビルドと同じ解決をエディタでも行うためのキャッシュ）。slug はグローバル
+  // 一意なので slug→tid の対応表を 1 回引けば足りる。
+  const bodyDocUrlCache: Record<string, string> = {};
   let bodyMediaLoaded = false;
   let caretScrollBound = false;
 
@@ -1661,7 +1666,8 @@ async function newArticle(editDid: Dynamic) {
       recipeUi: true,
       urlResolver: function (slug: string) {
         if (slug.startsWith("http")) return slug;
-        return bodyMidUrlCache[slug] || slug;
+        // メディア → 記事 → （どちらでもなければ）素の slug の順。
+        return bodyMidUrlCache[slug] || bodyDocUrlCache[slug] || slug;
       },
       // URL カード [[url|]] の 2 段階リッチ表示（I4）。まず簡易カードが即描画され、
       // ここで解決したメタでそのカードだけ差し替わる（公開ページと同一の共有描画）。
@@ -1797,6 +1803,19 @@ async function newArticle(editDid: Dynamic) {
         api("/api/media/audios").catch(function () {
           return { items: [] };
         }),
+        // 記事 slug → URL の対応表。本文は返さない軽い問い合わせ。
+        api("/api/documents?fields=slug,tid&limit=1000")
+          .then(function (d: Dynamic) {
+            (d.documents || []).forEach(function (doc: Dynamic) {
+              if (doc.slug && doc.tid)
+                bodyDocUrlCache[doc.slug] =
+                  publicBase + "/" + doc.tid + "/" + doc.slug + "/";
+            });
+            return { items: [] };
+          })
+          .catch(function () {
+            return { items: [] };
+          }),
       ])
         .then(function (
           results: Array<{
