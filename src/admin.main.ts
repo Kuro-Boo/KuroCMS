@@ -1009,6 +1009,7 @@ const i18n = {
     revisionSummaryMissing: "(no summary was recorded in this revision)",
     revisionLatestBadge: "Latest",
     revisionRestoreBtn: "Copy to latest",
+    revisionRestoreBtnWrap: "Copy to\nlatest",
     revisionRestoreDraftOnly:
       "Only a draft can be restored. Switch the article to draft first.",
     revisionRestoreTitle: "Restore this revision",
@@ -1811,6 +1812,7 @@ const i18n = {
     revisionSummaryMissing: "（この版には概要が記録されていません）",
     revisionLatestBadge: "最新",
     revisionRestoreBtn: "コピーして最新に",
+    revisionRestoreBtnWrap: "コピーして\n最新に",
     revisionRestoreDraftOnly:
       "復元できるのは下書きのときだけです。先に下書きに切り替えてください。",
     revisionRestoreTitle: "この版に戻す",
