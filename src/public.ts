@@ -1817,7 +1817,12 @@ async function injectKuroLinksClient(
   // cover images, imported HTML), so its gate is "does this page have an <img>"
   // — not the narrower kuro-media-wrap check the broken-media fixup needs.
   const hasImg = html.includes("<img");
-  if (!hasUnfurl && !hasMedia && !hasImg) return html;
+  // コードブロックのコピーボタン。KuroEditor が保存する <pre data-gutter="…"> が
+  // 目印で、行番号は CSS(ke-content) が描き、📋 だけがクライアント JS を要る。
+  // ⚠ コードのあるページだけ配る（全ページに配ると、大半のページで使われない
+  //   スクリプトを毎回取りに行かせることになる）。
+  const hasCode = html.includes("data-gutter=");
+  if (!hasUnfurl && !hasMedia && !hasImg && !hasCode) return html;
 
   let out = html;
   if (hasUnfurl) {
@@ -1888,9 +1893,16 @@ async function injectKuroLinksClient(
     zoomBlock +
     unfurlBlock +
     `</script>`;
+  // コピーボタンは KuroEditor が配る単体スクリプト（vendored コピーを持たない＝
+  // エディタ側の実装が単一の正）。module ではないので、上の module script が
+  // 失敗しても影響しない。
+  const codeCopy = hasCode
+    ? `<script src="${escHtml(`${base}/_admin/kuro-code-copy.${KE_VERSION}.js`)}" defer></script>`
+    : "";
+  const tail = `${script}${codeCopy}`;
   out = out.includes("</body>")
-    ? out.replace("</body>", `${script}</body>`)
-    : out + script;
+    ? out.replace("</body>", `${tail}</body>`)
+    : out + tail;
   return out;
 }
 
