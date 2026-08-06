@@ -1766,6 +1766,15 @@ const KE_URL_CARD_ICON =
 // emit だけを担う（editor の data-kuro-* を付けない・loading=lazy・エスケープ）。
 
 /** 16:9 iframe figure（KuroEditor iframe 分岐の公開版）。 */
+/** KuroEditor が正規化した YouTube 埋め込み URL から動画 ID を取り出す。
+ *  ⚠ これは「リンクの判定」ではない — 判定は共有 classifyLink / resolveEmbedUrl
+ *  が済ませていて、ここは自分たちが出力した正規形
+ *  (https://www.youtube.com/embed/{id}) を読むだけ。YouTube 以外は null。 */
+function youtubeEmbedId(embedUrl: string): string | null {
+  const m = /^https:\/\/www\.youtube\.com\/embed\/([\w-]{6,})$/.exec(embedUrl);
+  return m ? m[1] : null;
+}
+
 function keIframeFigure(
   embedUrl: string,
   size: string | null,
@@ -1780,10 +1789,30 @@ function keIframeFigure(
   const map = isMapEmbed(embedUrl);
   const kindClass = map ? " kuro-media-wrap--map" : "";
   const title = map ? "埋め込み地図" : "埋め込み動画";
+  const iframe = `<iframe src="${escHtml(embedUrl)}" class="kuro-media kuro-media--iframe" allowfullscreen frameborder="0" loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" title="${title}"></iframe>`;
+  // YouTube はサムネイル（facade）にして、タップで全画面オーバーレイ再生にする。
+  // ⚠ 理由は見た目ではなく YouTube 側の要件: 埋め込みプレイヤーは
+  //   「viewport が最低 200x200」と規定されていて（IFrame Player API の
+  //   Requirements。16:9 の推奨は 480x270）、著者が幅 50% 等を指定すると
+  //   スマホでは 172x96 まで縮み、規格外になる。その状態のプレイヤーは
+  //   タップしても【その場で再生せず YouTube へ遷移する】。
+  //   本文中の枠サイズは著者の指定どおり（レイアウトは 1px も変えない）まま、
+  //   再生だけを規格を満たすオーバーレイへ逃がす。
+  // ⚠ 地図と Vimeo は対象外: 地図に再生の概念は無く、Vimeo は静的サムネイル
+  //   URL が無い（API が要る）ので従来どおり実プレイヤーを置く。
+  const ytId = youtubeEmbedId(embedUrl);
+  const inner = ytId
+    ? `<button type="button" class="kuro-video-facade" data-kuro-embed="${escHtml(embedUrl)}?autoplay=1&amp;playsinline=1" aria-label="${title}を再生">` +
+      // ⚠ data-kuro-nozoom 必須: これが無いと画像タップ拡大（zoomBlock）が同じ
+      //   クリックで発火し、動画オーバーレイと画像ライトボックスが二重に開く。
+      `<img src="https://i.ytimg.com/vi/${escHtml(ytId)}/hqdefault.jpg" alt="" loading="lazy" data-kuro-nozoom>` +
+      `<span class="kuro-video-facade__play" aria-hidden="true"></span>` +
+      `</button><noscript>${iframe}</noscript>`
+    : iframe;
   return (
     `<figure class="kuro-media-wrap kuro-media-wrap--iframe${kindClass}${alignClass}"${sizeStyle}>` +
     `<div class="kuro-iframe-wrap">` +
-    `<iframe src="${escHtml(embedUrl)}" class="kuro-media kuro-media--iframe" allowfullscreen frameborder="0" loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" title="${title}"></iframe>` +
+    inner +
     `</div></figure>`
   );
 }
@@ -1875,7 +1904,9 @@ async function injectKuroLinksClient(
   // ⚠ コードのあるページだけ配る（全ページに配ると、大半のページで使われない
   //   スクリプトを毎回取りに行かせることになる）。
   const hasCode = html.includes("data-gutter=");
-  if (!hasUnfurl && !hasMedia && !hasImg && !hasCode) return html;
+  // YouTube の facade（サムネイル）。タップでオーバーレイ再生する。
+  const hasVideo = html.includes("kuro-video-facade");
+  if (!hasUnfurl && !hasMedia && !hasImg && !hasCode && !hasVideo) return html;
 
   let out = html;
   if (hasUnfurl) {
@@ -1952,7 +1983,36 @@ async function injectKuroLinksClient(
   const codeCopy = hasCode
     ? `<script src="${escHtml(`${base}/_admin/kuro-code-copy.${KE_VERSION}.js`)}" defer></script>`
     : "";
-  const tail = `${script}${codeCopy}`;
+  // ── YouTube facade → オーバーレイ再生 ──────────────────────────────────
+  // 本文中の枠は著者指定のサイズのまま（レイアウト不変）。再生は
+  // 200x200 要件を満たすオーバーレイで行う。画像のライトボックスと同じ操作感。
+  const videoBlock = hasVideo
+    ? `<style>` +
+      `.kuro-video-facade{display:block;position:absolute;inset:0;width:100%;height:100%;padding:0;border:0;background:#000;cursor:pointer}` +
+      `.kuro-video-facade img{width:100%;height:100%;object-fit:cover;display:block}` +
+      `.kuro-video-facade__play{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:46px;height:32px;border-radius:8px;background:rgba(0,0,0,.68);transition:background .15s}` +
+      `.kuro-video-facade__play::after{content:"";position:absolute;left:50%;top:50%;transform:translate(-40%,-50%);border-style:solid;border-width:7px 0 7px 12px;border-color:transparent transparent transparent #fff}` +
+      `.kuro-video-facade:hover .kuro-video-facade__play,.kuro-video-facade:focus-visible .kuro-video-facade__play{background:#f00}` +
+      `.kuro-video-ov{position:fixed;inset:0;z-index:3000;background:rgba(0,0,0,.92);display:flex;align-items:center;justify-content:center;padding:12px}` +
+      `.kuro-video-ov__box{position:relative;width:min(100%,1200px);aspect-ratio:16/9}` +
+      `.kuro-video-ov iframe{position:absolute;inset:0;width:100%;height:100%;border:0;border-radius:8px}` +
+      `.kuro-video-ov__close{position:absolute;top:-34px;right:0;width:30px;height:30px;border:0;border-radius:999px;background:rgba(255,255,255,.15);color:#fff;font-size:15px;line-height:1;cursor:pointer}` +
+      `</style><script>(function(){var ov=null;` +
+      `function close(){if(ov){if(ov.parentNode)ov.parentNode.removeChild(ov);ov=null;document.documentElement.style.overflow="";}}` +
+      `function open(src){close();ov=document.createElement("div");ov.className="kuro-video-ov";` +
+      `var box=document.createElement("div");box.className="kuro-video-ov__box";` +
+      `var f=document.createElement("iframe");f.src=src;f.setAttribute("allowfullscreen","");f.setAttribute("frameborder","0");` +
+      `f.setAttribute("allow","accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture");` +
+      `f.setAttribute("title","埋め込み動画");box.appendChild(f);` +
+      `var b=document.createElement("button");b.type="button";b.className="kuro-video-ov__close";b.setAttribute("aria-label","閉じる");b.textContent="\u2715";` +
+      `b.addEventListener("click",close);box.appendChild(b);ov.appendChild(box);` +
+      `ov.addEventListener("click",function(e){if(e.target===ov)close();});` +
+      `document.body.appendChild(ov);document.documentElement.style.overflow="hidden";}` +
+      `document.addEventListener("click",function(e){var t=e.target;if(!t||!t.closest)return;` +
+      `var btn=t.closest(".kuro-video-facade");if(!btn)return;e.preventDefault();open(btn.getAttribute("data-kuro-embed"));});` +
+      `window.addEventListener("keydown",function(e){if(e.key==="Escape")close();});})();</script>`
+    : "";
+  const tail = `${script}${codeCopy}${videoBlock}`;
   out = out.includes("</body>")
     ? out.replace("</body>", `${tail}</body>`)
     : out + tail;
