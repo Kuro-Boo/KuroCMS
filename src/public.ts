@@ -24,7 +24,12 @@ import { buildFontHead, type LoadedFont } from "./fonts";
 import { stripInternalIds } from "./strip-internal-ids";
 // [[...]] 判定は KuroEditor と共有（vendored kuro-links.js の単一の正）。公開側は
 // この記述子から公開用マークアップだけを emit する。判定ロジックは再実装しない。
-import { classifyLink, LINK_TOKEN_RE, MEDIA_ID_RE } from "./kuro-links.js";
+import {
+  classifyLink,
+  isMapEmbed,
+  LINK_TOKEN_RE,
+  MEDIA_ID_RE,
+} from "./kuro-links.js";
 // RecipeCard の読み出しは KuroEditor 上流の共有純関数に委譲する
 // （エディタ・保存 API・公開ビルドで実装を 1 つに保つ）。
 import { totalMinutes } from "./kuro-recipe.js";
@@ -1768,10 +1773,17 @@ function keIframeFigure(
 ): string {
   const sizeStyle = size && size !== "100%" ? ` style="width:${size}"` : "";
   const alignClass = align ? ` kuro-media-wrap--${align}` : "";
+  // 地図か動画かで figure のクラスと title を分ける。判定は共有 isMapEmbed
+  // （KuroEditor 側の単一の正）で、ここで正規表現を書き直さない。エディタの
+  // _buildIframeFigure と同じマークアップにしないと、WYSIWYG と公開ページが
+  // ズレる（読み上げの title も「埋め込み動画」のままになる）。
+  const map = isMapEmbed(embedUrl);
+  const kindClass = map ? " kuro-media-wrap--map" : "";
+  const title = map ? "埋め込み地図" : "埋め込み動画";
   return (
-    `<figure class="kuro-media-wrap kuro-media-wrap--iframe${alignClass}"${sizeStyle}>` +
+    `<figure class="kuro-media-wrap kuro-media-wrap--iframe${kindClass}${alignClass}"${sizeStyle}>` +
     `<div class="kuro-iframe-wrap">` +
-    `<iframe src="${escHtml(embedUrl)}" class="kuro-media kuro-media--iframe" allowfullscreen frameborder="0" loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" title="埋め込み動画"></iframe>` +
+    `<iframe src="${escHtml(embedUrl)}" class="kuro-media kuro-media--iframe" allowfullscreen frameborder="0" loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" title="${title}"></iframe>` +
     `</div></figure>`
   );
 }
