@@ -134,6 +134,11 @@ export function _buildIframeFigure(
   align: string | null,
 ): string;
 
+/** 埋め込み URL が Google マップか（figure のタイトルとクラスを動画と分けるため）。
+ *  ホスト側（KuroCMS の公開ビルド）も同じ figure を出すのでここから使う。判定は
+ *  この 1 か所に閉じ、ホスト側で正規表現を書き直さない。 */
+export function isMapEmbed(embedUrl: string): boolean;
+
 /** HTML テキスト/属性値としての安全なエスケープ。 */
 export function _escapeHtml(s: unknown): string;
 
