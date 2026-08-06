@@ -132,7 +132,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.9.12";
+export const KUROCMS_VERSION = "1.9.13";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -1131,11 +1131,13 @@ async function handleApiDispatch(
     const buildDocMatch = path.match(/^\/api\/documents\/([^/]+)\/build$/);
     if (request.method === "POST" && buildDocMatch) {
       requireAuthor(user);
-      await buildDocumentPages(env, buildDocMatch[1], [], { promote: true });
-      return json(
-        { ok: true, did: buildDocMatch[1] },
-        { headers: jsonHeaders },
-      );
+      // ⚠ resolveDid を必ず通すこと。ここだけ素の :id を渡していたため、slug で
+      //   叩くと buildDocumentPages の WHERE d.did = ? が一件も引かず、何もせずに
+      //   ok:true を返していた（他の /api/documents/:id/... は全て did/slug 両対応
+      //   で、/api/help にもそう書いてある）。存在しない id は 404 で弾く。
+      const buildDid = await resolveDid(env, buildDocMatch[1]);
+      await buildDocumentPages(env, buildDid, [], { promote: true });
+      return json({ ok: true, did: buildDid }, { headers: jsonHeaders });
     }
 
     if (request.method === "POST" && path === "/api/backups") {
