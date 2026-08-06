@@ -326,7 +326,12 @@ export function _looksLikeMediaParams(label) {
 export function _buildIframeFigure(embedUrl, enc, size, align) {
   const sizeStyle  = (size && size !== '100%') ? ` style="width:${size}"` : ''
   const alignClass = align ? ` kuro-media-wrap--${align}` : ''
-  return `<figure class="kuro-media-wrap kuro-media-wrap--iframe${alignClass}"${sizeStyle} data-kuro-media="${enc}"><div class="kuro-iframe-wrap"><iframe src="${embedUrl}" class="kuro-media kuro-media--iframe" allowfullscreen frameborder="0" loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" title="埋め込み動画"></iframe></div></figure>`
+  // 地図は動画と枠は同じ（サイズ・寄せの仕組みを共有する）が、読み上げに出る
+  // title と、必要なら見た目を分けられるようクラスだけ足す。
+  const map = isMapEmbed(embedUrl)
+  const kindClass = map ? ' kuro-media-wrap--map' : ''
+  const title = map ? '埋め込み地図' : '埋め込み動画'
+  return `<figure class="kuro-media-wrap kuro-media-wrap--iframe${kindClass}${alignClass}"${sizeStyle} data-kuro-media="${enc}"><div class="kuro-iframe-wrap"><iframe src="${embedUrl}" class="kuro-media kuro-media--iframe" allowfullscreen frameborder="0" loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" title="${title}"></iframe></div></figure>`
 }
 
 /**
@@ -416,6 +421,44 @@ export function resolveEmbedUrl(url) {
       const id = u.pathname.replace(/\D/g, '')   // keep only digits from /VIDEO_ID
       if (id) return `https://player.vimeo.com/video/${id}`
     }
+
+    // ── Google マップ ──────────────────────────────────────────────────────
+    // 専用記法（[[map:…]]）は作らない。動画と同じ「URL を貼れば埋め込み」に
+    // 乗せることで、サイズ・寄せの指定（[[URL|60%,right]]）とイメージメニューでの
+    // 大きさ変更が【そのまま効く】— 記法を増やすと、トークン解析・正規化・ホスト側
+    // 共有モジュール・保存形式まで全部に手が要るのに、得られるのは同じ iframe。
+    // ⚠ 「google ドメインで q= がある」だけで拾わない — 普通の検索 URL
+    //   （google.com/search?q=…）まで地図として埋め込んでしまう。
+    //   maps. サブドメインか、/maps 配下のパスかで判定する。
+    const isMapsHost = /^maps\.google\.[a-z.]+$/.test(host)
+    const isMapsPath = /(^|\.)google\.[a-z.]+$/.test(host) && u.pathname.startsWith('/maps')
+    if (isMapsHost || isMapsPath) {
+      // ① 公式の埋め込み URL（共有 → 地図を埋め込む でコピーできる）はそのまま。
+      //    Google が埋め込み用に配っている形なので、これが最も確実。
+      if (u.pathname.startsWith('/maps/embed')) return u.href
+
+      // ② 通常の地図 URL は output=embed へ寄せる。座標（@lat,lng,zoom）があれば
+      //    それを、無ければ q= や場所名を検索語として使う。
+      const at = u.pathname.match(/@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)(?:,(\d+(?:\.\d+)?)z)?/)
+      if (at) {
+        const z = at[3] ? `&z=${at[3]}` : ''
+        return `https://maps.google.com/maps?q=${at[1]},${at[2]}${z}&output=embed`
+      }
+      // ⚠ /maps/place/<名前> の名前は空白が '+' で入っている（%2B ではない）ので、
+      //    デコード前に空白へ戻す。そのまま encodeURIComponent すると "Tokyo%2BTower"
+      //    になって検索語が変わってしまう。
+      const place = u.pathname.match(/\/maps\/place\/([^/]+)/)?.[1]
+      const q = u.searchParams.get('q')
+        || (place ? decodeURIComponent(place.replace(/\+/g, ' ')) : '')
+      if (q) return `https://maps.google.com/maps?q=${encodeURIComponent(q)}&output=embed`
+    }
+    // ⚠ 短縮 URL（maps.app.goo.gl / goo.gl/maps）は展開できない（エディタは通信しない）。
+    //    埋め込みにはせず、従来どおりリンク／URL カードのまま。
   } catch {}
   return null
+}
+
+/** 埋め込み URL が Google マップか（figure の見た目とタイトルを分けるため）。 */
+export function isMapEmbed(embedUrl) {
+  return /^https:\/\/(?:www\.)?maps\.google\.[a-z.]+\/maps\?|^https:\/\/(?:www\.)?google\.[a-z.]+\/maps\/embed/.test(embedUrl || '')
 }
