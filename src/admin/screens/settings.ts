@@ -171,11 +171,12 @@ async function settings() {
     defaultSelect.value = list.includes(nd) ? nd : list[0];
   }
 
-  const tabBar = ["basic", "sns", "license", "import"]
+  const tabBar = ["basic", "sns", "mobile", "license", "import"]
     .map((id) => {
       const labels: Record<string, string> = {
         basic: t("settingsTabBasic"),
         sns: t("settingsTabSns"),
+        mobile: t("settingsTabMobile"),
         license: t("settingsTabLicense"),
         import: t("settingsTabImport"),
       };
@@ -432,6 +433,34 @@ async function settings() {
       "</div>" +
       "</div>" +
       // ── License ──────────────────────────────────────────────────────
+      // ── スマホ設定 ───────────────────────────────────────────────────
+      "<div id='panel-mobile' class='settingsPanel' style='display:none'>" +
+      "<div class='panel stack'>" +
+      "<div class='panelHead'><h3>" +
+      escapeHtml(t("mobileTitle")) +
+      "</h3></div>" +
+      "<div class='muted' style='font-size:12px'>" +
+      escapeHtml(t("mobileIntro")) +
+      "</div>" +
+      "<label style='flex-direction:row;align-items:center;gap:8px;cursor:pointer'>" +
+      "<input id='mobileMediaFullWidth' type='checkbox' style='width:auto;margin:0' />" +
+      escapeHtml(t("mobileMediaFullWidth")) +
+      "</label>" +
+      "<div class='muted' style='font-size:12px'>" +
+      escapeHtml(t("mobileMediaFullWidthHelp")) +
+      "</div>" +
+      "<div class='muted' style='font-size:12px'>" +
+      escapeHtml(t("mobileMediaFullWidthVideo")) +
+      "</div>" +
+      "<div style='font-size:12px;padding:8px 10px;border-radius:8px;background:rgba(128,128,128,.12)'>" +
+      escapeHtml(t("mobileBuildNote")) +
+      "</div>" +
+      "<div class='toolbar'><button type='button' id='saveMobileBtn'>" +
+      escapeHtml(t("save")) +
+      "</button></div>" +
+      "<div id='mobileStatus' class='muted' style='font-size:12px'></div>" +
+      "</div>" +
+      "</div>" +
       "<div id='panel-license' class='settingsPanel' style='display:none'>" +
       "<div class='panel stack'>" +
       "<table><tbody>" +
@@ -1043,6 +1072,7 @@ async function settings() {
       if (flag) byId(inputId)!.placeholder = "•••••••••••• ✓";
     }
     byId("xLinkInReply")!.checked = s.xLinkInReply !== false;
+    byId("mobileMediaFullWidth")!.checked = s.mobileMediaFullWidth === true;
     if (s.threadsTokenSet) {
       byId("threadsToken")!.placeholder =
         "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022 \u2713";
@@ -2287,6 +2317,10 @@ async function settings() {
             xApiSecret: (byId("xApiSecret")?.value || "").trim(),
             xAccessToken: (byId("xAccessToken")?.value || "").trim(),
             xAccessSecret: (byId("xAccessSecret")?.value || "").trim(),
+            // スマホ設定（サイトビルドの出力を変える設定）。設定 PUT は
+            // siteName 等を必須にしているので、この 1 項目だけを送る部分更新は
+            // できない。他タブと同じ saveAll に相乗りさせる。
+            mobileMediaFullWidth: !!byId("mobileMediaFullWidth")?.checked,
             xLinkInReply: !!byId("xLinkInReply")?.checked,
             threadsToken: (byId("threadsToken")?.value || "").trim(),
             ...extraFields,
@@ -2298,6 +2332,14 @@ async function settings() {
         await reportClientError("settings.save", error);
       }
     }
+
+    // スマホ設定の保存。サイトビルドの出力を変える設定なので、保存しただけでは
+    // 公開ページは変わらない（再ビルドが要る）ことを保存後にも伝える。
+    byId("saveMobileBtn")?.addEventListener("click", async (event: Dynamic) => {
+      await saveAll(event.currentTarget);
+      const out = byId("mobileStatus");
+      if (out) out.textContent = t("mobileSavedNeedsBuild");
+    });
 
     for (const formId of [
       "siteForm",

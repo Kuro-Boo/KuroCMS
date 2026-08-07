@@ -185,6 +185,10 @@ interface SettingsMap {
   fonts_json?: string;
   base_font?: string;
   font_configs_json?: string;
+  /** スマホでのメディアレイアウト解除（"1" で有効）。サイトビルドの出力を変える
+   *  設定で、公開ページに「幅 640px 以下ではメディアを 100% 幅・回り込みなし」に
+   *  する CSS を入れ、YouTube はオーバーレイではなくその場で再生させる。 */
+  mobile_media_full_width?: string;
   /**
    * Content generation stamp — changes whenever anything that renders into a
    * public page changes (articles, site texts, categories, settings, template).
@@ -226,6 +230,9 @@ async function fetchSettings(env: Env): Promise<SettingsMap> {
   const BASE_COLS = `site_name, site_description, public_domain, ga4_measurement_id,
             bluesky_handle, bluesky_sid, template_id, default_lang,
             fonts_json, base_font, font_configs_json`;
+  // 列を足す前の install でも公開ページを落とさないよう、他の後付け列と同じく
+  // 別グループで問い合わせてフォールバックする。
+  const GEN_MOBILE = `mobile_media_full_width`;
   // CORE: tables/columns guaranteed by migration 0001 — this variant cannot fail
   // on any schema old enough to serve pages at all.
   const GEN_CORE = `updated_at AS settings_ts,
@@ -260,6 +267,7 @@ async function fetchSettings(env: Env): Promise<SettingsMap> {
       fonts_json: string;
       base_font: string;
       font_configs_json: string;
+      mobile_media_full_width?: number;
       settings_ts: string;
       doc_ts: string;
       doc_n: number;
@@ -271,13 +279,13 @@ async function fetchSettings(env: Env): Promise<SettingsMap> {
   let row: Awaited<ReturnType<typeof read>>;
   try {
     row = await read(
-      `${BASE_COLS},\n            ${GEN_CORE},\n            ${GEN_CAT},\n            ${GEN_BUILD}`,
+      `${BASE_COLS}, ${GEN_MOBILE},\n            ${GEN_CORE},\n            ${GEN_CAT},\n            ${GEN_BUILD}`,
     );
   } catch {
     try {
       row = await read(
         `${BASE_COLS},\n            ${GEN_CORE},\n            ${GEN_BUILD}`,
-      ); // categories 以前の install
+      ); // categories / mobile_media_full_width 以前の install
     } catch {
       row = await read(`${BASE_COLS},\n            ${GEN_CORE}`); // page_build_cache 以前の install
     }
@@ -302,6 +310,7 @@ async function fetchSettings(env: Env): Promise<SettingsMap> {
     fonts_json: row?.fonts_json || "[]",
     base_font: row?.base_font || "",
     font_configs_json: row?.font_configs_json || "{}",
+    mobile_media_full_width: row?.mobile_media_full_width === 1 ? "1" : "",
     // Short, opaque stamp — only ever compared for change, never interpreted.
     // Include template_id too: switching template swaps every page's markup and
     // (on an unchanged template row) would not move any updated_at.
@@ -1249,7 +1258,13 @@ async function expandContentRefs(
   return Object.fromEntries(
     Object.entries(afterData).map(([k, v]) => [
       k,
-      expandSpecialLinks(expand(v), basePath, resolveMid, resolveDocPath),
+      expandSpecialLinks(
+        expand(v),
+        basePath,
+        resolveMid,
+        resolveDocPath,
+        settings?.mobile_media_full_width === "1",
+      ),
     ]),
   );
 }
@@ -1779,6 +1794,9 @@ function keIframeFigure(
   embedUrl: string,
   size: string | null,
   align: string | null,
+  /** スマホでのメディアレイアウト解除が ON。狭い画面でも枠が 100% 幅になる＝
+   *  プレイヤーが十分な大きさになるので、facade を挟まずその場で再生させる。 */
+  inlinePlay = false,
 ): string {
   const sizeStyle = size && size !== "100%" ? ` style="width:${size}"` : "";
   const alignClass = align ? ` kuro-media-wrap--${align}` : "";
@@ -1800,7 +1818,7 @@ function keIframeFigure(
   //   再生だけを規格を満たすオーバーレイへ逃がす。
   // ⚠ 地図と Vimeo は対象外: 地図に再生の概念は無く、Vimeo は静的サムネイル
   //   URL が無い（API が要る）ので従来どおり実プレイヤーを置く。
-  const ytId = youtubeEmbedId(embedUrl);
+  const ytId = inlinePlay ? null : youtubeEmbedId(embedUrl);
   const inner = ytId
     ? `<button type="button" class="kuro-video-facade" data-kuro-embed="${escHtml(embedUrl)}?autoplay=1&amp;playsinline=1" aria-label="${title}を再生">` +
       // ⚠ data-kuro-nozoom 必須: これが無いと画像タップ拡大（zoomBlock）が同じ
@@ -2033,6 +2051,8 @@ function expandSpecialLinks(
   resolveMid: MidResolver = () => null,
   /** slug → 記事の公開パス（/{tid}/{slug}/）。該当が無ければ null。 */
   resolveDocPath: (slug: string) => string | null = () => null,
+  /** スマホでのメディアレイアウト解除（keIframeFigure の inlinePlay に渡す）。 */
+  inlinePlay = false,
 ): string {
   // slug → URL 解決。http は外部、メディア ID(MEDIA_ID_RE) は resolveMid、
   // 記事 slug は /{tid}/{slug}/、それ以外はサイト内パスとして扱う。
@@ -2069,7 +2089,7 @@ function expandSpecialLinks(
         case "urlcard":
           return keUrlCard(d.slug, d.url);
         case "iframe":
-          return keIframeFigure(d.embedUrl, d.size, d.align);
+          return keIframeFigure(d.embedUrl, d.size, d.align, inlinePlay);
         case "media":
           return keMediaFigure(d.url, d.size, d.align, d.link, d.mediaKind);
         case "wikilink": {
@@ -2767,7 +2787,11 @@ export async function generatePage(
     }
   }
   const adminBase = adminAssetBase(env);
-  let html = injectContentStyles(renderTemplate(sourceHtml, ctx), adminBase);
+  let html = injectContentStyles(
+    renderTemplate(sourceHtml, ctx),
+    adminBase,
+    settings?.mobile_media_full_width === "1",
+  );
   html = applyRtlDir(html, lang);
   html = applyCompiledTailwind(html, template, s.base_path || "");
   html = injectFontHead(s, html, lang);
@@ -3532,13 +3556,25 @@ function buildRelatedHtml(
   );
 }
 
-function injectContentStyles(html: string, basePath: string): string {
+function injectContentStyles(
+  html: string,
+  basePath: string,
+  mobileMediaFullWidth = false,
+): string {
+  // スマホでのメディアレイアウト解除（サイトビルドの設定）。著者が付けた幅・寄せ
+  // はインライン style / クラスで来るので !important が要る。PC 側は一切触らない。
+  const mobileCss = mobileMediaFullWidth
+    ? "<style>@media (max-width:640px){" +
+      ".kuro-content .kuro-media-wrap{float:none !important;width:100% !important;max-width:100% !important;margin-left:auto !important;margin-right:auto !important}" +
+      "}</style>"
+    : "";
   const link =
     '<link rel="stylesheet" href="' +
     basePath +
     "/_admin/ke-content." +
     KE_VERSION +
-    '.css" />';
+    '.css" />' +
+    mobileCss;
   return html.includes("</head>")
     ? html.replace("</head>", link + "</head>")
     : link + html;

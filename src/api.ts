@@ -132,7 +132,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.9.15";
+export const KUROCMS_VERSION = "1.9.16";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -3299,6 +3299,8 @@ async function settings(
         xAccessTokenSet: !!(row?.x_access_token as string | undefined),
         xAccessSecretSet: !!(row?.x_access_secret as string | undefined),
         xLinkInReply: (row?.x_link_in_reply as number | undefined) !== 0,
+        mobileMediaFullWidth:
+          (row?.mobile_media_full_width as number | undefined) === 1,
         threadsTokenSet: !!(row?.threads_token as string | undefined),
         siteIsPublished: (row?.site_is_published as number | undefined) === 1,
         templateId: (row?.template_id as string | undefined) ?? "",
@@ -3343,6 +3345,11 @@ async function settings(
     const hasXLinkInReply = "xLinkInReply" in body;
     const xLinkInReply =
       body.xLinkInReply === true || body.xLinkInReply === "true";
+    // スマホでのメディアレイアウト解除（サイトビルドの出力を変える設定）。
+    const hasMobileMediaFullWidth = "mobileMediaFullWidth" in body;
+    const mobileMediaFullWidth =
+      body.mobileMediaFullWidth === true ||
+      body.mobileMediaFullWidth === "true";
 
     if (publicDomain) validateDomain(publicDomain, "publicDomain");
     if (ga4MeasurementId && !/^G-[A-Z0-9]+$/.test(ga4MeasurementId)) {
@@ -3385,6 +3392,8 @@ async function settings(
     if (xAccessToken) settingsToSave.x_access_token = xAccessToken;
     if (xAccessSecret) settingsToSave.x_access_secret = xAccessSecret;
     if (hasXLinkInReply) settingsToSave.x_link_in_reply = xLinkInReply ? 1 : 0;
+    if (hasMobileMediaFullWidth)
+      settingsToSave.mobile_media_full_width = mobileMediaFullWidth ? 1 : 0;
     await saveSettings(env, settingsToSave);
 
     // 公開フラグは本来 PUT /api/v1/published の担当（テンプレート系の一族に
@@ -9721,6 +9730,7 @@ const SETTINGS_COLS = new Set([
   "x_access_token",
   "x_access_secret",
   "x_link_in_reply",
+  "mobile_media_full_width",
   "sns_auto_post",
   "threads_token",
   "threads_user_id",
