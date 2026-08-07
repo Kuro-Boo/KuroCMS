@@ -1942,10 +1942,13 @@ async function injectKuroLinksClient(
   //   - the overlay's own <img> — it would re-open on every tap
   //   - data-kuro-nozoom opt-out
   // Desktop is untouched. Uses no regex literals (template-literal safe).
+  // ⚠ 拡大表示は【暗転させない】（記事の上に浮かせる）。動画オーバーレイと
+  //   揃えてある。透明なので当たり判定のためだけに inset:0 の層を置き、
+  //   どこをタップしても閉じる。境界は画像側の影で示す。
   const zoomBlock = hasImg
     ? `var _zmq=window.matchMedia?window.matchMedia("(max-width:640px)"):null,_zov=null;` +
       `function _zClose(){if(_zov){if(_zov.parentNode)_zov.parentNode.removeChild(_zov);_zov=null;document.documentElement.style.overflow="";}}` +
-      `function _zOpen(src){_zClose();_zov=document.createElement("div");_zov.setAttribute("data-kuro-zoom","");_zov.style.cssText="position:fixed;inset:0;z-index:3000;background:rgba(0,0,0,.92);display:flex;align-items:center;justify-content:center;touch-action:none;cursor:zoom-out";var im=document.createElement("img");im.src=src;im.style.cssText="max-width:100vw;max-height:100vh;width:auto;height:auto;object-fit:contain";_zov.appendChild(im);_zov.addEventListener("click",_zClose);document.body.appendChild(_zov);document.documentElement.style.overflow="hidden";}` +
+      `function _zOpen(src){_zClose();_zov=document.createElement("div");_zov.setAttribute("data-kuro-zoom","");_zov.style.cssText="position:fixed;inset:0;z-index:3000;background:transparent;display:flex;align-items:center;justify-content:center;touch-action:none;cursor:zoom-out";var im=document.createElement("img");im.src=src;im.style.cssText="max-width:94vw;max-height:92vh;width:auto;height:auto;object-fit:contain;border-radius:8px;box-shadow:0 12px 44px rgba(0,0,0,.45)";_zov.appendChild(im);_zov.addEventListener("click",_zClose);document.body.appendChild(_zov);document.documentElement.style.overflow="hidden";}` +
       `function _zAble(img){if(!img||img.tagName!=="IMG"||!img.closest)return false;` +
       `if(img.getAttribute("data-kuro-nozoom")!==null)return false;` +
       `if(img.closest("a"))return false;` +
