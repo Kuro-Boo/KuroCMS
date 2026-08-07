@@ -1993,10 +1993,12 @@ async function injectKuroLinksClient(
       `.kuro-video-facade__play{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:46px;height:32px;border-radius:8px;background:rgba(0,0,0,.68);transition:background .15s}` +
       `.kuro-video-facade__play::after{content:"";position:absolute;left:50%;top:50%;transform:translate(-40%,-50%);border-style:solid;border-width:7px 0 7px 12px;border-color:transparent transparent transparent #fff}` +
       `.kuro-video-facade:hover .kuro-video-facade__play,.kuro-video-facade:focus-visible .kuro-video-facade__play{background:#f00}` +
-      `.kuro-video-ov{position:fixed;inset:0;z-index:3000;background:rgba(0,0,0,.92);display:flex;align-items:center;justify-content:center;padding:12px}` +
-      `.kuro-video-ov__box{position:relative;width:min(100%,1200px);aspect-ratio:16/9}` +
+      // 全面の黒背景は敷かない（記事の上に浮かせる）。inset:0 は残す — 外側タップで
+      // 閉じるための当たり判定と、中央寄せに要る。透明なので記事は見えたまま。
+      `.kuro-video-ov{position:fixed;inset:0;z-index:3000;background:transparent;display:flex;align-items:center;justify-content:center;padding:12px}` +
+      `.kuro-video-ov__box{position:relative;width:min(100%,1200px);aspect-ratio:16/9;box-shadow:0 12px 44px rgba(0,0,0,.45);border-radius:8px}` +
       `.kuro-video-ov iframe{position:absolute;inset:0;width:100%;height:100%;border:0;border-radius:8px}` +
-      `.kuro-video-ov__close{position:absolute;top:-34px;right:0;width:30px;height:30px;border:0;border-radius:999px;background:rgba(255,255,255,.15);color:#fff;font-size:15px;line-height:1;cursor:pointer}` +
+      `.kuro-video-ov__close{position:absolute;top:-36px;right:0;width:32px;height:32px;border:0;border-radius:999px;background:rgba(0,0,0,.72);color:#fff;font-size:15px;line-height:1;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.3)}` +
       `</style><script>(function(){var ov=null;` +
       `function close(){if(ov){if(ov.parentNode)ov.parentNode.removeChild(ov);ov=null;document.documentElement.style.overflow="";}}` +
       `function open(src){close();ov=document.createElement("div");ov.className="kuro-video-ov";` +
