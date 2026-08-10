@@ -257,6 +257,31 @@ async function prepareImageForUpload(file: File): Promise<PreparedUploadImage> {
 const tokenKey = "kurocms_pat";
 const uiLangKey = "kurocms_ui_lang";
 const colorModeKey = "kurocms_color_mode";
+// ブラウザのタブタイトルに出すユーザー名（プロフィールの displayName）のキャッシュ。
+// 複数の KuroCMS インスタンスを同時に開くと全部 "KuroCMS Admin" になって
+// 見分けがつかないため、"KuroCMS <ユーザー名>" を表示する。セッション取得より
+// 前に描画されるぶんのちらつきを避けるため localStorage に持たせる。
+const adminTitleNameKey = "kurocms_admin_title_name";
+/** document.title を "KuroCMS <ユーザー名>" にする。名前が空なら "KuroCMS Admin"。 */
+function setAdminDocumentTitle(displayName: Dynamic): void {
+  const name = String(displayName ?? "").trim();
+  try {
+    if (name) localStorage.setItem(adminTitleNameKey, name);
+    else localStorage.removeItem(adminTitleNameKey);
+  } catch {
+    /* storage unavailable — タイトルは出せるのでキャッシュだけ諦める */
+  }
+  document.title = name ? "KuroCMS " + name : "KuroCMS Admin";
+}
+(function applyCachedAdminDocumentTitle() {
+  let cached = "";
+  try {
+    cached = localStorage.getItem(adminTitleNameKey) || "";
+  } catch {
+    /* storage unavailable */
+  }
+  if (cached) document.title = "KuroCMS " + cached;
+})();
 // KuroCMS brand logo. Resolved via
 // the /favicon.svg route (302 to the site's configured favicon media).
 // NOTE(2026-07): this URL 404'd for a while — root cause was the
@@ -3740,6 +3765,7 @@ async function render() {
           return loginScreen();
         }
         state.isAdmin = sessionData.isAdmin === true;
+        setAdminDocumentTitle(sessionData.displayName);
       } catch {
         return loginScreen();
       }

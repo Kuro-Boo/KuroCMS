@@ -122,6 +122,8 @@ async function profile() {
     ]);
     const meUser = meData.user;
     state.currentUser = meUser;
+    // タブタイトル "KuroCMS <ユーザー名>" を実値に追随させる（改名直後もここで反映）。
+    setAdminDocumentTitle(meUser.displayName);
     // 実値を表示（空なら空のまま）。空のときは権限名をプレースホルダーでヒント表示するだけで、
     // 値としては入れない（空のまま更新しても "管理者" が保存されないように）。
     const dnInput = byId("profileDisplayName")!;

@@ -22,6 +22,7 @@ import {
 import { KE_VERSION } from "./admin-assets";
 import { buildFontHead, type LoadedFont } from "./fonts";
 import { stripInternalIds } from "./strip-internal-ids";
+import { annotateHeadings, renderTocHtml, type HeadingItem } from "./headings";
 // [[...]] 判定は KuroEditor と共有（vendored kuro-links.js の単一の正）。公開側は
 // この記述子から公開用マークアップだけを emit する。判定ロジックは再実装しない。
 import {
@@ -42,7 +43,7 @@ import type { Env, JsonValue } from "./types";
 // can't see (e.g. the <head> content-CSS <link>, template-model shape). The
 // build salts every page hash with this, so cached builds are invalidated and
 // all pages regenerate even when their underlying content is unchanged.
-const RENDER_FORMAT_VERSION = "21";
+const RENDER_FORMAT_VERSION = "22";
 
 /** Cheap, synchronous string hash (FNV-1a, base36) for cache keys. Not crypto. */
 /**
@@ -2285,12 +2286,13 @@ async function buildRenderContext(
   // them like article bodies so callouts/roundboxes render consistently.
   for (const page of staticPages) {
     if (content[page.bodyKey])
-      content[page.bodyKey] = wrapKuroContent(content[page.bodyKey]);
+      content[page.bodyKey] = wrapKuroContent(content[page.bodyKey], lang);
   }
   // Same for the legal pages' site texts (privacy policy / terms of service).
   if (content["privacy"])
-    content["privacy"] = wrapKuroContent(content["privacy"]);
-  if (content["terms"]) content["terms"] = wrapKuroContent(content["terms"]);
+    content["privacy"] = wrapKuroContent(content["privacy"], lang);
+  if (content["terms"])
+    content["terms"] = wrapKuroContent(content["terms"], lang);
 
   // /privacy/ and /terms/ exist only while their site text has content (after
   // the language fallback above): an empty key means 404 — and the matching
@@ -2433,12 +2435,24 @@ async function buildRenderContext(
     const bodyWithByline =
       (expandedBody.body || "") +
       (authorName ? buildBylineHtml(authorName, lang) : "");
+    const wrappedBody = wrapKuroContentWithHeadings(bodyWithByline, lang);
     article = {
       slug: r.slug,
       type: r.tid,
       title: r.title || r.slug,
       summary: r.summary || "",
-      bodyHtml: wrapKuroContent(bodyWithByline),
+      bodyHtml: wrappedBody.html,
+      // 見出しアンカー（本文の h1〜h5 に付いた安定 id）から作る目次。
+      // テンプレートは [[html:article.toc]] をそのまま置くか、
+      // [[#each article.headings]] で自前のマークアップを組める。
+      headings: wrappedBody.headings.map((h) => ({
+        id: h.id,
+        level: h.level,
+        text: h.text,
+        href: `#${h.id}`,
+      })),
+      hasToc: wrappedBody.headings.length >= 2,
+      toc: renderTocHtml(wrappedBody.headings, { label: tocLabel(lang) }),
       publishAt: r.publish_at,
       updatedAt: r.updated_at,
       coverUrl: articleCover,
@@ -3312,9 +3326,62 @@ function adminAssetBase(env: Env): string {
  * privacy / terms がすべてこの関数を通るため、公開面の単一チョークポイント)。
  * 除去ロジックは strip-internal-ids.ts (構造走査・F0-2 の '>' 属性値バグを修正済み)。
  */
-function wrapKuroContent(html: string): string {
-  const h = stripInternalIds((html || "").trim());
-  return h ? `<div class="kuro-content">${h}</div>` : "";
+function wrapKuroContent(html: string, lang = ""): string {
+  return wrapKuroContentWithHeadings(html, lang).html;
+}
+
+/** 目次表題（サイト言語別。未知の言語は英語）。 */
+const TOC_LABELS: Record<string, string> = {
+  ja: "目次",
+  en: "Contents",
+  ko: "목차",
+  zh: "目录",
+  de: "Inhalt",
+  fr: "Sommaire",
+  it: "Indice",
+  es: "Índice",
+  uk: "Зміст",
+};
+
+/** 見出しアンカー（`#`）のスクリーンリーダー向けラベル。 */
+const ANCHOR_LABELS: Record<string, string> = {
+  ja: "この見出しへのリンク",
+  en: "Link to this section",
+  ko: "이 섹션 링크",
+  zh: "本节链接",
+  de: "Link zu diesem Abschnitt",
+  fr: "Lien vers cette section",
+  it: "Link a questa sezione",
+  es: "Enlace a esta sección",
+  uk: "Посилання на цей розділ",
+};
+
+function tocLabel(lang: string): string {
+  return TOC_LABELS[(lang || "").split("-")[0]] || TOC_LABELS.en;
+}
+
+function anchorLabel(lang: string): string {
+  return ANCHOR_LABELS[(lang || "").split("-")[0]] || ANCHOR_LABELS.en;
+}
+
+/**
+ * wrapKuroContent の本体。ラップと同時に見出しへ安定 id と `#` アンカーを付け、
+ * 目次に使える見出し一覧も返す（headings.ts）。公開本文はすべてここを通るので、
+ * 記事も固定ページも同じ規則でアンカーが付く。
+ */
+function wrapKuroContentWithHeadings(
+  html: string,
+  lang = "",
+): { html: string; headings: HeadingItem[] } {
+  const stripped = stripInternalIds((html || "").trim());
+  if (!stripped) return { html: "", headings: [] };
+  const annotated = annotateHeadings(stripped, {
+    anchorLabel: anchorLabel(lang),
+  });
+  return {
+    html: `<div class="kuro-content">${annotated.html}</div>`,
+    headings: annotated.headings,
+  };
 }
 
 /** "Written by" label per site language (falls back to English). */
@@ -3556,6 +3623,32 @@ function buildRelatedHtml(
   );
 }
 
+// 見出しアンカー（headings.ts が付ける `#`）と目次のスタイル。
+//
+// テンプレートの配色に依存しないよう、色は currentColor と半透明グレーだけを使う
+// （kuro-related と同じ方針）。ke-content.css は KuroEditor 側の資産なので、
+// KuroCMS が公開面だけのために足すこの分はこちらで持つ。
+const HEADING_ANCHOR_CSS =
+  "<style>" +
+  // アンカーへ飛んだとき見出しがビューポート上端に貼り付かないように余白を確保
+  ".kuro-content h1,.kuro-content h2,.kuro-content h3,.kuro-content h4,.kuro-content h5{scroll-margin-top:1.5rem}" +
+  ".kuro-anchor{margin-left:.35em;font-weight:400;text-decoration:none;color:currentColor;opacity:0;transition:opacity .12s}" +
+  ".kuro-content h1:hover .kuro-anchor,.kuro-content h2:hover .kuro-anchor,.kuro-content h3:hover .kuro-anchor," +
+  ".kuro-content h4:hover .kuro-anchor,.kuro-content h5:hover .kuro-anchor,.kuro-anchor:focus-visible{opacity:.45}" +
+  // タッチ端末は hover が無いので薄く常時表示する
+  "@media (hover:none){.kuro-anchor{opacity:.3}}" +
+  "@media print{.kuro-anchor{display:none}}" +
+  ".kuro-toc{margin:1.5rem 0;padding:.875rem 1.125rem;border:1px solid rgba(128,128,128,.25);border-radius:10px}" +
+  ".kuro-toc__title{margin:0 0 .5rem;font-size:.8125rem;font-weight:700;letter-spacing:.04em;opacity:.7}" +
+  ".kuro-toc__list{margin:0;padding:0;list-style:none;font-size:.9375rem;line-height:1.5}" +
+  ".kuro-toc__item{margin:.25rem 0}" +
+  '.kuro-toc__item[data-depth="1"]{padding-left:1rem}' +
+  '.kuro-toc__item[data-depth="2"]{padding-left:2rem}' +
+  '.kuro-toc__item[data-depth="3"]{padding-left:3rem}' +
+  ".kuro-toc__item a{color:currentColor;text-decoration:none;opacity:.85}" +
+  ".kuro-toc__item a:hover{text-decoration:underline;opacity:1}" +
+  "</style>";
+
 function injectContentStyles(
   html: string,
   basePath: string,
@@ -3574,6 +3667,7 @@ function injectContentStyles(
     "/_admin/ke-content." +
     KE_VERSION +
     '.css" />' +
+    HEADING_ANCHOR_CSS +
     mobileCss;
   return html.includes("</head>")
     ? html.replace("</head>", link + "</head>")

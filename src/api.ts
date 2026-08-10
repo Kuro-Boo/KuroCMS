@@ -132,7 +132,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.9.16";
+export const KUROCMS_VERSION = "1.9.17";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -1337,6 +1337,7 @@ async function authSession(request: Request, env: Env): Promise<Response> {
       sessions.uid,
       sessions.expires_at,
       users.email,
+      users.display_name,
       users.is_admin,
       users.is_author,
       users.disabled_at
@@ -1350,6 +1351,7 @@ async function authSession(request: Request, env: Env): Promise<Response> {
       uid: string;
       expires_at: string;
       email: string;
+      display_name: string | null;
       is_admin: number;
       is_author: number;
       disabled_at: string | null;
@@ -1371,6 +1373,9 @@ async function authSession(request: Request, env: Env): Promise<Response> {
     authenticated: true,
     uid: row.uid,
     email: row.email,
+    // 管理 UI のタブタイトル（"KuroCMS <ユーザー名>"）に使う。複数インスタンスを
+    // 同時に開いたときにどのサイトのタブか見分けられるようにするため。
+    displayName: row.display_name ?? "",
     isAdmin: row.is_admin === 1,
     isAuthor: row.is_author === 1,
   });

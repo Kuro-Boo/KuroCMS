@@ -62,6 +62,19 @@ export interface ArticleData {
    * カードが無い/壊れている記事では undefined。
    */
   recipe?: RecipeData | null;
+  /**
+   * 本文の見出し（h1〜h5）一覧。公開ビルドが見出しテキスト由来の安定 id を
+   * 付けたうえで拾ったもの（headings.ts）。`href` はその id へのフラグメント。
+   * テンプレートは [[#each article.headings]] で自前の目次を組める。
+   */
+  headings?: { id: string; level: number; text: string; href: string }[];
+  /** 目次を出す価値があるか（見出し 2 本以上）。[[#if article.hasToc]] 用。 */
+  hasToc?: boolean;
+  /**
+   * すぐ置ける目次 HTML（`<nav class="kuro-toc">`）。見出しが 1 本以下なら
+   * 空文字。テンプレートは [[html:article.toc]] で挿入する。
+   */
+  toc?: string;
 }
 
 /** RecipeCard の内容（KuroEditor の共有純関数が正規化した形）。 */
