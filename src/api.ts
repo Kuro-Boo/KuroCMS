@@ -138,7 +138,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.9.21";
+export const KUROCMS_VERSION = "1.9.22";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -558,6 +558,13 @@ async function handleApiDispatch(
       return withJsonHeaders(
         await restoreMedia(request, env, restoreMediaMatch[1]),
       );
+    }
+    // 重複メディアの統合（保守）。既定は dry run、?apply=1 で実行。
+    // content_hash 未設定の行があるうちは phase:"hashing" を返すので、
+    // 呼び手は done になるまで繰り返す（ワイプ系と同じ作法）。
+    if (request.method === "POST" && path === "/api/system/media/dedupe") {
+      requireAdmin(user);
+      return withJsonHeaders(await mediaDedupe(env, url));
     }
     if (request.method === "POST" && path === "/api/system/restore/finish") {
       requireAdmin(user);
@@ -9685,6 +9692,282 @@ async function restoreMedia(
     httpMetadata: { contentType: row.mime || "application/octet-stream" },
   });
   return json({ ok: true, mid });
+}
+
+// ── 重複メディアの統合（保守） ──────────────────────────────────────────────
+//
+// 同じ実体の画像が別 mid で複数登録されていることがある（content_hash による
+// 重複排除が入る前のアップロード分）。ここでは
+//   ① 参照を「残す mid」へ書き換え → ② 余分な行と R2 実体を削除
+// の順で統合する。⚠ 逆順にすると、書き換えの前に実体が消えて記事の画像が
+// 一時的に壊れる。
+//
+// ⚠ 本文の綴りを直すだけなので、著者（document_translations.source）は
+//   触らない。cleanup-styles / normalize-format と同じ「保守系の一括 UPDATE」
+//   として document_translations を直接更新する（writeTranslationContent は
+//   通さない＝リビジョンも積まない）。
+//
+// ⚠ mid の素の文字列を replace してはいけない。`img-159` は将来の `img-1590`
+//   の前方一致になる。実際に保存されている【区切り付きの形】だけを置換する:
+//     "img-159"            JSON の値（seo_json の coverMid など）
+//     /images/img-159.jpg  public_path（seo_json の coverPath など）
+//     [[img-159]]          本文のメディアトークン
+//     [[img-159|          本文のメディアトークン（オプション付き）
+const MEDIA_HASH_BATCH = 25; // 1 リクエストでハッシュ計算する最大件数
+
+interface MediaRowForDedupe {
+  mid: string;
+  public_path: string;
+  content_hash: string | null;
+  size_bytes: number | null;
+  created_at: string | null;
+}
+
+/** 置換ペア（区切り付きの形だけ）。 */
+function mediaRefPairs(
+  dupe: MediaRowForDedupe,
+  keeper: MediaRowForDedupe,
+): [string, string][] {
+  return [
+    [`"${dupe.mid}"`, `"${keeper.mid}"`],
+    [dupe.public_path, keeper.public_path],
+    [`[[${dupe.mid}]]`, `[[${keeper.mid}]]`],
+    [`[[${dupe.mid}|`, `[[${keeper.mid}|`],
+  ];
+}
+
+/** replace() を入れ子にした SQL 式と、そのバインド値を作る。 */
+function nestedReplaceSql(
+  column: string,
+  pairs: [string, string][],
+): { expr: string; binds: string[] } {
+  let expr = column;
+  const binds: string[] = [];
+  for (const [from, to] of pairs) {
+    expr = `replace(${expr}, ?, ?)`;
+    binds.push(from, to);
+  }
+  return { expr, binds };
+}
+
+/** その mid を参照している行数（残す側を選ぶための概算。区切り付きで数える）。 */
+async function countMediaRefs(
+  env: Env,
+  row: MediaRowForDedupe,
+): Promise<number> {
+  const like = [
+    `%"${row.mid}"%`,
+    `%${row.public_path}%`,
+    `%[[${row.mid}]]%`,
+    `%[[${row.mid}|%`,
+  ];
+  const q = async (sql: string) => {
+    const r = await env.DB.prepare(sql)
+      .bind(...like, ...like)
+      .first<{ c: number }>()
+      .catch(() => null);
+    return Number(r?.c ?? 0);
+  };
+  const cond = (col: string) => like.map(() => `${col} LIKE ?`).join(" OR ");
+  return (
+    (await q(
+      `SELECT COUNT(*) AS c FROM document_translations WHERE (${cond("body_html")}) OR (${cond("seo_json")})`,
+    )) +
+    (await q(
+      `SELECT COUNT(*) AS c FROM document_translation_revisions WHERE (${cond("body_html")}) OR (${cond("seo_json")})`,
+    ))
+  );
+}
+
+/**
+ * 重複メディアの検出と統合。
+ * 既定は dry run。実行するには ?apply=1 を付ける。
+ * content_hash が未設定の行があるうちは「ハッシュ計算だけ」を返すので、
+ * 呼び手は phase が "hashing" の間ループする（ワイプ系と同じ作法）。
+ */
+async function mediaDedupe(env: Env, url: URL): Promise<Response> {
+  if (!env.MEDIA_BUCKET) {
+    throw new HttpError(
+      503,
+      "r2_not_configured",
+      "メディアの保存先（R2）が接続されていません。",
+    );
+  }
+  const apply = url.searchParams.get("apply") === "1";
+  const bucket = env.MEDIA_BUCKET as R2Bucket;
+
+  // ── フェーズ 1: content_hash の補完（古いアップロードは未設定） ──────────
+  const missing = await env.DB.prepare(
+    `SELECT mid, public_path, content_hash, size_bytes, created_at
+       FROM media_assets WHERE content_hash IS NULL OR content_hash = ''
+      ORDER BY mid LIMIT ?`,
+  )
+    .bind(MEDIA_HASH_BATCH)
+    .all<MediaRowForDedupe>();
+  const todo = missing.results ?? [];
+  if (todo.length) {
+    let hashed = 0;
+    for (const row of todo) {
+      const obj = await bucket.get(row.public_path.replace(/^\//, ""));
+      if (!obj) continue; // 実体が無い行はハッシュを付けられない（統合対象外）
+      const digest = await crypto.subtle.digest(
+        "SHA-256",
+        await obj.arrayBuffer(),
+      );
+      const hex = [...new Uint8Array(digest)]
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
+      await env.DB.prepare(
+        "UPDATE media_assets SET content_hash = ? WHERE mid = ?",
+      )
+        .bind(hex, row.mid)
+        .run();
+      hashed += 1;
+    }
+    const left = await env.DB.prepare(
+      "SELECT COUNT(*) AS c FROM media_assets WHERE content_hash IS NULL OR content_hash = ''",
+    ).first<{ c: number }>();
+    return json({
+      phase: "hashing",
+      hashed,
+      remaining: Number(left?.c ?? 0),
+      done: false,
+    });
+  }
+
+  // ── フェーズ 2: 重複のグループ化 ─────────────────────────────────────────
+  const all = await env.DB.prepare(
+    `SELECT mid, public_path, content_hash, size_bytes, created_at
+       FROM media_assets WHERE content_hash IS NOT NULL AND content_hash != ''
+      ORDER BY created_at, mid`,
+  ).all<MediaRowForDedupe>();
+  const byHash = new Map<string, MediaRowForDedupe[]>();
+  for (const row of all.results ?? []) {
+    const key = row.content_hash as string;
+    const list = byHash.get(key);
+    if (list) list.push(row);
+    else byHash.set(key, [row]);
+  }
+
+  const plan: {
+    hash: string;
+    keep: string;
+    remove: string[];
+    refs: Record<string, number>;
+    bytesFreed: number;
+  }[] = [];
+  for (const [hash, rows] of byHash) {
+    if (rows.length < 2) continue;
+    const refs: Record<string, number> = {};
+    for (const r of rows) refs[r.mid] = await countMediaRefs(env, r);
+    // 残すのは【参照が最も多い】もの。同数なら古い方（＝書き換え量が最小で、
+    // 参照ゼロの孤児が自動的に消える側になる）。
+    const sorted = [...rows].sort(
+      (a, b) =>
+        refs[b.mid] - refs[a.mid] ||
+        String(a.created_at).localeCompare(String(b.created_at)) ||
+        a.mid.localeCompare(b.mid),
+    );
+    const keep = sorted[0];
+    const remove = sorted.slice(1);
+    plan.push({
+      hash,
+      keep: keep.mid,
+      remove: remove.map((r) => r.mid),
+      refs,
+      bytesFreed: remove.reduce((s, r) => s + Number(r.size_bytes ?? 0), 0),
+    });
+  }
+
+  if (!apply) {
+    return json({
+      phase: "plan",
+      done: true,
+      dryRun: true,
+      groups: plan as unknown as JsonValue,
+      filesToRemove: plan.reduce((s, g) => s + g.remove.length, 0),
+      bytesFreed: plan.reduce((s, g) => s + g.bytesFreed, 0),
+    });
+  }
+
+  // ── フェーズ 3: 参照の書き換え → 実体の削除（この順を守る） ──────────────
+  const byMid = new Map((all.results ?? []).map((r) => [r.mid, r]));
+  const now = nowIso();
+  const report: {
+    keep: string;
+    removed: string;
+    rewritten: Record<string, number>;
+  }[] = [];
+  for (const group of plan) {
+    const keeper = byMid.get(group.keep)!;
+    for (const mid of group.remove) {
+      const dupe = byMid.get(mid)!;
+      const pairs = mediaRefPairs(dupe, keeper);
+      const rewritten: Record<string, number> = {};
+
+      const sweep = async (
+        table: string,
+        columns: string[],
+      ): Promise<number> => {
+        const sets: string[] = [];
+        const binds: (string | number)[] = [];
+        for (const col of columns) {
+          const { expr, binds: b } = nestedReplaceSql(col, pairs);
+          sets.push(`${col} = ${expr}`);
+          binds.push(...b);
+        }
+        const where = columns
+          .map((col) => pairs.map(() => `${col} LIKE ?`).join(" OR "))
+          .join(" OR ");
+        const whereBinds = columns.flatMap(() =>
+          pairs.map(([from]) => `%${from}%`),
+        );
+        const res = await env.DB.prepare(
+          `UPDATE ${table} SET ${sets.join(", ")} WHERE ${where}`,
+        )
+          .bind(...binds, ...whereBinds)
+          .run()
+          .catch(() => null);
+        return Number(res?.meta?.changes ?? 0);
+      };
+
+      rewritten.document_translations = await sweep("document_translations", [
+        "body_html",
+        "seo_json",
+      ]);
+      rewritten.document_translation_revisions = await sweep(
+        "document_translation_revisions",
+        ["body_html", "seo_json"],
+      );
+      rewritten.taxonomy_items = await sweep("taxonomy_items", ["name"]);
+      rewritten.page_templates = await sweep("page_templates", ["source_html"]);
+
+      // ここまで来てから実体を消す（順序を逆にしない）
+      await bucket.delete(dupe.public_path.replace(/^\//, "")).catch(() => {});
+      await env.DB.prepare("DELETE FROM media_assets WHERE mid = ?")
+        .bind(mid)
+        .run();
+      report.push({ keep: group.keep, removed: mid, rewritten });
+    }
+  }
+
+  // 派生キャッシュを落として、次のビルドで確実に作り直させる
+  await env.DB.prepare("DELETE FROM page_build_cache")
+    .run()
+    .catch(() => {});
+  await env.DB.prepare("UPDATE site_settings SET updated_at = ? WHERE id = 1")
+    .bind(now)
+    .run()
+    .catch(() => {});
+
+  return json({
+    phase: "applied",
+    done: true,
+    dryRun: false,
+    removed: report.length,
+    bytesFreed: plan.reduce((s, g) => s + g.bytesFreed, 0),
+    detail: report as unknown as JsonValue,
+  });
 }
 
 async function restoreFinish(env: Env): Promise<Response> {
