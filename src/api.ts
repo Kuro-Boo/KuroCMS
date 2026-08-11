@@ -36,6 +36,12 @@ import { checkRecipeCards } from "./recipe-guard.js";
 import { KUROMAILER_SHARED_SECRET } from "./kuromailer-secret";
 import { COMMUNITY_SHARED_PAT } from "./community-secret";
 import { verifyRegistration, verifyAuthentication } from "./webauthn";
+// GitHub の非 API 経路（レート制限に当たらない）からタグを読む純関数。
+import {
+  parseStableTagFromLocation,
+  parseLatestTagFromAtom,
+  releaseAssetUrl as buildReleaseAssetUrl,
+} from "./github-release";
 import {
   HttpError,
   json,
@@ -132,7 +138,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.9.18";
+export const KUROCMS_VERSION = "1.9.19";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -2842,6 +2848,102 @@ function githubApiHeaders(env: Env): Record<string, string> {
   return headers;
 }
 
+// ── GitHub API を使わない経路（レート制限に当たらない） ────────────────────
+//
+// ⚠ 未認証の GitHub API 上限は【IP あたり 60 req/時】で、Worker の送信元 IP は
+//   Cloudflare の共有 egress。つまり自分が 1 回も叩いていなくても、同じ IP に
+//   相乗りしている他テナントの分で枯れて 403 が返る（新規インストールで頻発。
+//   KV キャッシュが空なので初回から素通しで当たる）。GITHUB_TOKEN を入れれば
+//   5,000 req/時 になるが、それは利用者ごとに PAT を用意させることになるので
+//   既定解にはできない。
+//
+// そこで API ではない 3 つの経路を用意し、API が駄目でも更新が続けられるように
+// する（いずれも実測でレート制限の対象外）:
+//   - stable のタグ … /releases/latest の 302 Location（API の /releases/latest
+//                     と同じ意味＝prerelease/draft を除いた最新）
+//   - latest のタグ … /releases.atom の先頭 entry（prerelease も含む＝rolling）
+//   - リリース資産  … /releases/download/{tag}/{name}（版固定・不変）
+//
+// ⚠ 資産は必ず /releases/download/{tag}/ の【版固定 URL】を使う。
+//   /releases/latest/download/ は CDN キャッシュで stale を掴むうえ、選択中の
+//   チャンネルに関係なく GitHub の真の最新へ解決してしまう。
+
+/** レート制限の解除時刻（epoch ms）を置く KV キー。 */
+const GITHUB_BACKOFF_KEY = "system:github_backoff_until";
+/** KV の expirationTtl の下限は 60 秒。 */
+const GITHUB_BACKOFF_MIN_TTL = 60;
+/** 待ちすぎないための上限（GitHub の枠は毎時リセット）。 */
+const GITHUB_BACKOFF_MAX_TTL = 3600;
+
+/** レート制限中なら true。API を叩かずに非 API 経路へ回すための判定。 */
+async function githubApiBackedOff(env: Env): Promise<boolean> {
+  try {
+    const until = await env.PUBLIC_PAGES.get(GITHUB_BACKOFF_KEY);
+    return Boolean(until) && Number(until) > Date.now();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 403/429 を受けたら解除時刻を KV に控える。連打しても API を叩かなくなるので、
+ * 枠の回復を自分で妨げない（＝サブリクエストも無駄に使わない）。
+ * 解除時刻は GitHub の `x-ratelimit-reset`（epoch 秒）に従う。
+ */
+async function noteGithubRateLimit(env: Env, res: Response): Promise<void> {
+  if (res.status !== 403 && res.status !== 429) return;
+  const resetSec = Number(res.headers.get("x-ratelimit-reset") || "");
+  const seconds = Number.isFinite(resetSec)
+    ? Math.ceil(resetSec - Date.now() / 1000)
+    : GITHUB_BACKOFF_MIN_TTL;
+  const ttl = Math.min(
+    GITHUB_BACKOFF_MAX_TTL,
+    Math.max(GITHUB_BACKOFF_MIN_TTL, seconds),
+  );
+  try {
+    await env.PUBLIC_PAGES.put(
+      GITHUB_BACKOFF_KEY,
+      String(Date.now() + ttl * 1000),
+      { expirationTtl: ttl },
+    );
+  } catch {
+    /* KV が書けなくても更新自体は続けられる（次回また API を試すだけ） */
+  }
+}
+
+/** リリース資産の版固定 URL（API 不要・不変）。 */
+function releaseAssetUrl(tag: string, name: string): string {
+  return buildReleaseAssetUrl(KUROCMS_GITHUB_REPO, tag, name);
+}
+
+/** API を使わずに stable のタグを取る（/releases/latest の 302 Location）。 */
+async function stableTagNoApi(): Promise<string> {
+  const res = await fetch(
+    `https://github.com/${KUROCMS_GITHUB_REPO}/releases/latest`,
+    { redirect: "manual", signal: AbortSignal.timeout(15_000) },
+  );
+  const tag = parseStableTagFromLocation(res.headers.get("location") || "");
+  if (!tag) throw new Error("Could not resolve the stable release tag.");
+  return tag;
+}
+
+/** API を使わずに rolling（prerelease 含む）のタグを取る（releases.atom の先頭）。 */
+async function latestTagNoApi(): Promise<string> {
+  const res = await fetch(
+    `https://github.com/${KUROCMS_GITHUB_REPO}/releases.atom`,
+    { signal: AbortSignal.timeout(15_000) },
+  );
+  if (!res.ok) throw new Error(`releases.atom returned ${res.status}`);
+  const tag = parseLatestTagFromAtom(await res.text());
+  if (!tag) throw new Error("Could not resolve the latest release tag.");
+  return tag;
+}
+
+/** チャンネルのタグを API 抜きで解決する。 */
+async function resolveTagNoApi(channel: "stable" | "latest"): Promise<string> {
+  return channel === "latest" ? latestTagNoApi() : stableTagNoApi();
+}
+
 // Cache the release-channel lookup so the dashboard's per-load + hourly version
 // polling does not hit the GitHub API on every call (was the main rate-limit cause).
 //
@@ -2876,24 +2978,45 @@ async function fetchReleaseChannels(
       /* stale/corrupt cache entry — refetch below */
     }
   }
-  const ghRes = await fetch(
-    `https://api.github.com/repos/${KUROCMS_GITHUB_REPO}/releases?per_page=10`,
-    { headers: githubApiHeaders(env) },
-  );
-  if (!ghRes.ok) throw new Error(`GitHub API returned ${ghRes.status}`);
-  const list = (await ghRes.json()) as Array<{
-    tag_name: string;
-    prerelease: boolean;
-    draft: boolean;
-  }>;
-  const rolling = list.find((r) => !r.draft);
-  const stableRelease = list.find((r) => !r.draft && !r.prerelease);
-  if (!rolling || !stableRelease)
-    throw new Error("No published releases found.");
-  const channels: ReleaseChannels = {
-    latest: rolling.tag_name.replace(/^v/, ""),
-    stable: stableRelease.tag_name.replace(/^v/, ""),
-  };
+  let channels: ReleaseChannels | null = null;
+
+  // API は「取れたら使う」。レート制限中(=backoff)なら最初から叩かない。
+  if (!(await githubApiBackedOff(env))) {
+    const ghRes = await fetch(
+      `https://api.github.com/repos/${KUROCMS_GITHUB_REPO}/releases?per_page=10`,
+      { headers: githubApiHeaders(env) },
+    );
+    if (ghRes.ok) {
+      const list = (await ghRes.json()) as Array<{
+        tag_name: string;
+        prerelease: boolean;
+        draft: boolean;
+      }>;
+      const rolling = list.find((r) => !r.draft);
+      const stableRelease = list.find((r) => !r.draft && !r.prerelease);
+      if (rolling && stableRelease) {
+        channels = {
+          latest: rolling.tag_name.replace(/^v/, ""),
+          stable: stableRelease.tag_name.replace(/^v/, ""),
+        };
+      }
+    } else {
+      await noteGithubRateLimit(env, ghRes);
+    }
+  }
+
+  // API が駄目でも非 API 経路で両チャンネルを解決する（上の設計コメント参照）。
+  if (!channels) {
+    const [latestTag, stableTag] = await Promise.all([
+      latestTagNoApi(),
+      stableTagNoApi(),
+    ]);
+    channels = {
+      latest: latestTag.replace(/^v/, ""),
+      stable: stableTag.replace(/^v/, ""),
+    };
+  }
+
   await env.PUBLIC_PAGES.put(
     RELEASE_CHANNELS_CACHE_KEY,
     JSON.stringify(channels),
@@ -3039,63 +3162,86 @@ async function systemUpdate(
   // assets), unlike the lightweight tag-only lookup cached by
   // fetchReleaseChannels for the dashboard display.
   const channel = await getUpdateChannel(env);
-  const ghRes = await fetch(
-    requestedTag
-      ? `https://api.github.com/repos/${KUROCMS_GITHUB_REPO}/releases/tags/${requestedTag}`
-      : channel === "latest"
-        ? `https://api.github.com/repos/${KUROCMS_GITHUB_REPO}/releases?per_page=1`
-        : `https://api.github.com/repos/${KUROCMS_GITHUB_REPO}/releases/latest`,
-    { headers: githubApiHeaders(env) },
-  );
-  if (!ghRes.ok) {
-    const ghBody = await ghRes.text().catch(() => "");
-    throw new HttpError(
-      502,
-      requestedTag && ghRes.status === 404
-        ? "release_not_found"
-        : "github_unreachable",
-      `GitHub API returned ${ghRes.status}: ${ghBody.slice(0, 200)}`,
+
+  // 解決したいのは「タグ」と「worker.js / migrations-manifest.json の URL」だけ。
+  // API はタグと資産 URL を一度に返せるので取れたら使うが、未認証の API は共有 IP の
+  // レート制限で落ちるので、駄目なら非 API 経路（タグ解決＋版固定 URL）へ倒す。
+  let resolvedTag = "";
+  let workerUrl = "";
+  let manifestUrl: string | undefined;
+
+  if (!(await githubApiBackedOff(env))) {
+    const ghRes = await fetch(
+      requestedTag
+        ? `https://api.github.com/repos/${KUROCMS_GITHUB_REPO}/releases/tags/${requestedTag}`
+        : channel === "latest"
+          ? `https://api.github.com/repos/${KUROCMS_GITHUB_REPO}/releases?per_page=1`
+          : `https://api.github.com/repos/${KUROCMS_GITHUB_REPO}/releases/latest`,
+      { headers: githubApiHeaders(env) },
     );
-  }
-  const ghData = await ghRes.json();
-  const release = (
-    !requestedTag && channel === "latest" ? (ghData as unknown[])[0] : ghData
-  ) as
-    | {
-        tag_name: string;
-        assets: Array<{ name: string; browser_download_url: string }>;
+    if (ghRes.ok) {
+      const ghData = await ghRes.json();
+      const release = (
+        !requestedTag && channel === "latest"
+          ? (ghData as unknown[])[0]
+          : ghData
+      ) as
+        | {
+            tag_name: string;
+            assets: Array<{ name: string; browser_download_url: string }>;
+          }
+        | undefined;
+      const asset = release?.assets?.find((a) => a.name === "worker.js");
+      if (release && asset) {
+        resolvedTag = release.tag_name;
+        workerUrl = asset.browser_download_url;
+        manifestUrl = release.assets.find(
+          (a) => a.name === "migrations-manifest.json",
+        )?.browser_download_url;
       }
-    | undefined;
-  if (!release)
-    throw new HttpError(
-      502,
-      "no_release_found",
-      `No GitHub release found for the "${channel}" channel.`,
-    );
-  const workerAsset = release.assets.find((a) => a.name === "worker.js");
-  if (!workerAsset)
-    throw new HttpError(
-      502,
-      "no_worker_asset",
-      `No worker.js asset found in the "${channel}" GitHub release.`,
-    );
+    } else {
+      // 指定タグが本当に無い場合だけは、非 API 経路へ倒さず素直に知らせる
+      // （別チャンネルの版を黙って入れてしまわないため）。
+      if (requestedTag && ghRes.status === 404) {
+        const ghBody = await ghRes.text().catch(() => "");
+        throw new HttpError(
+          502,
+          "release_not_found",
+          `GitHub API returned 404: ${ghBody.slice(0, 200)}`,
+        );
+      }
+      await noteGithubRateLimit(env, ghRes);
+    }
+  }
+
+  if (!workerUrl) {
+    try {
+      resolvedTag = requestedTag || (await resolveTagNoApi(channel));
+    } catch (err) {
+      throw new HttpError(
+        502,
+        "github_unreachable",
+        `Could not resolve the "${channel}" release from GitHub: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+    workerUrl = releaseAssetUrl(resolvedTag, "worker.js");
+    manifestUrl = releaseAssetUrl(resolvedTag, "migrations-manifest.json");
+  }
+
   // Apply pending migrations directly via D1 binding (run-once, additive-only).
-  // Use the immutable, version-pinned manifest asset URL from the GitHub API
-  // (release.assets) — NOT the CDN-cached latest/download redirect, which the
-  // Worker's fetch() can serve stale, skipping freshly-released migrations,
-  // AND which always resolves to GitHub's true latest regardless of channel.
-  const manifestAsset = release.assets.find(
-    (a) => a.name === "migrations-manifest.json",
-  );
-  const migrationsApplied = await applyPendingMigrations(
-    env,
-    manifestAsset?.browser_download_url,
-  );
+  // Use the immutable, version-pinned manifest asset URL — NOT the CDN-cached
+  // latest/download redirect, which the Worker's fetch() can serve stale,
+  // skipping freshly-released migrations, AND which always resolves to GitHub's
+  // true latest regardless of channel. (資産が無い古いリリースでも
+  // applyPendingMigrations は 0 件で素通しするので安全。)
+  const migrationsApplied = await applyPendingMigrations(env, manifestUrl);
 
   // Download the compiled Worker script from the version-pinned asset URL —
   // NOT /latest/download/, which always resolves to GitHub's true latest
   // release regardless of which channel was selected above.
-  const scriptRes = await fetch(workerAsset.browser_download_url, {
+  const scriptRes = await fetch(workerUrl, {
     redirect: "follow",
     signal: AbortSignal.timeout(30_000),
   });
@@ -3197,7 +3343,7 @@ async function systemUpdate(
   }
 
   await logActivity(env, user, "system.update", "system", "worker", {
-    version: release.tag_name,
+    version: resolvedTag,
     channel,
     migrationsApplied,
   });
@@ -3205,7 +3351,7 @@ async function systemUpdate(
   await env.PUBLIC_PAGES.delete(RELEASE_CHANNELS_CACHE_KEY).catch(() => {});
   return json({
     ok: true,
-    version: release.tag_name,
+    version: resolvedTag,
     channel,
     migrationsApplied,
   });
