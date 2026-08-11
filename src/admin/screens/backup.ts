@@ -20,7 +20,12 @@ const BACKUP_RESTORE_TABLE_ORDER = [
   "document_translation_revisions",
   "search_entries",
 ];
-const RESTORE_BATCH_ROWS = 200;
+// リストア 1 リクエストの上限。⚠ 行数だけで切ってはいけない — 本文 HTML を持つ
+// テーブル（document_translations / _revisions）は 1 行が実測で最大 82KB あり、
+// 200 行固定だと 1 リクエスト 15MB / D1 の 1 バッチ 200 文 × 巨大バインドになる。
+// バイト予算を主にし、行数は保険の上限として併用する。
+const RESTORE_BATCH_BYTES = 1_000_000;
+const RESTORE_BATCH_ROWS_MAX = 200;
 
 // Build the admin-rewritten URL + auth headers for raw (streaming) fetches that
 // must bypass api()'s text() buffering. Mirrors the rewrite inside api().
@@ -249,6 +254,13 @@ async function runBackup() {
     }
 
     // Media binaries → media/<path> (one streamed request per file).
+    //
+    // ⚠ 取りこぼしを黙って進めない。以前はここが `if (res.ok && res.body)` だけで、
+    //   R2 の不調や実体欠損で 1 件も入らなくても「完了」と表示された（移行の
+    //   検証が成立しない）。失敗は集計して最後に必ず知らせ、ZIP 内にも
+    //   media-errors.json として残す（後から突き合わせられるように）。
+    const mediaFailed: { mid: string; path: string; reason: string }[] = [];
+    let mediaOk = 0;
     let mediaCursor: number | null = 0;
     while (mediaCursor !== null) {
       const page = await api(
@@ -258,17 +270,45 @@ async function runBackup() {
         if (backupCancelled()) throw new Error("cancelled");
         const entryName = "media" + row.public_path;
         setBackupProgress((done / total) * 100, entryName);
-        const res = await fetch(
-          backupFetchUrl("/api/system/backup/media/" + row.mid),
-          { headers: backupAuthHeaders() },
-        );
-        if (res.ok && res.body) {
-          await zw.add(entryName, res.body, row.size_bytes || 0);
+        try {
+          const res = await fetch(
+            backupFetchUrl("/api/system/backup/media/" + row.mid),
+            { headers: backupAuthHeaders() },
+          );
+          if (res.ok && res.body) {
+            await zw.add(entryName, res.body, row.size_bytes || 0);
+            mediaOk += 1;
+          } else {
+            mediaFailed.push({
+              mid: row.mid,
+              path: row.public_path,
+              reason: "HTTP " + res.status,
+            });
+          }
+        } catch (err) {
+          mediaFailed.push({
+            mid: row.mid,
+            path: row.public_path,
+            reason: (err as Error).message || "fetch failed",
+          });
         }
         done += 1;
         setBackupProgress((done / total) * 100, entryName);
       }
       mediaCursor = page.nextCursor;
+    }
+
+    if (mediaFailed.length) {
+      await zw.add(
+        "media-errors.json",
+        new TextEncoder().encode(
+          JSON.stringify(
+            { expected: mediaTotal, saved: mediaOk, failed: mediaFailed },
+            null,
+            2,
+          ),
+        ),
+      );
     }
 
     await zw.close();
@@ -277,7 +317,16 @@ async function runBackup() {
 
     setBackupProgress(100, "");
     closeBackupProgress();
-    toast(t("backupDone"), false);
+    if (mediaFailed.length) {
+      toast(
+        t("backupMediaIncomplete")
+          .replace("{failed}", String(mediaFailed.length))
+          .replace("{total}", String(mediaTotal)),
+        true,
+      );
+    } else {
+      toast(t("backupDone"), false);
+    }
   } catch (e) {
     closeBackupProgress();
     if (writable) await writable.abort().catch(() => {});
@@ -397,7 +446,7 @@ async function runRestore() {
       if (!entry) continue;
       setBackupProgress((done / total) * 100, "data/" + name + ".jsonl");
       const blob = await reader.blob(entry);
-      await backupStreamJsonl(blob, RESTORE_BATCH_ROWS, async (rows) => {
+      await backupStreamJsonl(blob, async (rows) => {
         if (backupCancelled()) throw new Error("cancelled");
         await api("/api/system/restore/table/" + name, {
           method: "POST",
@@ -409,19 +458,34 @@ async function runRestore() {
     }
 
     // 4) Restore media binaries (one streamed upload per file).
+    //
+    // ⚠ ここも戻り値を必ず見る。以前は `await fetch(...)` の結果を捨てていたため、
+    //   R2 未接続（503）や行欠損（404）で 1 件も入らなくても「完了」と出た。
+    const restoreFailed: { mid: string; reason: string }[] = [];
     for (const entry of mediaEntries) {
       if (backupCancelled()) throw new Error("cancelled");
       const base = entry.name.substring(entry.name.lastIndexOf("/") + 1);
       const mid = base.replace(/\.[^.]+$/, "");
       setBackupProgress((done / total) * 100, entry.name);
       const blob = await reader.blob(entry);
-      await fetch(backupFetchUrl("/api/system/restore/media/" + mid), {
-        method: "POST",
-        headers: backupAuthHeaders({
-          "content-type": "application/octet-stream",
-        }),
-        body: blob,
-      });
+      try {
+        const res = await fetch(
+          backupFetchUrl("/api/system/restore/media/" + mid),
+          {
+            method: "POST",
+            headers: backupAuthHeaders({
+              "content-type": "application/octet-stream",
+            }),
+            body: blob,
+          },
+        );
+        if (!res.ok) restoreFailed.push({ mid, reason: "HTTP " + res.status });
+      } catch (err) {
+        restoreFailed.push({
+          mid,
+          reason: (err as Error).message || "fetch failed",
+        });
+      }
       done += 1;
       setBackupProgress((done / total) * 100, entry.name);
     }
@@ -430,7 +494,17 @@ async function runRestore() {
     await api("/api/system/restore/finish", { method: "POST" });
     setBackupProgress(100, "");
     closeBackupProgress();
-    toast(t("restoreDone"), false);
+    if (restoreFailed.length) {
+      console.warn("[restore] media failures", restoreFailed);
+      toast(
+        t("restoreMediaIncomplete")
+          .replace("{failed}", String(restoreFailed.length))
+          .replace("{total}", String(mediaEntries.length)),
+        true,
+      );
+    } else {
+      toast(t("restoreDone"), false);
+    }
   } catch (e) {
     closeBackupProgress();
     if ((e as Error).message === "cancelled") toast(t("backupCancelled"), true);
@@ -455,7 +529,6 @@ async function backupWipeLoop(path: string) {
 // memory: only one batch and a partial line are held at a time.
 async function backupStreamJsonl(
   blob: Blob,
-  batchSize: number,
   onBatch: (rows: Dynamic[]) => Promise<void>,
 ) {
   const reader = blob
@@ -464,6 +537,23 @@ async function backupStreamJsonl(
     .getReader();
   let buf = "";
   let batch: Dynamic[] = [];
+  let batchBytes = 0;
+  const flush = async () => {
+    if (!batch.length) return;
+    await onBatch(batch);
+    batch = [];
+    batchBytes = 0;
+  };
+  const push = async (line: string) => {
+    batch.push(JSON.parse(line));
+    // 行の JSON 長をそのまま予算に使う（送信ペイロードとほぼ一致する）
+    batchBytes += line.length;
+    if (
+      batchBytes >= RESTORE_BATCH_BYTES ||
+      batch.length >= RESTORE_BATCH_ROWS_MAX
+    )
+      await flush();
+  };
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
@@ -472,17 +562,11 @@ async function backupStreamJsonl(
     while ((nl = buf.indexOf("\n")) >= 0) {
       const line = buf.slice(0, nl);
       buf = buf.slice(nl + 1);
-      if (line.trim()) {
-        batch.push(JSON.parse(line));
-        if (batch.length >= batchSize) {
-          await onBatch(batch);
-          batch = [];
-        }
-      }
+      if (line.trim()) await push(line);
     }
   }
-  if (buf.trim()) batch.push(JSON.parse(buf));
-  if (batch.length) await onBatch(batch);
+  if (buf.trim()) await push(buf);
+  await flush();
 }
 
 // Classic <input type=file> fallback for browsers without showOpenFilePicker.

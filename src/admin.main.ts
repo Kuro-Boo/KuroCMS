@@ -547,6 +547,9 @@ const i18n = {
       "Save all KuroCMS content and settings — articles, translations, categories, taxonomies, media library metadata, templates, site settings and SNS connections — together with the actual image / video / audio files as a single ZIP. Login accounts and credentials (users, passkeys, personal access tokens) are excluded. Note: SNS connection tokens are included, so keep the backup file private. The archive streams directly to the file you choose, so very large sites back up without running out of memory.",
     backupStart: "Back up…",
     backupDone: "Backup completed.",
+    // メディアの取りこぼしを黙って完了扱いにしないための警告（{failed}/{total} を置換）
+    backupMediaIncomplete:
+      "Backup finished, but {failed} of {total} media files could NOT be read. See media-errors.json inside the ZIP. Do not use this archive for a migration.",
     backupFailed: "Backup failed",
     backupCancelled: "Cancelled.",
     backupFallbackWarn:
@@ -558,6 +561,8 @@ const i18n = {
     restoreStart: "Choose a backup to restore…",
     restoreDone:
       "Restore completed. Rebuild the public site to regenerate pages.",
+    restoreMediaIncomplete:
+      "Tables were restored, but {failed} of {total} media files failed to upload (see the browser console). Check that R2 is connected, then restore again.",
     restoreFailed: "Restore failed",
     restoreBadFile: "Not a valid KuroCMS backup file.",
     restoreConfirmTitle: "Replace all data?",
@@ -1471,6 +1476,8 @@ const i18n = {
       "KuroCMS のすべてのコンテンツと設定（記事・翻訳・カテゴリ・タクソノミー・メディア管理情報・テンプレート・サイト設定・SNS 連携）を、画像／動画／音楽の実ファイルとともに 1 つの ZIP に保存します。ログインアカウントと認証情報（ユーザー・パスキー・個人アクセストークン）は含まれません。なお SNS 連携のトークンは含まれるため、バックアップファイルは厳重に保管してください。選択したファイルへ直接ストリーミング保存するため、大規模サイトでもメモリ不足になりません。",
     backupStart: "バックアップ…",
     backupDone: "バックアップが完了しました。",
+    backupMediaIncomplete:
+      "バックアップは終了しましたが、メディア {total} 件のうち {failed} 件を読み出せませんでした。ZIP 内の media-errors.json を確認してください。この ZIP を移行に使わないでください。",
     backupFailed: "バックアップに失敗しました",
     backupCancelled: "中止しました。",
     backupFallbackWarn:
@@ -1482,6 +1489,8 @@ const i18n = {
     restoreStart: "復元するバックアップを選択…",
     restoreDone:
       "復元が完了しました。公開サイトを再ビルドするとページが再生成されます。",
+    restoreMediaIncomplete:
+      "テーブルは復元しましたが、メディア {total} 件のうち {failed} 件のアップロードに失敗しました（詳細はブラウザのコンソール）。R2 が接続されているか確認して、もう一度復元してください。",
     restoreFailed: "復元に失敗しました",
     restoreBadFile: "有効な KuroCMS バックアップファイルではありません。",
     restoreConfirmTitle: "すべてのデータを置き換えますか？",
