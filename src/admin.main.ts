@@ -716,7 +716,7 @@ const i18n = {
       "Custom domain attached. DNS and SSL are being provisioned by Cloudflare (a few minutes). Then set it as the Public Domain above.",
     r2SetupTitle: "R2 media storage",
     r2SetupHelp:
-      "R2 is optional. After approving R2 access in the Cloudflare dashboard, press the button below to create an R2 bucket and connect it to KuroCMS.",
+      'Only needed if you want images, video, or audio. Nothing is charged within the 10 GB free tier. Once R2 is started in the Cloudflare dashboard, press "Start using R2" below — KuroCMS creates the bucket and connects it for you.',
     r2SetupDashboard: "Open R2 in Cloudflare",
     r2SetupButton: "Start using R2",
     r2SetupReady: "R2 media storage is enabled.",
@@ -842,7 +842,7 @@ const i18n = {
     updateConfirm: "Update KuroCMS to the latest version?",
     storageFreeUsage: "CF Free Tier Usage",
     freeLimitLabel: "Free limit: ",
-    r2Unavailable: "R2 not subscribed",
+    r2Unavailable: "R2 not enabled",
     r2Media: "R2 Media",
     d1Database: "D1 Database",
     kvPages: "KV Pages",
@@ -1081,7 +1081,8 @@ const i18n = {
     coverMidHint:
       "Specify a cover by image id, e.g. [[img-xxx]]. Loads when you leave the field.",
     coverMidNotFound: "No image found for that id.",
-    r2CoverUnavail: "R2 is not available. Media files cannot be used.",
+    r2CoverUnavail:
+      'Enable R2 to use media (Settings → Basic → "Start using R2").',
     slugLabelNote: "read-only, click to copy",
     slugCopyHint: "Click to copy",
     slugHint:
@@ -1095,9 +1096,12 @@ const i18n = {
     unregisteredSuffix: "(unregistered)",
     catLoadFailed: "Failed to load categories: ",
     dropZoneLead: "Drop files here or click to select",
-    r2EnableTitle: "Please enable R2 on Cloudflare.",
+    r2EnableTitle: "Enable R2 to use media",
+    // ⚠ media.ts の overlay は escapeHtml を通す＝タグ不可（プレーンテキストのみ）。
+    // Cloudflare 側で始めただけでは使えず、KuroCMS の「R2 利用開始」を押して
+    // はじめてバケットが繋がるので、2 段階であることを必ず書く。
     r2EnableDesc:
-      "R2 is required for image, video, and audio uploads. Free tier: up to 10 GB (no charge).",
+      'Images, video and audio are stored in Cloudflare R2. Nothing is charged within the 10 GB free tier. Two steps: (1) start R2 in the Cloudflare dashboard, then (2) press "Start using R2" in KuroCMS under Settings → Basic. After step 2 the bucket is created and connected automatically and this screen becomes available.',
     uploadPreparing: "Preparing…",
     uploading: "Uploading…",
     uploadComplete: "Done",
@@ -1116,7 +1120,8 @@ const i18n = {
     imageTypeLabel: "Images",
     videoTypeLabel: "Videos",
     audioTypeLabel: "Music",
-    r2MediaUnavailMsg: "R2 not subscribed<br>media unavailable",
+    r2MediaUnavailMsg:
+      'Media unavailable<br>Settings → Basic → "Start using R2"',
     tmplCommunityLocked: "🔒 Published to community — cannot edit",
     tmplCommunityUnlockHint:
       "Unpublish from community in the Template Preview tab first.",
@@ -1533,7 +1538,7 @@ const i18n = {
       "カスタムドメインを割り当てました。Cloudflare が DNS と SSL を自動構成中です（数分）。完了後、上の「公開ドメイン」に設定して保存してください。",
     r2SetupTitle: "R2 メディアストレージ",
     r2SetupHelp:
-      "R2 の利用は任意です。Cloudflare ダッシュボードで R2 の利用を承認した後、下のボタンを押すと R2 バケットを作成して KuroCMS に接続します。",
+      "画像・動画・音楽を扱う場合だけ必要です。無料枠の 10GB までは課金されません。Cloudflare ダッシュボードで R2 の利用を開始したあと、下の「R2 利用開始」ボタンを押してください。バケットの作成と KuroCMS への接続を自動で行います。",
     r2SetupDashboard: "Cloudflare で R2 を確認",
     r2SetupButton: "R2 利用開始",
     r2SetupReady: "R2 メディアストレージは利用可能です。",
@@ -1655,7 +1660,7 @@ const i18n = {
     updateConfirm: "KuroCMS を最新バージョンに更新しますか？",
     storageFreeUsage: "CF 無料枠使用状況",
     freeLimitLabel: "無料枠上限: ",
-    r2Unavailable: "R2未契約",
+    r2Unavailable: "R2 未有効",
     r2Media: "R2 メディア",
     d1Database: "D1 データベース",
     kvPages: "KV 公開ページ",
@@ -1897,7 +1902,8 @@ const i18n = {
     coverMidHint:
       "画像ID（例: [[img-xxx]]）でカバーを指定。フォーカスを外すと読み込みます。",
     coverMidNotFound: "そのIDの画像が見つかりません。",
-    r2CoverUnavail: "R2 が使えないとメディアファイルは使えません。",
+    r2CoverUnavail:
+      "メディアを使うには R2 の有効化が必要です（設定 → 基本 →「R2 利用開始」）。",
     slugLabelNote: "slugは変更不可。クリックでコピー",
     slugCopyHint: "クリックでコピー",
     slugHint:
@@ -1911,9 +1917,9 @@ const i18n = {
     unregisteredSuffix: "(未登録)",
     catLoadFailed: "カテゴリ読み込み失敗: ",
     dropZoneLead: "ここにファイルをドロップ、またはクリックして選択",
-    r2EnableTitle: "Cloudflare上でR2を有効化してください。",
+    r2EnableTitle: "メディアを使うには R2 の有効化が必要です",
     r2EnableDesc:
-      "画像・動画・音楽のアップロードには Cloudflare R2 の有効化が必要です。追加契約ですが、無料枠である10GBまでの容量であれば課金されません。",
+      "画像・動画・音楽は Cloudflare R2 に保存します。無料枠の 10GB までは課金されません。手順は 2 つです。① Cloudflare ダッシュボードで R2 の利用を開始する。② KuroCMS の「設定 → 基本」にある「R2 利用開始」ボタンを押す。② まで行うとバケットの作成と接続を自動で行い、この画面が使えるようになります。",
     uploadPreparing: "準備中…",
     uploading: "アップロード中…",
     uploadComplete: "完了",
@@ -1932,7 +1938,7 @@ const i18n = {
     imageTypeLabel: "画像",
     videoTypeLabel: "動画",
     audioTypeLabel: "音楽",
-    r2MediaUnavailMsg: "R2 未契約のため<br>メディア管理不可",
+    r2MediaUnavailMsg: "メディア利用不可<br>設定 → 基本 →「R2 利用開始」",
     tmplCommunityLocked: "🔒 コミュニティ公開中のテンプレートは修正できません",
     tmplCommunityUnlockHint:
       "テンプレート表示タブで「コミュニティ非公開」にしてから編集してください",
@@ -3398,7 +3404,7 @@ const helpContent: Record<string, Dynamic> = {
     canDo:
       "記事の作成・多言語対応・公開管理 / 画像・動画・音楽のアップロード（R2 必須）/ カテゴリ・タイプ・言語の管理 / デザインテンプレートの選択・編集とフォント設定 / SNS（Bluesky・X・Threads）への記事投稿 / 複数ユーザーの招待・管理 / バックアップの作成・復元 / REST API 経由での記事登録（PAT 使用）",
     notes:
-      "D1（5GB）・R2（10GB）・KV（1 日あたりの書き込み回数）などの Cloudflare 無料枠を超えると課金が発生します。使用状況はダッシュボードで確認してください。R2 を利用するにはクレジットカードの登録が必要です（無料枠内は課金なし）。パスキーは複数のデバイスに登録しておくことを強く推奨します。",
+      "D1（5GB）・R2（10GB）・KV（1 日あたりの書き込み回数）などの Cloudflare 無料枠を超えると課金が発生します。使用状況はダッシュボードで確認してください。パスキーは複数のデバイスに登録しておくことを強く推奨します。",
   },
   dashboard: {
     title: "ダッシュボード",
@@ -3430,7 +3436,7 @@ const helpContent: Record<string, Dynamic> = {
     canDo:
       "画像ファイルのドラッグ＆ドロップまたはクリックでアップロード / アップロード済み画像の一覧表示（サムネイル付き）/ 画像の削除（R2 と D1 から同時削除）/ 「画像サイズの自動縮小」でアップロード時の縮小上限を選択（縮小なし・200KB・500KB・1MB・2MB）",
     notes:
-      "R2 の有効化（クレジットカード登録）が必要です。「画像サイズの自動縮小」は選択した瞬間に自動保存され、以後のアップロードに適用されます（毎回の設定は不要）。この設定はブラウザごとに保存されるため、別のブラウザ・端末では既定値の 1MB に戻ります。登録済みの画像には影響しません。同一内容のファイルを再アップロードした場合は既存の画像が再利用され、重複登録されません。アップロードした画像は URL が分かれば誰でもアクセス可能です。機密画像はアップロードしないでください。R2 無料枠は 10GB です。不要な画像は定期的に削除してください。",
+      "R2 の有効化が必要です（設定 → 基本 →「R2 利用開始」）。「画像サイズの自動縮小」は選択した瞬間に自動保存され、以後のアップロードに適用されます（毎回の設定は不要）。この設定はブラウザごとに保存されるため、別のブラウザ・端末では既定値の 1MB に戻ります。登録済みの画像には影響しません。同一内容のファイルを再アップロードした場合は既存の画像が再利用され、重複登録されません。アップロードした画像は URL が分かれば誰でもアクセス可能です。機密画像はアップロードしないでください。R2 無料枠は 10GB です。不要な画像は定期的に削除してください。",
   },
   videos: {
     title: "動画管理",
@@ -3539,7 +3545,7 @@ const helpContent: Record<string, Dynamic> = {
       },
       {
         q: "R2 なしでも使えますか？",
-        a: "テキストのみの記事であれば R2 なしでも動作します。画像・動画・音楽ファイルのアップロードには R2 が必須です。R2 を有効化するには Cloudflare アカウントにクレジットカードを登録する必要があります（無料枠内は課金なし）。",
+        a: "テキストのみの記事であれば R2 なしでも動作します。画像・動画・音楽ファイルのアップロードには R2 が必須です。R2 は「設定 → 基本」の「R2 利用開始」から有効化できます（無料枠 10GB までは課金なし）。",
       },
       {
         q: "複数ユーザーで使えますか？",
@@ -3556,7 +3562,7 @@ const helpContentEn: Record<string, Dynamic> = {
     canDo:
       "Create & manage articles with multilingual support / Upload images, video, and audio (R2 required) / Manage categories, types, and languages / Choose and edit design templates and fonts / Post articles to SNS (Bluesky, X, Threads) / Invite and manage multiple users / Create and restore backups / Register articles via REST API (PAT authentication)",
     notes:
-      "Cloudflare free tier limits: D1 (5 GB), R2 (10 GB), KV (daily write operations). Exceeding these limits will incur charges. Monitor usage on the Dashboard. R2 requires a credit card on file (no charge within free tier). Strongly recommended: register passkeys on multiple devices.",
+      "Cloudflare free tier limits: D1 (5 GB), R2 (10 GB), KV (daily write operations). Exceeding these limits will incur charges. Monitor usage on the Dashboard. Strongly recommended: register passkeys on multiple devices.",
   },
   dashboard: {
     title: "Dashboard",
@@ -3588,7 +3594,7 @@ const helpContentEn: Record<string, Dynamic> = {
     canDo:
       'Upload image files via drag & drop or click / Browse uploaded images with thumbnails / Delete images (removes from both R2 and D1) / Choose the upload size limit with "Automatic image resizing" (no resize / 200 KB / 500 KB / 1 MB / 2 MB)',
     notes:
-      'R2 must be enabled (credit card registration required). The "Automatic image resizing" choice is saved automatically the moment you select it and applies to subsequent uploads (it is stored per browser in localStorage, so a different browser or device falls back to the default 1 MB; already-uploaded images are not affected). Re-uploading a file with identical content reuses the existing image instead of registering a duplicate. Uploaded images are publicly accessible via URL. Do not upload confidential images. R2 free tier is 10 GB. Delete unused images regularly.',
+      'R2 must be enabled (Settings → Basic → "Start using R2"). The "Automatic image resizing" choice is saved automatically the moment you select it and applies to subsequent uploads (it is stored per browser in localStorage, so a different browser or device falls back to the default 1 MB; already-uploaded images are not affected). Re-uploading a file with identical content reuses the existing image instead of registering a duplicate. Uploaded images are publicly accessible via URL. Do not upload confidential images. R2 free tier is 10 GB. Delete unused images regularly.',
   },
   videos: {
     title: "Video Manager",
@@ -3697,7 +3703,7 @@ const helpContentEn: Record<string, Dynamic> = {
       },
       {
         q: "Can I use KuroCMS without R2?",
-        a: "Yes, for text-only articles. R2 is required for image, video, and audio file uploads. To enable R2, register a credit card with your Cloudflare account (no charge within the free tier).",
+        a: 'Yes, for text-only articles. R2 is required for image, video, and audio file uploads. Enable it from Settings → Basic → "Start using R2" (no charge within the 10 GB free tier).',
       },
       {
         q: "Can multiple users share KuroCMS?",
