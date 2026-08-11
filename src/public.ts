@@ -150,6 +150,8 @@ interface ArticleRow {
   summary: string | null;
   body_html: string | null;
   seo_json: string | null;
+  /** 基準言語(initial_lang)の seo_json。表紙のフォールバック用。 */
+  init_seo_json?: string | null;
   categories_json: string | null;
   /** Author display name (users.display_name via documents.created_by).
    *  Only selected by fetchArticleDetail; list queries leave it undefined. */
@@ -429,7 +431,8 @@ async function fetchArticleDetail(
             (SELECT json_group_array(json_object('id',ti.id,'name',ti.name,'slug',COALESCE(ti.slug,ti.id),'count',0))
              FROM document_categories dc JOIN categories ti ON ti.id=dc.cid
              WHERE dc.did=d.did ORDER BY ti.name) AS categories_json,
-            u.display_name AS author_name
+            u.display_name AS author_name,
+            dt_init.seo_json AS init_seo_json
      FROM documents d
      LEFT JOIN users u ON u.uid = d.created_by
      LEFT JOIN document_translations dt_req ON dt_req.did = d.did AND dt_req.lang = ?
@@ -2419,15 +2422,24 @@ async function buildRenderContext(
       }
     }
     content["_article-categories"] = JSON.stringify(articleCategories);
-    let articleCover: string | null = null;
-    if (r.seo_json) {
+    // 表紙。⚠ seo_json 全体の言語フォールバック（上の COALESCE）だけでは足りない。
+    // 翻訳行が {"coverMid":"","coverPath":""} のように【空の表紙を明示的に持つ】と、
+    // その seo_json は非空なので COALESCE がそこで止まり、表紙が消える（kuro.boo
+    // 実測で 1871 行中 342 行がこの形。ar / pt など後から足した言語に多い）。
+    // 表紙だけは基準言語(initial_lang)へ個別にフォールバックさせる。
+    const coverPathOf = (raw: string | null | undefined): string => {
+      if (!raw) return "";
       try {
-        const seo = JSON.parse(r.seo_json) as { coverPath?: string };
-        if (seo.coverPath) articleCover = `${basePath}${seo.coverPath}`;
+        return (JSON.parse(raw) as { coverPath?: string }).coverPath || "";
       } catch {
-        /* ignore */
+        return "";
       }
-    }
+    };
+    const coverPath =
+      coverPathOf(r.seo_json) || coverPathOf(r.init_seo_json ?? null);
+    const articleCover: string | null = coverPath
+      ? `${basePath}${coverPath}`
+      : null;
     // CMS-appended byline (visible authorship for E-E-A-T; matches the
     // Person author emitted in the article JSON-LD). Skipped when the
     // creating user has no display name.

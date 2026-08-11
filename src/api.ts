@@ -138,7 +138,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.9.22";
+export const KUROCMS_VERSION = "1.9.23";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -795,6 +795,15 @@ async function handleApiDispatch(
       path === "/api/documents/normalize-format"
     ) {
       return withJsonHeaders(await normalizeBodyFormat(env, user));
+    }
+
+    // 表紙の欠落補完（保守）。基準言語の表紙を、表紙を持たない翻訳へ配る。
+    // GET = dry run（対象の一覧）、POST = 実行。
+    if (path === "/api/documents/cover-fallback") {
+      requireAdmin(user);
+      return withJsonHeaders(
+        await coverFallbackSweep(env, request.method === "POST"),
+      );
     }
 
     const documentMatch = path.match(/^\/api\/documents\/([^/]+)$/);
@@ -9692,6 +9701,119 @@ async function restoreMedia(
     httpMetadata: { contentType: row.mime || "application/octet-stream" },
   });
   return json({ ok: true, mid });
+}
+
+// ── 表紙（cover）の欠落補完（保守） ─────────────────────────────────────────
+//
+// 翻訳行が表紙を持たないことがある。⚠ 単に seo_json が空なのではなく
+// `{"coverMid":"","coverPath":""}` のように【空の表紙を明示的に持つ】形があり、
+// この場合 generatePage の seo_json 言語フォールバック（COALESCE）は「値がある」
+// と見なしてそこで止まるため、表紙が消える（kuro.boo 実測 1871 行中 342 行。
+// あとから足した ar / pt に集中）。
+//
+// ここでは基準言語（documents.initial_lang）の表紙を、表紙を持たない翻訳へ配る。
+// ⚠ 基準言語にも表紙が無い記事は「元から画像がない」ので何もしない。
+// ⚠ seo_json の他のキーは保持する（表紙の 2 キーだけ上書きする）。
+// ⚠ 本文の綴りを直すのと同じ保守作業なので、writeTranslationContent は通さず
+//   直接 UPDATE する（著者 = source を奪わない・リビジョンも積まない）。
+async function coverFallbackSweep(env: Env, apply: boolean): Promise<Response> {
+  const rows = await env.DB.prepare(
+    `SELECT dt.did, dt.lang, dt.seo_json, d.slug,
+            COALESCE(NULLIF(d.initial_lang, ''), 'ja') AS base_lang
+       FROM document_translations dt
+       JOIN documents d ON d.did = dt.did`,
+  ).all<{
+    did: string;
+    lang: string;
+    seo_json: string | null;
+    slug: string;
+    base_lang: string;
+  }>();
+
+  const parseCover = (
+    raw: string | null,
+  ): { obj: Record<string, unknown>; path: string; mid: string } => {
+    let obj: Record<string, unknown> = {};
+    if (raw && raw.trim()) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed))
+          obj = parsed as Record<string, unknown>;
+      } catch {
+        /* 壊れた JSON は空扱い（上書きせず、下で対象外にする） */
+      }
+    }
+    return {
+      obj,
+      path: typeof obj.coverPath === "string" ? obj.coverPath : "",
+      mid: typeof obj.coverMid === "string" ? obj.coverMid : "",
+    };
+  };
+
+  // 基準言語の表紙を引く
+  const baseCover = new Map<string, { path: string; mid: string }>();
+  for (const r of rows.results ?? []) {
+    if (r.lang !== r.base_lang) continue;
+    const c = parseCover(r.seo_json);
+    if (c.path) baseCover.set(r.did, { path: c.path, mid: c.mid });
+  }
+
+  const planned: {
+    did: string;
+    slug: string;
+    lang: string;
+    from: string;
+    coverPath: string;
+  }[] = [];
+  const statements: D1PreparedStatement[] = [];
+  const now = nowIso();
+  for (const r of rows.results ?? []) {
+    const base = baseCover.get(r.did);
+    if (!base) continue; // 基準言語にも表紙が無い＝元から画像なし
+    const c = parseCover(r.seo_json);
+    if (c.path) continue; // 既に表紙がある
+    const merged = { ...c.obj, coverMid: base.mid, coverPath: base.path };
+    planned.push({
+      did: r.did,
+      slug: r.slug,
+      lang: r.lang,
+      from: r.base_lang,
+      coverPath: base.path,
+    });
+    if (apply) {
+      statements.push(
+        env.DB.prepare(
+          "UPDATE document_translations SET seo_json = ?, updated_at = ? WHERE did = ? AND lang = ?",
+        ).bind(JSON.stringify(merged), now, r.did, r.lang),
+      );
+    }
+  }
+
+  if (!apply) {
+    const byLang: Record<string, number> = {};
+    for (const p of planned) byLang[p.lang] = (byLang[p.lang] ?? 0) + 1;
+    return json({
+      dryRun: true,
+      candidates: planned.length,
+      documents: new Set(planned.map((p) => p.did)).size,
+      byLang: byLang as unknown as JsonValue,
+      sample: planned.slice(0, 20) as unknown as JsonValue,
+    });
+  }
+
+  // D1 のバッチ上限に配慮して分割する
+  for (let i = 0; i < statements.length; i += 100) {
+    await env.DB.batch(statements.slice(i, i + 100));
+  }
+  // 表紙が変わる＝公開ページの出力が変わるので、派生キャッシュを落とす
+  await env.DB.prepare("DELETE FROM page_build_cache")
+    .run()
+    .catch(() => {});
+  return json({
+    dryRun: false,
+    updated: planned.length,
+    documents: new Set(planned.map((p) => p.did)).size,
+  });
 }
 
 // ── 重複メディアの統合（保守） ──────────────────────────────────────────────
