@@ -49,7 +49,7 @@ import type { Env, JsonValue } from "./types";
 // can't see (e.g. the <head> content-CSS <link>, template-model shape). The
 // build salts every page hash with this, so cached builds are invalidated and
 // all pages regenerate even when their underlying content is unchanged.
-const RENDER_FORMAT_VERSION = "23";
+const RENDER_FORMAT_VERSION = "24";
 
 /** Cheap, synchronous string hash (FNV-1a, base36) for cache keys. Not crypto. */
 /**
@@ -2306,6 +2306,7 @@ async function buildRenderContext(
       content[page.titleKey] = wrapKuroContent(
         asPageHeadingHtml(content[page.titleKey]),
         lang,
+        { annotate: false },
       );
     if (page.summaryKey && content[page.summaryKey])
       content[page.summaryKey] = wrapKuroContent(
@@ -3381,8 +3382,12 @@ function adminAssetBase(env: Env): string {
  * privacy / terms がすべてこの関数を通るため、公開面の単一チョークポイント)。
  * 除去ロジックは strip-internal-ids.ts (構造走査・F0-2 の '>' 属性値バグを修正済み)。
  */
-function wrapKuroContent(html: string, lang = ""): string {
-  return wrapKuroContentWithHeadings(html, lang).html;
+function wrapKuroContent(
+  html: string,
+  lang = "",
+  opts?: { annotate?: boolean },
+): string {
+  return wrapKuroContentWithHeadings(html, lang, opts).html;
 }
 
 /** 目次表題（サイト言語別。未知の言語は英語）。 */
@@ -3427,9 +3432,18 @@ function anchorLabel(lang: string): string {
 function wrapKuroContentWithHeadings(
   html: string,
   lang = "",
+  { annotate = true }: { annotate?: boolean } = {},
 ): { html: string; headings: HeadingItem[] } {
   const stripped = stripInternalIds((html || "").trim());
   if (!stripped) return { html: "", headings: [] };
+  // ⚠ 固定ページの【タイトル】はアンカーを付けない。付けると (1) そのページ自身を
+  //   指す無意味な `#` が見出しに出るうえ、(2) その値を平文化して作る <title> に
+  //   `#` が混ざる（「黒兎の人物紹介#｜黒兎 Blog」。2026-08-13 に実際に出た）。
+  if (!annotate)
+    return {
+      html: `<div class="kuro-content">${stripped}</div>`,
+      headings: [],
+    };
   const annotated = annotateHeadings(stripped, {
     anchorLabel: anchorLabel(lang),
   });
