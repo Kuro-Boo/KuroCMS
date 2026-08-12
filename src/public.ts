@@ -24,6 +24,7 @@ import { buildFontHead, type LoadedFont } from "./fonts";
 import { stripInternalIds } from "./strip-internal-ids";
 import {
   annotateHeadings,
+  asPageHeadingHtml,
   htmlToPlainText,
   renderTocHtml,
   type HeadingItem,
@@ -48,7 +49,7 @@ import type { Env, JsonValue } from "./types";
 // can't see (e.g. the <head> content-CSS <link>, template-model shape). The
 // build salts every page hash with this, so cached builds are invalidated and
 // all pages regenerate even when their underlying content is unchanged.
-const RENDER_FORMAT_VERSION = "22";
+const RENDER_FORMAT_VERSION = "23";
 
 /** Cheap, synchronous string hash (FNV-1a, base36) for cache keys. Not crypto. */
 /**
@@ -2292,9 +2293,27 @@ async function buildRenderContext(
 
   // Template-declared fixed-page bodies are authored rich content too — wrap
   // them like article bodies so callouts/roundboxes render consistently.
+  //
+  // ⚠ 本文だけでなくタイトル・リード文・表紙も包む。これらも同じ KuroEditor で
+  //   編集する＝リッチ HTML なのに、以前は本文しか包んでいなかったため、書き手が
+  //   付けた装飾（見出しサイズ・色・roundbox…）が公開側で一切効いていなかった。
+  //   ke-content.css は `.kuro-content` 配下にしか当たらないので、包まない限り
+  //   h1 すら素の文字サイズで出る（2026-08 に /about/ のタイトルで発覚）。
   for (const page of staticPages) {
     if (content[page.bodyKey])
       content[page.bodyKey] = wrapKuroContent(content[page.bodyKey], lang);
+    if (content[page.titleKey])
+      content[page.titleKey] = wrapKuroContent(
+        asPageHeadingHtml(content[page.titleKey]),
+        lang,
+      );
+    if (page.summaryKey && content[page.summaryKey])
+      content[page.summaryKey] = wrapKuroContent(
+        content[page.summaryKey],
+        lang,
+      );
+    if (page.coverKey && content[page.coverKey])
+      content[page.coverKey] = wrapKuroContent(content[page.coverKey], lang);
   }
   // Same for the legal pages' site texts (privacy policy / terms of service).
   if (content["privacy"])
@@ -2343,11 +2362,16 @@ async function buildRenderContext(
     staticPage
       ? {
           slug: staticPage.slug,
-          // ⚠ タイトルは平文にする。サイトテキストは KuroEditor 由来の HTML なので、
-          //   そのままだと <title> に `&lt;h1&gt;…` が出る（2026-08 に /about/ で発生）。
+          // ⚠ title は【平文】。<title> / og:title / ナビのリンク文字など、HTML を
+          //   置けない場所へ流すための値で、そのまま出すと `&lt;h1&gt;…` が見える。
+          //   テンプレートが画面に出す見出しは titleHtml を使うこと。
           title:
             htmlToPlainText(content[staticPage.titleKey] || "") ||
             staticPage.slug,
+          // 画面表示用。書き手が KuroEditor で付けた見出しレベルと装飾がそのまま
+          // 出る（ホストは h1 の有無だけ保証する）。テンプレート側で <h1> を足す
+          // 設計にすると装飾変更のたびにテンプレート修正が要るので、こちらを使う。
+          titleHtml: content[staticPage.titleKey] || "",
           bodyHtml: content[staticPage.bodyKey] || "",
           // リード文と表紙（宣言で summaryKey / coverKey を指定したときだけ）。
           // ⚠ これが無いとテンプレートが about のキーを直書きすることになり、

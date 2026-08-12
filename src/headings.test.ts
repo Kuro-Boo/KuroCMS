@@ -3,6 +3,7 @@
 // import するので、実装と乖離しない。
 import {
   annotateHeadings,
+  asPageHeadingHtml,
   htmlToPlainText,
   renderTocHtml,
   slugifyHeading,
@@ -149,6 +150,44 @@ check(
   "素のタイトル",
 );
 check("空入力", htmlToPlainText(""), "");
+
+console.log("asPageHeadingHtml");
+
+// ⚠ 書き手が KuroEditor で付けた装飾を殺さないこと。ここを「テンプレート側で
+//   <h1> を足す」設計にすると、装飾を変えるたびにテンプレート修正が要る。
+check(
+  "既に見出し → そのまま（装飾も維持）",
+  asPageHeadingHtml('<h1 style="color:red">黒兎<b>紹介</b></h1>'),
+  '<h1 style="color:red">黒兎<b>紹介</b></h1>',
+);
+check(
+  "h2 で書かれていても書き手の指定を尊重する",
+  asPageHeadingHtml("<h2>About</h2>"),
+  "<h2>About</h2>",
+);
+check(
+  "見出し忘れの単一段落 → タグだけ h1 に替え、中の装飾は残す",
+  asPageHeadingHtml('<p class="x">黒兎の<b>紹介</b></p>'),
+  '<h1 class="x">黒兎の<b>紹介</b></h1>',
+);
+check(
+  "複数ブロックは入れ子が壊れるので平文で h1 化",
+  asPageHeadingHtml("<p>A</p><p>B</p>"),
+  "<h1>AB</h1>",
+);
+check(
+  "裸のテキストも h1 にする",
+  asPageHeadingHtml("素タイトル"),
+  "<h1>素タイトル</h1>",
+);
+check("空入力", asPageHeadingHtml(""), "");
+// 実体参照は plainText が復号するので、h1 に入れ直すとき再エスケープが要る
+// （素通しだと二重エスケープ / 生タグ混入のどちらかになる）。
+check(
+  "平文化した経路は実体参照を正しく往復させる",
+  asPageHeadingHtml("<p>a</p><p>1 &lt; 2</p>"),
+  "<h1>a1 &lt; 2</h1>",
+);
 
 console.log("renderTocHtml");
 

@@ -78,6 +78,32 @@ export function htmlToPlainText(html: string): string {
   return plainText(html);
 }
 
+/**
+ * 固定ページのタイトル（サイトテキスト）を「必ず見出し要素」にして返す。
+ *
+ * なぜ要るか: タイトルは KuroEditor で編集するリッチテキストなので、書き手が
+ * 見出しに指定すれば <h1> が保存され、装飾もそのまま公開したい。ただし本文と
+ * 同じ入力欄である以上【見出しにし忘れて段落のまま保存される】ことがあり、その
+ * ページは h1 が 1 つも無い状態で公開されてしまう（SEO・支援技術ともに困る）。
+ * そこでホスト側で最低限 h1 を保証する。テンプレートが <h1> を書き足す設計に
+ * すると、今度は書き手が装飾を変えるたびにテンプレート修正が要る（2026-08 に
+ * 一度その形にしてしまった）ので、見出しの供給はここに一本化する。
+ *
+ * ⚠ 既に見出しがあるときは何もしない。書き手の指定（h1/h2 や色・サイズ）が
+ *   最優先で、ホストは黙って上書きしない。
+ */
+export function asPageHeadingHtml(html: string): string {
+  const src = (html || "").trim();
+  if (!src) return "";
+  // 既に見出しがある → 書き手の指定をそのまま尊重する
+  if (/<h[1-6][\s>]/i.test(src)) return src;
+  // 単一段落なら、内側のインライン装飾を保ったままタグだけ h1 に替える
+  const p = /^<p(\s[^>]*)?>([\s\S]*)<\/p>$/i.exec(src);
+  if (p && !/<p[\s>]/i.test(p[2])) return `<h1${p[1] || ""}>${p[2]}</h1>`;
+  // それ以外（複数ブロック等）は入れ子が壊れるので平文に落として h1 にする
+  return `<h1>${escapeHtml(plainText(src)).trim()}</h1>`;
+}
+
 function plainText(html: string): string {
   let out = "";
   let i = 0;
