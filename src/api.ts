@@ -140,7 +140,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.9.28";
+export const KUROCMS_VERSION = "1.9.29";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -2238,6 +2238,33 @@ async function updateUser(
     updates.push("disabled_at = ?");
     values.push(body.disabled ? nowIso() : null);
   }
+  // メールの訂正。⚠ メールはパスキー復旧の宛先（recoverRequest が email で
+  // 本人を引く）。打ち間違えたまま本人がログインできなくなると復旧不能に
+  // なるので、管理者が直せる必要がある。検証は PUT /api/me と同じ規則。
+  if (typeof body.email === "string") {
+    const email = body.email.trim().toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+      throw new HttpError(
+        400,
+        "invalid_email",
+        "email must be a valid email address.",
+      );
+    }
+    const duplicate = await env.DB.prepare(
+      "SELECT uid FROM users WHERE email = ? AND uid != ?",
+    )
+      .bind(email, uid)
+      .first<{ uid: string }>();
+    if (duplicate) {
+      throw new HttpError(
+        409,
+        "email_taken",
+        "email is already used by another user.",
+      );
+    }
+    updates.push("email = ?");
+    values.push(email);
+  }
   if (!updates.length)
     throw new HttpError(400, "no_changes", "変更する項目がありません。");
   updates.push("updated_at = ?");
@@ -2245,7 +2272,9 @@ async function updateUser(
   await env.DB.prepare(`UPDATE users SET ${updates.join(", ")} WHERE uid = ?`)
     .bind(...values)
     .run();
-  await logActivity(env, user, "user.update", "user", uid, {});
+  await logActivity(env, user, "user.update", "user", uid, {
+    fields: updates.map((u) => u.split(" ")[0]),
+  });
   return json({ ok: true });
 }
 

@@ -141,7 +141,17 @@ async function loadUsersPanel() {
         const disabled = btn.dataset.disabled === "1";
         openEntryDialog(
           t("editUserTitle") + email,
+          // メールは【本人以外は誰も直せない】状態だった（プロフィール画面に
+          // しか変更手段が無い）。⚠ メールはパスキー復旧の宛先（recoverRequest
+          // が email で本人を引く）なので、打ち間違えたまま本人がログイン
+          // できなくなると復旧不能になる。管理者が直せるようにする。
           "<label style='margin-bottom:8px'>" +
+            escapeHtml(t("email")) +
+            "<input id='editUserEmail' type='email' style='width:100%' value='" +
+            escapeHtml(email || "") +
+            "' />" +
+            "</label>" +
+            "<label style='margin-bottom:8px'>" +
             escapeHtml(t("roles")) +
             "<select id='editUserRole' style='width:100%'>" +
             "<option value='admin'" +
@@ -171,6 +181,9 @@ async function loadUsersPanel() {
             const role = form.querySelector("#editUserRole")?.value || "author";
             const newDisabled =
               form.querySelector("#editUserDisabled")?.checked || false;
+            const newEmail = (
+              form.querySelector("#editUserEmail")?.value || ""
+            ).trim();
             try {
               await api("/api/users/" + uid, {
                 method: "PUT",
@@ -178,6 +191,10 @@ async function loadUsersPanel() {
                   isAdmin: role === "admin",
                   isAuthor: role === "admin" || role === "author",
                   disabled: newDisabled,
+                  // 変わっていないときは送らない（no_changes 判定を汚さない）
+                  ...(newEmail && newEmail !== email
+                    ? { email: newEmail }
+                    : {}),
                 }),
               });
               close();
@@ -244,9 +261,16 @@ async function loadUsersPanel() {
             }),
           });
           close();
+          // ⚠ withBase() は既にベースパス（/kurocms 等）を前置する。そこへ
+          //   "/kurocms/admin/" を重ねていたため /kurocms/kurocms/admin/ という
+          //   404 の URL が出来ていた（招待リンクが常に無効だった）。
+          //   管理画面の入口は adminHref("/") が正しく返す（legacy = /base/admin、
+          //   それ以外 = /base）。
           const inviteUrl =
             window.location.origin +
-            withBase("/kurocms/admin/?invite=" + d.token);
+            adminHref("/") +
+            "?invite=" +
+            encodeURIComponent(d.token);
           openEntryDialog(
             t("inviteLink"),
             "<p style='font-size:13px;margin-bottom:10px'>" +
