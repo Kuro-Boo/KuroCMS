@@ -1619,6 +1619,10 @@ const i18n = {
     restoreSummaryMedia: "復元したメディア: {ok} / {total}（{bytes}）",
     restoreNextStep:
       "次の手順: サイトビルドを実行すると公開ページが再生成されます。",
+    restoreSkippedColumn:
+      "注記: {table}.{col} はこのサイトに存在しない列のため取り込みませんでした。",
+    restoreSkippedSummary:
+      "取り込まなかった列（この移行先に存在しない）: {cols}",
     backupInterruptedTitle: "前回の処理が完了していません",
     backupInterruptedBackup:
       "{at} に開始したバックアップが「{phase}」で止まりました（タブを閉じたか再読み込みしたため）。保存された ZIP は不完全です。削除して取り直してください。",

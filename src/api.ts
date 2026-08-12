@@ -138,7 +138,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.9.26";
+export const KUROCMS_VERSION = "1.9.27";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -9621,8 +9621,29 @@ async function restoreTable(
   const body = (await request.json()) as { rows?: Record<string, unknown>[] };
   const rows = body.rows ?? [];
   if (!rows.length) return json({ ok: true, inserted: 0 });
+
+  // 復元元と復元先でスキーマがずれていることがある。実例（2026-08 の本番移行）:
+  // 0035 が page_templates に template_api_version を足し、0037 がそれを
+  // api_version へ RENAME する。正しく migrate された DB には api_version しか
+  // 無いが、0035 が 0037 の後にもう一度適用された環境では【両方】残る。その
+  // バックアップを正しい DB へ流すと "no such column" で復元全体が死ぬ。
+  //
+  // バックアップは常に「別の時点・別の経路で作られた DB」から来るので、
+  // 復元は【存在しない列を落として続行】する。⚠ ただし黙って落とさない —
+  // 何を捨てたかを応答に載せ、呼び手がログに出す（本当に必要な列だったなら
+  // 移行先のスキーマを直す判断ができるように）。
+  const info = await env.DB.prepare(
+    `SELECT name FROM pragma_table_info('${name}')`,
+  ).all<{ name: string }>();
+  const known = new Set((info.results ?? []).map((r) => r.name));
+  const skipped = new Set<string>();
+
   const stmts = rows.map((row) => {
-    const cols = Object.keys(row);
+    const cols = Object.keys(row).filter((c) => {
+      if (known.size === 0 || known.has(c)) return true;
+      skipped.add(c);
+      return false;
+    });
     if (!cols.length) {
       throw new HttpError(400, "bad_row", "Empty row in restore payload.");
     }
@@ -9661,7 +9682,11 @@ async function restoreTable(
       `${name}: ${msg.slice(0, 400)}`,
     );
   }
-  return json({ ok: true, inserted: rows.length });
+  return json({
+    ok: true,
+    inserted: rows.length,
+    skippedColumns: [...skipped],
+  });
 }
 
 // D1 bind accepts string | number | null | ArrayBuffer. Backup JSON only carries
