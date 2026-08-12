@@ -4,6 +4,17 @@ export interface StaticPageDefinition {
   slug: string;
   titleKey: string;
   bodyKey: string;
+  /**
+   * 任意。リード文と表紙のサイトテキストキー。
+   *
+   * ⚠ これが無かったため、テンプレートは `[[html:content.about-summary]]` の
+   *   ように【about のキーを直書き】していた。`[[#if page.isStatic]]` は宣言した
+   *   すべての固定ページで真になるので、recruit を足すと Recruit ページに About の
+   *   要約と表紙が出る（2026-08 に公開テンプレート 19 件で確認）。パーサーに等値
+   *   比較が無くテンプレート側で slug を判定できないため、契約側で入り口を用意する。
+   */
+  summaryKey?: string;
+  coverKey?: string;
   nav: boolean;
   /** Former public paths that permanently redirect to this fixed page. */
   redirectFrom: string[];
@@ -59,11 +70,21 @@ export function parseStaticPages(sourceHtml: string): StaticPageDefinition[] {
         throw new Error(`Duplicate static page redirect: ${path}`);
       redirects.add(path);
     }
+    // 任意キー。省略可・空文字は未指定扱い。形式は他のキーと同じ規則。
+    const optionalKey = (value: unknown, field: string): string | undefined => {
+      if (value === undefined || value === null || value === "")
+        return undefined;
+      if (typeof value !== "string" || !SLUG_RE.test(value))
+        throw new Error(`Invalid ${field} at index ${index}.`);
+      return value;
+    };
     slugs.add(slug);
     return {
       slug,
       titleKey,
       bodyKey,
+      summaryKey: optionalKey(page.summaryKey, "summaryKey"),
+      coverKey: optionalKey(page.coverKey, "coverKey"),
       nav: page.nav !== false,
       redirectFrom: normalizedRedirects as string[],
     };
