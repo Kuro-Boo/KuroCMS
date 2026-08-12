@@ -148,28 +148,64 @@ async function backupScreen() {
 }
 
 // ── Progress modal ─────────────────────────────────────────────────────────
+//
+// バックアップ / 復元は「押したら数分間だまって進む」処理で、しかも失敗すると
+// 記事とメディアが丸ごと関わる。だから進捗は【情報量を惜しまない】:
+//   ・今どの段階か（削除 / データ / メディア / 仕上げ）
+//   ・テーブルごとのチェックリスト（何件のうち何件済んだか）
+//   ・メディアの件数と転送済みバイト数、失敗件数
+//   ・経過時間と残り見込み
+//   ・時刻付きの経過ログ（無言で止まったとき「どこまで行ったか」が残る）
+//   ・終了時は閉じずにサマリーを出す（何が入ったのかを確認してから閉じる）
 let backupProgressState: { cancelled: boolean } | null = null;
+
+interface BackupProgressModel {
+  kind: "backup" | "restore";
+  title: string;
+  fileName: string;
+  startedAt: number;
+  phase: string;
+  detail: string;
+  pct: number;
+  tables: {
+    name: string;
+    total: number;
+    state: "pending" | "active" | "done";
+  }[];
+  media: { total: number; done: number; failed: number; bytes: number };
+}
+let backupProgress: BackupProgressModel | null = null;
+let backupTickTimer: Dynamic = null;
+
+function fmtDuration(ms: number): string {
+  const sec = Math.max(0, Math.round(ms / 1000));
+  const m = Math.floor(sec / 60);
+  return m + ":" + String(sec % 60).padStart(2, "0");
+}
 
 function openBackupProgress(title: string): { cancelled: boolean } {
   closeBackupProgress();
-  const overlay = document.createElement("div");
+  const overlay = createPopupBackdrop();
   overlay.id = "backupProgressOverlay";
-  overlay.className = "popupOverlay";
   overlay.innerHTML =
-    "<div class='popupCard' role='dialog' aria-modal='true' style='min-width:360px;max-width:min(560px,92vw)'>" +
+    "<div class='popupCard' role='dialog' aria-modal='true' aria-live='polite' style='width:min(620px,94vw)'>" +
     "<h3 class='popupTitle' id='backupProgTitle'></h3>" +
-    // 何をしているか（フェーズ）＝ 一番見たい情報なので大きく出す
-    "<div id='backupProgPhase' style='font-size:13px;font-weight:700;margin-top:6px'></div>" +
-    "<div style='display:flex;align-items:center;gap:10px;margin:10px 0'>" +
+    "<div id='backupProgFile' class='muted' style='font-size:11px;margin-top:2px;word-break:break-all'></div>" +
+    "<div id='backupProgPhase' style='font-size:13px;font-weight:700;margin-top:10px'></div>" +
+    "<div style='display:flex;align-items:center;gap:10px;margin:8px 0 2px'>" +
     "<div style='flex:1;height:10px;border-radius:6px;background:var(--line);overflow:hidden'>" +
     "<div id='backupProgBar' style='height:100%;width:0%;background:var(--accent);transition:width .2s'></div>" +
     "</div>" +
     "<div id='backupProgPct' class='muted' style='font-size:12px;min-width:3.5em;text-align:right'>0%</div>" +
     "</div>" +
-    "<div id='backupProgSub' class='muted' style='font-size:11px;min-height:16px;word-break:break-all'></div>" +
-    // 直近の経過。無言で止まったときに「どこまで進んだか」を残す
-    "<div id='backupProgLog' style='margin-top:10px;max-height:132px;overflow:auto;font-size:11px;font-family:ui-monospace,monospace;line-height:1.6;background:var(--surface-2);border-radius:8px;padding:8px 10px'></div>" +
-    "<p class='muted' style='font-size:11px;margin:10px 0 0'>" +
+    "<div style='display:flex;justify-content:space-between;gap:8px'>" +
+    "<div id='backupProgSub' class='muted' style='font-size:11px;word-break:break-all'></div>" +
+    "<div id='backupProgTime' class='muted' style='font-size:11px;white-space:nowrap'></div>" +
+    "</div>" +
+    "<div id='backupProgTables' style='margin-top:10px;display:grid;grid-template-columns:1fr auto;gap:2px 12px;font-size:11px;max-height:150px;overflow:auto'></div>" +
+    "<div id='backupProgMedia' style='margin-top:8px;font-size:11px'></div>" +
+    "<div id='backupProgLog' style='margin-top:10px;max-height:120px;overflow:auto;font-size:11px;font-family:ui-monospace,monospace;line-height:1.6;background:var(--surface-2);border-radius:8px;padding:8px 10px'></div>" +
+    "<p class='muted' id='backupProgWarn' style='font-size:11px;margin:10px 0 0'>" +
     escapeHtml(t("backupDontClose")) +
     "</p>" +
     "<div style='margin-top:14px;text-align:right'>" +
@@ -184,7 +220,122 @@ function openBackupProgress(title: string): { cancelled: boolean } {
   const cancelBtn = byId("backupProgCancel");
   if (cancelBtn)
     cancelBtn.addEventListener("click", () => (st.cancelled = true));
+  // 経過時間は 1 秒ごとに動かす（止まって見えないように）
+  backupTickTimer = setInterval(paintBackupTime, 1000);
   return st;
+}
+
+/** 進捗モデルの初期化。テーブル一覧とメディア総数を先に見せる。 */
+function backupProgressInit(init: {
+  kind: "backup" | "restore";
+  title: string;
+  fileName: string;
+  tables: { name: string; total: number }[];
+  mediaTotal: number;
+}): void {
+  backupProgress = {
+    kind: init.kind,
+    title: init.title,
+    fileName: init.fileName,
+    startedAt: Date.now(),
+    phase: "",
+    detail: "",
+    pct: 0,
+    tables: init.tables.map((x) => ({ ...x, state: "pending" as const })),
+    media: { total: init.mediaTotal, done: 0, failed: 0, bytes: 0 },
+  };
+  const f = byId("backupProgFile");
+  if (f) f.textContent = init.fileName;
+  paintBackupTables();
+  paintBackupMedia();
+}
+
+function paintBackupTables(): void {
+  const box = byId("backupProgTables");
+  if (!box || !backupProgress) return;
+  box.innerHTML = backupProgress.tables
+    .map((tb) => {
+      const mark =
+        tb.state === "done" ? "✓" : tb.state === "active" ? "▶" : "·";
+      const color =
+        tb.state === "done"
+          ? "var(--accent)"
+          : tb.state === "active"
+            ? "var(--heading)"
+            : "var(--muted)";
+      return (
+        "<div style='color:" +
+        color +
+        ";white-space:nowrap;overflow:hidden;text-overflow:ellipsis'>" +
+        mark +
+        " " +
+        escapeHtml(tb.name) +
+        "</div><div class='muted' style='text-align:right;font-variant-numeric:tabular-nums'>" +
+        tb.total.toLocaleString() +
+        "</div>"
+      );
+    })
+    .join("");
+}
+
+function paintBackupMedia(): void {
+  const el = byId("backupProgMedia");
+  if (!el || !backupProgress) return;
+  const m = backupProgress.media;
+  if (!m.total) {
+    el.textContent = "";
+    return;
+  }
+  el.innerHTML =
+    "<b>" +
+    escapeHtml(t("mediaLabel")) +
+    "</b> " +
+    m.done +
+    " / " +
+    m.total +
+    "  <span class='muted'>(" +
+    fmtBytes(m.bytes) +
+    ")</span>" +
+    (m.failed
+      ? " <span style='color:var(--danger)'>" +
+        escapeHtml(t("backupFailedCount").replace("{n}", String(m.failed))) +
+        "</span>"
+      : "");
+}
+
+function paintBackupTime(): void {
+  const el = byId("backupProgTime");
+  if (!el || !backupProgress) return;
+  const elapsed = Date.now() - backupProgress.startedAt;
+  let text = t("backupElapsed").replace("{t}", fmtDuration(elapsed));
+  if (backupProgress.pct > 3 && backupProgress.pct < 100) {
+    const remain = (elapsed / backupProgress.pct) * (100 - backupProgress.pct);
+    text += " / " + t("backupRemaining").replace("{t}", fmtDuration(remain));
+  }
+  el.textContent = text;
+}
+
+/** テーブルの状態を進める（active → done）。 */
+function backupProgressTable(name: string, state: "active" | "done"): void {
+  if (!backupProgress) return;
+  const tb = backupProgress.tables.find((x) => x.name === name);
+  if (tb) tb.state = state;
+  paintBackupTables();
+}
+
+function backupProgressMedia(
+  done: number,
+  failed: number,
+  bytes: number,
+): void {
+  if (!backupProgress) return;
+  backupProgress.media = {
+    total: backupProgress.media.total,
+    done,
+    failed,
+    bytes,
+  };
+  paintBackupMedia();
 }
 
 /** ダイアログの「今なにをしているか」。ナビの作業中マークもここで更新する。 */
@@ -193,6 +344,10 @@ function setBackupPhase(
   phase: string,
   detail?: string,
 ): void {
+  if (backupProgress) {
+    backupProgress.phase = phase;
+    backupProgress.detail = detail || "";
+  }
   const el = byId("backupProgPhase");
   if (el) el.textContent = phase + (detail ? "  " + detail : "");
   backupProgressLog(phase + (detail ? " " + detail : ""));
@@ -220,18 +375,58 @@ function backupProgressLog(line: string): void {
 
 function setBackupProgress(pct: number, sub: string) {
   const clamped = Math.max(0, Math.min(100, pct));
+  if (backupProgress) backupProgress.pct = clamped;
   const bar = byId("backupProgBar");
   if (bar) (bar as Dynamic).style.width = clamped + "%";
   const pctEl = byId("backupProgPct");
   if (pctEl) pctEl.textContent = Math.round(clamped) + "%";
   const subEl = byId("backupProgSub");
   if (subEl) subEl.textContent = sub;
+  paintBackupTime();
+}
+
+/**
+ * 終了時はダイアログを閉じずにサマリーへ切り替える。
+ * ⚠ トーストは数秒で消えるので、「何件入ったのか」を確認する手段が消える。
+ */
+function backupProgressSummary(lines: string[], ok: boolean): void {
+  const warn = byId("backupProgWarn");
+  if (warn) warn.remove();
+  const phase = byId("backupProgPhase");
+  if (phase) {
+    phase.textContent = ok ? t("backupSummaryOk") : t("backupSummaryNg");
+    (phase as Dynamic).style.color = ok ? "var(--accent)" : "var(--danger)";
+  }
+  const log = byId("backupProgLog");
+  if (log)
+    for (const l of lines) {
+      const row = document.createElement("div");
+      row.textContent = l;
+      log.appendChild(row);
+      log.scrollTop = log.scrollHeight;
+    }
+  const btn = byId("backupProgCancel");
+  if (btn) {
+    btn.textContent = t("close");
+    const fresh = btn.cloneNode(true) as HTMLElement;
+    btn.parentNode?.replaceChild(fresh, btn);
+    fresh.addEventListener("click", () => closeBackupProgress());
+  }
+  if (backupTickTimer) {
+    clearInterval(backupTickTimer);
+    backupTickTimer = null;
+  }
 }
 
 function closeBackupProgress() {
   const o = byId("backupProgressOverlay");
   if (o) o.remove();
   backupProgressState = null;
+  backupProgress = null;
+  if (backupTickTimer) {
+    clearInterval(backupTickTimer);
+    backupTickTimer = null;
+  }
 }
 
 function backupCancelled(): boolean {
@@ -242,7 +437,7 @@ function backupCancelled(): boolean {
 function backupConfirm(title: string, message: string): Promise<boolean> {
   return new Promise((resolve) => {
     const overlay = document.createElement("div");
-    overlay.className = "popupOverlay";
+    overlay.className = "popupBackdrop";
     overlay.innerHTML =
       "<div class='popupCard' role='dialog' aria-modal='true' style='min-width:320px'>" +
       "<h3 class='popupTitle'></h3>" +
@@ -275,10 +470,11 @@ async function runBackup() {
   let sink: (chunk: Uint8Array) => Promise<void> | void;
   let writable: Dynamic = null;
   let fallbackChunks: Uint8Array[] | null = null;
+  // ファイル名は保存先選択とサマリー表示の両方で使うので、この関数のスコープに置く
+  const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 13);
+  const filename = "kurocms-backup-" + stamp + ".zip";
 
   try {
-    const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 13);
-    const filename = "kurocms-backup-" + stamp + ".zip";
     const picker = (window as Dynamic).showSaveFilePicker;
     if (picker) {
       const handle = await picker({
@@ -313,6 +509,26 @@ async function runBackup() {
     const total = tableTotal + mediaTotal || 1;
     let done = 0;
 
+    backupProgressInit({
+      kind: "backup",
+      title: t("backupTabBackup"),
+      fileName: filename,
+      tables: (manifest.tables || []).map((x: Dynamic) => ({
+        name: x.name,
+        total: x.count || 0,
+      })),
+      mediaTotal: mediaTotal,
+    });
+    backupProgressLog(
+      t("backupPlanLine")
+        .replace("{rows}", tableTotal.toLocaleString())
+        .replace("{files}", String(mediaTotal))
+        .replace(
+          "{bytes}",
+          fmtBytes(manifest.media ? manifest.media.totalBytes || 0 : 0),
+        ),
+    );
+
     const zw = new ZipWriter(sink);
 
     // manifest.json
@@ -328,11 +544,13 @@ async function runBackup() {
       setBackupPhase(
         "backup",
         t("backupPhaseTables"),
-        tbl.name + " (" + (tbl.count || 0) + ")",
+        tbl.name + " (" + (tbl.count || 0).toLocaleString() + ")",
       );
+      backupProgressTable(tbl.name, "active");
       setBackupProgress((done / total) * 100, "data/" + tbl.name + ".jsonl");
       await zw.add("data/" + tbl.name + ".jsonl", backupTableStream(tbl.name));
       done += tbl.count || 0;
+      backupProgressTable(tbl.name, "done");
       setBackupProgress((done / total) * 100, "data/" + tbl.name + ".jsonl");
     }
 
@@ -344,6 +562,7 @@ async function runBackup() {
     //   media-errors.json として残す（後から突き合わせられるように）。
     const mediaFailed: { mid: string; path: string; reason: string }[] = [];
     let mediaOk = 0;
+    let mediaBytes = 0;
     setBackupPhase("backup", t("backupPhaseMedia"), "0/" + mediaTotal);
     let mediaCursor: number | null = 0;
     while (mediaCursor !== null) {
@@ -362,6 +581,7 @@ async function runBackup() {
           if (res.ok && res.body) {
             await zw.add(entryName, res.body, row.size_bytes || 0);
             mediaOk += 1;
+            mediaBytes += Number(row.size_bytes || 0);
           } else {
             mediaFailed.push({
               mid: row.mid,
@@ -378,7 +598,8 @@ async function runBackup() {
         }
         done += 1;
         setBackupProgress((done / total) * 100, entryName);
-        if ((mediaOk + mediaFailed.length) % 10 === 0)
+        backupProgressMedia(mediaOk, mediaFailed.length, mediaBytes);
+        if ((mediaOk + mediaFailed.length) % 5 === 0)
           setBackupPhase(
             "backup",
             t("backupPhaseMedia"),
@@ -408,7 +629,31 @@ async function runBackup() {
 
     setBackupProgress(100, "");
     clearBackupJob();
-    closeBackupProgress();
+    const summary = [
+      "",
+      t("backupSummaryFile").replace("{name}", filename),
+      t("backupSummaryRows").replace("{rows}", tableTotal.toLocaleString()),
+      t("backupSummaryMedia")
+        .replace("{ok}", String(mediaOk))
+        .replace("{total}", String(mediaTotal))
+        .replace("{bytes}", fmtBytes(mediaBytes)),
+      t("backupSummaryTime").replace(
+        "{t}",
+        fmtDuration(
+          Date.now() - (backupProgress ? backupProgress.startedAt : Date.now()),
+        ),
+      ),
+    ];
+    if (mediaFailed.length) {
+      summary.push(
+        t("backupMediaIncomplete")
+          .replace("{failed}", String(mediaFailed.length))
+          .replace("{total}", String(mediaTotal)),
+      );
+      for (const f of mediaFailed.slice(0, 20))
+        summary.push("  - " + f.mid + " " + f.reason);
+    }
+    backupProgressSummary(summary, mediaFailed.length === 0);
     if (mediaFailed.length) {
       toast(
         t("backupMediaIncomplete")
@@ -525,6 +770,22 @@ async function runRestore() {
   if (!ok) return;
 
   openBackupProgress(t("backupTabRestore"));
+  backupProgressInit({
+    kind: "restore",
+    title: t("backupTabRestore"),
+    fileName: file.name,
+    tables: (manifest.tables || []).map((x: Dynamic) => ({
+      name: x.name,
+      total: x.count || 0,
+    })),
+    mediaTotal: entries.filter((e: Dynamic) => e.name.startsWith("media/"))
+      .length,
+  });
+  backupProgressLog(
+    t("restoreSourceLine")
+      .replace("{version}", String(manifest.kurocmsVersion || "?"))
+      .replace("{at}", String(manifest.createdAt || "").slice(0, 19)),
+  );
   try {
     // 1) Wipe (full replace).
     setBackupPhase("restore", t("restorePhaseWipe"), "D1");
@@ -553,7 +814,18 @@ async function runRestore() {
         (e: Dynamic) => e.name === "data/" + name + ".jsonl",
       );
       if (!entry) continue;
-      setBackupPhase("restore", t("restorePhaseTables"), name);
+      setBackupPhase(
+        "restore",
+        t("restorePhaseTables"),
+        name +
+          " (" +
+          (
+            (manifest.tables || []).find((x: Dynamic) => x.name === name)
+              ?.count || 0
+          ).toLocaleString() +
+          ")",
+      );
+      backupProgressTable(name, "active");
       setBackupProgress((done / total) * 100, "data/" + name + ".jsonl");
       const blob = await reader.blob(entry);
       await backupStreamJsonl(blob, async (rows) => {
@@ -565,6 +837,7 @@ async function runRestore() {
         done += rows.length;
         setBackupProgress((done / total) * 100, "data/" + name + ".jsonl");
       });
+      backupProgressTable(name, "done");
     }
 
     // 4) Restore media binaries (one streamed upload per file).
@@ -578,6 +851,7 @@ async function runRestore() {
       "0/" + mediaEntries.length,
     );
     let mediaDone = 0;
+    let mediaBytes = 0;
     for (const entry of mediaEntries) {
       if (backupCancelled()) throw new Error("cancelled");
       const base = entry.name.substring(entry.name.lastIndexOf("/") + 1);
@@ -604,8 +878,14 @@ async function runRestore() {
       }
       done += 1;
       mediaDone += 1;
+      mediaBytes += blob.size || 0;
+      backupProgressMedia(
+        mediaDone - restoreFailed.length,
+        restoreFailed.length,
+        mediaBytes,
+      );
       setBackupProgress((done / total) * 100, entry.name);
-      if (mediaDone % 10 === 0)
+      if (mediaDone % 5 === 0)
         setBackupPhase(
           "restore",
           t("restorePhaseMedia"),
@@ -618,7 +898,31 @@ async function runRestore() {
     await api("/api/system/restore/finish", { method: "POST" });
     setBackupProgress(100, "");
     clearBackupJob();
-    closeBackupProgress();
+    const summary = [
+      "",
+      t("restoreSummaryRows").replace("{rows}", tableTotal.toLocaleString()),
+      t("restoreSummaryMedia")
+        .replace("{ok}", String(mediaDone - restoreFailed.length))
+        .replace("{total}", String(mediaEntries.length))
+        .replace("{bytes}", fmtBytes(mediaBytes)),
+      t("backupSummaryTime").replace(
+        "{t}",
+        fmtDuration(
+          Date.now() - (backupProgress ? backupProgress.startedAt : Date.now()),
+        ),
+      ),
+      t("restoreNextStep"),
+    ];
+    if (restoreFailed.length) {
+      summary.push(
+        t("restoreMediaIncomplete")
+          .replace("{failed}", String(restoreFailed.length))
+          .replace("{total}", String(mediaEntries.length)),
+      );
+      for (const f of restoreFailed.slice(0, 20))
+        summary.push("  - " + f.mid + " " + f.reason);
+    }
+    backupProgressSummary(summary, restoreFailed.length === 0);
     if (restoreFailed.length) {
       console.warn("[restore] media failures", restoreFailed);
       toast(
