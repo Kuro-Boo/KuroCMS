@@ -2349,6 +2349,15 @@ async function buildRenderContext(
             htmlToPlainText(content[staticPage.titleKey] || "") ||
             staticPage.slug,
           bodyHtml: content[staticPage.bodyKey] || "",
+          // リード文と表紙（宣言で summaryKey / coverKey を指定したときだけ）。
+          // ⚠ これが無いとテンプレートが about のキーを直書きすることになり、
+          //   別 slug の固定ページに About の内容が出る。
+          summaryHtml: staticPage.summaryKey
+            ? content[staticPage.summaryKey] || ""
+            : "",
+          coverHtml: staticPage.coverKey
+            ? content[staticPage.coverKey] || ""
+            : "",
         }
       : null,
   );
