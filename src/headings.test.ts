@@ -1,7 +1,12 @@
 // 契約テスト (node で直接実行: `npm run test:headings`)。
 // 公開見出しの id / アンカー / 目次の規則を固定する。実装 (headings.ts) を
 // import するので、実装と乖離しない。
-import { annotateHeadings, renderTocHtml, slugifyHeading } from "./headings.ts";
+import {
+  annotateHeadings,
+  htmlToPlainText,
+  renderTocHtml,
+  slugifyHeading,
+} from "./headings.ts";
 
 let failed = 0;
 function check(name: string, got: unknown, want: unknown): void {
@@ -122,6 +127,28 @@ check("全角空白も畳む", slugifyHeading("あ　い"), "あ-い");
 check("記号は落とす", slugifyHeading("Q&A: 何？"), "q-a-何");
 check("前後の - は削る", slugifyHeading("--x--"), "x");
 check("大文字は小文字化", slugifyHeading("KuroCMS"), "kurocms");
+
+console.log("htmlToPlainText");
+
+// ⚠ サイトテキストは KuroEditor 由来の HTML。<title> やナビのリンク文字など
+//   平文が要る場所へ流す前に必ず通す（/about/ の <title> に &lt;h1&gt; が出た件）。
+check(
+  "見出しタグを剥がす",
+  htmlToPlainText('<h1 id="kuro-h-0">黒兎の人物紹介</h1>'),
+  "黒兎の人物紹介",
+);
+check(
+  "入れ子と実体参照",
+  htmlToPlainText("<p>A &amp; <strong>B</strong></p>"),
+  "A & B",
+);
+check("空白は畳む", htmlToPlainText("<p>a</p>\n<p>  b </p>"), "a b");
+check(
+  "タグが無ければそのまま",
+  htmlToPlainText("素のタイトル"),
+  "素のタイトル",
+);
+check("空入力", htmlToPlainText(""), "");
 
 console.log("renderTocHtml");
 
