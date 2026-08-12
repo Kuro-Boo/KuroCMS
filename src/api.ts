@@ -36,6 +36,8 @@ import { checkRecipeCards } from "./recipe-guard.js";
 import { KUROMAILER_SHARED_SECRET } from "./kuromailer-secret";
 import { COMMUNITY_SHARED_PAT } from "./community-secret";
 import { verifyRegistration, verifyAuthentication } from "./webauthn";
+// migrations/ を順番どおりに適用した最終形（スキーマの正本）。ビルド時生成。
+import { SCHEMA_MANIFEST } from "./schema-manifest";
 // GitHub の非 API 経路（レート制限に当たらない）からタグを読む純関数。
 import {
   parseStableTagFromLocation,
@@ -138,7 +140,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.9.27";
+export const KUROCMS_VERSION = "1.9.28";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -245,7 +247,14 @@ async function handleApiDispatch(
         expirationTtl: 60,
       });
       const applied = await applyPendingMigrations(env);
-      return json({ ok: true, applied }, { headers: jsonHeaders });
+      // ⚠ WorkerOps 経由のデプロイ（インストーラーが作った guardian が叩く経路）
+      //   でも必ずスキーマを収束させる。これで「どの経路で入った DB でも、
+      //   デプロイのたびに正本へ揃う」が成立する。
+      const schema = await reconcileSchema(env, true);
+      return json(
+        { ok: true, applied, schema: schema as unknown as JsonValue },
+        { headers: jsonHeaders },
+      );
     }
 
     if (request.method === "GET" && path === "/api/help") {
@@ -562,6 +571,19 @@ async function handleApiDispatch(
     // 重複メディアの統合（保守）。既定は dry run、?apply=1 で実行。
     // content_hash 未設定の行があるうちは phase:"hashing" を返すので、
     // 呼び手は done になるまで繰り返す（ワイプ系と同じ作法）。
+    // スキーマの点検（GET＝報告のみ）／修復（POST）。更新時にも自動で走るが、
+    // 移行の前後に単体で確かめられるようにしておく。
+    if (path === "/api/system/schema") {
+      requireAdmin(user);
+      return withJsonHeaders(
+        json(
+          (await reconcileSchema(
+            env,
+            request.method === "POST",
+          )) as unknown as JsonValue,
+        ),
+      );
+    }
     if (request.method === "POST" && path === "/api/system/media/dedupe") {
       requireAdmin(user);
       return withJsonHeaders(await mediaDedupe(env, url));
@@ -3135,6 +3157,88 @@ async function systemVersion(env: Env, refresh = false): Promise<Response> {
 
 // Apply any pending migrations from the latest release's migrations-manifest.json.
 // Additive-only + run-once tracking (d1_migrations / _kurocms_migrations) makes this
+// ── スキーマの自動収束 ───────────────────────────────────────────────────────
+//
+// 同じ KuroCMS でも DB の作られ方は 3 通りある: installer の一括適用 / 逐次
+// migration / バックアップからの復元。⚠ 3 番目が曲者で、d1_migrations は
+// バックアップ対象外なので復元後は適用済み記録が空になり、次の更新で【全
+// migration が再実行】される。すると
+//   0035 ADD COLUMN template_api_version → 0037 RENAME ... TO api_version
+// のような並びで、再実行された 0035 が「重複ではない」ため成功し、改名で
+// 消えたはずの旧列が復活する。2026-08 の本番移行では、この亡霊列が入った
+// バックアップを正しい DB へ流して復元が丸ごと失敗した。
+//
+// 対策: 履歴に頼らず【現物と正本を突き合わせて収束させる】。更新のたびに走る。
+//  - 足りない列は ALTER TABLE ADD COLUMN で足す
+//  - ⚠ 余分な列は【落とさない】。SQLite の DROP COLUMN は制約が多く、何より
+//    データを消す判断を自動でやるべきではない。報告だけして人に決めさせる
+//  - ⚠ NOT NULL かつ既定値なしの列は後から足せない（SQLite の制限）。
+//    これも報告に回す
+export interface SchemaDriftReport {
+  ok: boolean;
+  added: string[];
+  extra: string[];
+  unfixable: string[];
+  missingTables: string[];
+}
+
+async function reconcileSchema(
+  env: Env,
+  apply: boolean,
+): Promise<SchemaDriftReport> {
+  const added: string[] = [];
+  const extra: string[] = [];
+  const unfixable: string[] = [];
+  const missingTables: string[] = [];
+
+  for (const [table, cols] of Object.entries(SCHEMA_MANIFEST)) {
+    const info = await env.DB.prepare(
+      `SELECT name FROM pragma_table_info('${table}')`,
+    )
+      .all<{ name: string }>()
+      .catch(() => null);
+    const live = new Set((info?.results ?? []).map((r) => r.name));
+    if (live.size === 0) {
+      // 正本にあるテーブルが無い＝ migration が流れていない。ここでは作らない
+      // （CREATE 文は正本に持っていない）。migration 側の仕事として報告する。
+      missingTables.push(table);
+      continue;
+    }
+    for (const [col, def] of Object.entries(cols)) {
+      if (live.has(col)) continue;
+      if (def.notnull && def.dflt === null) {
+        unfixable.push(`${table}.${col}`);
+        continue;
+      }
+      if (apply) {
+        const parts = [`ALTER TABLE ${table} ADD COLUMN ${col} ${def.type}`];
+        if (def.notnull) parts.push("NOT NULL");
+        if (def.dflt !== null) parts.push(`DEFAULT ${def.dflt}`);
+        try {
+          await env.DB.prepare(parts.join(" ")).run();
+        } catch {
+          unfixable.push(`${table}.${col}`);
+          continue;
+        }
+      }
+      added.push(`${table}.${col}`);
+    }
+    for (const col of live) {
+      if (!cols[col]) extra.push(`${table}.${col}`);
+    }
+  }
+  return {
+    ok:
+      added.length === 0 &&
+      unfixable.length === 0 &&
+      missingTables.length === 0,
+    added,
+    extra,
+    unfixable,
+    missingTables,
+  };
+}
+
 // idempotent. Shared by systemUpdate and the WorkerOps Contract POST /api/migrate.
 async function applyPendingMigrations(
   env: Env,
@@ -3271,6 +3375,9 @@ async function systemUpdate(
   // true latest regardless of channel. (資産が無い古いリリースでも
   // applyPendingMigrations は 0 件で素通しするので安全。)
   const migrationsApplied = await applyPendingMigrations(env, manifestUrl);
+  // ⚠ migration の後に必ずスキーマを突き合わせる。履歴（d1_migrations）は
+  //   復元で失われうるので、履歴ではなく現物を正とする。
+  const schemaDrift = await reconcileSchema(env, true);
 
   // Download the compiled Worker script from the version-pinned asset URL —
   // NOT /latest/download/, which always resolves to GitHub's true latest
@@ -3393,6 +3500,7 @@ async function systemUpdate(
     version: resolvedTag,
     channel,
     migrationsApplied,
+    schema: schemaDrift as unknown as JsonValue,
   });
 }
 
