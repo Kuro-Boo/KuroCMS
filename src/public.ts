@@ -22,7 +22,12 @@ import {
 import { KE_VERSION } from "./admin-assets";
 import { buildFontHead, type LoadedFont } from "./fonts";
 import { stripInternalIds } from "./strip-internal-ids";
-import { annotateHeadings, renderTocHtml, type HeadingItem } from "./headings";
+import {
+  annotateHeadings,
+  htmlToPlainText,
+  renderTocHtml,
+  type HeadingItem,
+} from "./headings";
 // [[...]] 判定は KuroEditor と共有（vendored kuro-links.js の単一の正）。公開側は
 // この記述子から公開用マークアップだけを emit する。判定ロジックは再実装しない。
 import {
@@ -2338,7 +2343,11 @@ async function buildRenderContext(
     staticPage
       ? {
           slug: staticPage.slug,
-          title: content[staticPage.titleKey] || staticPage.slug,
+          // ⚠ タイトルは平文にする。サイトテキストは KuroEditor 由来の HTML なので、
+          //   そのままだと <title> に `&lt;h1&gt;…` が出る（2026-08 に /about/ で発生）。
+          title:
+            htmlToPlainText(content[staticPage.titleKey] || "") ||
+            staticPage.slug,
           bodyHtml: content[staticPage.bodyKey] || "",
         }
       : null,
@@ -2348,7 +2357,8 @@ async function buildRenderContext(
       .filter((page) => page.nav && Boolean(content[page.bodyKey]))
       .map((page) => ({
         slug: page.slug,
-        title: content[page.titleKey] || page.slug,
+        // ナビのリンク文字も平文（同上）
+        title: htmlToPlainText(content[page.titleKey] || "") || page.slug,
         isCurrent: staticPage?.slug === page.slug,
       })),
   );
@@ -5368,7 +5378,7 @@ export async function buildLlmsTxt(env: Env): Promise<string> {
   for (const page of staticPages) {
     if (!staticContent[page.bodyKey]) continue;
     lines.push(
-      `- [${md(staticContent[page.titleKey] || page.slug)}](${base}/${page.slug}/)`,
+      `- [${md(htmlToPlainText(staticContent[page.titleKey] || "") || page.slug)}](${base}/${page.slug}/)`,
     );
   }
   lines.push(`- [Sitemap](${base}/sitemap.xml)`);

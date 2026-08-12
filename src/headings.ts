@@ -67,7 +67,17 @@ function findTagEnd(html: string, lt: number): number {
   return j < n ? j + 1 : n;
 }
 
-/** タグと HTML コメントを落として素のテキストにする（引用符対応の走査版）。 */
+/**
+ * タグと HTML コメントを落として素のテキストにする（引用符対応の走査版）。
+ *
+ * ⚠ 見出し以外にも要る。サイトテキストは KuroEditor で編集する＝中身は HTML なので、
+ *   固定ページのタイトルのように【平文でなければならない場所】（<title>・og:title・
+ *   ナビのリンク文字・llms.txt）へそのまま流すと、`&lt;h1&gt;…` と実体参照で見えてしまう。
+ */
+export function htmlToPlainText(html: string): string {
+  return plainText(html);
+}
+
 function plainText(html: string): string {
   let out = "";
   let i = 0;
