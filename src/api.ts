@@ -138,7 +138,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.9.25";
+export const KUROCMS_VERSION = "1.9.26";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -9646,7 +9646,21 @@ async function restoreTable(
       ...cols.map((c) => normalizeRestoreValue(row[c])),
     );
   });
-  await env.DB.batch(stmts);
+  try {
+    await env.DB.batch(stmts);
+  } catch (err) {
+    // ⚠ 復元の失敗を汎用 500（"An unexpected error occurred."）で潰さない。
+    //   移行時にこれをやると「どのテーブルの何が悪いのか」が一切分からず、
+    //   利用者側からは打つ手が無くなる（2026-08 の本番移行で実際に詰まった）。
+    //   D1 の生メッセージ（no such column / NOT NULL constraint failed: … 等）を
+    //   そのまま返す。Admin 限定エンドポイントなので内部名の露出は許容する。
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new HttpError(
+      500,
+      "restore_table_failed",
+      `${name}: ${msg.slice(0, 400)}`,
+    );
+  }
   return json({ ok: true, inserted: rows.length });
 }
 

@@ -647,6 +647,8 @@ const i18n = {
     backupFailedCount: "{n} failed",
     backupSummaryOk: "Completed",
     backupSummaryNg: "Completed with problems",
+    backupFailHint:
+      "The log above shows how far it got. Fix the cause and run it again — the steps are safe to repeat.",
     backupSummaryFile: "File: {name}",
     backupSummaryRows: "Rows written: {rows}",
     backupSummaryMedia: "Media written: {ok} / {total} ({bytes})",
@@ -1606,6 +1608,8 @@ const i18n = {
     backupFailedCount: "{n} 件失敗",
     backupSummaryOk: "完了しました",
     backupSummaryNg: "完了しましたが問題があります",
+    backupFailHint:
+      "上のログにどこまで進んだかが残っています。原因を直してからもう一度実行してください（同じ手順を繰り返しても安全です）。",
     backupSummaryFile: "ファイル: {name}",
     backupSummaryRows: "書き出した行数: {rows}",
     backupSummaryMedia: "書き出したメディア: {ok} / {total}（{bytes}）",

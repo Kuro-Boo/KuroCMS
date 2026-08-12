@@ -389,6 +389,57 @@ function setBackupProgress(pct: number, sub: string) {
  * 終了時はダイアログを閉じずにサマリーへ切り替える。
  * ⚠ トーストは数秒で消えるので、「何件入ったのか」を確認する手段が消える。
  */
+/**
+ * 失敗時。ダイアログは【閉じない】— 経過ログとテーブルの進み具合を残したまま、
+ * 何が起きたかを中に大きく出す。原因文はコピーしやすいよう選択可能にする。
+ */
+function backupProgressFail(title: string, detail: string): void {
+  if (!byId("backupProgressOverlay")) {
+    // ダイアログを開く前に落ちた場合だけトーストで知らせる
+    toast(title + (detail ? ": " + detail : ""), true);
+    return;
+  }
+  const warn = byId("backupProgWarn");
+  if (warn) warn.remove();
+  const phase = byId("backupProgPhase");
+  if (phase) {
+    phase.textContent = title;
+    (phase as Dynamic).style.color = "var(--danger)";
+  }
+  const bar = byId("backupProgBar");
+  if (bar) (bar as Dynamic).style.background = "var(--danger)";
+  if (detail) {
+    const box = byId("backupProgLog");
+    if (box) {
+      const row = document.createElement("div");
+      row.style.cssText =
+        "margin-top:6px;color:var(--danger);white-space:pre-wrap;user-select:text";
+      row.textContent = detail;
+      box.appendChild(row);
+      box.scrollTop = box.scrollHeight;
+    }
+  }
+  const hint = document.createElement("p");
+  hint.className = "muted";
+  hint.style.cssText = "font-size:11px;margin:10px 0 0";
+  hint.textContent = t("backupFailHint");
+  byId("backupProgLog")?.parentNode?.insertBefore(
+    hint,
+    byId("backupProgLog")!.nextSibling,
+  );
+  const btn = byId("backupProgCancel");
+  if (btn) {
+    btn.textContent = t("close");
+    const fresh = btn.cloneNode(true) as HTMLElement;
+    btn.parentNode?.replaceChild(fresh, btn);
+    fresh.addEventListener("click", () => closeBackupProgress());
+  }
+  if (backupTickTimer) {
+    clearInterval(backupTickTimer);
+    backupTickTimer = null;
+  }
+}
+
 function backupProgressSummary(lines: string[], ok: boolean): void {
   const warn = byId("backupProgWarn");
   if (warn) warn.remove();
@@ -654,22 +705,15 @@ async function runBackup() {
         summary.push("  - " + f.mid + " " + f.reason);
     }
     backupProgressSummary(summary, mediaFailed.length === 0);
-    if (mediaFailed.length) {
-      toast(
-        t("backupMediaIncomplete")
-          .replace("{failed}", String(mediaFailed.length))
-          .replace("{total}", String(mediaTotal)),
-        true,
-      );
-    } else {
-      toast(t("backupDone"), false);
-    }
   } catch (e) {
     clearBackupJob();
-    closeBackupProgress();
     if (writable) await writable.abort().catch(() => {});
-    if ((e as Error).message === "cancelled") toast(t("backupCancelled"), true);
-    else toast(t("backupFailed") + ": " + (e as Error).message, true);
+    backupProgressFail(
+      (e as Error).message === "cancelled"
+        ? t("backupCancelled")
+        : t("backupFailed"),
+      (e as Error).message === "cancelled" ? "" : errorMessage(e),
+    );
   }
 }
 
@@ -922,23 +966,20 @@ async function runRestore() {
       for (const f of restoreFailed.slice(0, 20))
         summary.push("  - " + f.mid + " " + f.reason);
     }
-    backupProgressSummary(summary, restoreFailed.length === 0);
-    if (restoreFailed.length) {
+    if (restoreFailed.length)
       console.warn("[restore] media failures", restoreFailed);
-      toast(
-        t("restoreMediaIncomplete")
-          .replace("{failed}", String(restoreFailed.length))
-          .replace("{total}", String(mediaEntries.length)),
-        true,
-      );
-    } else {
-      toast(t("restoreDone"), false);
-    }
+    backupProgressSummary(summary, restoreFailed.length === 0);
   } catch (e) {
     clearBackupJob();
-    closeBackupProgress();
-    if ((e as Error).message === "cancelled") toast(t("backupCancelled"), true);
-    else toast(t("restoreFailed") + ": " + (e as Error).message, true);
+    // ⚠ ここでダイアログを閉じない。閉じると「どこまで進んだか」が消え、
+    //   数秒で消えるトーストしか残らない（移行作業では致命的）。
+    //   経過ログを残したまま、ダイアログの中にエラーを出す。
+    backupProgressFail(
+      (e as Error).message === "cancelled"
+        ? t("backupCancelled")
+        : t("restoreFailed"),
+      (e as Error).message === "cancelled" ? "" : errorMessage(e),
+    );
   }
 }
 
