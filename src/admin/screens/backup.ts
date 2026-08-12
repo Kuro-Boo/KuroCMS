@@ -60,9 +60,36 @@ async function backupScreen() {
     )
     .join("");
 
+  // 前回の読み込みで始まって完了しなかった処理の告知。
+  // ⚠ 「実行中」ではなく【中断された】と伝える — バックアップ/復元はページ内の
+  //   ループなので、再読み込みした時点で処理は死んでいる。復元の中断は DB が
+  //   途中状態で残るため、やり直しが要ることまで明示する。
+  const stale = backupJobInterrupted();
+  const staleNotice = stale
+    ? "<div class='notice error' style='margin-bottom:12px'>" +
+      "<b>" +
+      escapeHtml(t("backupInterruptedTitle")) +
+      "</b><br>" +
+      escapeHtml(
+        (stale.kind === "restore"
+          ? t("backupInterruptedRestore")
+          : t("backupInterruptedBackup")
+        )
+          .replace("{phase}", stale.phase || "-")
+          .replace(
+            "{at}",
+            new Date(stale.startedAt || Date.now()).toLocaleString(),
+          ),
+      ) +
+      " <button type='button' id='backupStaleDismiss' class='secondary' style='margin-left:8px;font-size:11px;padding:2px 10px'>" +
+      escapeHtml(t("backupInterruptedDismiss")) +
+      "</button></div>"
+    : "";
+
   shell(
-    t("backup"),
-    "<div class='settingsTabBar'>" +
+    t("backup") + (stale ? " ⚠" : ""),
+    staleNotice +
+      "<div class='settingsTabBar'>" +
       tabBar +
       "</div>" +
       // ── Backup ─────────────────────────────────────────────────────────
@@ -112,6 +139,12 @@ async function backupScreen() {
   if (startBtn) startBtn.addEventListener("click", () => runBackup());
   const restoreBtn = byId("restoreStartBtn");
   if (restoreBtn) restoreBtn.addEventListener("click", () => runRestore());
+  const dismiss = byId("backupStaleDismiss");
+  if (dismiss)
+    dismiss.addEventListener("click", () => {
+      clearBackupJob();
+      backupScreen();
+    });
 }
 
 // ── Progress modal ─────────────────────────────────────────────────────────
@@ -123,13 +156,23 @@ function openBackupProgress(title: string): { cancelled: boolean } {
   overlay.id = "backupProgressOverlay";
   overlay.className = "popupOverlay";
   overlay.innerHTML =
-    "<div class='popupCard' role='dialog' aria-modal='true' style='min-width:320px'>" +
+    "<div class='popupCard' role='dialog' aria-modal='true' style='min-width:360px;max-width:min(560px,92vw)'>" +
     "<h3 class='popupTitle' id='backupProgTitle'></h3>" +
-    "<div style='height:10px;border-radius:6px;background:var(--line);overflow:hidden;margin:12px 0'>" +
+    // 何をしているか（フェーズ）＝ 一番見たい情報なので大きく出す
+    "<div id='backupProgPhase' style='font-size:13px;font-weight:700;margin-top:6px'></div>" +
+    "<div style='display:flex;align-items:center;gap:10px;margin:10px 0'>" +
+    "<div style='flex:1;height:10px;border-radius:6px;background:var(--line);overflow:hidden'>" +
     "<div id='backupProgBar' style='height:100%;width:0%;background:var(--accent);transition:width .2s'></div>" +
     "</div>" +
-    "<div id='backupProgSub' class='muted' style='font-size:12px;min-height:18px;word-break:break-all'></div>" +
-    "<div style='margin-top:16px;text-align:right'>" +
+    "<div id='backupProgPct' class='muted' style='font-size:12px;min-width:3.5em;text-align:right'>0%</div>" +
+    "</div>" +
+    "<div id='backupProgSub' class='muted' style='font-size:11px;min-height:16px;word-break:break-all'></div>" +
+    // 直近の経過。無言で止まったときに「どこまで進んだか」を残す
+    "<div id='backupProgLog' style='margin-top:10px;max-height:132px;overflow:auto;font-size:11px;font-family:ui-monospace,monospace;line-height:1.6;background:var(--surface-2);border-radius:8px;padding:8px 10px'></div>" +
+    "<p class='muted' style='font-size:11px;margin:10px 0 0'>" +
+    escapeHtml(t("backupDontClose")) +
+    "</p>" +
+    "<div style='margin-top:14px;text-align:right'>" +
     "<button type='button' id='backupProgCancel'>" +
     escapeHtml(t("cancel")) +
     "</button></div></div>";
@@ -144,9 +187,43 @@ function openBackupProgress(title: string): { cancelled: boolean } {
   return st;
 }
 
+/** ダイアログの「今なにをしているか」。ナビの作業中マークもここで更新する。 */
+function setBackupPhase(
+  kind: "backup" | "restore",
+  phase: string,
+  detail?: string,
+): void {
+  const el = byId("backupProgPhase");
+  if (el) el.textContent = phase + (detail ? "  " + detail : "");
+  backupProgressLog(phase + (detail ? " " + detail : ""));
+  setBackupJob(kind, phase);
+}
+
+/** 経過ログ（1 行ずつ追記。最新が見えるよう自動スクロール）。 */
+function backupProgressLog(line: string): void {
+  const box = byId("backupProgLog");
+  if (!box) return;
+  const row = document.createElement("div");
+  const now = new Date();
+  const z = (n: number) => String(n).padStart(2, "0");
+  row.textContent =
+    z(now.getHours()) +
+    ":" +
+    z(now.getMinutes()) +
+    ":" +
+    z(now.getSeconds()) +
+    "  " +
+    line;
+  box.appendChild(row);
+  box.scrollTop = box.scrollHeight;
+}
+
 function setBackupProgress(pct: number, sub: string) {
+  const clamped = Math.max(0, Math.min(100, pct));
   const bar = byId("backupProgBar");
-  if (bar) (bar as Dynamic).style.width = Math.max(0, Math.min(100, pct)) + "%";
+  if (bar) (bar as Dynamic).style.width = clamped + "%";
+  const pctEl = byId("backupProgPct");
+  if (pctEl) pctEl.textContent = Math.round(clamped) + "%";
   const subEl = byId("backupProgSub");
   if (subEl) subEl.textContent = sub;
 }
@@ -245,8 +322,14 @@ async function runBackup() {
     );
 
     // D1 tables → data/<name>.jsonl (paged stream, bounded memory).
+    setBackupPhase("backup", t("backupPhaseTables"));
     for (const tbl of manifest.tables || []) {
       if (backupCancelled()) throw new Error("cancelled");
+      setBackupPhase(
+        "backup",
+        t("backupPhaseTables"),
+        tbl.name + " (" + (tbl.count || 0) + ")",
+      );
       setBackupProgress((done / total) * 100, "data/" + tbl.name + ".jsonl");
       await zw.add("data/" + tbl.name + ".jsonl", backupTableStream(tbl.name));
       done += tbl.count || 0;
@@ -261,6 +344,7 @@ async function runBackup() {
     //   media-errors.json として残す（後から突き合わせられるように）。
     const mediaFailed: { mid: string; path: string; reason: string }[] = [];
     let mediaOk = 0;
+    setBackupPhase("backup", t("backupPhaseMedia"), "0/" + mediaTotal);
     let mediaCursor: number | null = 0;
     while (mediaCursor !== null) {
       const page = await api(
@@ -294,6 +378,12 @@ async function runBackup() {
         }
         done += 1;
         setBackupProgress((done / total) * 100, entryName);
+        if ((mediaOk + mediaFailed.length) % 10 === 0)
+          setBackupPhase(
+            "backup",
+            t("backupPhaseMedia"),
+            mediaOk + mediaFailed.length + "/" + mediaTotal,
+          );
       }
       mediaCursor = page.nextCursor;
     }
@@ -311,11 +401,13 @@ async function runBackup() {
       );
     }
 
+    setBackupPhase("backup", t("backupPhaseFinish"));
     await zw.close();
     if (writable) await writable.close();
     if (fallbackChunks) backupTriggerDownload(fallbackChunks);
 
     setBackupProgress(100, "");
+    clearBackupJob();
     closeBackupProgress();
     if (mediaFailed.length) {
       toast(
@@ -328,6 +420,7 @@ async function runBackup() {
       toast(t("backupDone"), false);
     }
   } catch (e) {
+    clearBackupJob();
     closeBackupProgress();
     if (writable) await writable.abort().catch(() => {});
     if ((e as Error).message === "cancelled") toast(t("backupCancelled"), true);
@@ -386,10 +479,23 @@ async function runRestore() {
     } else {
       file = await backupPickFileFallback();
     }
-  } catch {
+  } catch (err) {
+    // ⚠ ここを無言の return にしない。以前は「復元を押したのに何も起きない」
+    //   状態が何の手掛かりも残さず発生していた（利用者のキャンセルなのか、
+    //   ブラウザがピッカーを拒否したのか区別できなかった）。
+    const name = (err as Dynamic)?.name;
+    if (name === "AbortError" || name === "NotAllowedError") {
+      toast(t("restoreCancelledPick"), false);
+    } else {
+      toast(t("restoreFailed") + ": " + errorMessage(err), true);
+    }
     return;
   }
-  if (!file) return;
+  if (!file) {
+    toast(t("restoreCancelledPick"), false);
+    return;
+  }
+  toast(t("restoreReading").replace("{name}", file.name), false);
 
   let entries: Dynamic[];
   let reader: Dynamic;
@@ -421,9 +527,12 @@ async function runRestore() {
   openBackupProgress(t("backupTabRestore"));
   try {
     // 1) Wipe (full replace).
+    setBackupPhase("restore", t("restorePhaseWipe"), "D1");
     setBackupProgress(2, t("restorePhaseWipe"));
     await api("/api/system/restore/wipe-db", { method: "POST" });
+    setBackupPhase("restore", t("restorePhaseWipe"), "R2");
     await backupWipeLoop("/api/system/restore/wipe-media");
+    setBackupPhase("restore", t("restorePhaseWipe"), "KV");
     await backupWipeLoop("/api/system/restore/wipe-pages");
 
     // 2) Plan totals for progress (table row counts from manifest + media files).
@@ -444,6 +553,7 @@ async function runRestore() {
         (e: Dynamic) => e.name === "data/" + name + ".jsonl",
       );
       if (!entry) continue;
+      setBackupPhase("restore", t("restorePhaseTables"), name);
       setBackupProgress((done / total) * 100, "data/" + name + ".jsonl");
       const blob = await reader.blob(entry);
       await backupStreamJsonl(blob, async (rows) => {
@@ -462,6 +572,12 @@ async function runRestore() {
     // ⚠ ここも戻り値を必ず見る。以前は `await fetch(...)` の結果を捨てていたため、
     //   R2 未接続（503）や行欠損（404）で 1 件も入らなくても「完了」と出た。
     const restoreFailed: { mid: string; reason: string }[] = [];
+    setBackupPhase(
+      "restore",
+      t("restorePhaseMedia"),
+      "0/" + mediaEntries.length,
+    );
+    let mediaDone = 0;
     for (const entry of mediaEntries) {
       if (backupCancelled()) throw new Error("cancelled");
       const base = entry.name.substring(entry.name.lastIndexOf("/") + 1);
@@ -487,12 +603,21 @@ async function runRestore() {
         });
       }
       done += 1;
+      mediaDone += 1;
       setBackupProgress((done / total) * 100, entry.name);
+      if (mediaDone % 10 === 0)
+        setBackupPhase(
+          "restore",
+          t("restorePhaseMedia"),
+          mediaDone + "/" + mediaEntries.length,
+        );
     }
 
     // 5) Finish.
+    setBackupPhase("restore", t("backupPhaseFinish"));
     await api("/api/system/restore/finish", { method: "POST" });
     setBackupProgress(100, "");
+    clearBackupJob();
     closeBackupProgress();
     if (restoreFailed.length) {
       console.warn("[restore] media failures", restoreFailed);
@@ -506,6 +631,7 @@ async function runRestore() {
       toast(t("restoreDone"), false);
     }
   } catch (e) {
+    clearBackupJob();
     closeBackupProgress();
     if ((e as Error).message === "cancelled") toast(t("backupCancelled"), true);
     else toast(t("restoreFailed") + ": " + (e as Error).message, true);

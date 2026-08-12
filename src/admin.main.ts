@@ -257,6 +257,67 @@ async function prepareImageForUpload(file: File): Promise<PreparedUploadImage> {
 const tokenKey = "kurocms_pat";
 const uiLangKey = "kurocms_ui_lang";
 const colorModeKey = "kurocms_color_mode";
+// バックアップ / 復元は【クライアント側のループ】で進む。ZIP の組み立ても解凍も
+// ブラウザがやるので、タブを閉じる・再読み込みするとその場で止まる。何も残さないと
+// 利用者は「終わったのか落ちたのか」を判断できないため、開始時に印を付け、
+// 完了・取消・失敗で消す。⚠ 再読み込み後に残っている印は「実行中」ではなく
+// 【中断された】ことを意味する（ループはページと一緒に死んでいる）。
+const backupJobKey = "kurocms_backup_job";
+type BackupJob = {
+  kind: "backup" | "restore";
+  phase: string;
+  startedAt: number;
+  /** この印を付けたページ読み込みの識別子。違えば別セッション＝中断された。 */
+  session: string;
+};
+const backupSessionId =
+  String(Date.now()) + "." + Math.random().toString(36).slice(2, 8);
+function readBackupJob(): BackupJob | null {
+  try {
+    const raw = localStorage.getItem(backupJobKey);
+    return raw ? (JSON.parse(raw) as BackupJob) : null;
+  } catch {
+    return null;
+  }
+}
+/** この読み込みで走っている最中か（＝ダイアログが出ている）。 */
+function backupJobLive(): boolean {
+  const j = readBackupJob();
+  return !!j && j.session === backupSessionId;
+}
+/** 前回の読み込みで始まり、完了しないまま終わったか。 */
+function backupJobInterrupted(): BackupJob | null {
+  const j = readBackupJob();
+  return j && j.session !== backupSessionId ? j : null;
+}
+function setBackupJob(kind: "backup" | "restore", phase: string): void {
+  try {
+    const prev = readBackupJob();
+    localStorage.setItem(
+      backupJobKey,
+      JSON.stringify({
+        kind,
+        phase,
+        startedAt:
+          prev && prev.session === backupSessionId
+            ? prev.startedAt
+            : Date.now(),
+        session: backupSessionId,
+      } satisfies BackupJob),
+    );
+  } catch {
+    /* storage 不可なら印は諦める（本処理は続く） */
+  }
+  setActiveNav();
+}
+function clearBackupJob(): void {
+  try {
+    localStorage.removeItem(backupJobKey);
+  } catch {
+    /* ignore */
+  }
+  setActiveNav();
+}
 // ブラウザのタブタイトルに出すユーザー名（プロフィールの displayName）のキャッシュ。
 // 複数の KuroCMS インスタンスを同時に開くと全部 "KuroCMS Admin" になって
 // 見分けがつかないため、"KuroCMS <ユーザー名>" を表示する。セッション取得より
@@ -570,6 +631,22 @@ const i18n = {
       "This deletes all current content, media and settings, then restores from the selected backup. This cannot be undone.",
     restoreConfirmYes: "Replace everything",
     restorePhaseWipe: "Clearing existing data…",
+    restorePhaseTables: "Loading data…",
+    restorePhaseMedia: "Loading media…",
+    restoreReading: "Reading {name}…",
+    restoreCancelledPick: "No file was selected — restore was not started.",
+    backupPhaseTables: "Writing data…",
+    backupPhaseMedia: "Writing media…",
+    backupPhaseFinish: "Finalizing…",
+    backupDontClose:
+      "Keep this tab open. Closing or reloading it stops the job partway.",
+    backupRunningBadge: "In progress",
+    backupInterruptedTitle: "The previous job did not finish",
+    backupInterruptedBackup:
+      'A backup started at {at} stopped at "{phase}" (the tab was closed or reloaded). The saved ZIP is incomplete — delete it and run the backup again.',
+    backupInterruptedRestore:
+      'A restore started at {at} stopped at "{phase}" (the tab was closed or reloaded). The database may be half-restored — run the restore again from the beginning before using this site.',
+    backupInterruptedDismiss: "Dismiss",
     inviteUser: "Invite User",
     settings: "Settings",
     profile: "Profile",
@@ -1498,6 +1575,23 @@ const i18n = {
       "現在のコンテンツ・メディア・設定をすべて削除し、選択したバックアップから復元します。この操作は取り消せません。",
     restoreConfirmYes: "すべて置き換える",
     restorePhaseWipe: "既存データを削除中…",
+    restorePhaseTables: "データを読み込み中…",
+    restorePhaseMedia: "メディアを読み込み中…",
+    restoreReading: "{name} を読み込んでいます…",
+    restoreCancelledPick:
+      "ファイルが選択されなかったため、復元は開始していません。",
+    backupPhaseTables: "データを書き出し中…",
+    backupPhaseMedia: "メディアを書き出し中…",
+    backupPhaseFinish: "仕上げ中…",
+    backupDontClose:
+      "このタブは開いたままにしてください。閉じたり再読み込みすると途中で止まります。",
+    backupRunningBadge: "実行中",
+    backupInterruptedTitle: "前回の処理が完了していません",
+    backupInterruptedBackup:
+      "{at} に開始したバックアップが「{phase}」で止まりました（タブを閉じたか再読み込みしたため）。保存された ZIP は不完全です。削除して取り直してください。",
+    backupInterruptedRestore:
+      "{at} に開始した復元が「{phase}」で止まりました（タブを閉じたか再読み込みしたため）。データベースが途中状態の可能性があります。このサイトを使う前に、最初から復元をやり直してください。",
+    backupInterruptedDismiss: "閉じる",
     inviteUser: "ユーザーを招待",
     settingsTabBasic: "基本",
     settingsTabSns: "SNS連動",
@@ -2420,7 +2514,13 @@ function menuHtml(mode: Dynamic) {
       const dot =
         state.storageAlert && item.key === "dashboard"
           ? "<span class='navAlertDot'></span>"
-          : "";
+          : item.key === "backup" && backupJobLive()
+            ? "<span class='navBusyDot' title='" +
+              escapeHtml(t("backupRunningBadge")) +
+              "'></span>"
+            : item.key === "backup" && backupJobInterrupted()
+              ? "<span class='navAlertDot'></span>"
+              : "";
       return (
         "<a href='" +
         item.href +
