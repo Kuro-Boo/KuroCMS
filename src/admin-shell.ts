@@ -512,6 +512,11 @@ export function adminHtml(
       .storageUnavailable { font-size: 11px; font-weight: 700; color: var(--muted); background: var(--surface-3); border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px; margin-bottom: -4px; text-align: center; }
       .storageCardTitle { font-weight: 700; font-size: 13px; color: var(--muted); text-align: center; }
       .navAlertDot { position: absolute; top: 7px; right: 8px; width: 8px; height: 8px; border-radius: 50%; background: var(--danger); pointer-events: none; }
+      /* 実行中マーク。バックアップ/復元はページ内ループなので、動いていることが
+         一目で分かるよう脈打たせる（赤い navAlertDot＝中断/警告 とは色で区別）。 */
+      .navBusyDot { position: absolute; top: 7px; right: 8px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent-3); pointer-events: none; animation: kuroBusyPulse 1.1s ease-in-out infinite; }
+      @keyframes kuroBusyPulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: .35; transform: scale(.72); } }
+      @media (prefers-reduced-motion: reduce) { .navBusyDot { animation: none; } }
       .dashStatChip { display:inline-flex; align-items:center; gap:6px; background:var(--surface-2); border:1px solid var(--line); border-radius:8px; padding:6px 14px; font-size:13px; }
       .dashStatChip strong { font-size:20px; font-weight:800; color:var(--accent); }
       .versionRow { display:flex; justify-content:space-between; align-items:center; font-size:13px; padding:3px 0; }
