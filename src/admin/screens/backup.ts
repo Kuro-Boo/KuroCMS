@@ -852,6 +852,7 @@ async function runRestore() {
     let done = 0;
 
     // 3) Restore tables (parents → children).
+    const skippedColumns = new Set<string>();
     for (const name of BACKUP_RESTORE_TABLE_ORDER) {
       if (backupCancelled()) throw new Error("cancelled");
       const entry = entries.find(
@@ -874,10 +875,21 @@ async function runRestore() {
       const blob = await reader.blob(entry);
       await backupStreamJsonl(blob, async (rows) => {
         if (backupCancelled()) throw new Error("cancelled");
-        await api("/api/system/restore/table/" + name, {
+        const res = await api("/api/system/restore/table/" + name, {
           method: "POST",
           body: JSON.stringify({ rows }),
         });
+        // 移行先に無い列は落として続行する。黙って捨てない（1 回だけ記録）。
+        const sk = (res && res.skippedColumns) || [];
+        for (const col of sk) {
+          if (skippedColumns.has(name + "." + col)) continue;
+          skippedColumns.add(name + "." + col);
+          backupProgressLog(
+            t("restoreSkippedColumn")
+              .replace("{table}", name)
+              .replace("{col}", col),
+          );
+        }
         done += rows.length;
         setBackupProgress((done / total) * 100, "data/" + name + ".jsonl");
       });
@@ -957,6 +969,13 @@ async function runRestore() {
       ),
       t("restoreNextStep"),
     ];
+    if (skippedColumns.size)
+      summary.push(
+        t("restoreSkippedSummary").replace(
+          "{cols}",
+          [...skippedColumns].join(", "),
+        ),
+      );
     if (restoreFailed.length) {
       summary.push(
         t("restoreMediaIncomplete")
