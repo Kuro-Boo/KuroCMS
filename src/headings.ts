@@ -179,6 +179,28 @@ function removeIdAttr(tag: string): string {
   return tag.replace(/\sid\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/i, "");
 }
 
+/**
+ * 見出しから旧 KuroEditor 由来の `id="kuro-h-<連番>"` だけを剥がす。
+ *
+ * annotateHeadings を通す経路では安定 id に置き換わるので不要だが、固定ページの
+ * タイトルのように【アンカーを付けない】経路はそこを通らず、保存済みの連番 id が
+ * そのまま公開 HTML に出てしまう（2026-08-13 に /about/ の h1 で確認）。
+ * ⚠ 著者が自分で付けた id は触らない。連番 id だけが対象。
+ */
+export function stripLegacyHeadingIds(html: string): string {
+  const src = typeof html === "string" ? html : "";
+  if (!src) return "";
+  return src.replace(
+    /<(h[1-6])(\s[^>]*)?>/gi,
+    (whole: string, tag: string, attrs?: string) => {
+      if (!attrs) return whole;
+      const id = readIdAttr(attrs);
+      if (!id || !LEGACY_HEADING_ID_RE.test(id)) return whole;
+      return `<${tag}${removeIdAttr(attrs)}>`;
+    },
+  );
+}
+
 export interface AnnotateOptions {
   /** アンカー <a> の aria-label（サイト言語に合わせて呼び手が渡す）。 */
   anchorLabel?: string;

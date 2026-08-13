@@ -4,6 +4,7 @@
 import {
   annotateHeadings,
   asPageHeadingHtml,
+  stripLegacyHeadingIds,
   htmlToPlainText,
   renderTocHtml,
   slugifyHeading,
@@ -188,6 +189,42 @@ check(
   asPageHeadingHtml("<p>a</p><p>1 &lt; 2</p>"),
   "<h1>a1 &lt; 2</h1>",
 );
+
+console.log("stripLegacyHeadingIds");
+
+// ⚠ アンカーを付けない経路（固定ページのタイトル）は annotateHeadings を
+//    通らないため、保存済みの連番 id がそのまま公開 HTML に出ていた。
+check(
+  "旧 kuro-h-N は剥がす",
+  stripLegacyHeadingIds('<h1 id="kuro-h-0">黒兎</h1>'),
+  "<h1>黒兎</h1>",
+);
+check(
+  "著者が付けた id は残す",
+  stripLegacyHeadingIds('<h2 id="my-own">X</h2>'),
+  '<h2 id="my-own">X</h2>',
+);
+check(
+  "他の属性は壊さない",
+  stripLegacyHeadingIds('<h1 class="t" id="kuro-h-12" data-x="1">A</h1>'),
+  '<h1 class="t" data-x="1">A</h1>',
+);
+check(
+  "h6 も対象",
+  stripLegacyHeadingIds('<h6 id="kuro-h-3">S</h6>'),
+  "<h6>S</h6>",
+);
+check(
+  "似て非なる id は残す",
+  stripLegacyHeadingIds('<h1 id="kuro-h-abc">A</h1>'),
+  '<h1 id="kuro-h-abc">A</h1>',
+);
+check(
+  "見出し以外は触らない",
+  stripLegacyHeadingIds('<p id="kuro-h-1">p</p>'),
+  '<p id="kuro-h-1">p</p>',
+);
+check("空入力", stripLegacyHeadingIds(""), "");
 
 console.log("renderTocHtml");
 
