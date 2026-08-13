@@ -50,7 +50,7 @@ import type { Env, JsonValue } from "./types";
 // can't see (e.g. the <head> content-CSS <link>, template-model shape). The
 // build salts every page hash with this, so cached builds are invalidated and
 // all pages regenerate even when their underlying content is unchanged.
-const RENDER_FORMAT_VERSION = "26";
+const RENDER_FORMAT_VERSION = "27";
 
 /** Cheap, synchronous string hash (FNV-1a, base36) for cache keys. Not crypto. */
 /**
@@ -2291,6 +2291,18 @@ async function buildRenderContext(
     prefetch,
     filter,
   );
+
+  // ⚠ サイトテキストは全部 KuroEditor 由来。旧 KuroEditor が本文 DOM へ書いた
+  //   `id="kuro-h-<連番>"` が保存されており、包み込み経路（本文・固定ページ・
+  //   privacy/terms）を通らない値——top-hero-title のようにテンプレートが
+  //   `[[html:content.*]]` で直接出すもの——では公開 HTML に漏れていた
+  //   （2026-08-13 にトップページで確認）。ここで一律に剥がす。
+  //   `_` 始まりは CMS が組み立てた計算値なので触らない。
+  for (const key of Object.keys(content)) {
+    if (key.startsWith("_")) continue;
+    const value = content[key];
+    if (value) content[key] = stripLegacyHeadingIds(value);
+  }
 
   // Template-declared fixed-page bodies are authored rich content too — wrap
   // them like article bodies so callouts/roundboxes render consistently.
