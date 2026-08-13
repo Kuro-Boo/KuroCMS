@@ -55,6 +55,11 @@ import {
 } from "./http";
 import { isKuroCmsHtmlTemplate } from "./templates/html-template";
 import {
+  chooseTemplateSourceOrigin,
+  isAcceptableTemplateSource,
+  isSameZoneAsCommunity,
+} from "./templates/community-source";
+import {
   FONT_CATALOG,
   SYSTEM_FONTS,
   findCatalogEntry,
@@ -140,7 +145,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.9.33";
+export const KUROCMS_VERSION = "1.9.34";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -8228,9 +8233,22 @@ async function siteTemplateRegister(
   requireAdmin(user);
   const body = await readJson(request);
   const sourceUrl = optionalString(body, "sourceUrl") ?? "";
-  const sourceHtml = sourceUrl
-    ? await fetchCommunityTemplateSource(env, sourceUrl)
-    : null;
+  // ⚠ 既存経路（sourceUrl を worker が取りに行く）は一切変えない。CMS が Community と
+  //   同じゾーンに載っていて自ゾーン fetch が 522 になる場合【だけ】、管理画面が
+  //   ブラウザで取得した HTML を受け取る。詳細は templates/community-source.ts。
+  //   sameZone が false なら sourceHtml は無視するので、他ユーザーの挙動は不変。
+  const origin = chooseTemplateSourceOrigin({
+    sourceUrl,
+    sourceHtml: optionalString(body, "sourceHtml") ?? "",
+    sameZone: isSameZoneAsCommunity(request.url, KUROCMS_COMMUNITY_BASE_URL),
+  });
+  let sourceHtml: string | null = null;
+  if (origin === "inline") {
+    sourceHtml = optionalString(body, "sourceHtml") ?? "";
+    assertTemplateSource(sourceHtml);
+  } else if (origin === "fetch") {
+    sourceHtml = await fetchCommunityTemplateSource(env, sourceUrl);
+  }
   const authorProfile = await getTemplateAuthorProfile(env, user);
   const name = requireString(body, "name", { min: 1, max: 120 });
   // author は常にユーザーの display_name 由来の単一ソース（body の author は使わない）。
@@ -8322,6 +8340,20 @@ async function siteTemplateRegister(
   return json({ ok: true, id }, { status: 201 });
 }
 
+/**
+ * 取り込む HTML の受け入れ判定。⚠ Community から fetch した場合も、同一ゾーン運用で
+ * クライアントから渡された場合も【必ずここを通す】。片方だけ緩いと事故になる。
+ */
+function assertTemplateSource(html: string): void {
+  if (!isAcceptableTemplateSource(html, isKuroCmsHtmlTemplate)) {
+    throw new HttpError(
+      400,
+      "invalid_template_source",
+      "Template source must be KuroCMS template HTML and no larger than 2 MB.",
+    );
+  }
+}
+
 async function fetchCommunityTemplateSource(
   env: Env,
   sourceUrl: string,
@@ -8376,13 +8408,7 @@ async function fetchCommunityTemplateSource(
   }
 
   const html = await response.text();
-  if (!html || html.length > 2_000_000 || !isKuroCmsHtmlTemplate(html)) {
-    throw new HttpError(
-      400,
-      "invalid_template_source",
-      "Template source must be KuroCMS template HTML and no larger than 2 MB.",
-    );
-  }
+  assertTemplateSource(html);
   return html;
 }
 

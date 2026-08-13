@@ -1,5 +1,36 @@
 // KuroCMS admin screen module. Concatenated by scripts/build-admin.js.
 
+/**
+ * Community と同一ゾーンに載った CMS のときだけ、公開テンプレートのソースを
+ * ブラウザで取得して返す（それ以外は空文字＝送らない）。
+ *
+ * なぜ: worker から自ゾーン宛の fetch は 522 になり、サーバー側では取り込めない
+ * （2026-08 の kuro.boo 本番移行で顕在化）。Community API は
+ * Access-Control-Allow-Origin: * を返す公開 GET なのでブラウザからは取れる。
+ *
+ * ⚠ 判定の正はサーバー側 src/templates/community-source.ts。あちらは同一ゾーン
+ *   でなければ sourceHtml を無視するので、ここは「無駄な取得をしない」ための
+ *   前段にすぎない。失敗しても空文字を返すだけで、従来の fetch 経路に落ちる。
+ */
+async function fetchSourceWhenSameZone(sourceUrl: string): Promise<string> {
+  const communityHost = "kuro.boo";
+  const host = window.location.hostname.toLowerCase();
+  const sameZone = host === communityHost || host.endsWith("." + communityHost);
+  if (!sameZone || !sourceUrl) return "";
+  try {
+    const abs = new URL(sourceUrl, "https://" + communityHost + "/kurocms/");
+    const resp = await fetch(abs.toString(), {
+      headers: { Accept: "text/html" },
+    });
+    if (!resp.ok) return "";
+    const html = await resp.text();
+    // サーバー側と同じ 2MB 上限。超えるものは送らず従来経路に任せる。
+    return html.length <= 2_000_000 ? html : "";
+  } catch {
+    return "";
+  }
+}
+
 async function siteManagement() {
   function switchSiteTab(tab: Dynamic) {
     document.querySelectorAll<AdminElement>(".siteTab").forEach(function (
@@ -909,9 +940,18 @@ async function siteManagement() {
             // 名前変更はテンプレート表示画面の「名前変更」ボタンで行う。
             btn.disabled = true;
             btn.textContent = t("loadingTmpl");
+            // ⚠ 通常は sourceUrl だけ送り、サーバーが Community から取得する
+            //   （既存動作。ここは変えない）。ただし CMS 自身が Community と
+            //   同じゾーンに載っている場合だけは、worker からの自ゾーン fetch が
+            //   522 になって取り込めないため、ブラウザで取得して同送する。
+            //   Community API は Access-Control-Allow-Origin: * を返す公開 GET。
+            //   取得に失敗しても送らないだけ＝サーバー側の従来経路に落ちる。
+            //   受け取り側の判定は src/templates/community-source.ts。
+            const sourceHtml = (await fetchSourceWhenSameZone(sourceUrl)) || "";
             const body = {
               id: tmplId,
               sourceUrl,
+              ...(sourceHtml ? { sourceHtml } : {}),
               name: suggestedName,
               author: btn.dataset.tmplAuthor || "",
               authorId: btn.dataset.tmplAuthorId || "",
