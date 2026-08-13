@@ -483,6 +483,8 @@ export function adminHtml(
       .buildLogLine.built { color: var(--accent); }
       .buildLogLine.skipped { color: var(--muted); }
       .buildLogLine.error { color: var(--danger); }
+      /* 再試行は失敗ではない（ビルドは続く）。danger と区別できる色にする。 */
+      .buildLogLine.warn { color: #f59e0b; }
       .imgLightbox { position: fixed; inset: 0; background: rgba(0,0,0,.82); display: flex; align-items: center; justify-content: center; z-index: 9100; cursor: zoom-out; padding: 20px; box-sizing: border-box; }
       .imgLightboxInner { position: relative; max-width: min(90vw, 1200px); max-height: 90vh; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
       .imgLightboxInner img { max-width: 100%; max-height: calc(90vh - 52px); object-fit: contain; border-radius: 8px; box-shadow: 0 8px 48px rgba(0,0,0,.5); display: block; }

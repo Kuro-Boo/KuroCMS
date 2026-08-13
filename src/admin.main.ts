@@ -922,6 +922,8 @@ const i18n = {
     buildDone: "Done",
     buildCancel: "Cancel",
     buildCancelled: "Build cancelled",
+    buildPassRetry:
+      "Connection dropped ({err}) — retrying ({n}/{max}). Pages already built are skipped.",
     buildErrorPrefix: "Build error: ",
     unknownError: "Unknown error",
     mediaLabel: "Media",
@@ -1782,6 +1784,8 @@ const i18n = {
     buildDone: "完了",
     buildCancel: "中止",
     buildCancelled: "ビルドを中止しました",
+    buildPassRetry:
+      "接続が切れました（{err}）— 再試行します（{n}/{max}）。ビルド済みのページはスキップされます。",
     buildErrorPrefix: "ビルドエラー: ",
     unknownError: "不明なエラー",
     mediaLabel: "メディア",
@@ -3381,6 +3385,9 @@ async function runBuildWithProgress(force = false) {
     const buildLang = (langData.languages || [])[0]?.lang || "ja";
     const token = localStorage.getItem("kurocms_pat") || "";
     const MAX_PASSES = 60; // safety cap against an unexpected non-terminating loop
+    // 1 パスの取りこぼし（回線瞬断・プロキシのアイドル切断）を吸収する回数。
+    const MAX_PASS_RETRIES = 5;
+    let passRetries = 0;
     do {
       passIndex++;
       errorCount = 0;
@@ -3433,8 +3440,27 @@ async function runBuildWithProgress(force = false) {
       } catch (passErr) {
         // A user cancel aborts the fetch — stop quietly, not as an error.
         if (cancelled) break;
-        throw passErr;
+        // ⚠ ストリームが途中で切れても致命にしない。ビルドはパス単位で再開でき、
+        //   済んだページは次のパスでスキップされるので、やり直せば必ず前へ進む。
+        //   ここを throw にしていたため、長いビルドが "network error" 1 回で
+        //   止まっていた（2026-08-13 に 35/196 で発生）。1 パスは 2 分近く
+        //   ストリームを開き続けるので、切断はそれなりの頻度で起きる。
+        passRetries++;
+        if (passRetries > MAX_PASS_RETRIES) throw passErr;
+        appendLog(
+          "warn",
+          t("buildPassRetry")
+            .replace("{n}", String(passRetries))
+            .replace("{max}", String(MAX_PASS_RETRIES))
+            .replace("{err}", errorMessage(passErr)),
+        );
+        await new Promise(function (r) {
+          setTimeout(r, 3000 * passRetries);
+        });
+        passIndex--; // 失敗したパスは数に入れない
+        continue;
       }
+      passRetries = 0; // 成功したら再試行カウンタを戻す
       // Guard: if a pass claims "more" but made no progress, stop to avoid a loop.
       if (moreToCome && donePaths.size === prevDone) break;
     } while (moreToCome && !fatalError && !cancelled && passIndex < MAX_PASSES);
