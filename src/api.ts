@@ -145,7 +145,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.9.34";
+export const KUROCMS_VERSION = "1.9.35";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -8244,6 +8244,9 @@ async function siteTemplateRegister(
   });
   let sourceHtml: string | null = null;
   if (origin === "inline") {
+    // ⚠ fetch 経路と同じ検証を通す。URL は出所の記録なので、付いているなら
+    //   Community の形式であることまで確かめる（inline だけ緩くしない）。
+    if (sourceUrl) assertCommunitySourceUrl(sourceUrl);
     sourceHtml = optionalString(body, "sourceHtml") ?? "";
     assertTemplateSource(sourceHtml);
   } else if (origin === "fetch") {
@@ -8354,10 +8357,12 @@ function assertTemplateSource(html: string): void {
   }
 }
 
-async function fetchCommunityTemplateSource(
-  env: Env,
-  sourceUrl: string,
-): Promise<string> {
+/**
+ * sourceUrl が Community テンプレート API を指しているか。⚠ fetch 経路と inline 経路
+ * （同一ゾーン運用）で共通。inline 側だけ素通ししていると、出所不明の URL が
+ * source_url に残り「どこ由来のテンプレートか」が追えなくなる。
+ */
+function assertCommunitySourceUrl(sourceUrl: string): URL {
   let url: URL;
   try {
     url = new URL(sourceUrl, `${KUROCMS_COMMUNITY_BASE_URL}/`);
@@ -8378,6 +8383,14 @@ async function fetchCommunityTemplateSource(
       "Template source URL must point to the KuroCMS Community template API.",
     );
   }
+  return url;
+}
+
+async function fetchCommunityTemplateSource(
+  env: Env,
+  sourceUrl: string,
+): Promise<string> {
+  const url = assertCommunitySourceUrl(sourceUrl);
 
   const sourceRequest = new Request(url.toString(), {
     headers: {
