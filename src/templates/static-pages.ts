@@ -15,6 +15,15 @@ export interface StaticPageDefinition {
    */
   summaryKey?: string;
   coverKey?: string;
+  /**
+   * ナビに出す【短いラベル】のサイトテキストキー。省略時はページタイトルを使う。
+   *
+   * ⚠ タイトルをそのままナビに出すと長すぎる。kuro.boo の about は
+   *   「黒兎の人物紹介」で、スマホのナビが折り返して崩れた（2026-08-13）。
+   *   §6.1 でナビを [[#each navigation.pages]] に統一する前は、テンプレートに
+   *   `About` と直書きされた短い語が入っていた — その役割をここが引き継ぐ。
+   */
+  navKey?: string;
   nav: boolean;
   /** Former public paths that permanently redirect to this fixed page. */
   redirectFrom: string[];
@@ -83,6 +92,7 @@ export function parseStaticPages(sourceHtml: string): StaticPageDefinition[] {
       slug,
       titleKey,
       bodyKey,
+      navKey: optionalKey(page.navKey, "navKey"),
       summaryKey: optionalKey(page.summaryKey, "summaryKey"),
       coverKey: optionalKey(page.coverKey, "coverKey"),
       nav: page.nav !== false,

@@ -49,7 +49,7 @@ import type { Env, JsonValue } from "./types";
 // can't see (e.g. the <head> content-CSS <link>, template-model shape). The
 // build salts every page hash with this, so cached builds are invalidated and
 // all pages regenerate even when their underlying content is unchanged.
-const RENDER_FORMAT_VERSION = "24";
+const RENDER_FORMAT_VERSION = "25";
 
 /** Cheap, synchronous string hash (FNV-1a, base36) for cache keys. Not crypto. */
 /**
@@ -2391,8 +2391,14 @@ async function buildRenderContext(
       .filter((page) => page.nav && Boolean(content[page.bodyKey]))
       .map((page) => ({
         slug: page.slug,
-        // ナビのリンク文字も平文（同上）
-        title: htmlToPlainText(content[page.titleKey] || "") || page.slug,
+        // ナビのリンク文字も平文（同上）。⚠ navKey があればそちらを優先する —
+        //   ページタイトルは見出し用で長く、ナビに出すとスマホで折り返す。
+        title:
+          htmlToPlainText(
+            (page.navKey ? content[page.navKey] : "") ||
+              content[page.titleKey] ||
+              "",
+          ) || page.slug,
         isCurrent: staticPage?.slug === page.slug,
       })),
   );
