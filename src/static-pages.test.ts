@@ -1,5 +1,5 @@
 // 契約テスト (node で直接実行: `npm run test:staticpages`)。
-// 固定ページ宣言の任意キー（summaryKey / coverKey）と後方互換を固定する。
+// 固定ページ宣言の任意キー（navKey / summaryKey / coverKey）と後方互換を固定する。
 // ⚠ これが無かった頃、テンプレートは about のキーを直書きしており、
 //    recruit のような別 slug の固定ページに About の要約と表紙が出ていた。
 import { parseStaticPages } from "./templates/static-pages.ts";
@@ -19,9 +19,9 @@ const p1 = parseStaticPages(
   decl('[{"slug":"about","titleKey":"about-title","bodyKey":"about-body"}]'),
 )[0];
 eq(
-  "summaryKey/coverKey 省略時は undefined",
-  [p1.summaryKey, p1.coverKey],
-  [undefined, undefined],
+  "navKey/summaryKey/coverKey 省略時は undefined",
+  [p1.navKey, p1.summaryKey, p1.coverKey],
+  [undefined, undefined, undefined],
 );
 const p2 = parseStaticPages(
   decl(
@@ -33,6 +33,25 @@ eq(
   [p2.summaryKey, p2.coverKey],
   ["about-summary", "about-cover"],
 );
+// ⚠ ナビは短いラベルを別に持てること。タイトル（例「黒兎の人物紹介」）を
+//    そのまま出すとスマホのナビが折り返して崩れる（2026-08-13 に発生）。
+const pn = parseStaticPages(
+  decl(
+    '[{"slug":"about","titleKey":"about-title","bodyKey":"about-body","navKey":"about-nav"}]',
+  ),
+)[0];
+eq("navKey を指定できる", pn.navKey, "about-nav");
+eq("navKey 未指定でも他のキーは無事", pn.summaryKey, undefined);
+try {
+  parseStaticPages(
+    decl('[{"slug":"about","titleKey":"t","bodyKey":"b","navKey":"BAD KEY"}]'),
+  );
+  f++;
+  console.log("  FAIL navKey の不正キーで例外が出ない");
+} catch {
+  console.log("  ok   navKey の不正なキー名は例外");
+}
+
 const p3 = parseStaticPages(
   decl(
     '[{"slug":"about","titleKey":"about-title","bodyKey":"about-body","summaryKey":""}]',
