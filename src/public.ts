@@ -27,6 +27,7 @@ import {
   asPageHeadingHtml,
   htmlToPlainText,
   renderTocHtml,
+  stripLegacyHeadingIds,
   type HeadingItem,
 } from "./headings";
 // [[...]] 判定は KuroEditor と共有（vendored kuro-links.js の単一の正）。公開側は
@@ -49,7 +50,7 @@ import type { Env, JsonValue } from "./types";
 // can't see (e.g. the <head> content-CSS <link>, template-model shape). The
 // build salts every page hash with this, so cached builds are invalidated and
 // all pages regenerate even when their underlying content is unchanged.
-const RENDER_FORMAT_VERSION = "25";
+const RENDER_FORMAT_VERSION = "26";
 
 /** Cheap, synchronous string hash (FNV-1a, base36) for cache keys. Not crypto. */
 /**
@@ -3447,7 +3448,9 @@ function wrapKuroContentWithHeadings(
   //   `#` が混ざる（「黒兎の人物紹介#｜黒兎 Blog」。2026-08-13 に実際に出た）。
   if (!annotate)
     return {
-      html: `<div class="kuro-content">${stripped}</div>`,
+      // ⚠ アンカーを付けない経路でも、旧 KuroEditor の連番 id は落とす。
+      //   annotateHeadings を通らないので、ここで剥がさないと公開 HTML に残る。
+      html: `<div class="kuro-content">${stripLegacyHeadingIds(stripped)}</div>`,
       headings: [],
     };
   const annotated = annotateHeadings(stripped, {
