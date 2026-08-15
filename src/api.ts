@@ -145,7 +145,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.9.40";
+export const KUROCMS_VERSION = "1.9.41";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -1519,7 +1519,9 @@ async function sendMail(
       "Email sending is not configured (missing KuroMailer shared secret).",
     );
   }
-  const base = (env.KUROMAILER_URL ?? "https://mail.kuro.boo").replace(
+  // Entamy Mailer (mailer.entamy.com). Migrated from KuroMailer; the old host
+  // stays reachable until it is retired, so KUROMAILER_URL can pin either one.
+  const base = (env.KUROMAILER_URL ?? "https://mailer.entamy.com").replace(
     /\/+$/,
     "",
   );
@@ -1528,10 +1530,17 @@ async function sendMail(
     "Content-Type": "application/json",
   };
   if (msg.idempotencyKey) headers["Idempotency-Key"] = msg.idempotencyKey;
-  const resp = await fetch(`${base}/api/kurocms/send`, {
+  // The old `/api/kurocms/send` route filled in the sender server-side. The
+  // standard endpoint does not, so the sender is stated here. It must be a
+  // domain registered in Mailer's sender_domain table.
+  const resp = await fetch(`${base}/api/v1/emails`, {
     method: "POST",
     headers,
-    body: JSON.stringify(msg),
+    body: JSON.stringify({
+      ...msg,
+      from: (env.KUROCMS_MAIL_FROM ?? "").trim() || "no-reply@kuro.boo",
+      fromName: msg.fromName ?? "KuroCMS",
+    }),
   });
   if (!resp.ok) {
     let detail = resp.statusText;

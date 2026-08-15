@@ -26,6 +26,11 @@ export interface Env {
   // Shared secret for KuroMailer's KuroCMS send endpoint, and optional base URL.
   KUROCMS_AND_KUROMAILER_PAT?: string;
   KUROMAILER_URL?: string;
+  /**
+   * 差出人。Entamy Mailer の sender_domain に登録されたドメインであること。
+   * 未設定なら no-reply@kuro.boo（移行前と同じ差出人）。
+   */
+  KUROCMS_MAIL_FROM?: string;
 }
 
 export interface AuthUser {
