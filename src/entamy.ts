@@ -140,6 +140,9 @@ async function collect(env: Env): Promise<Record<string, string | number>> {
     }>(),
     env.PUBLIC_PAGES.get("system:update_channel"),
   ]);
+  // 同意した日時。**導入時に書き込まれた値をそのまま運ぶ** ——
+  // ここで現在時刻を入れてしまうと「同意した記録」ではなくなる。
+  const acceptedAt = await env.PUBLIC_PAGES.get("system:terms_accepted_at");
   const stats: Record<string, string | number> = {
     articles: Number(docs?.total ?? 0),
     published: Number(docs?.published ?? 0),
@@ -148,6 +151,7 @@ async function collect(env: Env): Promise<Record<string, string | number>> {
     update_channel: channel === "latest" ? "latest" : "stable",
   };
   if (site?.template_id) stats.template_id = String(site.template_id);
+  if (acceptedAt) stats.terms_accepted_at = acceptedAt.slice(0, 32);
   return stats;
 }
 
