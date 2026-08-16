@@ -142,22 +142,24 @@ async function profile() {
         };
         // **番号がある時だけ出す。** 「取得中」や「送信停止中」を出しても、
         // CMS の運用とは関係のない心配をさせるだけで、利用者にできることは無い。
+        // 番号が無ければ**要素ごと消す**。空のボタンを残すと、見えないだけで
+        // 押せる領域が右端に残る。
         const shown = !info.optedOut && info.accountId ? info.accountId : "";
-        badge.textContent = shown ? t("installIdentity") + " : " + shown : "";
-        (badge as Dynamic).disabled = !shown;
-        badge.style.cursor = shown ? "pointer" : "default";
-        if (shown) {
-          badge.addEventListener("click", async (event: Dynamic) => {
-            try {
-              await navigator.clipboard.writeText(shown);
-              toast(t("copySuccess"), false, event.currentTarget);
-            } catch {
-              toast(t("copyFailed"), true, event.currentTarget);
-            }
-          });
+        if (!shown) {
+          badge.remove();
+          return;
         }
+        badge.textContent = t("installIdentity") + " : " + shown;
+        badge.addEventListener("click", async (event: Dynamic) => {
+          try {
+            await navigator.clipboard.writeText(shown);
+            toast(t("copySuccess"), false, event.currentTarget);
+          } catch {
+            toast(t("copyFailed"), true, event.currentTarget);
+          }
+        });
       } catch {
-        badge.textContent = "";
+        badge.remove();
       }
     })();
 
