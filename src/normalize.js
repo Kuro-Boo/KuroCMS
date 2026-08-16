@@ -24,6 +24,15 @@
  *   editor now pins it to "p"; this module repairs what already exists and
  *   anything arriving from outside.
  *
+ *   copying inside the editor and pasting back destroyed the structure
+ *   (2026-08-16, Entamy 管理画面の規約編集): one document went from 1 <h1> to
+ *   35, gained 21 <h1><p> nestings and 46 `font-size: 15px; font-weight: 400`.
+ *   Chrome's clipboard serializer is the source — it inlines computed styles
+ *   and wraps a fragment in the element the selection started inside. There is
+ *   no browser setting that turns this off, so R6/R7/R8 undo it here, and the
+ *   editor also writes canonical HTML to the clipboard on copy so the damage
+ *   never reaches other applications either.
+ *
  * Refuses (returns the input unchanged) on malformed HTML, like blocks.js.
  */
 
@@ -46,6 +55,35 @@ const OPAQUE_TAGS = new Set(['pre', 'code', 'textarea', 'script', 'style'])
 
 /** font-weight values that mean "bold". */
 const BOLD_WEIGHTS = new Set(['bold', 'bolder', '600', '700', '800', '900'])
+
+/**
+ * Blocks that must never carry a font-size / font-weight of their own (R6).
+ *
+ * The editor writes a size ONLY as `<span style="font-size:…">` (_applyFontSize
+ * wraps the selection in a span) and bold only as `<strong>`. So a size or a
+ * weight sitting on a BLOCK cannot have come from this editor — it is Chrome's
+ * clipboard serializer, which inlines the element's computed style on copy.
+ * That is where `font-size: 15px; font-weight: 400` comes from: a <p> that had
+ * been swallowed by a heading inherits the heading's size, and Chrome writes
+ * the value that cancels it back out.
+ *
+ * The judgement has no grey area, which is why it can be applied blindly:
+ * on a span → the writer asked for it, keep it; on a block → foreign, drop it.
+ */
+const BLOCK_DECOR_TAGS = new Set([
+  'p', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ol', 'ul', 'td', 'th', 'div',
+])
+
+/** Declarations removed from {@link BLOCK_DECOR_TAGS} elements. */
+const FOREIGN_BLOCK_DECOR = new Set(['font-size', 'font-weight'])
+
+/**
+ * Tags whose content model is phrasing only — a block inside one is damage (R7).
+ * Chrome produces this when the selection STARTS inside a heading and runs past
+ * it: the whole fragment gets wrapped in that heading as a "context element",
+ * so an entire article ends up inside a single <h1>.
+ */
+const PHRASING_ONLY_TAGS = new Set(['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'])
 
 // ── parse ─────────────────────────────────────────────────────────────────────
 
@@ -238,6 +276,57 @@ function hasBlockChild(node) {
   return node.children.some((c) => c.type === 'el' && BLOCK_TAGS.has(c.name))
 }
 
+/** Match one attribute in a raw attribute string, quoted or bare. */
+const attrRe = (name) =>
+  new RegExp(`\\s${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s"'>]+))`, 'i')
+
+const STYLE_ATTR_RE = attrRe('style')
+const BID_ATTR_RE = attrRe('data-bid')
+
+/** The captured value of an attrRe match, whichever quoting was used. */
+const attrValue = (m) => m[1] ?? m[2] ?? m[3] ?? ''
+
+/**
+ * Drop `props` from an element's style attribute, leaving every other
+ * declaration BYTE-IDENTICAL (original casing, spacing and order).
+ *
+ * ⚠ Do not rebuild from {@link styleDecls} — it lowercases values, which would
+ *   silently rewrite font-family names and CSS custom properties on any element
+ *   this touches. Only the removed declarations may change.
+ *
+ * @returns {string} the new raw attribute string (the input when nothing matched)
+ */
+function stripStyleProps(attrs, props) {
+  const m = attrs.match(STYLE_ATTR_RE)
+  if (!m) return attrs
+  const decls = attrValue(m).split(';').map((d) => d.trim()).filter(Boolean)
+  const kept = decls.filter((d) => {
+    const c = d.indexOf(':')
+    return c === -1 || !props.has(d.slice(0, c).trim().toLowerCase())
+  })
+  if (kept.length === decls.length) return attrs
+  const before = attrs.slice(0, m.index)
+  const after = attrs.slice(m.index + m[0].length)
+  return kept.length ? `${before} style="${kept.join('; ')}"${after}` : before + after
+}
+
+/** The element's data-bid, or null. */
+function readBid(attrs) {
+  const m = attrs.match(BID_ATTR_RE)
+  return m ? attrValue(m) : null
+}
+
+/** The raw attribute string with any data-bid removed. */
+function withoutBid(attrs) {
+  const m = attrs.match(BID_ATTR_RE)
+  return m ? attrs.slice(0, m.index) + attrs.slice(m.index + m[0].length) : attrs
+}
+
+/** The raw attribute string carrying exactly this data-bid. */
+function withBid(attrs, bid) {
+  return ` data-bid="${bid}"${withoutBid(attrs)}`
+}
+
 /** Keep only data-bid / data-cbid from a raw attribute string. */
 function identityAttrsOnly(attrs) {
   const a = attrMap(attrs)
@@ -250,11 +339,80 @@ function identityAttrsOnly(attrs) {
 // ── transform ─────────────────────────────────────────────────────────────────
 
 /**
+ * R7 — take the blocks back out of a heading / paragraph that swallowed them.
+ *
+ *   <h1 data-bid="A">見出し<p data-bid="B">本文</p></h1>
+ *     → <h1 data-bid="A">見出し</h1>  <p>本文</p>
+ *
+ * ## The one invariant: no text is ever lost
+ *
+ * A tag may be discarded; the characters inside it may not. Everything between
+ * the promoted blocks is therefore re-wrapped rather than dropped. The FIRST
+ * such run keeps the original tag (that run is the heading's own text — it was
+ * a heading before the damage and stays one); later runs became body text the
+ * moment a block was opened in front of them, so they become paragraphs.
+ * Runs that occupy no line — whitespace between blocks — carry nothing and go.
+ *
+ * ## R8 — one data-bid, on one block
+ *
+ * Unwrapping turns one block into several, and collaborative merge requires
+ * `data-bid` to be unique per block. Exactly one output keeps an id: the outer
+ * element's if it had one (so a block someone else is editing keeps its
+ * identity), otherwise whatever the first promoted child already carried. Every
+ * other output is stripped and gets a fresh id from `_ensureBlockIds` on load.
+ * Leaving two behind is worse than leaving none: `_dedupeNestedBids` would
+ * re-issue one of them, and it cannot know which one the other editor meant.
+ *
+ * ⚠ Attributes other than data-bid on the unwrapped tag are lost when it has no
+ *   leading text run. There is no correct place to put them — the tag they
+ *   described could not legally exist.
+ *
+ * @param {object} node  a phrasing-only element with at least one block child
+ * @returns {Array} the replacement sibling list
+ */
+function unwrapPhrasingBlock(node) {
+  const outerBid = readBid(node.attrs)
+  const out = []
+  let run = []
+
+  const flushRun = () => {
+    if (!run.length) return
+    if (blankKind(run) !== 'collapsed') {
+      const lead = out.length === 0
+      out.push({
+        type: 'el',
+        name: lead ? node.name : 'p',
+        attrs: lead ? node.attrs : '',
+        children: run,
+        void: false,
+      })
+    }
+    run = []
+  }
+
+  for (const child of node.children) {
+    if (child.type === 'el' && BLOCK_TAGS.has(child.name)) {
+      flushRun()
+      out.push(child)
+      continue
+    }
+    run.push(child)
+  }
+  flushRun()
+
+  for (let i = 0; i < out.length; i++) {
+    if (i > 0) { out[i].attrs = withoutBid(out[i].attrs); continue }
+    if (outerBid && readBid(out[i].attrs) !== outerBid) out[i].attrs = withBid(out[i].attrs, outerBid)
+  }
+  return out
+}
+
+/**
  * Rewrite one element list in place, returning the replacement list.
  * @param {Array} children
  * @param {boolean} topLevel  true for the document's own top-level run
  */
-function transformChildren(children, topLevel) {
+function transformChildren(children, topLevel, clipboardRepair) {
   const out = []
   for (const node of children) {
     if (node.type !== 'el') { out.push(node); continue }
@@ -262,7 +420,22 @@ function transformChildren(children, topLevel) {
     // Opaque subtree (code / pre) — copy through untouched.
     if (OPAQUE_TAGS.has(node.name)) { out.push(node); continue }
 
-    node.children = transformChildren(node.children, false)
+    node.children = transformChildren(node.children, false, clipboardRepair)
+
+    // R6 — a size/weight on a BLOCK is never this editor's; it is Chrome's
+    // computed style, inlined on copy. Drop it before anything else looks at
+    // the element (clearing the style attribute can make a div bare, which is
+    // what R3 below needs to see to recognise it as a paragraph).
+    if (clipboardRepair && BLOCK_DECOR_TAGS.has(node.name)) {
+      node.attrs = stripStyleProps(node.attrs, FOREIGN_BLOCK_DECOR)
+    }
+
+    // R7 — a heading or paragraph holding blocks is Chrome's context wrapper.
+    // Undo it here, before the div/p rules below reason about the contents.
+    if (clipboardRepair && PHRASING_ONLY_TAGS.has(node.name) && hasBlockChild(node)) {
+      out.push(...unwrapPhrasingBlock(node))
+      continue
+    }
 
     // R1 — <b> is execCommand's spelling of bold; the corpus uses <strong>.
     if (node.name === 'b') node.name = 'strong'
@@ -338,16 +511,29 @@ function transformChildren(children, topLevel) {
  *   <div> paragraph       → <p>
  *   <div> block wrapper   → unwrapped (only when it carries no styling)
  *   empty block           → <p><br></p> at top level, <br> when nested
+ *   font-size/weight on a block → dropped (kept on <span>)
+ *   heading/paragraph holding blocks → unwrapped, one data-bid kept
  *
  * Malformed input is returned unchanged.
+ *
  * @param {string} html
+ * @param {{ clipboardRepair?: boolean }} [opts]
+ *   clipboardRepair — apply R6/R7/R8, the repairs for Chrome's clipboard
+ *   serializer. Default true: every path that WRITES content wants them.
+ *
+ *   Pass false for a bulk sweep over ALREADY PUBLISHED content. Those articles
+ *   went out with the damage baked in, and re-flowing them now would change how
+ *   live pages look — to a reader, a page that suddenly renders differently is
+ *   worse than a page whose HTML is not canonical. So the rules apply to new
+ *   writes only, and an existing article heals when someone edits and saves it.
+ *   (Decision recorded 2026-08-16; see KuroEditor/docs/貼り付け破壊の修正仕様.md)
  * @returns {string}
  */
-export function normalizeContentHtml(html) {
+export function normalizeContentHtml(html, opts = {}) {
   if (typeof html !== 'string' || html === '') return html ?? ''
   const { root, ok } = parseTree(html)
   if (!ok) return html
-  root.children = transformChildren(root.children, true)
+  root.children = transformChildren(root.children, true, opts.clipboardRepair !== false)
   return serialize(root)
 }
 
@@ -355,16 +541,26 @@ export function normalizeContentHtml(html) {
  * Report what {@link normalizeContentHtml} would change, without changing it.
  * Used by the maintenance screen to show a preview count per rule.
  * @param {string} html
- * @returns {{ bTags:number, boldSpans:number, divBlocks:number, emptyBlocks:number, changed:boolean }}
+ * @returns {{ bTags:number, boldSpans:number, divBlocks:number, emptyBlocks:number,
+ *             blockDecor:number, nestedBlocks:number, changed:boolean }}
  */
-export function inspectContentHtml(html) {
-  const stats = { bTags: 0, boldSpans: 0, divBlocks: 0, emptyBlocks: 0, changed: false }
+export function inspectContentHtml(html, opts = {}) {
+  const clipboardRepair = opts.clipboardRepair !== false
+  const stats = {
+    bTags: 0, boldSpans: 0, divBlocks: 0, emptyBlocks: 0,
+    blockDecor: 0, nestedBlocks: 0, changed: false,
+  }
   if (typeof html !== 'string' || html === '') return stats
   const { root, ok } = parseTree(html)
   if (!ok) return stats
   const walk = (children, topLevel) => {
     for (const node of children) {
       if (node.type !== 'el' || OPAQUE_TAGS.has(node.name)) continue
+      // Counted independently of the chain below: an element can both carry a
+      // foreign size AND hold blocks, and each is a separate repair.
+      if (clipboardRepair && BLOCK_DECOR_TAGS.has(node.name) &&
+          stripStyleProps(node.attrs, FOREIGN_BLOCK_DECOR) !== node.attrs) stats.blockDecor++
+      if (clipboardRepair && PHRASING_ONLY_TAGS.has(node.name) && hasBlockChild(node)) stats.nestedBlocks++
       if (node.name === 'b') stats.bTags++
       else if (isBoldOnlySpan(node)) stats.boldSpans++
       else if (node.name === 'div' || node.name === 'p') {
@@ -376,6 +572,6 @@ export function inspectContentHtml(html) {
     }
   }
   walk(root.children, true)
-  stats.changed = normalizeContentHtml(html) !== html
+  stats.changed = normalizeContentHtml(html, opts) !== html
   return stats
 }

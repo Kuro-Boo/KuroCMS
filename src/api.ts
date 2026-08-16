@@ -152,7 +152,7 @@ import {
   reportInstall,
 } from "./entamy";
 
-export const KUROCMS_VERSION = "1.9.59";
+export const KUROCMS_VERSION = "1.9.60";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -7197,6 +7197,18 @@ async function cleanupCopyNoise(env: Env, user: AuthUser): Promise<Response> {
  * from the article's history), then written with a fresh updated_at so the next
  * build regenerates their pages. Same 50-changed-rows-per-invocation budget as
  * cleanupCopyNoise; `more: true` asks the client for another pass.
+ *
+ * ⚠ **clipboardRepair: false を外さないこと。**
+ *
+ * 正規化には Chrome のコピー由来の壊れ方を直す規則もある（R6 ブロックの
+ * font-size / font-weight 除去、R7 ブロックを内包した見出しの解体、R8 bid の
+ * 畳み込み）。これらは上の4つと違って**見た目が変わる** —— 「綴りの統一」では
+ * ないので、ここで掛けると**既に公開されている記事の表示が突然変わる**。
+ *
+ * 混入したまま公開されているのは事実だが、読者にとっては「HTML が正規形で
+ * ない」ことより「表示が突然変わる」ことの方が実害が大きい。R6〜R8 が効くのは
+ * **これ以降の書き込みだけ**とし、既存記事は書き手が編集して保存した時に
+ * 自然に直る。（2026-08-16 の決定。KuroEditor/docs/貼り付け破壊の修正仕様.md）
  */
 async function normalizeBodyFormat(
   env: Env,
@@ -7223,7 +7235,7 @@ async function normalizeBodyFormat(
   for (const row of candidates) {
     if (changed >= MAX_CHANGED_PER_RUN) break;
     const original = row.body_html || "";
-    const cleaned = normalizeContentHtml(original);
+    const cleaned = normalizeContentHtml(original, { clipboardRepair: false });
     if (cleaned === original) continue;
     const statements: D1PreparedStatement[] = [];
     const snapshot = await snapshotTranslationStatement(
@@ -7298,7 +7310,11 @@ async function normalizeBodyFormatPreview(
   const totals = { bTags: 0, boldSpans: 0, divBlocks: 0, emptyBlocks: 0 };
   let affected = 0;
   for (const row of rows.results ?? []) {
-    const s = inspectContentHtml(row.body_html || "");
+    // 予告の件数は掃除の実体と同じ条件で数える（normalizeBodyFormat と対で
+    // 直すこと。片方だけ変えると「0 件と出たのに変わる」になる）。
+    const s = inspectContentHtml(row.body_html || "", {
+      clipboardRepair: false,
+    });
     if (!s.changed) continue;
     affected++;
     totals.bTags += s.bTags;
