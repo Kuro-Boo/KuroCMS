@@ -134,19 +134,12 @@ async function profile() {
           accountId?: string | null;
           optedOut?: boolean;
         };
-        // 送信を止めてある導入は、そもそも名乗らないので ID を持たない。
-        // **持っていない理由が違う**ので、同じ表示で片付けない。
-        if (info.optedOut) {
-          badge.textContent =
-            t("installIdentity") + " : " + t("installIdentityOff");
-        } else if (info.accountId) {
-          badge.textContent = t("installIdentity") + " : " + info.accountId;
-        } else {
-          // cron は毎分動くので、この状態が続くのは導入直後か、
-          // 既存の導入がこの版に上がった直後の1分ほど。
-          badge.textContent =
-            t("installIdentity") + " : " + t("installIdentityPending");
-        }
+        // **番号がある時だけ出す。** 「取得中」や「送信停止中」を出しても、
+        // CMS の運用とは関係のない心配をさせるだけで、利用者にできることは無い。
+        badge.textContent =
+          !info.optedOut && info.accountId
+            ? t("installIdentity") + " : " + info.accountId
+            : "";
       } catch {
         badge.textContent = "";
       }
