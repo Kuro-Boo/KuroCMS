@@ -145,7 +145,9 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.9.42";
+import { reportInstall } from "./entamy";
+
+export const KUROCMS_VERSION = "1.9.43";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -3647,6 +3649,12 @@ async function systemUpdate(
   });
   // Invalidate the cached channel lookup so the next check reflects reality now.
   await env.PUBLIC_PAGES.delete(RELEASE_CHANNELS_CACHE_KEY).catch(() => {});
+  // **更新できたことは、間隔を待たずに知らせる。** 「どの版へ上がったか」は
+  // 更新の直後にしか分からず、翌日の定期報告まで待つと移行の様子が追えない。
+  //
+  // 差し替わるのは次の起動からなので、ここで送る版はまだ古い —— 新しい版は
+  // 次回の cron が名乗る。ここで残したいのは「更新が走った」という事実の方。
+  await reportInstall(env, true);
   return json({
     ok: true,
     version: resolvedTag,

@@ -2,6 +2,7 @@ import { adminHtml } from "./admin-shell";
 import { serveAdminAsset } from "./asset-serve";
 import { serveFont } from "./fonts";
 import { handleApi, unfurlEndpoint } from "./api";
+import { reportInstall } from "./entamy";
 import { html, notFound, notFoundPage } from "./http";
 import {
   buildCountsJs,
@@ -34,6 +35,9 @@ export default {
         console.error("scheduled auto-build failed:", err);
       }),
     );
+    // 導入の報告。**cron に乗せる** —— 利用者の操作に相乗りさせると、
+    // 画面の応答が外部サービスの調子に引きずられる。中で1日1回に絞っている。
+    ctx.waitUntil(reportInstall(env));
   },
 
   async fetch(
