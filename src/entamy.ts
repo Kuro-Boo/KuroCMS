@@ -349,6 +349,9 @@ export async function recordConsent(env: Env, version: string): Promise<void> {
     env.PUBLIC_PAGES.put(K_TERMS_VER, version),
     env.PUBLIC_PAGES.put(K_TERMS_AT, now),
   ]);
-  // 版が変わった事実は待たずに知らせる。
-  await reportInstall(env, true);
+  // **ここで Entamy へ報告しない。**
+  //
+  // 報告は口座の取得・トークンの更新・送信で外部へ3往復する。同意の記録に
+  // 巻き込むと、利用者は数秒待たされ、押せていないと思って何度も押す（実際起きた）。
+  // 報告は毎分の cron が拾うので、遅れても最大1分。
 }

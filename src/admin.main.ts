@@ -4047,24 +4047,31 @@ async function checkLegalConsentOnce() {
   sync();
 
   const version = info.currentVersion;
-  go.onclick = async () => {
+  go.onclick = () => {
     if (!box.checked) return;
-    go.disabled = true;
-    msg.textContent = "";
-    try {
-      await api("/api/system/legal/accept", {
-        method: "POST",
-        body: JSON.stringify({ version }),
-      });
-      ov.remove();
-    } catch (e) {
-      msg.textContent =
-        "同意を記録できませんでした（" +
-        ((e as { body?: { error?: { code?: string } } }).body?.error?.code ??
-          (e as Error).message) +
-        "）";
-      sync();
-    }
+    // **押したらすぐ閉じる。** 通信の結果を待たせない ——
+    // 待たされると押せていないと思って何度も押すことになる。
+    ov.remove();
+
+    // 記録は背後で行い、失敗しても黙って繰り返す。
+    // 取りこぼしても次回の読み込みでまた尋ねるだけなので、利用者に見せる必要が無い。
+    void (async () => {
+      for (let attempt = 0; attempt < 6; attempt++) {
+        try {
+          await api("/api/system/legal/accept", {
+            method: "POST",
+            body: JSON.stringify({ version }),
+          });
+          return;
+        } catch (e) {
+          // 版が進んでいた場合は、いま同意した版ではないので繰り返さない。
+          const code = (e as { body?: { error?: { code?: string } } }).body
+            ?.error?.code;
+          if (code === "legal_version_mismatch") return;
+          await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt));
+        }
+      }
+    })();
   };
   row.appendChild(go);
   card.appendChild(row);
