@@ -147,7 +147,7 @@ interface ManagedLanguageRow {
 
 import { installIdentity, reportInstall } from "./entamy";
 
-export const KUROCMS_VERSION = "1.9.49";
+export const KUROCMS_VERSION = "1.9.51";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 

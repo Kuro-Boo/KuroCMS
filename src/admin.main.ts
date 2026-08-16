@@ -1508,7 +1508,7 @@ const i18n = {
       "管理画面の個人設定、表示言語、Personal Access Token のブラウザ保存を管理します。",
     noLanguages: "言語が登録されていません",
     profileIdentity: "アカウント情報",
-    installIdentity: "認識番号",
+    installIdentity: "管理番号",
     profilePreferences: "表示設定",
     profileApiAccess: "Personal Access Tokenの作成",
     profileApiAccessLead:
