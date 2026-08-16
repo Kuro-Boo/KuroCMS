@@ -145,9 +145,9 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-import { reportInstall } from "./entamy";
+import { installIdentity, reportInstall } from "./entamy";
 
-export const KUROCMS_VERSION = "1.9.44";
+export const KUROCMS_VERSION = "1.9.45";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -492,6 +492,12 @@ async function handleApiDispatch(
     if (request.method === "POST" && path === "/api/system/r2/enable") {
       requireAdmin(user);
       return withJsonHeaders(await enableR2Storage(env));
+    }
+
+    // 導入の名乗り。**認証必須** —— 誰でも読めると、導入の識別子が外に出る。
+    if (request.method === "GET" && path === "/api/system/install-id") {
+      requireAdmin(user);
+      return json((await installIdentity(env)) as unknown as JsonValue);
     }
 
     if (request.method === "GET" && path === "/api/system/version") {

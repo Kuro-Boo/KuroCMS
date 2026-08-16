@@ -205,3 +205,39 @@ export async function reportInstall(env: Env, force = false): Promise<void> {
     // 握りつぶす。**観測できないことは、動かないことより軽い。**
   }
 }
+
+/**
+ * この導入の匿名アカウント ID。**install_id は返さない。**
+ *
+ * install_id は「その導入である」ことを名乗るための鍵で、
+ * これを知られると他人がこの導入になりすまして観測を送れてしまう
+ * （/v1/accounts/anonymous は install_id だけでトークンを返す）。
+ * 画面に出してよいのは、鍵ではない方の acc_... だけ。
+ */
+export async function installIdentity(env: Env): Promise<{
+  accountId: string | null;
+  reportedAt: string | null;
+  optedOut: boolean;
+}> {
+  const [raw, last, optout] = await Promise.all([
+    env.PUBLIC_PAGES.get(K_ACCOUNT),
+    env.PUBLIC_PAGES.get(K_LAST),
+    env.PUBLIC_PAGES.get(K_OPTOUT),
+  ]);
+  let accountId: string | null = null;
+  try {
+    if (raw) accountId = (JSON.parse(raw) as Stored).account_id ?? null;
+  } catch {
+    /* 壊れていたら未取得として扱う */
+  }
+  let reportedAt: string | null = null;
+  try {
+    if (last)
+      reportedAt = new Date(
+        (JSON.parse(last) as { at: number }).at,
+      ).toISOString();
+  } catch {
+    /* 同上 */
+  }
+  return { accountId, reportedAt, optedOut: optout === "1" };
+}

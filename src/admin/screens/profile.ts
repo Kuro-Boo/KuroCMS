@@ -10,8 +10,11 @@ async function profile() {
     ' --header "Authorization: Bearer kuro_<PAT>"';
   shell(
     t("profile"),
-    "<div class='grid two profileGrid'><div class='stack'><div class='panel stack'><h3>" +
+    "<div class='grid two profileGrid'><div class='stack'><div class='panel stack'><h3 style='display:flex;align-items:baseline;gap:10px;flex-wrap:wrap'>" +
       escapeHtml(t("profileIdentity")) +
+      // 匿名アカウント。問い合わせのときに「どの導入か」を伝える唯一の手がかり。
+      // **install_id は出さない**（あれはなりすましに使える鍵）。
+      "<span id='installIdBadge' style='font-size:10px;font-weight:400;font-family:ui-monospace,monospace;opacity:.55;letter-spacing:.02em'></span>" +
       "</h3><table><tbody><tr><th>" +
       escapeHtml(t("roles")) +
       "</th><td id='profileRoles'>-</td></tr></tbody></table><form class='stack' id='accountForm'><label>" +
@@ -120,6 +123,29 @@ async function profile() {
       api("/api/me"),
       api("/api/me/tokens"),
     ]);
+
+    // 匿名アカウントの表示。**取れなくても画面は壊さない** ——
+    // まだ一度も名乗っていない導入や、送信を止めてある導入では空になる。
+    void (async () => {
+      const badge = byId("installIdBadge");
+      if (!badge) return;
+      try {
+        const info = (await api("/api/system/install-id")) as {
+          accountId?: string | null;
+          optedOut?: boolean;
+        };
+        if (info.accountId) {
+          badge.textContent =
+            "INSTALL-ID : " +
+            info.accountId +
+            (info.optedOut ? "（送信停止中）" : "");
+        } else {
+          badge.textContent = "INSTALL-ID : 未取得";
+        }
+      } catch {
+        badge.textContent = "";
+      }
+    })();
     const meUser = meData.user;
     state.currentUser = meUser;
     // タブタイトル "KuroCMS <ユーザー名>" を実値に追随させる（改名直後もここで反映）。
