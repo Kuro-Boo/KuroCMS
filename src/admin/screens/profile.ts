@@ -137,13 +137,15 @@ async function profile() {
         // 送信を止めてある導入は、そもそも名乗らないので ID を持たない。
         // **持っていない理由が違う**ので、同じ表示で片付けない。
         if (info.optedOut) {
-          badge.textContent = "INSTALL-ID : 送信停止中";
+          badge.textContent =
+            t("installIdentity") + " : " + t("installIdentityOff");
         } else if (info.accountId) {
-          badge.textContent = "INSTALL-ID : " + info.accountId;
+          badge.textContent = t("installIdentity") + " : " + info.accountId;
         } else {
           // cron は毎分動くので、この状態が続くのは導入直後か、
           // 既存の導入がこの版に上がった直後の1分ほど。
-          badge.textContent = "INSTALL-ID : 取得中";
+          badge.textContent =
+            t("installIdentity") + " : " + t("installIdentityPending");
         }
       } catch {
         badge.textContent = "";

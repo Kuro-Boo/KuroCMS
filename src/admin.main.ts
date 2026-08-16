@@ -709,6 +709,11 @@ const i18n = {
       "Manage personal admin preferences, UI language, and Personal Access Token storage.",
     noLanguages: "No languages registered",
     profileIdentity: "Account Information",
+    // 導入を見分けるための番号。**"INSTALL-ID" とは呼ばない** ——
+    // 導入の鍵(install_id)と取り違えられるため。
+    installIdentity: "Identifier",
+    installIdentityPending: "acquiring",
+    installIdentityOff: "reporting disabled",
     profilePreferences: "Interface Preferences",
     profileApiAccess: "Personal Access Token",
     profileApiAccessLead:
@@ -1505,6 +1510,9 @@ const i18n = {
       "管理画面の個人設定、表示言語、Personal Access Token のブラウザ保存を管理します。",
     noLanguages: "言語が登録されていません",
     profileIdentity: "アカウント情報",
+    installIdentity: "認識番号",
+    installIdentityPending: "取得中",
+    installIdentityOff: "送信停止中",
     profilePreferences: "表示設定",
     profileApiAccess: "Personal Access Tokenの作成",
     profileApiAccessLead:
