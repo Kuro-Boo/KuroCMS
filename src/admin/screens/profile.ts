@@ -14,7 +14,13 @@ async function profile() {
       escapeHtml(t("profileIdentity")) +
       // 匿名アカウント。問い合わせのときに「どの導入か」を伝える唯一の手がかり。
       // **install_id は出さない**（あれはなりすましに使える鍵）。
-      "<span id='installIdBadge' style='font-size:10px;font-weight:400;font-family:ui-monospace,monospace;opacity:.55;letter-spacing:.02em'></span>" +
+      // **右端へ寄せる**（margin-left:auto）。見出しの一部ではなく、添え物として扱う。
+      // 押すと番号をコピーする —— 問い合わせのときに手で書き写させない。
+      "<button type='button' id='installIdBadge' title='" +
+      escapeHtml(t("copy")) +
+      "' style='margin-left:auto;font-size:10px;font-weight:400;font-family:ui-monospace,monospace;" +
+      "opacity:.55;letter-spacing:.02em;background:none;border:0;padding:2px 4px;color:inherit;" +
+      "cursor:pointer;border-radius:5px'></button>" +
       "</h3><table><tbody><tr><th>" +
       escapeHtml(t("roles")) +
       "</th><td id='profileRoles'>-</td></tr><tr id='legalAgreedRow'></tr></tbody></table><form class='stack' id='accountForm'><label>" +
@@ -136,10 +142,20 @@ async function profile() {
         };
         // **番号がある時だけ出す。** 「取得中」や「送信停止中」を出しても、
         // CMS の運用とは関係のない心配をさせるだけで、利用者にできることは無い。
-        badge.textContent =
-          !info.optedOut && info.accountId
-            ? t("installIdentity") + " : " + info.accountId
-            : "";
+        const shown = !info.optedOut && info.accountId ? info.accountId : "";
+        badge.textContent = shown ? t("installIdentity") + " : " + shown : "";
+        (badge as Dynamic).disabled = !shown;
+        badge.style.cursor = shown ? "pointer" : "default";
+        if (shown) {
+          badge.addEventListener("click", async (event: Dynamic) => {
+            try {
+              await navigator.clipboard.writeText(shown);
+              toast(t("copySuccess"), false, event.currentTarget);
+            } catch {
+              toast(t("copyFailed"), true, event.currentTarget);
+            }
+          });
+        }
       } catch {
         badge.textContent = "";
       }

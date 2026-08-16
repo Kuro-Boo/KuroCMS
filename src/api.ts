@@ -152,7 +152,7 @@ import {
   reportInstall,
 } from "./entamy";
 
-export const KUROCMS_VERSION = "1.9.56";
+export const KUROCMS_VERSION = "1.9.57";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
