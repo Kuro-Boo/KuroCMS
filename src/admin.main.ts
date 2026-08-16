@@ -3961,45 +3961,113 @@ async function checkLegalConsentOnce() {
   }
   if (!info.needsConsent || !info.currentVersion) return;
 
-  const link = (href: string, label: string) =>
-    "<a href='" +
-    escapeHtml(href) +
-    "' target='_blank' rel='noopener' style='font-weight:700;text-decoration:underline'>" +
-    escapeHtml(label) +
-    "</a>";
+  // **共有ダイアログに載せない。**
+  //
+  // openEntryDialog は記事エディタ等と CSS を共有しており、全画面用の指定
+  // (.popupCard.kuroDlg の popupBody { display:flex }) を拾って崩れた。
+  // この画面は「チェックボックス・リンク・ボタン」の3つだけで中身が変わらないので、
+  // 自前で組む方が確実。**壊れようがない形にしておく。**
+  const ov = document.createElement("div");
+  ov.setAttribute("role", "dialog");
+  ov.setAttribute("aria-modal", "true");
+  ov.style.cssText =
+    "position:fixed;inset:0;z-index:3000;background:rgba(8,12,22,.72);" +
+    "display:flex;align-items:center;justify-content:center;padding:20px";
 
-  const body =
-    (info.summary
-      ? "<p style='margin:0 0 10px'>" + escapeHtml(info.summary) + "</p>"
-      : "") +
-    "<label style='display:flex;align-items:flex-start;gap:10px;cursor:pointer'>" +
-    "<input type='checkbox' id='legalAgree' style='margin-top:3px;flex:0 0 auto' />" +
-    "<span>" +
-    link(info.termsUrl ?? "https://kuro.boo/terms/", t("legalTerms")) +
-    " と " +
-    link(info.privacyUrl ?? "https://kuro.boo/privacy/", t("legalPrivacy")) +
-    " に同意します。</span></label>";
+  const card = document.createElement("div");
+  card.style.cssText =
+    "width:min(520px,100%);background:var(--panel,#141f35);color:var(--ink,#e9eefc);" +
+    "border:1px solid var(--line,#293b5d);border-radius:14px;padding:22px;" +
+    "font-size:14px;line-height:1.8;box-shadow:0 18px 50px rgba(0,0,0,.5)";
+
+  const h = document.createElement("h3");
+  h.textContent = t("legalTitle");
+  h.style.cssText = "margin:0 0 10px;font-size:18px";
+  card.appendChild(h);
+
+  if (info.summary) {
+    const sum = document.createElement("p");
+    sum.textContent = info.summary;
+    sum.style.cssText =
+      "margin:0 0 12px;color:var(--muted,#91a0c3);font-size:13px";
+    card.appendChild(sum);
+  }
+
+  const label = document.createElement("label");
+  label.style.cssText =
+    "display:flex;align-items:flex-start;gap:10px;cursor:pointer;margin:0 0 18px";
+  const box = document.createElement("input");
+  box.type = "checkbox";
+  box.style.cssText = "margin-top:5px;flex:0 0 auto;width:16px;height:16px";
+  const text = document.createElement("span");
+
+  const a = (href: string, labelText: string) => {
+    const el = document.createElement("a");
+    el.href = href;
+    el.target = "_blank";
+    el.rel = "noopener";
+    el.textContent = labelText;
+    el.style.cssText = "font-weight:700;text-decoration:underline";
+    return el;
+  };
+  text.appendChild(
+    a(info.termsUrl ?? "https://kuro.boo/terms/", t("legalTerms")),
+  );
+  text.appendChild(document.createTextNode(" と "));
+  text.appendChild(
+    a(info.privacyUrl ?? "https://kuro.boo/privacy/", t("legalPrivacy")),
+  );
+  text.appendChild(document.createTextNode(" に同意します。"));
+  label.appendChild(box);
+  label.appendChild(text);
+  card.appendChild(label);
+
+  const msg = document.createElement("div");
+  msg.style.cssText =
+    "color:var(--danger,#ff9aa5);font-size:12px;min-height:16px;margin-bottom:8px";
+  card.appendChild(msg);
+
+  const row = document.createElement("div");
+  row.style.cssText = "display:flex;justify-content:flex-end";
+  const go = document.createElement("button");
+  go.type = "button";
+  go.textContent = t("legalAgreeButton");
+  // チェックするまで押せない。**押せない理由は見た目で分かるようにする。**
+  const sync = () => {
+    go.disabled = !box.checked;
+    go.style.opacity = box.checked ? "1" : ".45";
+    go.style.cursor = box.checked ? "pointer" : "not-allowed";
+  };
+  go.style.cssText =
+    "border:0;border-radius:9px;padding:10px 18px;font:inherit;font-weight:700;" +
+    "background:var(--accent,#2f7d6b);color:#fff";
+  box.addEventListener("change", sync);
+  sync();
 
   const version = info.currentVersion;
-  openEntryDialog(
-    t("legalTitle"),
-    body,
-    t("legalAgreeButton"),
-    async () => {
-      const box = byId("legalAgree") as HTMLInputElement | null;
-      // チェック無しでは閉じない。**押せてしまう作りにしない。**
-      if (!box?.checked) throw new Error(t("legalRequired"));
+  go.onclick = async () => {
+    if (!box.checked) return;
+    go.disabled = true;
+    msg.textContent = "";
+    try {
       await api("/api/system/legal/accept", {
         method: "POST",
         body: JSON.stringify({ version }),
       });
-    },
-    // **やめる道は用意しない。** 同意しないという選択は「使わない」ことなので、
-    // 閉じて先へ進める作りにすると、同意していない利用者が使える状態が残る。
-    null,
-    "",
-    true,
-  );
+      ov.remove();
+    } catch (e) {
+      msg.textContent =
+        "同意を記録できませんでした（" +
+        ((e as { body?: { error?: { code?: string } } }).body?.error?.code ??
+          (e as Error).message) +
+        "）";
+      sync();
+    }
+  };
+  row.appendChild(go);
+  card.appendChild(row);
+  ov.appendChild(card);
+  document.body.appendChild(ov);
 }
 
 async function render() {
