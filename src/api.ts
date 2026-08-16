@@ -145,9 +145,14 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-import { installIdentity, reportInstall } from "./entamy";
+import {
+  installIdentity,
+  legalState,
+  recordConsent,
+  reportInstall,
+} from "./entamy";
 
-export const KUROCMS_VERSION = "1.9.51";
+export const KUROCMS_VERSION = "1.9.52";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -492,6 +497,36 @@ async function handleApiDispatch(
     if (request.method === "POST" && path === "/api/system/r2/enable") {
       requireAdmin(user);
       return withJsonHeaders(await enableR2Storage(env));
+    }
+
+    // 規約の同意状態。**認証必須**（誰が同意したかを問う画面で使う）。
+    if (request.method === "GET" && path === "/api/system/legal") {
+      requireAdmin(user);
+      return json((await legalState(env)) as unknown as JsonValue);
+    }
+
+    // 同意の記録。**版を受け取り、こちらで現在版と突き合わせる** ——
+    // 送られてきた版をそのまま信じると、古い版に同意したことにできてしまう。
+    if (request.method === "POST" && path === "/api/system/legal/accept") {
+      requireAdmin(user);
+      const state = await legalState(env);
+      if (!state.currentVersion) {
+        throw new HttpError(
+          503,
+          "legal_unavailable",
+          "規約の版を取得できませんでした。",
+        );
+      }
+      const body = await readJson(request);
+      if (body.version !== state.currentVersion) {
+        throw new HttpError(
+          409,
+          "legal_version_mismatch",
+          "画面が古くなっています。再読み込みしてください。",
+        );
+      }
+      await recordConsent(env, state.currentVersion);
+      return json({ ok: true, version: state.currentVersion });
     }
 
     // 導入の名乗り。**認証必須** —— 誰でも読めると、導入の識別子が外に出る。

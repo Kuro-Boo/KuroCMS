@@ -35,6 +35,14 @@ const K_INSTALL = "system:entamy_install_id";
 const K_ACCOUNT = "system:entamy_account";
 const K_LAST = "system:entamy_last_report";
 const K_OPTOUT = "system:entamy_optout";
+const K_TERMS_AT = "system:terms_accepted_at";
+const K_TERMS_VER = "system:terms_accepted_version";
+const K_LEGAL_CACHE = "system:legal_current";
+
+const ADMIN_BASE = "https://admin.entamy.com";
+// 版は滅多に変わらない。**毎回問い合わせない** —— 管理画面が落ちていても
+// CMS の操作が止まらないようにする。
+const LEGAL_CACHE_TTL = 6 * 3600;
 
 // 版が変わらない限り1日1回で足りる。**毎回送っても分かることは増えない。**
 const REPORT_INTERVAL_MS = 24 * 3600 * 1000;
@@ -152,6 +160,8 @@ async function collect(env: Env): Promise<Record<string, string | number>> {
   };
   if (site?.template_id) stats.template_id = String(site.template_id);
   if (acceptedAt) stats.terms_accepted_at = acceptedAt.slice(0, 32);
+  const acceptedVer = await env.PUBLIC_PAGES.get(K_TERMS_VER);
+  if (acceptedVer) stats.terms_version = acceptedVer.slice(0, 32);
   return stats;
 }
 
@@ -240,4 +250,94 @@ export async function installIdentity(env: Env): Promise<{
     /* 同上 */
   }
   return { accountId, reportedAt, optedOut: optout === "1" };
+}
+
+export interface LegalState {
+  /** いま有効な版。取得できなければ null（**その場合は何も求めない**）。 */
+  currentVersion: string | null;
+  acceptedVersion: string | null;
+  acceptedAt: string | null;
+  /** 再同意が要るか。取得できていないときは false。 */
+  needsConsent: boolean;
+  termsUrl: string;
+  privacyUrl: string;
+  summary: string | null;
+}
+
+/**
+ * 規約の版を Entamy 管理画面に問い合わせ、同意済みの版と突き合わせる。
+ *
+ * **取得できないときは求めない。** 版が分からない状態で同意を迫ると、
+ * 何に同意したのかが記録できず、同意そのものが無意味になる。
+ * 管理画面の障害で CMS が使えなくなるのも困る。
+ */
+export async function legalState(env: Env): Promise<LegalState> {
+  const [acceptedVersion, acceptedAt] = await Promise.all([
+    env.PUBLIC_PAGES.get(K_TERMS_VER),
+    env.PUBLIC_PAGES.get(K_TERMS_AT),
+  ]);
+
+  let doc: {
+    version: string;
+    terms: { url: string };
+    privacy: { url: string };
+    summary?: string | null;
+  } | null = null;
+
+  const cached = await env.PUBLIC_PAGES.get(K_LEGAL_CACHE);
+  if (cached) {
+    try {
+      doc = JSON.parse(cached);
+    } catch {
+      /* 壊れていたら取り直す */
+    }
+  }
+  if (!doc) {
+    try {
+      const res = await fetch(`${ADMIN_BASE}/api/v1/legal`, {
+        signal: AbortSignal.timeout(8_000),
+      });
+      if (res.ok) {
+        const body = (await res.json()) as {
+          version: string;
+          terms: { url: string; summary?: string | null };
+          privacy: { url: string };
+        };
+        doc = {
+          version: body.version,
+          terms: body.terms,
+          privacy: body.privacy,
+          summary: body.terms?.summary ?? null,
+        };
+        await env.PUBLIC_PAGES.put(K_LEGAL_CACHE, JSON.stringify(doc), {
+          expirationTtl: LEGAL_CACHE_TTL,
+        });
+      }
+    } catch {
+      /* 届かなければ求めない */
+    }
+  }
+
+  const currentVersion = doc?.version ?? null;
+  return {
+    currentVersion,
+    acceptedVersion,
+    acceptedAt,
+    // 未同意（同意を取る前の導入）も、版違いも、同じ扱いで1つの画面に乗せる。
+    needsConsent: !!currentVersion && acceptedVersion !== currentVersion,
+    termsUrl: doc?.terms?.url ?? "https://kuro.boo/terms/",
+    privacyUrl: doc?.privacy?.url ?? "https://kuro.boo/privacy/",
+    summary: doc?.summary ?? null,
+  };
+}
+
+/** 同意を記録する。**版と時刻を必ず対で残す。** */
+export async function recordConsent(env: Env, version: string): Promise<void> {
+  const now = new Date().toISOString();
+  await Promise.all([
+    env.PUBLIC_PAGES.put(K_TERMS_VER, version),
+    env.PUBLIC_PAGES.put(K_TERMS_AT, now),
+  ]);
+  // 版が変わった事実は待たずに知らせる。
+  await reportInstall(env, true);
 }

@@ -709,6 +709,11 @@ const i18n = {
       "Manage personal admin preferences, UI language, and Personal Access Token storage.",
     noLanguages: "No languages registered",
     profileIdentity: "Account Information",
+    legalTitle: "Terms have been updated",
+    legalTerms: "Terms of Service",
+    legalPrivacy: "Privacy Policy",
+    legalAgreeButton: "Agree and continue",
+    legalRequired: "Please tick the checkbox to agree.",
     // 導入を見分けるための番号。**"INSTALL-ID" とは呼ばない** ——
     // 導入の鍵(install_id)と取り違えられるため。
     installIdentity: "Identifier",
@@ -1508,6 +1513,11 @@ const i18n = {
       "管理画面の個人設定、表示言語、Personal Access Token のブラウザ保存を管理します。",
     noLanguages: "言語が登録されていません",
     profileIdentity: "アカウント情報",
+    legalTitle: "規約が更新されました",
+    legalTerms: "利用規約",
+    legalPrivacy: "プライバシーポリシー",
+    legalAgreeButton: "同意して続ける",
+    legalRequired: "チェックを入れて同意してください。",
     installIdentity: "管理番号",
     profilePreferences: "表示設定",
     profileApiAccess: "Personal Access Tokenの作成",
@@ -3915,6 +3925,74 @@ function escapeHtml(value: Dynamic) {
   );
 }
 
+/**
+ * 規約・プライバシーポリシーの再同意。
+ *
+ * 版が上がったとき、および同意を取る前に導入された環境（記録が無い）で出す。
+ * **どちらも「同意済みの版が現在の版と違う」で同じ**なので、経路を分けない。
+ *
+ * 版を取得できないときは何も出さない —— 何に同意したのか記録できないまま
+ * 同意させても意味が無く、管理画面の障害で CMS が使えなくなるのも困る。
+ */
+let legalChecked = false;
+async function checkLegalConsentOnce() {
+  if (legalChecked) return;
+  legalChecked = true;
+  let info: {
+    needsConsent?: boolean;
+    currentVersion?: string | null;
+    termsUrl?: string;
+    privacyUrl?: string;
+    summary?: string | null;
+  };
+  try {
+    info = await api("/api/system/legal");
+  } catch {
+    return; // 取れなければ求めない
+  }
+  if (!info.needsConsent || !info.currentVersion) return;
+
+  const link = (href: string, label: string) =>
+    "<a href='" +
+    escapeHtml(href) +
+    "' target='_blank' rel='noopener' style='font-weight:700;text-decoration:underline'>" +
+    escapeHtml(label) +
+    "</a>";
+
+  const body =
+    (info.summary
+      ? "<p style='margin:0 0 10px'>" + escapeHtml(info.summary) + "</p>"
+      : "") +
+    "<label style='display:flex;align-items:flex-start;gap:10px;cursor:pointer'>" +
+    "<input type='checkbox' id='legalAgree' style='margin-top:3px;flex:0 0 auto' />" +
+    "<span>" +
+    link(info.termsUrl ?? "https://kuro.boo/terms/", t("legalTerms")) +
+    " と " +
+    link(info.privacyUrl ?? "https://kuro.boo/privacy/", t("legalPrivacy")) +
+    " に同意します。</span></label>";
+
+  const version = info.currentVersion;
+  openEntryDialog(
+    t("legalTitle"),
+    body,
+    t("legalAgreeButton"),
+    async () => {
+      const box = byId("legalAgree") as HTMLInputElement | null;
+      // チェック無しでは閉じない。**押せてしまう作りにしない。**
+      if (!box?.checked) throw new Error(t("legalRequired"));
+      await api("/api/system/legal/accept", {
+        method: "POST",
+        body: JSON.stringify({ version }),
+      });
+    },
+    // 閉じても次の読み込みでまた出る。**同意するまで繰り返す**が、
+    // 閉じられなくはしない（作業中に締め出すのは筋が悪い）。
+    () => {
+      legalChecked = false;
+    },
+  );
+}
+
 async function render() {
   try {
     if (state.preview) {
@@ -3954,6 +4032,9 @@ async function render() {
     }
     await loadTheme();
     setTimeout(checkStorageAlertOnce, 0);
+    // 規約の再同意。**画面の描画は止めない** —— 同意が要るかどうかは
+    // 外部への問い合わせで決まるので、待たせると管理画面が開かなくなる。
+    setTimeout(checkLegalConsentOnce, 0);
     // Screens that expose a live list register a reloader (activeListReload);
     // clear it here so it only points at the screen currently on view.
     activeListReload = null;
