@@ -145,7 +145,7 @@ interface ManagedLanguageRow {
   search_count: number;
 }
 
-export const KUROCMS_VERSION = "1.9.41";
+export const KUROCMS_VERSION = "1.9.42";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -2971,6 +2971,31 @@ async function githubApiBackedOff(env: Env): Promise<boolean> {
  * 枠の回復を自分で妨げない（＝サブリクエストも無駄に使わない）。
  * 解除時刻は GitHub の `x-ratelimit-reset`（epoch 秒）に従う。
  */
+/**
+ * GitHub の取得回数の上限に当たったことを表す。
+ *
+ * **利用者に出すのは原文ではない。** GitHub が返す英語の
+ * "API rate limit exceeded for 172.64.215.168 ..." は、読んでも何をすれば
+ * よいか分からない。ここで回復の見込み時刻まで持たせて、画面では
+ * 「いつ直るか」を日本語で伝える。
+ */
+class GithubRateLimitError extends Error {
+  readonly resetAt: number | null;
+  constructor(resetAt: number | null) {
+    super("GitHub rate limit exceeded");
+    this.name = "GithubRateLimitError";
+    this.resetAt = resetAt;
+  }
+}
+
+/** 「約◯分後」。上限は時間単位で戻るので、日をまたぐ案内はしない。 */
+function recoveryHint(resetAt: number | null): string {
+  if (!resetAt) return "1時間ほど待つと自動で回復します";
+  const min = Math.max(1, Math.ceil((resetAt - Date.now()) / 60000));
+  if (min <= 90) return `約${min}分後に自動で回復します`;
+  return `約${Math.ceil(min / 60)}時間後に自動で回復します`;
+}
+
 async function noteGithubRateLimit(env: Env, res: Response): Promise<void> {
   if (res.status !== 403 && res.status !== 429) return;
   const resetSec = Number(res.headers.get("x-ratelimit-reset") || "");
@@ -3041,6 +3066,10 @@ async function resolveTagNoApi(channel: "stable" | "latest"): Promise<string> {
 //                automatically.
 const RELEASE_CHANNELS_CACHE_KEY = "system:release_channels";
 const RELEASE_CHANNELS_CACHE_TTL = 1800; // 30 min
+// 直近に取得できた値。**GitHub へ届かない間の表示に使う**ので、通常のキャッシュより
+// ずっと長く持つ。版は数分で変わるものではなく、古い値の方がエラーより役に立つ。
+const RELEASE_CHANNELS_LAST_GOOD_KEY = "system:release_channels_last_good";
+const RELEASE_CHANNELS_LAST_GOOD_TTL = 30 * 24 * 3600; // 30 日
 const UPDATE_CHANNEL_KEY = "system:update_channel"; // "stable" | "latest"
 
 type ReleaseChannels = { stable: string; latest: string };
@@ -3072,6 +3101,12 @@ async function channelsViaApi(env: Env): Promise<ReleaseChannels> {
   );
   if (!res.ok) {
     await noteGithubRateLimit(env, res);
+    if (res.status === 403 || res.status === 429) {
+      const resetSec = Number(res.headers.get("x-ratelimit-reset") || "");
+      throw new GithubRateLimitError(
+        Number.isFinite(resetSec) ? resetSec * 1000 : null,
+      );
+    }
     throw new Error(`GitHub API returned ${res.status}`);
   }
   const list = (await res.json()) as Array<{
@@ -3100,22 +3135,60 @@ async function channelsViaUrl(): Promise<ReleaseChannels> {
   };
 }
 
+/**
+ * 経路ごとの失敗を1つにまとめる。
+ *
+ * **最後の失敗だけを投げると、原因を取り違える。** 既定の順は
+ * [URL 経路, API 経路] なので、両方落ちると必ず API の文言（大抵は
+ * 「rate limit exceeded」）が表に出る —— 実際に直すべきは先に落ちた
+ * URL 経路の方なのに、API の枠が原因に見えてしまう。
+ */
+function combineAttemptErrors(
+  failures: Array<{ path: string; error: unknown }>,
+  what: string,
+): Error {
+  const detail = failures
+    .map(
+      (f) =>
+        `${f.path}: ${f.error instanceof Error ? f.error.message : String(f.error)}`,
+    )
+    .join(" / ");
+
+  // 上限に当たったなら、それが利用者にとっての原因。**対処は「待つ」だけ**なので、
+  // 何が起きていて、いつ直るかだけを伝える。技術的な詳細は後ろに小さく残す。
+  const limited = failures
+    .map((f) => f.error)
+    .find((e): e is GithubRateLimitError => e instanceof GithubRateLimitError);
+  if (limited) {
+    return new Error(
+      `GitHub の取得回数の上限に達したため、一時的にバージョンを確認できません。` +
+        `${recoveryHint(limited.resetAt)}。表示中の版でそのまま運用できます。（詳細 — ${detail}）`,
+    );
+  }
+  return new Error(`${what}（${detail}）`);
+}
+
 /** 両経路を優先順に試す。片方が駄目でももう片方で解決できる。 */
 async function resolveReleaseChannels(env: Env): Promise<ReleaseChannels> {
-  const attempts = preferGithubApi(env)
-    ? [() => channelsViaApi(env), channelsViaUrl]
-    : [channelsViaUrl, () => channelsViaApi(env)];
-  let lastError: unknown = null;
+  const attempts: Array<{ path: string; run: () => Promise<ReleaseChannels> }> =
+    preferGithubApi(env)
+      ? [
+          { path: "GitHub API", run: () => channelsViaApi(env) },
+          { path: "URL 経路", run: channelsViaUrl },
+        ]
+      : [
+          { path: "URL 経路", run: channelsViaUrl },
+          { path: "GitHub API", run: () => channelsViaApi(env) },
+        ];
+  const failures: Array<{ path: string; error: unknown }> = [];
   for (const attempt of attempts) {
     try {
-      return await attempt();
+      return await attempt.run();
     } catch (err) {
-      lastError = err;
+      failures.push({ path: attempt.path, error: err });
     }
   }
-  throw lastError instanceof Error
-    ? lastError
-    : new Error("Could not resolve release channels.");
+  throw combineAttemptErrors(failures, "リリース情報を取得できませんでした");
 }
 
 /**
@@ -3132,41 +3205,77 @@ async function resolveChannelTag(
     const channels = await channelsViaApi(env);
     return `v${channel === "latest" ? channels.latest : channels.stable}`;
   };
-  const attempts = preferGithubApi(env) ? [viaApi, viaUrl] : [viaUrl, viaApi];
-  let lastError: unknown = null;
+  const attempts = preferGithubApi(env)
+    ? [
+        { path: "GitHub API", run: viaApi },
+        { path: "URL 経路", run: viaUrl },
+      ]
+    : [
+        { path: "URL 経路", run: viaUrl },
+        { path: "GitHub API", run: viaApi },
+      ];
+  const failures: Array<{ path: string; error: unknown }> = [];
   for (const attempt of attempts) {
     try {
-      return await attempt();
+      return await attempt.run();
     } catch (err) {
-      lastError = err;
+      failures.push({ path: attempt.path, error: err });
     }
   }
-  throw lastError instanceof Error
-    ? lastError
-    : new Error(`Could not resolve the "${channel}" release tag.`);
+  throw combineAttemptErrors(
+    failures,
+    `"${channel}" のリリースを解決できませんでした`,
+  );
 }
 
 async function fetchReleaseChannels(
   env: Env,
   refresh = false,
 ): Promise<ReleaseChannels> {
-  const cached = refresh
-    ? null
-    : await env.PUBLIC_PAGES.get(RELEASE_CHANNELS_CACHE_KEY);
-  if (cached) {
+  const cached = await env.PUBLIC_PAGES.get(RELEASE_CHANNELS_CACHE_KEY);
+  const parsed = (() => {
+    if (!cached) return null;
     try {
       return JSON.parse(cached) as ReleaseChannels;
     } catch {
-      /* stale/corrupt cache entry — refetch below */
+      return null; // stale/corrupt cache entry — refetch below
     }
+  })();
+  if (parsed && !refresh) return parsed;
+
+  try {
+    const channels = await resolveReleaseChannels(env);
+    await env.PUBLIC_PAGES.put(
+      RELEASE_CHANNELS_CACHE_KEY,
+      JSON.stringify(channels),
+      { expirationTtl: RELEASE_CHANNELS_CACHE_TTL },
+    );
+    // 直近の成功値を長めに残す。**GitHub に届かない間の表示に使う**（下の catch）。
+    await env.PUBLIC_PAGES.put(
+      RELEASE_CHANNELS_LAST_GOOD_KEY,
+      JSON.stringify(channels),
+      { expirationTtl: RELEASE_CHANNELS_LAST_GOOD_TTL },
+    );
+    return channels;
+  } catch (err) {
+    // **取得できない＝バージョン表示が壊れる、ではない。**
+    //
+    // GitHub 側の一時的な不調や、共有 egress に対する制限で届かないことは普通に
+    // ある。そのたびに画面へ赤いエラーを出すより、直近に分かっていた版を出す方が
+    // 実用的で、しかも正しい（版は数分で変わるものではない）。
+    //
+    // ただし黙って古い値を出さない。呼び出し側が「いつの情報か」を添えられるよう、
+    // 取得できなかったこと自体は記録する。
+    const lastGood = await env.PUBLIC_PAGES.get(RELEASE_CHANNELS_LAST_GOOD_KEY);
+    if (lastGood) {
+      try {
+        return JSON.parse(lastGood) as ReleaseChannels;
+      } catch {
+        /* 壊れていたら諦めて下へ */
+      }
+    }
+    throw err;
   }
-  const channels = await resolveReleaseChannels(env);
-  await env.PUBLIC_PAGES.put(
-    RELEASE_CHANNELS_CACHE_KEY,
-    JSON.stringify(channels),
-    { expirationTtl: RELEASE_CHANNELS_CACHE_TTL },
-  );
-  return channels;
 }
 
 async function getUpdateChannel(env: Env): Promise<"stable" | "latest"> {
