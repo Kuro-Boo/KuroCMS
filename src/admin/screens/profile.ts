@@ -17,7 +17,7 @@ async function profile() {
       "<span id='installIdBadge' style='font-size:10px;font-weight:400;font-family:ui-monospace,monospace;opacity:.55;letter-spacing:.02em'></span>" +
       "</h3><table><tbody><tr><th>" +
       escapeHtml(t("roles")) +
-      "</th><td id='profileRoles'>-</td></tr></tbody></table><form class='stack' id='accountForm'><label>" +
+      "</th><td id='profileRoles'>-</td></tr><tr id='legalAgreedRow'></tr></tbody></table><form class='stack' id='accountForm'><label>" +
       escapeHtml(t("displayName")) +
       "<input id='profileDisplayName' /></label><label>" +
       escapeHtml(t("userIdLabel")) +
@@ -142,6 +142,58 @@ async function profile() {
             : "";
       } catch {
         badge.textContent = "";
+      }
+    })();
+
+    // 同意した版へのリンク。**その時点の文面**が開く（最新ではない）。
+    // 何に同意したのかを後から確かめられないと、同意を記録した意味が薄い。
+    void (async () => {
+      const slot = byId("legalAgreedRow");
+      if (!slot) return;
+      try {
+        const info = (await api("/api/system/legal")) as {
+          acceptedVersion?: string | null;
+          acceptedAt?: string | null;
+          termsUrl?: string;
+          privacyUrl?: string;
+        };
+        if (!info.acceptedVersion) return;
+        // 版は「規約/ポリシー」の順に連結されている。
+        const [tv, pv] = info.acceptedVersion.split("/");
+        const link = (base: string, v: string, label: string) =>
+          v
+            ? "<a href='" +
+              escapeHtml(base + "?version=" + encodeURIComponent(v)) +
+              "' target='_blank' rel='noopener'>" +
+              escapeHtml(label + " " + v) +
+              "</a>"
+            : "";
+        slot.innerHTML =
+          "<th>" +
+          escapeHtml(t("legalAgreed")) +
+          "</th><td style='font-size:12px'>" +
+          [
+            link(
+              info.termsUrl ?? "https://kuro.boo/terms/",
+              tv,
+              t("legalTerms"),
+            ),
+            link(
+              info.privacyUrl ?? "https://kuro.boo/privacy/",
+              pv,
+              t("legalPrivacy"),
+            ),
+          ]
+            .filter(Boolean)
+            .join(" / ") +
+          (info.acceptedAt
+            ? "<div style='opacity:.6;margin-top:2px'>" +
+              escapeHtml(formatDateTime(info.acceptedAt)) +
+              "</div>"
+            : "") +
+          "</td>";
+      } catch {
+        /* 出せなければ何も置かない */
       }
     })();
     const meUser = meData.user;
