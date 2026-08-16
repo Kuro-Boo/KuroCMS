@@ -3122,6 +3122,11 @@ function openEntryDialog(
   onSubmit: Dynamic,
   onCancel: (() => void) | null = null,
   submitClass = "",
+  /**
+   * 閉じる道を用意しない。**同意のように「押さない＝続けられない」もの**に使う。
+   * やめる／背景クリックの両方を塞ぐ（片方だけ塞ぐと抜け道になる）。
+   */
+  blocking = false,
 ) {
   const backdrop = createPopupBackdrop();
   backdrop.innerHTML =
@@ -3129,9 +3134,13 @@ function openEntryDialog(
     escapeHtml(title) +
     "</h3><div class='popupBody'>" +
     bodyHtml +
-    "</div><div class='popupActions'><button type='button' class='secondary' id='entryDialogCancel'>" +
-    escapeHtml(t("cancel")) +
-    "</button><button type='submit'" +
+    "</div><div class='popupActions'>" +
+    (blocking
+      ? ""
+      : "<button type='button' class='secondary' id='entryDialogCancel'>" +
+        escapeHtml(t("cancel")) +
+        "</button>") +
+    "<button type='submit'" +
     (submitClass ? " class='" + submitClass + "'" : "") +
     ">" +
     escapeHtml(submitText) +
@@ -3143,7 +3152,7 @@ function openEntryDialog(
     if (onCancel) onCancel();
   };
   backdrop.addEventListener("click", (event) => {
-    if (event.target === backdrop) cancel();
+    if (!blocking && event.target === backdrop) cancel();
   });
   const cancelBtn = backdrop.querySelector<AdminElement>("#entryDialogCancel");
   if (cancelBtn) cancelBtn.addEventListener("click", cancel);
@@ -3985,11 +3994,11 @@ async function checkLegalConsentOnce() {
         body: JSON.stringify({ version }),
       });
     },
-    // 閉じても次の読み込みでまた出る。**同意するまで繰り返す**が、
-    // 閉じられなくはしない（作業中に締め出すのは筋が悪い）。
-    () => {
-      legalChecked = false;
-    },
+    // **やめる道は用意しない。** 同意しないという選択は「使わない」ことなので、
+    // 閉じて先へ進める作りにすると、同意していない利用者が使える状態が残る。
+    null,
+    "",
+    true,
   );
 }
 
