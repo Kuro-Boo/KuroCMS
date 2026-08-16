@@ -42,7 +42,8 @@ const K_LEGAL_CACHE = "system:legal_current";
 const ADMIN_BASE = "https://admin.entamy.com";
 // 版は滅多に変わらない。**毎回問い合わせない** —— 管理画面が落ちていても
 // CMS の操作が止まらないようにする。
-const LEGAL_CACHE_TTL = 6 * 3600;
+// 試験対象の切り替えが効くまで待たされると確認にならない。**短くする。**
+const LEGAL_CACHE_TTL = 300;
 
 // 版が変わらない限り1日1回で足りる。**毎回送っても分かることは増えない。**
 const REPORT_INTERVAL_MS = 24 * 3600 * 1000;
@@ -294,9 +295,19 @@ export async function legalState(env: Env): Promise<LegalState> {
   }
   if (!doc) {
     try {
-      const res = await fetch(`${ADMIN_BASE}/api/v1/legal`, {
-        signal: AbortSignal.timeout(8_000),
-      });
+      // 自分の管理番号を添える。**試験対象に指定された導入先だけ**が
+      // 同意を求められる（全体が停止中でも確認できるようにするため）。
+      const acc = await env.PUBLIC_PAGES.get(K_ACCOUNT);
+      let who = "";
+      try {
+        if (acc) who = (JSON.parse(acc) as Stored).account_id ?? "";
+      } catch {
+        /* 無ければ付けない */
+      }
+      const res = await fetch(
+        `${ADMIN_BASE}/api/v1/legal${who ? `?account_id=${encodeURIComponent(who)}` : ""}`,
+        { signal: AbortSignal.timeout(8_000) },
+      );
       if (res.ok) {
         const body = (await res.json()) as {
           version: string;
