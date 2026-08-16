@@ -856,8 +856,12 @@ const i18n = {
     normalizeFormatToast: "Formatting normalization finished",
     normalizeFormatPreview:
       "{a} translation(s) would change — <b>: {b}, bold spans: {w}, <div> paragraphs: {d}, empty blocks: {e}",
+    normalizeFormatPreviewClipboard:
+      "Also repairing clipboard damage — block font sizes: {f}, headings holding blocks: {n}",
     normalizeFormatPreviewNone:
       "Nothing to change — all bodies are already canonical.",
+    normalizeFormatClipboardLabel:
+      "Also repair damage from Chrome's clipboard (font sizes baked onto blocks, headings that swallowed the text below them). Off by default because, unlike the rewrites above, this CHANGES HOW PAGES LOOK — articles published with the damage will render differently afterwards. Check what would change first. Every rewritten body is saved to revision history, so this is reversible.",
     dedupeRevisionsHelp:
       "Reclaims storage in the revision history. Revisions are full-text snapshots, and one is written whenever a save changes ANYTHING — so editing only the summary, the hashtags or the cover stored another complete copy of an unchanged body. New snapshots now reuse an identical body instead of copying it; this button applies the same sharing to history written earlier. The oldest revision keeps the text and the rest point at it, so every revision still reads back as a complete body — nothing is lost and nothing published changes.",
     dedupeRevisionsButton: "Reclaim duplicated revision bodies",
@@ -1728,7 +1732,11 @@ const i18n = {
     normalizeFormatToast: "フォーマット正規化が完了しました",
     normalizeFormatPreview:
       "{a} 件の翻訳が変更されます — <b>: {b} 個、太字span: {w} 個、<div>段落: {d} 個、空ブロック: {e} 個",
+    normalizeFormatPreviewClipboard:
+      "コピー由来の修復も含みます — ブロックの文字サイズ: {f} 個、ブロックを飲み込んだ見出し: {n} 個",
     normalizeFormatPreviewNone: "変更対象はありません。すべて正規形です。",
+    normalizeFormatClipboardLabel:
+      "Chrome のコピーによる破壊も直す（ブロックに焼き込まれた文字サイズ、下の本文を飲み込んだ見出し）。既定では外しています。上の書き換えと違い、これは見た目が変わります — 破壊されたまま公開されている記事は、実行後に表示が変わります。先に「変更対象を確認」で件数を見てください。変更された本文はリビジョン履歴に残るので、元に戻せます。",
     dedupeRevisionsHelp:
       "リビジョン履歴の容量を回収します。履歴は差分ではなく全文スナップショットで、保存内容が何か 1 つでも変われば 1 版が作られます。そのため要約・ハッシュタグ・カバー画像だけを直した保存でも、変わっていない本文の完全なコピーがもう 1 部保存されていました。今後のスナップショットは同一本文を使い回すようになりましたが、このボタンはそれ以前に溜まった履歴に同じ使い回しを適用します。最古の版が本文を保持し、残りはそれを指すだけになります。取得時はどの版も完全な本文として読めるので、履歴が失われることはなく、公開中のページにも影響しません。",
     dedupeRevisionsButton: "リビジョン履歴の重複本文を回収",

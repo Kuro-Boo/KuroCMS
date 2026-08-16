@@ -585,6 +585,22 @@ function buildAdSenseUnit(client: string, slot: string): string {
   );
 }
 
+/**
+ * 言語切り替えウィジェット。
+ *
+ * ⚠ **位置決めは論理プロパティで書くこと**（`inset-inline-end` / `text-align:start`）。
+ *
+ * アラビア語などは `<html dir="rtl">` になる（stampRtlDir）。RTL ではヘッダの
+ * 並びが左右反転してこのボタンが**画面の左端**に来るので、`right:0` だと
+ * メニューが左へ伸びて**画面外にはみ出し、項目名が切れる**（実際に起きた）。
+ * `inset-inline-end:0` なら LTR では right:0、RTL では left:0 に解決されて
+ * 内側へ開く。
+ *
+ * ⚠ **`right:0` を保険として併記しないこと。** left と right の両方が効くと
+ *   over-constrained になり、RTL では **left の方が無視される** ——
+ *   つまり保険のつもりの `right:0` が勝って、修正前と同じくはみ出す
+ *   （実測: left=-81px。`inset-inline-end` 単独なら left=16px で収まる）。
+ */
 function buildLanguageWidget(
   currentLang: string,
   availableLangs: Array<{ code: string; name: string }>,
@@ -609,9 +625,9 @@ function buildLanguageWidget(
       // are not selectable (no data-kl-code → the click handler ignores them).
       const usable = !enabled || enabled.has(l.code);
       if (!usable) {
-        return `<div title="未翻訳 / not translated" style="display:flex;align-items:center;gap:8px;width:100%;text-align:left;font-size:12px;padding:6px 10px;border-radius:7px;line-height:1.2;opacity:.4;cursor:not-allowed"><span style="font-weight:700;min-width:20px">${two(l.code)}</span><span style="color:#94a3b8">${esc(l.name)}</span></div>`;
+        return `<div title="未翻訳 / not translated" style="display:flex;align-items:center;gap:8px;width:100%;text-align:start;font-size:12px;padding:6px 10px;border-radius:7px;line-height:1.2;opacity:.4;cursor:not-allowed"><span style="font-weight:700;min-width:20px">${two(l.code)}</span><span style="color:#94a3b8">${esc(l.name)}</span></div>`;
       }
-      return `<button type="button" data-kl-code="${esc(l.code)}" style="display:flex;align-items:center;gap:8px;width:100%;text-align:left;border:0;background:${on ? "#eef2ff" : "transparent"};color:#0f172a;font-size:12px;padding:6px 10px;border-radius:7px;cursor:pointer;line-height:1.2"><span style="font-weight:700;min-width:20px">${two(l.code)}</span><span style="color:#475569">${esc(l.name)}</span></button>`;
+      return `<button type="button" data-kl-code="${esc(l.code)}" style="display:flex;align-items:center;gap:8px;width:100%;text-align:start;border:0;background:${on ? "#eef2ff" : "transparent"};color:#0f172a;font-size:12px;padding:6px 10px;border-radius:7px;cursor:pointer;line-height:1.2"><span style="font-weight:700;min-width:20px">${two(l.code)}</span><span style="color:#475569">${esc(l.name)}</span></button>`;
     })
     .join("");
   return `<div id="${uid}" style="position:relative;display:inline-block">
@@ -619,7 +635,7 @@ function buildLanguageWidget(
     <span>${cur}</span>
     <svg viewBox="0 0 20 20" style="width:12px;height:12px;fill:#64748b"><path d="M5 7l5 5 5-5z"/></svg>
   </button>
-  <div data-kl-menu style="display:none;position:absolute;right:0;top:calc(100% + 4px);min-width:150px;max-height:60vh;overflow:auto;background:#fff;border:1px solid #e2e8f0;border-radius:10px;box-shadow:0 10px 30px rgba(15,23,42,.15);padding:4px;z-index:1000">${items}</div>
+  <div data-kl-menu style="display:none;position:absolute;inset-inline-end:0;top:calc(100% + 4px);min-width:150px;max-height:60vh;overflow:auto;background:#fff;border:1px solid #e2e8f0;border-radius:10px;box-shadow:0 10px 30px rgba(15,23,42,.15);padding:4px;z-index:1000">${items}</div>
 </div>
 <script>
 (function(){

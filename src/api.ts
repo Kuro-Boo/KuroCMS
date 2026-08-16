@@ -152,7 +152,7 @@ import {
   reportInstall,
 } from "./entamy";
 
-export const KUROCMS_VERSION = "1.9.60";
+export const KUROCMS_VERSION = "1.9.61";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -854,17 +854,24 @@ async function handleApiDispatch(
     // Maintenance: canonicalize body formatting (<b>/bold spans → <strong>,
     // <div> paragraphs → <p>, empty blocks). Same must-be-before-:id rule as
     // cleanup-styles above.
+    // `?clipboard=1` は、見た目が変わる規則（R6〜R8、Chrome のコピー由来の
+    // 壊れ方の修復）も掛ける明示的な選択。**既定は off** —— 黙って既存記事の
+    // 表示を変えないため。禁止ではなく、意図して選んだときだけ掛ける。
     if (
       request.method === "GET" &&
       path === "/api/documents/normalize-format"
     ) {
-      return withJsonHeaders(await normalizeBodyFormatPreview(env, user));
+      return withJsonHeaders(
+        await normalizeBodyFormatPreview(env, user, wantsClipboardRepair(url)),
+      );
     }
     if (
       request.method === "POST" &&
       path === "/api/documents/normalize-format"
     ) {
-      return withJsonHeaders(await normalizeBodyFormat(env, user));
+      return withJsonHeaders(
+        await normalizeBodyFormat(env, user, wantsClipboardRepair(url)),
+      );
     }
 
     // 表紙の欠落補完（保守）。基準言語の表紙を、表紙を持たない翻訳へ配る。
@@ -7198,34 +7205,69 @@ async function cleanupCopyNoise(env: Env, user: AuthUser): Promise<Response> {
  * build regenerates their pages. Same 50-changed-rows-per-invocation budget as
  * cleanupCopyNoise; `more: true` asks the client for another pass.
  *
- * ⚠ **clipboardRepair: false を外さないこと。**
+ * ## clipboardRepair は【既定 off・明示的に選んだときだけ on】
  *
  * 正規化には Chrome のコピー由来の壊れ方を直す規則もある（R6 ブロックの
  * font-size / font-weight 除去、R7 ブロックを内包した見出しの解体、R8 bid の
  * 畳み込み）。これらは上の4つと違って**見た目が変わる** —— 「綴りの統一」では
- * ないので、ここで掛けると**既に公開されている記事の表示が突然変わる**。
+ * ないので、黙って掛けると**既に公開されている記事の表示が突然変わる**。
  *
- * 混入したまま公開されているのは事実だが、読者にとっては「HTML が正規形で
- * ない」ことより「表示が突然変わる」ことの方が実害が大きい。R6〜R8 が効くのは
- * **これ以降の書き込みだけ**とし、既存記事は書き手が編集して保存した時に
- * 自然に直る。（2026-08-16 の決定。KuroEditor/docs/貼り付け破壊の修正仕様.md）
+ * だから既定では掛けない。**禁止するのではなく、勝手にやらない。** 直したい
+ * ときは画面のチェックを入れて明示的に選ぶ（何が変わるかは先に「変更内容を
+ * 確認」で件数が出る）。手で直せば直る形は残しつつ、意図しない一括変更だけを
+ * 防ぐ。（2026-08-16 の決定。KuroEditor/docs/貼り付け破壊の修正仕様.md）
+ *
+ * @param clipboardRepair 呼び出し側が明示的に true を渡したときだけ R6〜R8 を掛ける
  */
+/**
+ * Cheap pre-filter for the format sweep — only bodies that can possibly contain
+ * a target. The authoritative decision is normalizeContentHtml's own output
+ * comparison; this just keeps the scan off rows that cannot match.
+ *
+ * ⚠ 掃除の本体と予告で**同じものを使うこと**。片方だけ条件が違うと
+ *   「0 件と出たのに変わる」「予告に出たのに直らない」になる。
+ *
+ * @param clipboardRepair R6〜R8 も掛けるとき true。font-size と、見出しが
+ *   ブロックを飲み込んだ形（`<h1><p` 等）も拾う必要がある。
+ */
+/**
+ * 見た目が変わる規則（R6〜R8）まで掛けるかどうかを、要求から読む。
+ *
+ * **既定は false。** 付いていない・読めない・値が違う、のいずれでも掛けない ——
+ * 既存記事の表示を黙って変えないことが目的なので、迷ったら掛けない側に倒す。
+ */
+function wantsClipboardRepair(url: URL): boolean {
+  return url.searchParams.get("clipboard") === "1";
+}
+
+function normalizeSweepFilter(clipboardRepair: boolean): string {
+  const base =
+    `body_html LIKE '%<b>%' OR body_html LIKE '%<b %'` +
+    ` OR body_html LIKE '%<div%' OR body_html LIKE '%font-weight%'` +
+    // 復旧対象: 旧版が段落化してしまった構造コンテナ（callout / code block）。
+    // これらは <div> が残っていない行もあるため、上の条件では拾えない。
+    ` OR body_html LIKE '%<p class="kuro-%' OR body_html LIKE '%<p data-%'` +
+    ` OR body_html LIKE '%<p spellcheck%'`;
+  if (!clipboardRepair) return base;
+  const nested = ["h1", "h2", "h3", "h4", "h5", "h6", "p"]
+    .flatMap((tag) => [
+      `body_html LIKE '%<${tag}><p%'`,
+      `body_html LIKE '%<${tag} %><p%'`,
+    ])
+    .join(" OR ");
+  return `${base} OR body_html LIKE '%font-size%' OR ${nested}`;
+}
+
 async function normalizeBodyFormat(
   env: Env,
   user: AuthUser,
+  clipboardRepair: boolean,
 ): Promise<Response> {
   requireAdmin(user);
   const MAX_CHANGED_PER_RUN = 50;
-  // Cheap pre-filter — only bodies that can possibly contain a target. The
-  // authoritative decision is normalizeContentHtml's own output comparison.
   const rows = await env.DB.prepare(
     `SELECT did, lang, body_html FROM document_translations
-     WHERE body_html LIKE '%<b>%' OR body_html LIKE '%<b %'
-        OR body_html LIKE '%<div%' OR body_html LIKE '%font-weight%'
-        -- 復旧対象: 旧版が段落化してしまった構造コンテナ（callout / code block）。
-        -- これらは <div> が残っていない行もあるため、上の条件では拾えない。
-        OR body_html LIKE '%<p class="kuro-%' OR body_html LIKE '%<p data-%'
-        OR body_html LIKE '%<p spellcheck%'`,
+     WHERE ${normalizeSweepFilter(clipboardRepair)}`,
   ).all<{ did: string; lang: string; body_html: string | null }>();
   const candidates = rows.results ?? [];
 
@@ -7235,7 +7277,7 @@ async function normalizeBodyFormat(
   for (const row of candidates) {
     if (changed >= MAX_CHANGED_PER_RUN) break;
     const original = row.body_html || "";
-    const cleaned = normalizeContentHtml(original, { clipboardRepair: false });
+    const cleaned = normalizeContentHtml(original, { clipboardRepair });
     if (cleaned === original) continue;
     const statements: D1PreparedStatement[] = [];
     const snapshot = await snapshotTranslationStatement(
@@ -7296,31 +7338,34 @@ async function normalizeBodyFormat(
 async function normalizeBodyFormatPreview(
   env: Env,
   user: AuthUser,
+  clipboardRepair: boolean,
 ): Promise<Response> {
   requireAdmin(user);
   const rows = await env.DB.prepare(
     `SELECT body_html FROM document_translations
-     WHERE body_html LIKE '%<b>%' OR body_html LIKE '%<b %'
-        OR body_html LIKE '%<div%' OR body_html LIKE '%font-weight%'
-        -- 復旧対象: 旧版が段落化してしまった構造コンテナ（callout / code block）。
-        -- これらは <div> が残っていない行もあるため、上の条件では拾えない。
-        OR body_html LIKE '%<p class="kuro-%' OR body_html LIKE '%<p data-%'
-        OR body_html LIKE '%<p spellcheck%'`,
+     WHERE ${normalizeSweepFilter(clipboardRepair)}`,
   ).all<{ body_html: string | null }>();
-  const totals = { bTags: 0, boldSpans: 0, divBlocks: 0, emptyBlocks: 0 };
+  const totals = {
+    bTags: 0,
+    boldSpans: 0,
+    divBlocks: 0,
+    emptyBlocks: 0,
+    blockDecor: 0,
+    nestedBlocks: 0,
+  };
   let affected = 0;
   for (const row of rows.results ?? []) {
     // 予告の件数は掃除の実体と同じ条件で数える（normalizeBodyFormat と対で
     // 直すこと。片方だけ変えると「0 件と出たのに変わる」になる）。
-    const s = inspectContentHtml(row.body_html || "", {
-      clipboardRepair: false,
-    });
+    const s = inspectContentHtml(row.body_html || "", { clipboardRepair });
     if (!s.changed) continue;
     affected++;
     totals.bTags += s.bTags;
     totals.boldSpans += s.boldSpans;
     totals.divBlocks += s.divBlocks;
     totals.emptyBlocks += s.emptyBlocks;
+    totals.blockDecor += s.blockDecor;
+    totals.nestedBlocks += s.nestedBlocks;
   }
   return json({
     ok: true,

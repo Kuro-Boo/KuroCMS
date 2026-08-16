@@ -264,6 +264,13 @@ async function settings() {
       "<div class='muted' style='font-size:12px'>" +
       escapeHtml(t("normalizeFormatHelp")) +
       "</div>" +
+      // 見た目が変わる規則は【明示的に選んだときだけ】。既定は外したまま。
+      "<label style='display:flex;gap:6px;align-items:flex-start;font-size:12px'>" +
+      "<input type='checkbox' id='normalizeFormatClipboard' style='margin-top:2px'>" +
+      "<span>" +
+      escapeHtml(t("normalizeFormatClipboardLabel")) +
+      "</span>" +
+      "</label>" +
       "<div class='toolbar' style='gap:8px'>" +
       "<button type='button' id='normalizeFormatCheckBtn' class='secondary'>" +
       escapeHtml(t("normalizeFormatCheck")) +
@@ -705,6 +712,13 @@ async function settings() {
     }
   });
 
+  // 見た目が変わる規則（R6〜R8）を掛けるかどうかは、画面のチェック次第。
+  // 予告と実行で【同じ値】を使う —— ずれると「確認した内容と違うものが走る」。
+  const normalizeFormatQuery = () =>
+    (byId("normalizeFormatClipboard") as HTMLInputElement | null)?.checked
+      ? "?clipboard=1"
+      : "";
+
   // Maintenance: body formatting normalization. Dry-run first so the admin can
   // see the scale before any body is rewritten.
   byId("normalizeFormatCheckBtn")?.addEventListener("click", async () => {
@@ -712,7 +726,9 @@ async function settings() {
     const out = byId("normalizeFormatResult");
     btn.disabled = true;
     try {
-      const res = await api("/api/documents/normalize-format");
+      const res = await api(
+        "/api/documents/normalize-format" + normalizeFormatQuery(),
+      );
       if (out)
         out.textContent = Number(res.affected || 0)
           ? t("normalizeFormatPreview")
@@ -720,7 +736,15 @@ async function settings() {
               .replace("{b}", String(res.bTags || 0))
               .replace("{w}", String(res.boldSpans || 0))
               .replace("{d}", String(res.divBlocks || 0))
-              .replace("{e}", String(res.emptyBlocks || 0))
+              .replace("{e}", String(res.emptyBlocks || 0)) +
+            // コピー由来の修復を選んだときだけ、その内訳も足す（既定では
+            // 常に 0 なので、出しても意味の無い数字が並ぶだけ）。
+            (normalizeFormatQuery()
+              ? " " +
+                t("normalizeFormatPreviewClipboard")
+                  .replace("{f}", String(res.blockDecor || 0))
+                  .replace("{n}", String(res.nestedBlocks || 0))
+              : "")
           : t("normalizeFormatPreviewNone");
     } catch (error) {
       toast(errorMessage(error), true, btn);
@@ -743,9 +767,10 @@ async function settings() {
       let total = 0;
       let scanned = 0;
       for (let pass = 0; pass < 40; pass++) {
-        const res = await api("/api/documents/normalize-format", {
-          method: "POST",
-        });
+        const res = await api(
+          "/api/documents/normalize-format" + normalizeFormatQuery(),
+          { method: "POST" },
+        );
         total += Number(res.changed || 0);
         scanned = Number(res.scanned || 0);
         if (out)
