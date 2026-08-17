@@ -521,11 +521,16 @@ function transformChildren(children, topLevel, clipboardRepair) {
  *   clipboardRepair — apply R6/R7/R8, the repairs for Chrome's clipboard
  *   serializer. Default true: every path that WRITES content wants them.
  *
- *   Pass false for a bulk sweep over ALREADY PUBLISHED content. Those articles
- *   went out with the damage baked in, and re-flowing them now would change how
- *   live pages look — to a reader, a page that suddenly renders differently is
- *   worse than a page whose HTML is not canonical. So the rules apply to new
- *   writes only, and an existing article heals when someone edits and saves it.
+ *   Pass false for a bulk sweep over ALREADY PUBLISHED content. Unlike R1–R5,
+ *   these three CHANGE HOW A PAGE LOOKS, and an article that went out with the
+ *   damage baked in would suddenly render differently. That is not a repair the
+ *   reader asked for, so a sweep must not perform it as a side effect of
+ *   "normalizing formatting".
+ *
+ *   This is "don't do it silently", NOT "never do it". Fixing existing articles
+ *   deliberately is legitimate — the caller just has to say so, having been told
+ *   what will change. KuroCMS's maintenance screen exposes exactly that: an
+ *   unchecked-by-default box, with a preview of the counts.
  *   (Decision recorded 2026-08-16; see KuroEditor/docs/貼り付け破壊の修正仕様.md)
  * @returns {string}
  */

@@ -149,6 +149,14 @@ async function collect(env: Env): Promise<Record<string, string | number>> {
     }>(),
     env.PUBLIC_PAGES.get("system:update_channel"),
   ]);
+  // 版を確認できているか。**「どの版か」だけでは取り残しに気づけない** ——
+  // 2026-08 に v1.9.9 のまま固まった個体は、更新の意思も接続も正常に見えて、
+  // 実際には版の確認自体が 11 日間ずっと失敗していた。ここに載せておくと
+  // 「確認できていない導入が何件あるか」が中央から見える。
+  // 送るのは【最後に確認できた日付】だけで、失敗の内容もホスト名も送らない。
+  const lastGood = await env.PUBLIC_PAGES.get(
+    "system:release_channels_last_good",
+  );
   // 同意した日時。**導入時に書き込まれた値をそのまま運ぶ** ——
   // ここで現在時刻を入れてしまうと「同意した記録」ではなくなる。
   const acceptedAt = await env.PUBLIC_PAGES.get("system:terms_accepted_at");
@@ -160,6 +168,16 @@ async function collect(env: Env): Promise<Record<string, string | number>> {
     update_channel: channel === "latest" ? "latest" : "stable",
   };
   if (site?.template_id) stats.template_id = String(site.template_id);
+  const checkedAt = (() => {
+    if (!lastGood) return "";
+    try {
+      const at = (JSON.parse(lastGood) as { at?: string }).at;
+      return typeof at === "string" ? at.slice(0, 32) : "";
+    } catch {
+      return "";
+    }
+  })();
+  if (checkedAt) stats.version_checked_at = checkedAt;
   if (acceptedAt) stats.terms_accepted_at = acceptedAt.slice(0, 32);
   const acceptedVer = await env.PUBLIC_PAGES.get(K_TERMS_VER);
   if (acceptedVer) stats.terms_version = acceptedVer.slice(0, 32);

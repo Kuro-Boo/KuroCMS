@@ -45,6 +45,11 @@ import {
   releaseAssetUrl as buildReleaseAssetUrl,
 } from "./github-release";
 import {
+  planUniqueRenames,
+  backfillDocumentLive,
+  type UniqueRename,
+} from "./restore-compat";
+import {
   HttpError,
   json,
   jsonError,
@@ -152,7 +157,7 @@ import {
   reportInstall,
 } from "./entamy";
 
-export const KUROCMS_VERSION = "1.9.61";
+export const KUROCMS_VERSION = "1.9.62";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -3124,6 +3129,41 @@ const UPDATE_CHANNEL_KEY = "system:update_channel"; // "stable" | "latest"
 
 type ReleaseChannels = { stable: string; latest: string };
 
+/** KV に置く形。`at` は【その値が GitHub から取れた時刻】。 */
+type StoredChannels = ReleaseChannels & { at?: string };
+
+/**
+ * 版確認の結果。
+ *
+ * ⚠ `channels` が null になりうるのが要点。**「分からない」を「最新です」に
+ * 丸めない** —— 2026-08 に v1.9.9 のまま 11 日間固まった個体は、確認が失敗する
+ * たびに stable/latest を current で埋めていたため、画面上は「最新」と区別が
+ * つかず、誰も止まっていることに気づけなかった。
+ */
+type ReleaseCheck = {
+  /** 表示に使える値。一度も取得できていなければ null。 */
+  channels: ReleaseChannels | null;
+  /** 今回 GitHub まで届いたか。false なら channels は last-good（か null）。 */
+  ok: boolean;
+  /** channels がいつ取れた値か（ISO）。分からなければ null。 */
+  checkedAt: string | null;
+  /** 届かなかった理由。ok のときは null。 */
+  error: string | null;
+};
+
+/** KV の値を読む。旧い形（`at` の無い `{stable,latest}`）もそのまま受ける。 */
+function readStoredChannels(raw: string | null): StoredChannels | null {
+  if (!raw) return null;
+  try {
+    const v = JSON.parse(raw) as StoredChannels;
+    if (typeof v?.stable !== "string" || typeof v?.latest !== "string")
+      return null;
+    return v;
+  } catch {
+    return null; // stale/corrupt cache entry — 呼び手が取り直す
+  }
+}
+
 /**
  * API 経路と非 API 経路のどちらを先に試すか。
  *
@@ -3141,14 +3181,11 @@ function preferGithubApi(env: Env): boolean {
   return Boolean(env.GITHUB_TOKEN);
 }
 
-/** API でチャンネルを解決する（1 回の呼び出しで両チャンネル）。 */
-async function channelsViaApi(env: Env): Promise<ReleaseChannels> {
+/** GitHub API を 1 回叩く。レート制限は共通の扱いに寄せる。 */
+async function githubApiJson<T>(env: Env, url: string): Promise<T> {
   if (await githubApiBackedOff(env))
     throw new Error("GitHub API is rate-limited (backing off).");
-  const res = await fetch(
-    `https://api.github.com/repos/${KUROCMS_GITHUB_REPO}/releases?per_page=10`,
-    { headers: githubApiHeaders(env) },
-  );
+  const res = await fetch(url, { headers: githubApiHeaders(env) });
   if (!res.ok) {
     await noteGithubRateLimit(env, res);
     if (res.status === 403 || res.status === 429) {
@@ -3159,17 +3196,36 @@ async function channelsViaApi(env: Env): Promise<ReleaseChannels> {
     }
     throw new Error(`GitHub API returned ${res.status}`);
   }
-  const list = (await res.json()) as Array<{
-    tag_name: string;
-    prerelease: boolean;
-    draft: boolean;
-  }>;
-  const rolling = list.find((r) => !r.draft);
-  const stable = list.find((r) => !r.draft && !r.prerelease);
-  if (!rolling || !stable) throw new Error("No published releases found.");
+  return (await res.json()) as T;
+}
+
+/**
+ * API でチャンネルを解決する。
+ *
+ * ⚠ **stable を一覧から探さない。** 以前は `?per_page=10` を引いて「その中で
+ * prerelease でない最初のもの」を stable にしていたが、通常のリリースは
+ * すべて `--prerelease` で作られる（github_release_update.sh）ので、stable は
+ * 昇格したときだけ進む。つまり一覧の先頭 10 件に非 prerelease が 1 件も無い
+ * 状態が普通に起きる —— 実際 2026-08-17 時点で stable は v1.9.41、rolling は
+ * v1.9.61 と 20 件離れており、10 件では届かず「No published releases found」
+ * で経路ごと落ちていた。件数を増やしても差が開けば同じことなので、
+ * **GitHub 自身が「最新の非 prerelease」を返す /releases/latest を使う**。
+ */
+async function channelsViaApi(env: Env): Promise<ReleaseChannels> {
+  const base = `https://api.github.com/repos/${KUROCMS_GITHUB_REPO}/releases`;
+  const [rollingList, stableRelease] = await Promise.all([
+    githubApiJson<Array<{ tag_name: string; draft: boolean }>>(
+      env,
+      `${base}?per_page=1`,
+    ),
+    githubApiJson<{ tag_name: string }>(env, `${base}/latest`),
+  ]);
+  const rolling = rollingList.find((r) => !r.draft);
+  if (!rolling || !stableRelease?.tag_name)
+    throw new Error("No published releases found.");
   return {
     latest: rolling.tag_name.replace(/^v/, ""),
-    stable: stable.tag_name.replace(/^v/, ""),
+    stable: stableRelease.tag_name.replace(/^v/, ""),
   };
 }
 
@@ -3281,32 +3337,31 @@ async function resolveChannelTag(
 async function fetchReleaseChannels(
   env: Env,
   refresh = false,
-): Promise<ReleaseChannels> {
-  const cached = await env.PUBLIC_PAGES.get(RELEASE_CHANNELS_CACHE_KEY);
-  const parsed = (() => {
-    if (!cached) return null;
-    try {
-      return JSON.parse(cached) as ReleaseChannels;
-    } catch {
-      return null; // stale/corrupt cache entry — refetch below
-    }
-  })();
-  if (parsed && !refresh) return parsed;
+): Promise<ReleaseCheck> {
+  const cached = readStoredChannels(
+    await env.PUBLIC_PAGES.get(RELEASE_CHANNELS_CACHE_KEY),
+  );
+  if (cached && !refresh) {
+    return {
+      channels: { stable: cached.stable, latest: cached.latest },
+      ok: true,
+      checkedAt: cached.at ?? null,
+      error: null,
+    };
+  }
 
   try {
     const channels = await resolveReleaseChannels(env);
-    await env.PUBLIC_PAGES.put(
-      RELEASE_CHANNELS_CACHE_KEY,
-      JSON.stringify(channels),
-      { expirationTtl: RELEASE_CHANNELS_CACHE_TTL },
-    );
+    const at = nowIso();
+    const stored = JSON.stringify({ ...channels, at } satisfies StoredChannels);
+    await env.PUBLIC_PAGES.put(RELEASE_CHANNELS_CACHE_KEY, stored, {
+      expirationTtl: RELEASE_CHANNELS_CACHE_TTL,
+    });
     // 直近の成功値を長めに残す。**GitHub に届かない間の表示に使う**（下の catch）。
-    await env.PUBLIC_PAGES.put(
-      RELEASE_CHANNELS_LAST_GOOD_KEY,
-      JSON.stringify(channels),
-      { expirationTtl: RELEASE_CHANNELS_LAST_GOOD_TTL },
-    );
-    return channels;
+    await env.PUBLIC_PAGES.put(RELEASE_CHANNELS_LAST_GOOD_KEY, stored, {
+      expirationTtl: RELEASE_CHANNELS_LAST_GOOD_TTL,
+    });
+    return { channels, ok: true, checkedAt: at, error: null };
   } catch (err) {
     // **取得できない＝バージョン表示が壊れる、ではない。**
     //
@@ -3314,17 +3369,20 @@ async function fetchReleaseChannels(
     // ある。そのたびに画面へ赤いエラーを出すより、直近に分かっていた版を出す方が
     // 実用的で、しかも正しい（版は数分で変わるものではない）。
     //
-    // ただし黙って古い値を出さない。呼び出し側が「いつの情報か」を添えられるよう、
-    // 取得できなかったこと自体は記録する。
-    const lastGood = await env.PUBLIC_PAGES.get(RELEASE_CHANNELS_LAST_GOOD_KEY);
-    if (lastGood) {
-      try {
-        return JSON.parse(lastGood) as ReleaseChannels;
-      } catch {
-        /* 壊れていたら諦めて下へ */
-      }
-    }
-    throw err;
+    // ⚠ ただし【黙って古い値を出さない】。ok:false と checkedAt を必ず添えて
+    //   返し、画面が「いつの情報か」「今は確認できていない」を言えるようにする。
+    //   ここを握りつぶすと、止まっていることに誰も気づけなくなる。
+    const lastGood = readStoredChannels(
+      await env.PUBLIC_PAGES.get(RELEASE_CHANNELS_LAST_GOOD_KEY),
+    );
+    return {
+      channels: lastGood
+        ? { stable: lastGood.stable, latest: lastGood.latest }
+        : null,
+      ok: false,
+      checkedAt: lastGood?.at ?? null,
+      error: err instanceof Error ? err.message : String(err),
+    };
   }
 }
 
@@ -3340,21 +3398,38 @@ async function setUpdateChannel(request: Request, env: Env): Promise<Response> {
   return json({ ok: true, channel });
 }
 
+/**
+ * 版の状態を返す。
+ *
+ * ⚠ **取得できなかったときに current で埋めない。** 以前はそうしていて、
+ * 「GitHub に届かない」が「stable も latest も current と同じ＝最新です」に
+ * 化けていた。利用者からは正常と区別がつかず、hasUpdate も false のままなので
+ * 自動更新も発火せず、インスタンスが永久に取り残される（v1.9.9 の実例）。
+ *
+ * 分からないときは null を返し、`checkOk` / `checkedAt` / `checkError` で
+ * 「今は確認できていない」ことを画面に言わせる。`repo` は管理画面が
+ * ブラウザ側（＝利用者自身の IP）から確認し直すときの参照先。
+ */
 async function systemVersion(env: Env, refresh = false): Promise<Response> {
   const current = KUROCMS_VERSION;
   const channel = await getUpdateChannel(env);
-  let stable = current;
-  let latest = current;
-  try {
-    const channels = await fetchReleaseChannels(env, refresh);
-    stable = channels.stable;
-    latest = channels.latest;
-  } catch {
-    /* GitHub unreachable — fall back to current for both */
-  }
+  const check = await fetchReleaseChannels(env, refresh);
+  const stable = check.channels?.stable ?? null;
+  const latest = check.channels?.latest ?? null;
   const target = channel === "latest" ? latest : stable;
-  const hasUpdate = target !== current && compareVersions(target, current) > 0;
-  return json({ current, stable, latest, channel, hasUpdate });
+  const hasUpdate =
+    !!target && target !== current && compareVersions(target, current) > 0;
+  return json({
+    current,
+    stable,
+    latest,
+    channel,
+    hasUpdate,
+    checkOk: check.ok,
+    checkedAt: check.checkedAt,
+    checkError: check.ok ? null : check.error,
+    repo: KUROCMS_GITHUB_REPO,
+  });
 }
 
 // Apply any pending migrations from the latest release's migrations-manifest.json.
@@ -10014,6 +10089,89 @@ async function restoreWipePages(env: Env, url: URL): Promise<Response> {
   });
 }
 
+const SQL_IDENT_RE = /^[A-Za-z0-9_]+$/;
+
+/**
+ * 「主キー 1 列」＋「主キー以外の単一列 UNIQUE」を調べる。
+ *
+ * 復元は **古い版で作られたバックアップ**を受け取るので、当時は合法だった
+ * データが今の制約に違反しうる。どの列が一意でなければならないかは
+ * 現物のスキーマにしか無いので、pragma から読む（列名を直書きすると、
+ * 次に制約が増えたときに同じ事故が再発する）。
+ */
+async function tableUniqueGuards(
+  env: Env,
+  table: string,
+): Promise<{ pk: string | null; uniqueCols: string[] }> {
+  const info = await env.DB.prepare(
+    `SELECT name, pk FROM pragma_table_info('${table}')`,
+  ).all<{ name: string; pk: number }>();
+  const pks = (info.results ?? []).filter((r) => r.pk > 0);
+  const pk = pks.length === 1 ? pks[0].name : null;
+  if (!pk || !SQL_IDENT_RE.test(pk)) return { pk: null, uniqueCols: [] };
+
+  const idxList = await env.DB.prepare(
+    `SELECT name, "unique" AS uniq, origin FROM pragma_index_list('${table}')`,
+  ).all<{ name: string; uniq: number; origin: string }>();
+  const uniqueCols = new Set<string>();
+  for (const idx of idxList.results ?? []) {
+    if (!idx.uniq || idx.origin === "pk") continue;
+    if (!SQL_IDENT_RE.test(idx.name)) continue;
+    const cols = await env.DB.prepare(
+      `SELECT name FROM pragma_index_info('${idx.name}')`,
+    ).all<{ name: string | null }>();
+    const names = (cols.results ?? []).map((r) => r.name).filter(Boolean);
+    // 複合 UNIQUE は退避のしようが無い（どの列を変えるべきか決められない）。
+    // 単一列だけを対象にする —— 実際に古いデータが引っかかるのはこちら。
+    if (names.length === 1 && names[0] !== pk && SQL_IDENT_RE.test(names[0]!))
+      uniqueCols.add(names[0]!);
+  }
+  return { pk, uniqueCols: [...uniqueCols] };
+}
+
+/**
+ * 一意制約にぶつかる行を **消さずに退避** する。
+ *
+ * 判断そのものは純関数 `planUniqueRenames`（src/restore-compat.ts、契約テスト
+ * `npm run test:restore`）。ここは「既にその値を持っている行は誰か」を DB から
+ * 引いてくる係。⚠ ページ跨ぎで衝突するので、バッチ内だけ見ても足りない。
+ */
+async function healUniqueConflicts(
+  env: Env,
+  table: string,
+  rows: Record<string, unknown>[],
+  pk: string,
+  uniqueCols: string[],
+): Promise<UniqueRename[]> {
+  const renamed: UniqueRename[] = [];
+  for (const col of uniqueCols) {
+    const values = [
+      ...new Set(
+        rows
+          .map((r) => r[col])
+          .filter((v): v is string => typeof v === "string"),
+      ),
+    ];
+    if (!values.length) continue;
+
+    const taken = new Map<string, string>(); // 値 → その値を持つ主キー
+    const CHUNK = 100;
+    for (let i = 0; i < values.length; i += CHUNK) {
+      const part = values.slice(i, i + CHUNK);
+      const res = await env.DB.prepare(
+        `SELECT "${pk}" AS k, "${col}" AS v FROM ${table} WHERE "${col}" IN (${part
+          .map(() => "?")
+          .join(",")})`,
+      )
+        .bind(...part)
+        .all<{ k: string | number; v: string }>();
+      for (const r of res.results ?? []) taken.set(String(r.v), String(r.k));
+    }
+    renamed.push(...planUniqueRenames(rows, pk, col, taken));
+  }
+  return renamed;
+}
+
 async function restoreTable(
   request: Request,
   env: Env,
@@ -10041,6 +10199,15 @@ async function restoreTable(
   ).all<{ name: string }>();
   const known = new Set((info.results ?? []).map((r) => r.name));
   const skipped = new Set<string>();
+
+  // 古い版のバックアップを、今のスキーマの意味に合わせてから入れる。
+  // ⚠ 順番が大事 —— 退避と補完は【INSERT の前】でなければ意味が無い。
+  //   入れてから直そうとしても、消えた行はもう戻らない。
+  if (name === "documents" && known.has("live")) backfillDocumentLive(rows);
+  const guards = await tableUniqueGuards(env, name);
+  const renamed = guards.pk
+    ? await healUniqueConflicts(env, name, rows, guards.pk, guards.uniqueCols)
+    : [];
 
   const stmts = rows.map((row) => {
     const cols = Object.keys(row).filter((c) => {
@@ -10090,6 +10257,9 @@ async function restoreTable(
     ok: true,
     inserted: rows.length,
     skippedColumns: [...skipped],
+    // 退避した行は必ず報告する。**黙って直さない** —— slug が変わると URL が
+    // 変わるので、運用者が知らないまま公開されるのは事故と変わらない。
+    renamed: renamed as unknown as JsonValue,
   });
 }
 
@@ -10535,13 +10705,106 @@ async function mediaDedupe(env: Env, url: URL): Promise<Response> {
   });
 }
 
+/**
+ * 復元後に、migration の「データ整備」を貼り直す。
+ *
+ * ⚠ **wipe + restore は migration のデータ整備を巻き戻す。** migration には
+ * スキーマを変える文だけでなく、既存データを新しい約束に合わせる文が入って
+ * いる（既定の言語名を母語表記にする、ナビ用ラベルの行を置く、採番表を現物の
+ * 最大値から種付ける…）。それらは【インストール時に一度】走るので、その後で
+ * 全行を消して古いバックアップを流し込むと、整備前の状態が戻ってくる。
+ * migration は済んだ扱いなので二度と走らない ——「同じ版なのに、入れ直した
+ * インスタンスだけ様子が違う」の正体がこれ。
+ *
+ * ここに置く文は全て冪等で、**利用者が変えた値を上書きしない**こと
+ * （名前は 0001 の種のままの行だけ、採番は下げない、行の追加は OR IGNORE）。
+ */
+async function reapplyRestoreBootstraps(env: Env): Promise<JsonValue> {
+  const applied: string[] = [];
+  const run = async (label: string, sql: string, ...binds: unknown[]) => {
+    try {
+      await env.DB.prepare(sql)
+        .bind(...(binds as (string | number | null)[]))
+        .run();
+      applied.push(label);
+    } catch {
+      // 整備は「できれば」で良い。ここで失敗しても復元済みのデータは無事なので、
+      // 復元全体を落とさない（落とす方が利用者にとって遥かに困る）。
+    }
+  };
+
+  // migration 0056: メディアの採番表。**復元しただけでは空のまま**で、次の
+  // アップロードが img-1 から振り直して既存の mid とぶつかる。mid は
+  // /images/{mid}.{ext} を決め、その URL は 1 年 immutable でキャッシュされる
+  // ので、衝突すると新しい画像が古い画像として表示される（0056 が防いだ事故）。
+  // ⚠ 既存の値より下げない（別インスタンスで既に発番済みの番号を再利用しない）。
+  await run(
+    "media_id_seq",
+    `INSERT INTO media_id_seq (kind, last_n)
+       SELECT kind, MAX(CAST(substr(mid, instr(mid, '-') + 1) AS INTEGER))
+         FROM media_assets WHERE mid LIKE '%-%' GROUP BY kind
+     ON CONFLICT(kind) DO UPDATE SET last_n = MAX(last_n, excluded.last_n)`,
+  );
+
+  // migration 0059: 既定 9 言語の表示名を母語表記へ。0001 の種の値
+  // （英語名）のままの行だけを書き換える＝利用者が変えた名前は触らない。
+  const nativeNames: [string, string][] = [
+    ["ja", "日本語"],
+    ["de", "Deutsch"],
+    ["fr", "Français"],
+    ["it", "Italiano"],
+    ["es", "Español"],
+    ["zh", "中文"],
+    ["ko", "한국어"],
+    ["uk", "Українська"],
+  ];
+  const seedNames: Record<string, string> = {
+    ja: "Japanese",
+    de: "German",
+    fr: "French",
+    it: "Italian",
+    es: "Spanish",
+    zh: "Chinese",
+    ko: "Korean",
+    uk: "Ukrainian",
+  };
+  for (const [id, native] of nativeNames) {
+    await run(
+      `language_name:${id}`,
+      `UPDATE taxonomy_items SET name = ?
+        WHERE kind = 'language' AND id = ? AND name = ?`,
+      native,
+      id,
+      seedNames[id],
+    );
+  }
+
+  // migration 0067: ナビ用の短いラベル行。空文字で入るので表示は従来どおり
+  // （タイトルにフォールバックする）。
+  await run(
+    "about_nav_label",
+    `INSERT OR IGNORE INTO taxonomy_items
+       (id, kind, lang, name, is_system, created_at, updated_at)
+     VALUES ('about-nav', 'template', '', 'About', 1, ?, ?)`,
+    nowIso(),
+    nowIso(),
+  );
+
+  return applied as unknown as JsonValue;
+}
+
 async function restoreFinish(env: Env): Promise<Response> {
+  // 復元で巻き戻った migration のデータ整備を貼り直す（詳細は関数の説明）。
+  const bootstraps = await reapplyRestoreBootstraps(env);
+  // ⚠ 履歴ではなく現物を正として、スキーマも突き合わせる。バックアップには
+  //   d1_migrations が入っていないので、履歴を信じると食い違う。
+  const schema = await reconcileSchema(env, true);
   // Public pages were wiped from KV; drop the version cache so the next visit /
   // build regenerates everything from the restored D1 data.
   if (env.PUBLIC_PAGES) {
     await env.PUBLIC_PAGES.delete(RELEASE_CHANNELS_CACHE_KEY).catch(() => {});
   }
-  return json({ ok: true });
+  return json({ ok: true, bootstraps, schema: schema as unknown as JsonValue });
 }
 
 async function createBackup(env: Env): Promise<Response> {

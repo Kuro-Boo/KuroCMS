@@ -657,6 +657,16 @@ const i18n = {
     restoreSummaryRows: "Rows restored: {rows}",
     restoreSummaryMedia: "Media restored: {ok} / {total} ({bytes})",
     restoreNextStep: "Next: run a site build to regenerate the public pages.",
+    restoreSkippedColumn:
+      "Note: {table}.{col} was not imported — this site has no such column.",
+    restoreSkippedSummary:
+      "Columns not imported (absent on this destination): {cols}",
+    restoreRenamedRow:
+      '{table}.{col}: "{from}" was already taken, so it was changed to "{to}".',
+    restoreRenamedSummary:
+      "Rows whose value was changed to satisfy a unique constraint: {n} (older backups allowed these duplicates — nothing was lost)",
+    restoreUnknownTables:
+      "⚠ This backup contained data that the current KuroCMS does not handle, so it was not imported: {tables}",
     backupInterruptedTitle: "The previous job did not finish",
     backupInterruptedBackup:
       'A backup started at {at} stopped at "{phase}" (the tab was closed or reloaded). The saved ZIP is incomplete — delete it and run the backup again.',
@@ -950,6 +960,10 @@ const i18n = {
     updateNow: "Update Now",
     checkForUpdate: "Check for Update",
     alreadyLatest: "You're on the latest version.",
+    versionCheckFailed:
+      "Could not check for the latest version. This does NOT mean you are up to date — it means the check itself did not reach GitHub. Try again later.",
+    versionCheckFailedStale:
+      "Could not check for the latest version — showing what was known as of {when}. A newer release may already exist.",
     updating: "Updating…",
     updateSuccessReload: "Updated. Please reload.",
     updateConfirm: "Update KuroCMS to the latest version?",
@@ -1645,6 +1659,12 @@ const i18n = {
       "注記: {table}.{col} はこのサイトに存在しない列のため取り込みませんでした。",
     restoreSkippedSummary:
       "取り込まなかった列（この移行先に存在しない）: {cols}",
+    restoreRenamedRow:
+      "{table}.{col}: 「{from}」は既に使われているため「{to}」に変更しました。",
+    restoreRenamedSummary:
+      "一意制約のため値を変更した行: {n} 件（古いバックアップでは重複が許されていました。1 件も失われていません）",
+    restoreUnknownTables:
+      "⚠ このバックアップに含まれていた次のデータは、現在の KuroCMS が扱わないため取り込んでいません: {tables}",
     backupInterruptedTitle: "前回の処理が完了していません",
     backupInterruptedBackup:
       "{at} に開始したバックアップが「{phase}」で止まりました（タブを閉じたか再読み込みしたため）。保存された ZIP は不完全です。削除して取り直してください。",
@@ -1823,6 +1843,10 @@ const i18n = {
     updateNow: "今すぐ更新",
     checkForUpdate: "今すぐ更新のチェック",
     alreadyLatest: "最新バージョンです。",
+    versionCheckFailed:
+      "最新バージョンを確認できませんでした。これは「最新です」という意味ではなく、確認そのものが GitHub に届かなかったという意味です。時間をおいて再度お試しください。",
+    versionCheckFailedStale:
+      "最新バージョンを確認できませんでした。表示しているのは {when} 時点で分かっていた版です。すでに新しい版が出ている可能性があります。",
     updating: "更新中…",
     updateSuccessReload: "更新しました。ページをリロードしてください。",
     updateConfirm: "KuroCMS を最新バージョンに更新しますか？",

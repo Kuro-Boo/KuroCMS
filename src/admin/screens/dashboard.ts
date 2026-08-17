@@ -74,6 +74,9 @@ async function dashboard() {
       "<span class='toggleSlider'></span>" +
       "</label>" +
       "</div>" +
+      // 版を確認できなかったときに出す一行。**空欄のままにしない** ——
+      // 「分からない」を黙って隠すと「最新です」と見分けがつかなくなる。
+      "<div id='versionNote' style='display:none;font-size:11px;line-height:1.5;color:var(--muted);border-top:1px solid var(--line);padding-top:8px;margin-top:2px'></div>" +
       "</div>" +
       "</div>" + // closes version .panel
       "</div>" + // closes .split — was missing: the storage panel below was
@@ -325,21 +328,82 @@ async function dashboard() {
   // promotes a release (see VERSION's KUROCMS_STABLE_VERSION / --promote-stable
   // in github_release_update.sh); "latest" is the rolling channel that every
   // release lands on immediately. The toggle picks which one btnUpdate targets.
+
+  // 直近に表示した内容。更新ボタンが「どのタグへ上げるか」を知るために持つ。
+  let lastVersion: Dynamic | null = null;
+
+  function versionCompare(a: string, b: string): number {
+    const pa = String(a).split(".").map(Number);
+    const pb = String(b).split(".").map(Number);
+    for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+      const na = pa[i] || 0;
+      const nb = pb[i] || 0;
+      if (na !== nb) return na - nb;
+    }
+    return 0;
+  }
+
+  /**
+   * サーバ側が版を確認できなかったときに、**ブラウザから確認し直す**。
+   *
+   * ⚠ ここは api.github.com を使ってよい唯一の場所。Worker から叩くと送信元が
+   *   Cloudflare の共有 egress IP になり、60 req/時/IP の枠を世界中の導入と
+   *   食い合って恒常的に枯れる（v1.9.9 の個体が 11 日間「最新です」と誤表示
+   *   したまま固まった原因がこれ）。ブラウザは利用者自身の IP なので枠を
+   *   1 人で使い、実質枯れない。**サーバ経路と故障要因を一切共有しない**のが
+   *   この経路の値打ちで、両方が同時に塞がることはまず起きない。
+   *
+   *   逆向きも成り立つ: Worker が第一候補にする 302 / Atom 経路は CORS を
+   *   返さないのでブラウザからは読めない。だからここだけは API を使う。
+   */
+  async function resolveVersionsInBrowser(
+    repo: string,
+  ): Promise<{ stable: string; latest: string }> {
+    const base = "https://api.github.com/repos/" + repo + "/releases";
+    const get = async (url: string) => {
+      const res = await fetch(url, {
+        headers: { Accept: "application/vnd.github+json" },
+      });
+      if (!res.ok) throw new Error("GitHub API returned " + res.status);
+      return (await res.json()) as Dynamic;
+    };
+    // ⚠ stable を一覧から探さない。通常のリリースは全て prerelease 扱いなので、
+    //   先頭 N 件に非 prerelease が 1 件も無い状態が普通に起きる（2026-08-17
+    //   時点で stable と rolling は 20 件離れている）。GitHub 自身が「最新の
+    //   非 prerelease」を返す /releases/latest を使う。
+    const [list, stable] = await Promise.all([
+      get(base + "?per_page=1"),
+      get(base + "/latest"),
+    ]);
+    const rolling = (list as Dynamic[]).find((r) => !r.draft);
+    if (!rolling || !stable?.tag_name) throw new Error("no published releases");
+    const strip = (tag: string) => String(tag).replace(/^v/, "");
+    return {
+      latest: strip(rolling.tag_name),
+      stable: strip(stable.tag_name),
+    };
+  }
+
   function applyVersionResult(v: Dynamic) {
+    lastVersion = v;
     const cur = byId("versionCurrent");
     const stab = byId("versionStable");
     const lat = byId("versionLatest");
+    const note = byId("versionNote");
     const badge = byId("updateBadge");
     const toggle = byId("updateChannelToggle") as HTMLInputElement | null;
+    // 分からない版は "v—"。**current で埋めない** ——「確認できていない」を
+    // 「最新です」に化けさせないための一点。
+    const show = (val: Dynamic) => (val ? "v" + val : "v—");
     if (cur) cur.textContent = "v" + v.current;
     if (stab) {
-      stab.textContent = "v" + v.stable;
+      stab.textContent = show(v.stable);
       stab.className =
         "versionVal" +
         (v.channel === "stable" && v.hasUpdate ? " has-update" : "");
     }
     if (lat) {
-      lat.textContent = "v" + v.latest;
+      lat.textContent = show(v.latest);
       lat.className =
         "versionVal" +
         (v.channel === "latest" && v.hasUpdate ? " has-update" : "");
@@ -349,14 +413,50 @@ async function dashboard() {
     const btn = byId("btnUpdate");
     if (btn)
       btn.textContent = v.hasUpdate ? t("updateNow") : t("checkForUpdate");
+
+    if (note) {
+      // 確認できたなら黙っている。出すのは「確認できていない」ときだけ。
+      if (v.checkOk || v.viaBrowser) {
+        note.style.display = "none";
+        note.textContent = "";
+      } else {
+        const when = v.checkedAt
+          ? new Date(String(v.checkedAt)).toLocaleString()
+          : "";
+        note.style.display = "";
+        note.textContent = v.stable
+          ? t("versionCheckFailedStale").replace("{when}", when)
+          : t("versionCheckFailed");
+      }
+    }
   }
 
-  async function checkVersion() {
+  async function checkVersion(refresh = false) {
+    let v: Dynamic;
     try {
-      applyVersionResult(await api("/api/system/version"));
+      v = await api("/api/system/version" + (refresh ? "?refresh=1" : ""));
     } catch {
-      /* ignore */
+      return;
     }
+    // サーバから届かなかったときだけ、利用者の回線で確認し直す。
+    // **更新を実行するかどうかは、ここでは決めない** —— 表示を正しくするだけで、
+    // 押すのは今まで通り人間。
+    if (!v.checkOk && v.repo) {
+      try {
+        const b = await resolveVersionsInBrowser(String(v.repo));
+        const target = v.channel === "latest" ? b.latest : b.stable;
+        v = {
+          ...v,
+          stable: b.stable,
+          latest: b.latest,
+          hasUpdate: versionCompare(target, String(v.current)) > 0,
+          viaBrowser: true,
+        };
+      } catch {
+        /* こちらも駄目 → 「確認できません」を出す（applyVersionResult が担当） */
+      }
+    }
+    applyVersionResult(v);
   }
 
   // Check the version once when the dashboard opens (result is only shown here;
@@ -373,7 +473,10 @@ async function dashboard() {
           method: "PUT",
           body: JSON.stringify({ channel: nextChannel }),
         });
-        applyVersionResult(await api("/api/system/version"));
+        // checkVersion 経由にする。**直接叩かない** —— サーバ側が版を確認
+        // できない状態でチャンネルを切り替えたとき、ここだけブラウザ経由の
+        // 確認を飛ばすと表示が "v—" に戻ってしまう。
+        await checkVersion();
       } catch (err) {
         channelToggle.checked = !channelToggle.checked; // revert on failure
         toast(errorMessage(err), true);
@@ -397,14 +500,21 @@ async function dashboard() {
         btnUpdate.textContent = t("checking");
         let ok = false;
         try {
-          applyVersionResult(await api("/api/system/version?refresh=1"));
+          await checkVersion(true);
           ok = true;
         } catch {
           /* ignore */
         }
         btnUpdate.disabled = false;
+        const resolved =
+          !!lastVersion && (lastVersion.checkOk || lastVersion.viaBrowser);
         if (!ok) {
           btnUpdate.textContent = t("checkForUpdate");
+        } else if (!resolved) {
+          // ⚠ 確認できなかったときに「最新バージョンです」と言わない。
+          //   これを言ってしまうと、止まっていることを利用者が知る最後の
+          //   機会が消える。
+          toast(t("versionCheckFailed"), true);
         } else {
           const after = byId("updateBadge");
           if (!after || after.style.display === "none")
@@ -416,7 +526,17 @@ async function dashboard() {
       btnUpdate.disabled = true;
       btnUpdate.textContent = t("updating");
       try {
-        await api("/api/system/update", { method: "POST" });
+        // サーバがタグを解決できなかった回は、ブラウザで解決したタグを渡す。
+        // 渡さないと Worker 側がもう一度 GitHub へ取りに行って同じ理由で失敗する。
+        const v = lastVersion;
+        const browserTag =
+          v && v.viaBrowser
+            ? "v" + (v.channel === "latest" ? v.latest : v.stable)
+            : null;
+        await api("/api/system/update", {
+          method: "POST",
+          body: browserTag ? JSON.stringify({ tag: browserTag }) : undefined,
+        });
         toast(t("updateSuccessReload"));
         setTimeout(() => location.reload(), 2000);
       } catch (err) {

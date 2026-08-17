@@ -853,6 +853,17 @@ async function runRestore() {
 
     // 3) Restore tables (parents → children).
     const skippedColumns = new Set<string>();
+    const renamedRows: string[] = [];
+    // ⚠ ZIP に入っているのに、こちらが知らないテーブル＝**黙って捨てる**行が
+    //   ある状態。今の履歴では起きない（対象表は v1.7.7 から不変）が、将来
+    //   表を減らしたときに古いバックアップの中身が無言で消えるのを防ぐ。
+    const unknownTables = entries
+      .filter(
+        (e: Dynamic) =>
+          e.name.indexOf("data/") === 0 && e.name.endsWith(".jsonl"),
+      )
+      .map((e: Dynamic) => e.name.slice(5, -6))
+      .filter((n: string) => BACKUP_RESTORE_TABLE_ORDER.indexOf(n) < 0);
     for (const name of BACKUP_RESTORE_TABLE_ORDER) {
       if (backupCancelled()) throw new Error("cancelled");
       const entry = entries.find(
@@ -889,6 +900,18 @@ async function runRestore() {
               .replace("{table}", name)
               .replace("{col}", col),
           );
+        }
+        // 一意制約にぶつかって退避した行。**必ず見せる** —— slug が変われば
+        // 公開 URL が変わるので、知らないまま公開されるのは事故と変わらない。
+        for (const r of (res && res.renamed) || []) {
+          renamedRows.push(
+            t("restoreRenamedRow")
+              .replace("{table}", name)
+              .replace("{col}", String(r.column))
+              .replace("{from}", String(r.from))
+              .replace("{to}", String(r.to)),
+          );
+          backupProgressLog(renamedRows[renamedRows.length - 1]);
         }
         done += rows.length;
         setBackupProgress((done / total) * 100, "data/" + name + ".jsonl");
@@ -976,6 +999,18 @@ async function runRestore() {
           [...skippedColumns].join(", "),
         ),
       );
+    if (unknownTables.length)
+      summary.push(
+        t("restoreUnknownTables").replace("{tables}", unknownTables.join(", ")),
+      );
+    if (renamedRows.length) {
+      summary.push(
+        t("restoreRenamedSummary").replace("{n}", String(renamedRows.length)),
+      );
+      for (const line of renamedRows.slice(0, 20)) summary.push("  - " + line);
+      if (renamedRows.length > 20)
+        summary.push("  … +" + (renamedRows.length - 20));
+    }
     if (restoreFailed.length) {
       summary.push(
         t("restoreMediaIncomplete")
