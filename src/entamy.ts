@@ -26,106 +26,28 @@
  */
 
 import type { Env } from "./types";
-import { KUROCMS_VERSION } from "./api";
+import { entamyPort } from "./entamy-port";
+import { needsAgreement } from "./vendor/entamy-client/index.ts";
+import { KUROCMS_VERSION } from "./version.ts";
 
-const ID_BASE = "https://id.entamy.com";
-const PRODUCT_ID = "cms";
-
-const K_INSTALL = "system:entamy_install_id";
-const K_ACCOUNT = "system:entamy_account";
 const K_LAST = "system:entamy_last_report";
 const K_OPTOUT = "system:entamy_optout";
-const K_TERMS_AT = "system:terms_accepted_at";
 const K_TERMS_VER = "system:terms_accepted_version";
-const K_LEGAL_CACHE = "system:legal_current";
-
-const ADMIN_BASE = "https://admin.entamy.com";
-// 版は滅多に変わらない。**毎回問い合わせない** —— 管理画面が落ちていても
-// CMS の操作が止まらないようにする。
-// 試験対象の切り替えが効くまで待たされると確認にならない。**短くする。**
-const LEGAL_CACHE_TTL = 300;
 
 // 版が変わらない限り1日1回で足りる。**毎回送っても分かることは増えない。**
 const REPORT_INTERVAL_MS = 24 * 3600 * 1000;
-
-type Stored = { account_id: string; refresh_token: string };
 
 async function optedOut(env: Env): Promise<boolean> {
   return (await env.PUBLIC_PAGES.get(K_OPTOUT)) === "1";
 }
 
-/** 導入の識別子。**一度作ったら変えない** —— 変えると導入が二重に数えられる。 */
-async function installId(env: Env): Promise<string> {
-  const existing = await env.PUBLIC_PAGES.get(K_INSTALL);
-  if (existing) return existing;
-  const id = `${crypto.randomUUID()}-${crypto.randomUUID()}`.replace(/-/g, "");
-  await env.PUBLIC_PAGES.put(K_INSTALL, id);
-  return id;
-}
-
-/** 匿名アカウントを取る（既にあれば使い回す）。 */
-async function ensureAccount(env: Env): Promise<Stored | null> {
-  const cached = await env.PUBLIC_PAGES.get(K_ACCOUNT);
-  if (cached) {
-    try {
-      return JSON.parse(cached) as Stored;
-    } catch {
-      /* 壊れていたら取り直す */
-    }
-  }
-  const res = await fetch(`${ID_BASE}/v1/accounts/anonymous`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      product_id: PRODUCT_ID,
-      install_id: await installId(env),
-      platform: "cloudflare",
-    }),
-    signal: AbortSignal.timeout(10_000),
-  });
-  if (!res.ok) return null;
-  const body = (await res.json()) as Stored;
-  const stored: Stored = {
-    account_id: body.account_id,
-    refresh_token: body.refresh_token,
-  };
-  await env.PUBLIC_PAGES.put(K_ACCOUNT, JSON.stringify(stored));
-  return stored;
-}
-
-/**
- * アクセストークンを取る。**保存しない**（10分で切れるので持つ意味が無い）。
- * リフレッシュは回転するので、新しい方を必ず書き戻す —— 書き戻しに失敗すると
- * 次回から名乗れなくなる。
- */
-async function accessToken(env: Env, stored: Stored): Promise<string | null> {
-  const res = await fetch(`${ID_BASE}/v1/token/refresh`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      product_id: PRODUCT_ID,
-      refresh_token: stored.refresh_token,
-    }),
-    signal: AbortSignal.timeout(10_000),
-  });
-  if (!res.ok) {
-    // 失効していたら口座から作り直す。**同じ install_id なので導入は増えない。**
-    if (res.status === 401) await env.PUBLIC_PAGES.delete(K_ACCOUNT);
-    return null;
-  }
-  const body = (await res.json()) as {
-    access_token: string;
-    refresh_token: string;
-  };
-  await env.PUBLIC_PAGES.put(
-    K_ACCOUNT,
-    JSON.stringify({
-      account_id: stored.account_id,
-      refresh_token: body.refresh_token,
-    }),
-  );
-  return body.access_token;
-}
+// ⚠ 口座の確保・トークンの回転・install_id の生成は **entamy-connect が持つ**
+//    （API 仕様 §0.3）。かつてここに自前実装があり、**refresh token を単一飛行
+//    の保護なしに回転させて KV へ書き戻して**いた。失敗はすべて `null` に潰れ、
+//    401 なのか通信なのかも残らなかった。
+//    入口は `src/entamy-port.ts` の `entamyPort(env).session`。
+//    ⚠ install_id は KV ではなく **D1 の install_identity** が正本になった
+//      （KV には全消しされる経路があり、消えると導入が二重に数え直される）。
 
 /** 送る数字を集める。**ここに無いものは送らない。** */
 async function collect(env: Env): Promise<Record<string, string | number>> {
@@ -206,25 +128,22 @@ export async function reportInstall(env: Env, force = false): Promise<void> {
       }
     }
 
-    const stored = await ensureAccount(env);
-    if (!stored) return;
-    const token = await accessToken(env, stored);
-    if (!token) return;
+    // 送信は entamy-connect（口座の確保・トークンの回転・単一飛行を持つ）。
+    // 何を数えるか（collect）と、送るかどうか（optout / 24h）はこの製品の
+    // 判断なので、ここに残す。
+    const port = await entamyPort(env);
+    const sent = await port.session.reportInstall(await collect(env));
+    if (!sent.ok) return; // 次の機会に送る。**観測のために操作を止めない。**
 
-    await fetch(`${ID_BASE}/v1/installs/report`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        product_id: PRODUCT_ID,
-        install_id: await installId(env),
-        app_version: version,
-        stats: await collect(env),
-      }),
-      signal: AbortSignal.timeout(10_000),
-    });
+    // ⚠ 基盤が宣言していないキーは保存されずに捨てられる。捨てられた分は
+    //   応答の `ignored` に返るので、気づけるように残す（自前実装の頃は
+    //   応答を読まず、「送っているのに入らない」に気づけなかった）。
+    if (sent.value.ignored.length > 0) {
+      console.warn(
+        "entamy: install report keys ignored:",
+        sent.value.ignored.join(","),
+      );
+    }
 
     await env.PUBLIC_PAGES.put(
       K_LAST,
@@ -248,17 +167,13 @@ export async function installIdentity(env: Env): Promise<{
   reportedAt: string | null;
   optedOut: boolean;
 }> {
-  const [raw, last, optout] = await Promise.all([
-    env.PUBLIC_PAGES.get(K_ACCOUNT),
+  // 口座番号は entamy-connect の保管庫が持つ（**通信しない**）。
+  const port = await entamyPort(env);
+  const [accountId, last, optout] = await Promise.all([
+    port.session.accountId(),
     env.PUBLIC_PAGES.get(K_LAST),
     env.PUBLIC_PAGES.get(K_OPTOUT),
   ]);
-  let accountId: string | null = null;
-  try {
-    if (raw) accountId = (JSON.parse(raw) as Stored).account_id ?? null;
-  } catch {
-    /* 壊れていたら未取得として扱う */
-  }
   let reportedAt: string | null = null;
   try {
     if (last)
@@ -284,89 +199,50 @@ export interface LegalState {
 }
 
 /**
- * 規約の版を Entamy 管理画面に問い合わせ、同意済みの版と突き合わせる。
+ * 規約の版を問い合わせ、同意済みの版と突き合わせる。
+ *
+ * **問い合わせは entamy-connect が持つ**（API 仕様 §0.3）。ここに残すのは
+ * 「この画面に何を出すか」の組み立てだけ。
+ *
+ * ⚠ **これは運営者が KuroCMS 側の規約に同意したか**であって、利用者が作る
+ *   サイトの規約ページとは別物である（経路も `/api/system/legal` で admin 限定）。
  *
  * **取得できないときは求めない。** 版が分からない状態で同意を迫ると、
  * 何に同意したのかが記録できず、同意そのものが無意味になる。
  * 管理画面の障害で CMS が使えなくなるのも困る。
  */
 export async function legalState(env: Env): Promise<LegalState> {
+  const port = await entamyPort(env);
+  // 試験対象に指定された導入先だけが同意を求められるよう、口座番号を添える
+  // （全体が停止中でも、指定した先では確認できるようにするため）。
+  const accountId = (await port.session.accountId()) ?? undefined;
+  const status = await port.legal.fetchStatus(
+    "terms",
+    "ja",
+    accountId ? { accountId } : {},
+  );
   const [acceptedVersion, acceptedAt] = await Promise.all([
-    env.PUBLIC_PAGES.get(K_TERMS_VER),
-    env.PUBLIC_PAGES.get(K_TERMS_AT),
+    port.legal.agreedVersion(),
+    port.legal.agreedAt(),
   ]);
-
-  let doc: {
-    version: string;
-    terms: { url: string };
-    privacy: { url: string };
-    summary?: string | null;
-  } | null = null;
-
-  const cached = await env.PUBLIC_PAGES.get(K_LEGAL_CACHE);
-  if (cached) {
-    try {
-      doc = JSON.parse(cached);
-    } catch {
-      /* 壊れていたら取り直す */
-    }
-  }
-  if (!doc) {
-    try {
-      // 自分の管理番号を添える。**試験対象に指定された導入先だけ**が
-      // 同意を求められる（全体が停止中でも確認できるようにするため）。
-      const acc = await env.PUBLIC_PAGES.get(K_ACCOUNT);
-      let who = "";
-      try {
-        if (acc) who = (JSON.parse(acc) as Stored).account_id ?? "";
-      } catch {
-        /* 無ければ付けない */
-      }
-      const res = await fetch(
-        `${ADMIN_BASE}/api/v1/legal${who ? `?account_id=${encodeURIComponent(who)}` : ""}`,
-        { signal: AbortSignal.timeout(8_000) },
-      );
-      if (res.ok) {
-        const body = (await res.json()) as {
-          version: string;
-          terms: { url: string; summary?: string | null };
-          privacy: { url: string };
-        };
-        doc = {
-          version: body.version,
-          terms: body.terms,
-          privacy: body.privacy,
-          summary: body.terms?.summary ?? null,
-        };
-        await env.PUBLIC_PAGES.put(K_LEGAL_CACHE, JSON.stringify(doc), {
-          expirationTtl: LEGAL_CACHE_TTL,
-        });
-      }
-    } catch {
-      /* 届かなければ求めない */
-    }
-  }
-
-  const currentVersion = doc?.version ?? null;
   return {
-    currentVersion,
+    currentVersion: status.version ?? null,
     acceptedVersion,
-    acceptedAt,
-    // 未同意（同意を取る前の導入）も、版違いも、同じ扱いで1つの画面に乗せる。
-    needsConsent: !!currentVersion && acceptedVersion !== currentVersion,
-    termsUrl: doc?.terms?.url ?? "https://kuro.boo/terms/",
-    privacyUrl: doc?.privacy?.url ?? "https://kuro.boo/privacy/",
-    summary: doc?.summary ?? null,
+    acceptedAt: acceptedAt ? acceptedAt.toISOString() : null,
+    // `requires_reconsent` が立っていない改定（誤字修正など）では聞かない。
+    // 版の一致だけで判定していた頃は、直しのたびに全員へ聞いていた。
+    needsConsent: needsAgreement(status, acceptedVersion),
+    termsUrl: status.termsUrl ?? "https://kuro.boo/terms/",
+    privacyUrl: status.privacyUrl ?? "https://kuro.boo/privacy/",
+    summary: status.summary ?? null,
   };
 }
 
 /** 同意を記録する。**版と時刻を必ず対で残す。** */
 export async function recordConsent(env: Env, version: string): Promise<void> {
-  const now = new Date().toISOString();
-  await Promise.all([
-    env.PUBLIC_PAGES.put(K_TERMS_VER, version),
-    env.PUBLIC_PAGES.put(K_TERMS_AT, now),
-  ]);
+  const port = await entamyPort(env);
+  // 版と日時を対で残す。どちらか欠けると「何にいつ同意したか」を示せない。
+  await port.legal.record(version);
   // **ここで Entamy へ報告しない。**
   //
   // 報告は口座の取得・トークンの更新・送信で外部へ3往復する。同意の記録に

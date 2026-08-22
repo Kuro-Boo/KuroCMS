@@ -1,4 +1,5 @@
 // Public page renderer. Template HTML comes only from D1.
+import { createStaleFallback } from "./stale-fallback";
 import type {
   ArticleCardData,
   ArticleData,
@@ -5609,6 +5610,84 @@ export function isPublicPath(pathname: string): boolean {
  * KV hit → return cached HTML.
  * KV miss → generate on-the-fly, cache, return.
  */
+/**
+ * 公開ページを出すのに要る、サイト全体の値。
+ *
+ * ⚠ **これはエッジキャッシュより手前で要る。** ここが D1 に依存したままだと、
+ *   D1 が数十秒詰まっただけで**キャッシュ済みのページすら返せない**。実際
+ *   2026-08-22 に、D1 の停滞で公開サイトが断続的に 503 になった。
+ */
+interface SiteContext {
+  settings: SettingsMap;
+  registeredLangs: string[];
+  template: StoredTemplate;
+}
+
+/**
+ * 直前に読めた値で凌ぐ仕掛け。方針そのものは `stale-fallback.ts`（依存なし・
+ * 契約テストあり）にあり、ここはそこへ D1 と KV を繋ぐだけ。
+ */
+const SITE_CONTEXT_KEY = "sitectx:v1";
+/** どこまで古い値で凌ぐか。これを過ぎたら素直に失敗する。 */
+const SITE_CONTEXT_STALE_MS = 15 * 60 * 1000;
+/** 冷えた isolate 用の控えを KV に置き直す間隔（要求ごとに書かない）。 */
+const SITE_CONTEXT_SNAPSHOT_MS = 10 * 60 * 1000;
+
+/** env ごとに 1 つ。KV を掴むので、env が変わったら作り直す。 */
+let siteContextFallback: {
+  env: Env;
+  gate: ReturnType<typeof createStaleFallback<SiteContext>>;
+} | null = null;
+
+function siteContextGate(env: Env) {
+  if (siteContextFallback && siteContextFallback.env === env) {
+    return siteContextFallback.gate;
+  }
+  const gate = createStaleFallback<SiteContext>({
+    staleMs: SITE_CONTEXT_STALE_MS,
+    snapshotMs: SITE_CONTEXT_SNAPSHOT_MS,
+    async readSnapshot() {
+      const raw = await env.PUBLIC_PAGES.get(SITE_CONTEXT_KEY);
+      if (!raw) return null;
+      const v = JSON.parse(raw) as { at: number; value: SiteContext };
+      if (!v?.value?.template?.sourceHtml) return null;
+      if (Date.now() - v.at > SITE_CONTEXT_STALE_MS) return null;
+      return v.value;
+    },
+    async writeSnapshot(value) {
+      await env.PUBLIC_PAGES.put(
+        SITE_CONTEXT_KEY,
+        JSON.stringify({ at: Date.now(), value }),
+      );
+    },
+  });
+  siteContextFallback = { env, gate };
+  return gate;
+}
+
+/**
+ * サイト全体の値を読む。**D1 を先に引く**（正常時は今までと同じ）。
+ * 失敗したときだけ、直前に読めた値 → KV の控え、の順に落ちる。
+ *
+ * 古い値で出したページは、古い `cache_gen` を鍵にしてキャッシュされる。
+ * D1 が戻れば鍵が変わるので、その分は**参照されなくなるだけ**で残らない。
+ */
+async function loadSiteContext(env: Env): Promise<SiteContext> {
+  return siteContextGate(env).load(async () => {
+    const settings = await fetchSettings(env);
+    const siteLang = settings.default_lang || "en";
+    const langRows = await env.DB.prepare(
+      `SELECT id FROM taxonomy_items WHERE kind = 'language' ORDER BY id`,
+    ).all<{ id: string }>();
+    const registeredLangs = (langRows.results ?? [])
+      .map((r) => r.id)
+      .filter(Boolean);
+    if (!registeredLangs.includes(siteLang)) registeredLangs.unshift(siteLang);
+    const template = await loadTemplate(env, settings.template_id);
+    return { settings, registeredLangs, template };
+  });
+}
+
 export async function handlePublicRoute(
   pathname: string,
   request: Request,
@@ -5616,17 +5695,10 @@ export async function handlePublicRoute(
 ): Promise<Response | null> {
   const url = new URL(request.url);
 
-  // Read settings and registered languages for language detection
-  const settings = await fetchSettings(env);
+  const ctx = await loadSiteContext(env);
+  const settings = ctx.settings;
   const siteLang = settings.default_lang || "en";
-
-  const langRows = await env.DB.prepare(
-    `SELECT id FROM taxonomy_items WHERE kind = 'language' ORDER BY id`,
-  ).all<{ id: string }>();
-  const registeredLangs = (langRows.results ?? [])
-    .map((r) => r.id)
-    .filter(Boolean);
-  if (!registeredLangs.includes(siteLang)) registeredLangs.unshift(siteLang);
+  const registeredLangs = ctx.registeredLangs;
 
   // ?lang= overrides; otherwise use Accept-Language header matching
   const lang =
@@ -5636,7 +5708,7 @@ export async function handlePublicRoute(
   // Fixed-page aliases are permanent redirects. Resolve these before the edge
   // cache and page KV so a previously-built article bundle can never mask a
   // canonical fixed page after the template migrates it.
-  const template = await loadTemplate(env, settings.template_id);
+  const template = ctx.template;
   const staticPages = parseStaticPages(template.sourceHtml);
   const redirectPage = findStaticPageRedirect(staticPages, pathname);
   if (redirectPage) {

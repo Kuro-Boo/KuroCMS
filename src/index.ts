@@ -3,6 +3,7 @@ import { serveAdminAsset } from "./asset-serve";
 import { serveFont } from "./fonts";
 import { handleApi, unfurlEndpoint } from "./api";
 import { reportInstall } from "./entamy";
+import { entamyPort } from "./entamy-port";
 import { html, notFound, notFoundPage } from "./http";
 import {
   buildCountsJs,
@@ -37,7 +38,19 @@ export default {
     );
     // 導入の報告。**cron に乗せる** —— 利用者の操作に相乗りさせると、
     // 画面の応答が外部サービスの調子に引きずられる。中で1日1回に絞っている。
-    ctx.waitUntil(reportInstall(env));
+    // refresh token は呼ぶたびに回転するため、同じ cron で並列に使わない。
+    // 報告を終えてから Mailer の期限を確認し、必要なら更新する。
+    // ⚠ cron は**毎分**走る。失敗のたびに叩き直すと、基盤が弱っているときに
+    //   限って KV の書き込み枠（無料枠 1,000/日）を焼き切る。間引きは
+    //   entamy-connect の EntamyMailer が持っているので、ここでは素直に呼ぶ
+    //   —— 控えが生きていれば通信せず、失敗直後なら自分で見送る。
+    ctx.waitUntil(
+      (async () => {
+        await reportInstall(env);
+        const port = await entamyPort(env);
+        await port.mailer.credential();
+      })(),
+    );
   },
 
   async fetch(
@@ -49,7 +62,6 @@ export default {
     if (requiredBindingError) return requiredBindingError;
 
     const url = new URL(request.url);
-    const setupRequired = await needsSetup(env);
     const initializePreview = url.searchParams.get("preview") === "1";
     const adminEntryUrl = normalizePath(
       env.ACCESS_ADMIN_URL || "/kurocms/admin",
@@ -60,6 +72,18 @@ export default {
     // publicBase = everything before /kurocms (e.g. "/test") — the public site root
     const publicBase = resolvePublicBase(basePath);
     const pathname = stripBasePath(url.pathname, basePath);
+
+    // ⚠ Liveness must not depend on the database. WorkerOps probes this path to
+    //   decide whether the app is reachable, and the handler itself is already
+    //   read-free by design (api.ts keeps /api/health off D1 and KV). Answering
+    //   before needsSetup() keeps that promise: otherwise a D1 hiccup makes the
+    //   guardian believe the WORKER is dead and put the maintenance page in
+    //   front of the whole site, when the script is perfectly fine.
+    if (request.method === "GET" && pathname === "/api/health") {
+      return handleApi(rewriteRequestPath(request, pathname), env, ctx);
+    }
+
+    const setupRequired = await needsSetup(env);
 
     // Media files: serve from R2 — check both raw path and publicBase-stripped path
     const mediaRawPath = url.pathname;
@@ -359,13 +383,39 @@ function validateRequiredBindings(env: Env): Response | null {
   return null;
 }
 
+// Once an owner exists, setup can never be "required" again for routing, so the
+// answer is remembered for the life of the isolate. Without this, EVERY request
+// to the admin AND the public site paid a `COUNT(*)` on D1 before routing —
+// load this Worker generates against the very database it then needs.
+// A fresh isolate re-reads, so a genuinely empty install is still detected.
+let setupCompleted = false;
+
 async function needsSetup(env: Env): Promise<boolean> {
-  const row = await env.DB.prepare(
-    "SELECT COUNT(*) AS count FROM users",
-  ).first<{
-    count: number;
-  }>();
-  return (row?.count ?? 0) === 0;
+  if (setupCompleted) return false;
+  try {
+    const row = await env.DB.prepare(
+      "SELECT COUNT(*) AS count FROM users",
+    ).first<{
+      count: number;
+    }>();
+    if ((row?.count ?? 0) > 0) {
+      setupCompleted = true;
+      return false;
+    }
+    return true;
+  } catch {
+    // ⚠ This runs BEFORE routing, so an uncaught throw here takes down
+    //   everything — admin, public site, and /api/health alike. That is not
+    //   hypothetical: `D1_ERROR: D1 DB is overloaded. Requests queued for too
+    //   long.` did exactly that (2026-08-21〜22), and because the app Worker
+    //   then threw, the WorkerOps guardian served its maintenance page for the
+    //   whole domain. The edge cache could not absorb it either — the cache is
+    //   consulted inside handlePublicRoute(), downstream of this call.
+    //   Fall back to "setup is done": that keeps normal routing alive, and any
+    //   route that genuinely needs D1 reports its own error. The opposite
+    //   default would expose the first-run setup screen on a database blip.
+    return false;
+  }
 }
 
 function normalizePath(value: string): string {

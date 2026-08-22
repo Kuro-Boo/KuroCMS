@@ -34,6 +34,8 @@ import {
 import { normalizeContentHtml, inspectContentHtml } from "./normalize.js";
 import { checkRecipeCards } from "./recipe-guard.js";
 import { KUROMAILER_SHARED_SECRET } from "./kuromailer-secret";
+import { entamyPort } from "./entamy-port";
+import { KUROCMS_VERSION } from "./version";
 import { COMMUNITY_SHARED_PAT } from "./community-secret";
 import { verifyRegistration, verifyAuthentication } from "./webauthn";
 // migrations/ を順番どおりに適用した最終形（スキーマの正本）。ビルド時生成。
@@ -157,7 +159,7 @@ import {
   reportInstall,
 } from "./entamy";
 
-export const KUROCMS_VERSION = "1.9.63";
+export { KUROCMS_VERSION } from "./version";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
 
@@ -1547,14 +1549,21 @@ function htmlEscape(s: string): string {
 }
 
 /**
- * Send one email through KuroMailer's KuroCMS endpoint. Server-side only — the
- * shared secret (KUROCMS_AND_KUROMAILER_PAT) is never exposed to the browser.
- * Spec: ../KuroMailer/docs/kurocms_rest_api.md.
+ * メールを1通送る。**接続は entamy-connect が持つ**（API 仕様 §0.3 / §7.0）。
+ *
+ * ここに SAT の発行や鍵の回転を書かないこと。かつては自前で書いていて、
+ * そのために「毎分の cron から失敗のたびに叩き直して KV の書き込み枠を焼く」
+ * 「`key: null` で `renew_after` が進まず問い合わせを繰り返す」
+ * 「失敗が全部 `null` になって理由が消える」が同時に起きていた。
+ * どれもライブラリ側が明示的に解いている。
+ *
+ * 旧 Secret（配布物に埋め込む共有鍵）は、移行中に基盤が止まった場合の
+ * 控えとしてのみ残す。**新しい導入では使われない。**
  */
 async function sendMail(
   env: Env,
   msg: {
-    to: string;
+    to: string | string[];
     subject: string;
     html?: string;
     text?: string;
@@ -1563,39 +1572,50 @@ async function sendMail(
     idempotencyKey?: string;
   },
 ): Promise<void> {
-  // The shared key is embedded as a common constant; an optional Worker Secret
-  // (env) may override it, but by default no per-install setup is required.
-  const secret =
-    (env.KUROCMS_AND_KUROMAILER_PAT ?? "").trim() || KUROMAILER_SHARED_SECRET;
-  if (!secret) {
+  const from = (env.KUROCMS_MAIL_FROM ?? "").trim() || "no-reply@kuro.boo";
+  const port = await entamyPort(env);
+  const sent = await port.mailer.send({
+    to: msg.to,
+    subject: msg.subject,
+    from,
+    ...(msg.html ? { html: msg.html } : {}),
+    ...(msg.text ? { text: msg.text } : {}),
+    fromName: msg.fromName ?? "KuroCMS",
+    ...(msg.replyTo ? { replyTo: msg.replyTo } : {}),
+    ...(msg.idempotencyKey ? { idempotencyKey: msg.idempotencyKey } : {}),
+  });
+  if (sent.ok) return;
+
+  // ⚠ 失敗の理由を捨てない。「メールが送れない」だけだと、基盤が 401 なのか
+  //   SAT なのか通信なのかを利用者も運営者も切り分けられない。
+  const failure = sent.failure;
+  const legacy =
+    (env.MAILER_KEY ?? "").trim() ||
+    (env.KUROCMS_AND_KUROMAILER_PAT ?? "").trim() ||
+    KUROMAILER_SHARED_SECRET;
+  if (!legacy) {
+    const status = failure.kind === "denied" ? 502 : 503;
     throw new HttpError(
-      503,
+      status,
       "mailer_not_configured",
-      "Email sending is not configured (missing KuroMailer shared secret).",
+      `Email sending credentials could not be obtained (${failure.kind}${failure.message ? `: ${failure.message}` : ""}).`,
     );
   }
-  // Entamy Mailer (mailer.entamy.com). Migrated from KuroMailer; the old host
-  // stays reachable until it is retired, so KUROMAILER_URL can pin either one.
+
+  // 控えの経路。移行が終わったら消す。
   const base = (env.KUROMAILER_URL ?? "https://mailer.entamy.com").replace(
     /\/+$/,
     "",
   );
-  const headers: Record<string, string> = {
-    Authorization: `Bearer ${secret}`,
-    "Content-Type": "application/json",
-  };
-  if (msg.idempotencyKey) headers["Idempotency-Key"] = msg.idempotencyKey;
-  // The old `/api/kurocms/send` route filled in the sender server-side. The
-  // standard endpoint does not, so the sender is stated here. It must be a
-  // domain registered in Mailer's sender_domain table.
   const resp = await fetch(`${base}/api/v1/emails`, {
     method: "POST",
-    headers,
-    body: JSON.stringify({
-      ...msg,
-      from: (env.KUROCMS_MAIL_FROM ?? "").trim() || "no-reply@kuro.boo",
-      fromName: msg.fromName ?? "KuroCMS",
-    }),
+    headers: {
+      Authorization: `Bearer ${legacy}`,
+      "Content-Type": "application/json",
+      "X-Entamy-Version": KUROCMS_VERSION,
+      ...(msg.idempotencyKey ? { "Idempotency-Key": msg.idempotencyKey } : {}),
+    },
+    body: JSON.stringify({ ...msg, from, fromName: msg.fromName ?? "KuroCMS" }),
   });
   if (!resp.ok) {
     let detail = resp.statusText;
@@ -1608,7 +1628,7 @@ async function sendMail(
     throw new HttpError(
       502,
       "mail_send_failed",
-      `KuroMailer ${resp.status}: ${detail}`,
+      `Mailer ${resp.status}: ${detail} (auto credential failed: ${failure.kind})`,
     );
   }
 }
@@ -8255,20 +8275,26 @@ async function setSitePublished(
 
 async function siteUnpublish(env: Env, user: AuthUser): Promise<Response> {
   requireAdmin(user);
-  let cursor: string | undefined;
-  do {
-    const result = await (env.PUBLIC_PAGES as KVNamespace).list({ cursor });
-    if (result.keys.length > 0) {
-      await Promise.all(
-        result.keys.map((k) =>
-          (env.PUBLIC_PAGES as KVNamespace).delete(k.name),
-        ),
-      );
-    }
-    cursor = result.list_complete
-      ? undefined
-      : (result as { cursor?: string }).cursor;
-  } while (cursor);
+  // 消すのは配信中のページだけ。**prefix を外さないこと**（PAGE_KV_PREFIXES）。
+  for (const prefix of PAGE_KV_PREFIXES) {
+    let cursor: string | undefined;
+    do {
+      const result = await (env.PUBLIC_PAGES as KVNamespace).list({
+        prefix,
+        cursor,
+      });
+      if (result.keys.length > 0) {
+        await Promise.all(
+          result.keys.map((k) =>
+            (env.PUBLIC_PAGES as KVNamespace).delete(k.name),
+          ),
+        );
+      }
+      cursor = result.list_complete
+        ? undefined
+        : (result as { cursor?: string }).cursor;
+    } while (cursor);
+  }
   await env.DB.prepare(
     "UPDATE site_settings SET site_is_published = 0, updated_at = ? WHERE id = 1",
   )
@@ -9964,6 +9990,22 @@ const BACKUP_TABLES_INSERT_ORDER = [
 const BACKUP_TABLE_SET = new Set(BACKUP_TABLES_INSERT_ORDER);
 const BACKUP_PAGE_SIZE = 500;
 const RESTORE_KV_WIPE_PAGE = 500; // each KV delete is a subrequest — stay < 1000
+
+/**
+ * 公開ページの KV キーの接頭辞。**消してよいのはこれだけ。**
+ *
+ * ⚠ かつて「サイトを非公開」と復元の両方が、prefix を指定せずに
+ *   PUBLIC_PAGES を全消ししていた。同じ名前空間には
+ *   `system:entamy_install_id`（この導入の身元）・`system:terms_accepted_*`
+ *   （同意の証跡）・Mailer の資格情報・`entamy.cms.*` が同居しているので、
+ *   **非公開ボタンを押すか復元するだけで、それらが道連れで消えていた**。
+ *   身元が消えると匿名口座が作り直され、導入が二重に数え直される
+ *   （増えた口座は後から統合できない）。
+ *
+ *   `admin:asset:` と `fontbin:` は読み直しの効くキャッシュなので、
+ *   ここに入れなくても実害は無い（消さない方が次の表示が速い）。
+ */
+const PAGE_KV_PREFIXES = ["pageb:", "page:"] as const;
 const RESTORE_R2_WIPE_PAGE = 1000; // R2 delete takes an array (one subrequest)
 
 async function backupManifest(env: Env): Promise<Response> {
@@ -10072,20 +10114,46 @@ async function restoreWipeMedia(env: Env, url: URL): Promise<Response> {
 
 async function restoreWipePages(env: Env, url: URL): Promise<Response> {
   if (!env.PUBLIC_PAGES) return json({ ok: true, done: true, cursor: null });
-  const cursor = url.searchParams.get("cursor") || undefined;
-  const listed = await env.PUBLIC_PAGES.list({
-    limit: RESTORE_KV_WIPE_PAGE,
-    cursor,
-  });
-  for (const k of listed.keys) {
-    await env.PUBLIC_PAGES.delete(k.name);
+  // 継続位置は「どの prefix の何番目か」。prefix を跨ぐので、番号を先頭に載せる
+  // （`0|<kv cursor>`）。素の KV カーソルだけだと、次の prefix へ移れない。
+  const raw = url.searchParams.get("cursor") || "";
+  const sep = raw.indexOf("|");
+  let index = sep >= 0 ? Number(raw.slice(0, sep)) : 0;
+  let cursor: string | undefined =
+    sep >= 0 ? raw.slice(sep + 1) || undefined : undefined;
+  if (!Number.isFinite(index) || index < 0) index = 0;
+
+  let deleted = 0;
+  while (index < PAGE_KV_PREFIXES.length) {
+    const listed = await env.PUBLIC_PAGES.list({
+      prefix: PAGE_KV_PREFIXES[index],
+      limit: RESTORE_KV_WIPE_PAGE,
+      cursor,
+    });
+    for (const k of listed.keys) {
+      await env.PUBLIC_PAGES.delete(k.name);
+    }
+    deleted += listed.keys.length;
+    if (!listed.list_complete) {
+      const next = (listed as { cursor?: string }).cursor ?? "";
+      return json({
+        ok: true,
+        done: false,
+        cursor: `${index}|${next}`,
+        deleted,
+      });
+    }
+    index++;
+    cursor = undefined;
+    // 1 回の呼び出しで消しすぎない（KV delete は 1 件 1 サブリクエスト）。
+    if (deleted >= RESTORE_KV_WIPE_PAGE) break;
   }
-  const done = listed.list_complete;
+  const done = index >= PAGE_KV_PREFIXES.length;
   return json({
     ok: true,
     done,
-    cursor: done ? null : ((listed as { cursor?: string }).cursor ?? null),
-    deleted: listed.keys.length,
+    cursor: done ? null : `${index}|`,
+    deleted,
   });
 }
 
