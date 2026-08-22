@@ -48,7 +48,21 @@ export default {
       (async () => {
         await reportInstall(env);
         const port = await entamyPort(env);
-        await port.mailer.credential();
+        const cred = await port.mailer.credential();
+        // ⚠ **失敗の理由を捨てない。** cron の失敗は誰の画面にも出ないので、
+        //   ここで残さないと「メールが送れない」としか分からなくなる。
+        //   実際、SAT の権限が空で発行されていた不具合は、基盤側の DB を
+        //   直接見るまで原因が掴めなかった（発行自体は成功していたため）。
+        //   `wrangler tail` で拾えるよう、種別と理由を1行だけ出す。
+        //   間引きが効くので、これが毎分流れ続けることはない。
+        if (!cred.ok) {
+          console.warn(
+            "entamy mailer credential unavailable:",
+            cred.failure.kind,
+            cred.failure.status ?? "",
+            cred.failure.message ?? "",
+          );
+        }
       })(),
     );
   },
