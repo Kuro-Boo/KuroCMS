@@ -31,7 +31,21 @@ async function profile() {
       escapeHtml(t("copy")) +
       "</button></div></label><label>" +
       escapeHtml(t("email")) +
-      "<input id='profileEmail' type='email' /></label><button>" +
+      "<input id='profileEmail' type='email' /></label>" +
+      "<div class='stack' style='gap:8px;padding:12px;border:1px solid var(--border,#2a2f3a);border-radius:8px'>" +
+      "<div><b>" +
+      escapeHtml(t("mailDeliveryTitle")) +
+      "</b></div><div class='tokenHelp'>" +
+      escapeHtml(t("mailDeliveryLead")) +
+      "</div><div class='tokenHelp'>" +
+      escapeHtml(t("mailDeliveryRequirement")) +
+      "</div><div class='tokenHelp' style='color:var(--danger,#b42318)'>" +
+      escapeHtml(t("mailDeliveryKuroLimit")) +
+      "</div><div id='mailDeliveryStatus' class='tokenBox' style='white-space:normal'>-</div>" +
+      "<div class='toggleRow'><div><div><b>" +
+      escapeHtml(t("mailDeliveryToggle")) +
+      "</b></div><div id='mailDeliveryManageHelp' class='tokenMeta'></div></div>" +
+      "<input id='mailRoutingToggle' type='checkbox' class='toggle' disabled /></div></div><button>" +
       escapeHtml(t("updateAccount")) +
       "</button></form></div><div class='panel stack'><h3>" +
       escapeHtml(t("profilePreferences")) +
@@ -111,12 +125,118 @@ async function profile() {
     }
   });
   let generatedToken = "";
+  function renderProfileMailSettings(data: Dynamic) {
+    const status = byId("mailDeliveryStatus");
+    const toggle = byId("mailRoutingToggle");
+    const help = byId("mailDeliveryManageHelp");
+    if (!status || !toggle || !help) return;
+
+    const domains = (data.domains || [])
+      .map((domain: Dynamic) => domain.hostname || "")
+      .filter(Boolean)
+      .join(", ");
+    const destinationState = data.destinationVerified
+      ? t("mailDeliveryVerified")
+      : t("mailDeliveryUnverified");
+    status.innerHTML =
+      "<div><b>" +
+      escapeHtml(t("mailDeliveryCurrent")) +
+      ":</b> " +
+      escapeHtml(
+        data.enabled ? t("mailDeliveryCustom") : t("mailDeliveryKuro"),
+      ) +
+      "</div><div><b>" +
+      escapeHtml(t("mailDeliveryDomain")) +
+      ":</b> " +
+      escapeHtml(domains || "-") +
+      "</div><div><b>" +
+      escapeHtml(t("mailDeliverySender")) +
+      ":</b> " +
+      escapeHtml(data.senderAddress || "-") +
+      "</div><div><b>" +
+      escapeHtml(t("mailDeliveryDestination")) +
+      ":</b> " +
+      escapeHtml(data.destination || "-") +
+      "（" +
+      escapeHtml(destinationState) +
+      "）</div>" +
+      // ⚠ 宛先の verify は**アカウント単位**、Email Routing の有効化は
+      //   **zone 単位**。片方だけ満たしても送信は失敗するので、両方出す。
+      "<div><b>" +
+      escapeHtml(t("mailDeliveryZoneOn").replace(/。$/, "")) +
+      ":</b> " +
+      escapeHtml(
+        data.senderZoneEnabled === true
+          ? t("mailDeliveryVerified")
+          : // `null`（確認できない）を「無効」と見せない。既存の導入は
+            // zone 側の権限を持たないため、ここは頻繁に不明になる。
+            (data.senderZoneEnabled === false
+              ? t("mailDeliveryZoneOff")
+              : t("mailDeliveryZoneUnknown")) +
+              (data.senderZoneReason
+                ? "（" + data.senderZoneReason + "）"
+                : ""),
+      ) +
+      "</div>" +
+      // 復旧メールは要求した本人へ送るので、他の管理者が未 verified だと
+      // その人だけ無言で締め出される。
+      ((data.unverifiedAdmins || []).length > 0
+        ? "<div style='color:var(--danger,#b42318);margin-top:4px'>" +
+          escapeHtml(
+            t("mailDeliveryAdminsUnverified") +
+              ": " +
+              (data.unverifiedAdmins || []).join(", "),
+          ) +
+          "</div>"
+        : "") +
+      (!data.available && data.reason
+        ? "<div style='color:var(--danger,#b42318);margin-top:4px'>" +
+          escapeHtml(t("mailDeliveryUnavailable") + ": " + data.reason) +
+          "</div>"
+        : "");
+    toggle.checked = Boolean(data.enabled);
+    toggle.disabled = !data.canManage || (!data.enabled && !data.canEnable);
+    help.textContent = data.canManage ? "" : t("mailDeliveryAdminOnly");
+  }
+
+  async function loadProfileMailSettings() {
+    if (state.preview) {
+      renderProfileMailSettings({
+        available: true,
+        enabled: false,
+        provider: "kuro_boo",
+        domains: [{ hostname: "cms.example.com" }],
+        senderAddress: "no-reply@example.com",
+        destination: "admin@example.com",
+        destinationVerified: true,
+        canEnable: false,
+        canManage: false,
+      });
+      return;
+    }
+    try {
+      renderProfileMailSettings(await api("/api/me/mail-settings"));
+    } catch (error) {
+      renderProfileMailSettings({
+        available: false,
+        enabled: false,
+        domains: [],
+        destination: byId("profileEmail")?.value || "",
+        destinationVerified: false,
+        canEnable: false,
+        canManage: Boolean(state.currentUser?.isAdmin),
+        reason: errorMessage(error),
+      });
+    }
+  }
+
   async function loadProfileAndTokens() {
     if (state.preview) {
       byId("profileDisplayName")!.value = "Preview Admin";
       byId("profileAuthorId")!.textContent = "author_preview0000";
       byId("profileEmail")!.value = "admin@example.com";
       byId("profileRoles")!.textContent = t("adminRole");
+      await loadProfileMailSettings();
       byId("tokenHistory")!.innerHTML =
         "<div class='tokenRow'><div><b>Personal token</b><div class='tokenMeta'>" +
         formatDateTime(new Date().toISOString()) +
@@ -236,6 +356,7 @@ async function profile() {
       : meUser.isAuthor
         ? t("authorRole")
         : "-";
+    void loadProfileMailSettings();
     byId("tokenHistory")!.innerHTML =
       (tokenData.tokens || [])
         .map((token: Dynamic) => {
@@ -297,6 +418,31 @@ async function profile() {
       toast(errorMessage(error), true, btn);
     }
   });
+  byId("mailRoutingToggle")!.addEventListener(
+    "change",
+    async (event: Dynamic) => {
+      const toggle = event.target;
+      const enabled = Boolean(toggle.checked);
+      toggle.disabled = true;
+      if (state.preview) {
+        toggle.checked = !enabled;
+        toast(t("previewReadOnly"), false, toggle);
+        return;
+      }
+      try {
+        await api("/api/me/mail-settings", {
+          method: "PUT",
+          body: JSON.stringify({ enabled }),
+        });
+        toast(t("mailDeliverySaved"), false, toggle);
+        await loadProfileMailSettings();
+      } catch (error) {
+        toggle.checked = !enabled;
+        toast(errorMessage(error), true, toggle);
+        await loadProfileMailSettings();
+      }
+    },
+  );
   byId("tokenForm")!.addEventListener("submit", async (event: Dynamic) => {
     event.preventDefault();
     const btn =

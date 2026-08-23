@@ -672,6 +672,10 @@ async function handleApiDispatch(
       return withJsonHeaders(await me(request, env, user));
     }
 
+    if (path === "/api/me/mail-settings") {
+      return withJsonHeaders(await profileMailSettings(request, env, user));
+    }
+
     if (path === "/api/me/tokens") {
       return withJsonHeaders(await meTokens(request, env, user));
     }
@@ -1536,7 +1540,7 @@ async function getInviteInfo(env: Env, token: string): Promise<Response> {
   });
 }
 
-// ─── Email sending (via KuroMailer) ────────────────────────────────────────────
+// ─── Email sending (own domain via Email Routing, or KuroMailer) ───────────────
 
 /** Minimal HTML-escape for interpolating text into email HTML bodies. */
 function htmlEscape(s: string): string {
@@ -1559,6 +1563,66 @@ function htmlEscape(s: string): string {
  * 旧 Secret（配布物に埋め込む共有鍵）は、移行中に基盤が止まった場合の
  * 控えとしてのみ残す。**新しい導入では使われない。**
  */
+/** どの経路で送れたか／何が起きたか。**成功しても失敗の痕跡を捨てない。** */
+export interface MailDeliveryStatus {
+  /** 実際に送れた経路。どちらでも送れなければ null。 */
+  path: "routing" | "entamy" | null;
+  /**
+   * 自ドメイン送信が失敗し、**黒兎のサーバー（Entamy Mailer）が代送した**。
+   * 利用者に伝える必要がある —— 届いてはいるが、設定は壊れているため。
+   */
+  relayed: boolean;
+  /** 自ドメイン送信の失敗理由（あれば）。 */
+  routingError?: string;
+  /** Entamy Mailer の失敗理由（あれば）。上限に達した場合もここに入る。 */
+  entamyError?: string;
+  at: number;
+}
+
+/** 直近の送信結果の置き場。画面に「なぜ届かないか」を出すために使う。 */
+const MAIL_STATUS_KEY = "system:mail_last_status";
+
+async function recordMailStatus(
+  env: Env,
+  status: MailDeliveryStatus,
+): Promise<void> {
+  try {
+    await env.PUBLIC_PAGES.put(MAIL_STATUS_KEY, JSON.stringify(status));
+  } catch {
+    /* 記録できなくても送信の成否は変わらない */
+  }
+}
+
+export async function readMailStatus(
+  env: Env,
+): Promise<MailDeliveryStatus | null> {
+  try {
+    const raw = await env.PUBLIC_PAGES.get(MAIL_STATUS_KEY);
+    return raw ? (JSON.parse(raw) as MailDeliveryStatus) : null;
+  } catch {
+    return null;
+  }
+}
+
+const failureText = (err: unknown): string => {
+  const e = err as Error & { code?: string };
+  return `${e?.code ?? "unknown"}${e?.message ? `: ${e.message}` : ""}`;
+};
+
+/**
+ * メールを1通送る。**必ず届かせることを優先する。**
+ *
+ * 経路は 2 つ。自ドメイン（Cloudflare Email Routing・利用者の無料枠）を先に
+ * 試し、**失敗したら黒兎のサーバー（Entamy Mailer）が代送する**。
+ *
+ * ⚠ **自ドメインが失敗しても、そこで終わらせない。** 送信経路はパスキー復旧
+ *   （＝管理画面に入れなくなった人の最後の手段）に使われる。設定の誤りで
+ *   締め出されるのが最悪であり、「届かないより、代送してでも届く」を採る。
+ *
+ * ⚠ **ただし代送したことは黙らない。** 届いてはいても設定は壊れているので、
+ *   直さなければ黒兎側の枠を食い続ける。結果は [`MailDeliveryStatus`] に残し、
+ *   画面が理由を出せるようにする（失敗を握り潰さない）。
+ */
 async function sendMail(
   env: Env,
   msg: {
@@ -1570,7 +1634,35 @@ async function sendMail(
     replyTo?: string;
     idempotencyKey?: string;
   },
-): Promise<void> {
+): Promise<MailDeliveryStatus> {
+  const status: MailDeliveryStatus = {
+    path: null,
+    relayed: false,
+    at: Date.now(),
+  };
+
+  // ① 自ドメイン（利用者の無料枠）。設定されているときだけ。
+  const routingFrom = (env.KUROCMS_EMAIL_ROUTING_FROM ?? "").trim();
+  if (env.EMAIL && routingFrom) {
+    try {
+      await env.EMAIL.send({
+        to: msg.to,
+        subject: msg.subject,
+        from: { email: routingFrom, name: msg.fromName ?? "KuroCMS" },
+        ...(msg.html ? { html: msg.html } : {}),
+        ...(msg.text ? { text: msg.text } : {}),
+        ...(msg.replyTo ? { replyTo: msg.replyTo } : {}),
+      });
+      status.path = "routing";
+      await recordMailStatus(env, status);
+      return status;
+    } catch (err) {
+      // 失敗しても止めない。理由だけ持って②へ落ちる。
+      status.routingError = failureText(err);
+    }
+  }
+
+  // ② 黒兎のサーバー（Entamy Mailer）。①が無い／失敗したときの受け皿。
   const from = (env.KUROCMS_MAIL_FROM ?? "").trim() || "no-reply@kuro.boo";
   const port = await entamyPort(env);
   const sent = await port.mailer.send({
@@ -1583,19 +1675,30 @@ async function sendMail(
     ...(msg.replyTo ? { replyTo: msg.replyTo } : {}),
     ...(msg.idempotencyKey ? { idempotencyKey: msg.idempotencyKey } : {}),
   });
-  if (sent.ok) return;
+  if (sent.ok) {
+    status.path = "entamy";
+    status.relayed = Boolean(status.routingError);
+    await recordMailStatus(env, status);
+    return status;
+  }
 
   // ⚠ 失敗の理由を捨てない。「メールが送れない」だけだと、基盤が 401 なのか
-  //   SAT なのか通信なのかを利用者も運営者も切り分けられない。
+  //   SAT なのか通信なのか、あるいは**送信の上限に達した**のかを切り分け
+  //   られない。上限は待てば戻るので、その区別が特に効く。
   //
-  // **控えの経路は持たない**(2026-08-23 に撤去)。配布物に埋め込む共有鍵は、
-  // 1本で全員を名乗れる形そのもので、しかも顧客ごとに配り直せない ——
-  // 残しておくと「基盤が止まったとき用」の名目で生き続ける。
-  const failure = sent.failure;
+  // **配布物に埋め込む共有鍵の控えは持たない**(2026-08-23 に撤去)。1本で
+  // 全員を名乗れる形そのもので、しかも顧客ごとに配り直せない。
+  status.entamyError = `${sent.failure.kind}${sent.failure.message ? `: ${sent.failure.message}` : ""}`;
+  await recordMailStatus(env, status);
   throw new HttpError(
-    failure.kind === "denied" ? 502 : 503,
-    "mailer_not_configured",
-    `Email sending credentials could not be obtained (${failure.kind}${failure.message ? `: ${failure.message}` : ""}).`,
+    sent.failure.kind === "quota_exceeded" ||
+      sent.failure.kind === "rate_limited"
+      ? 429
+      : sent.failure.kind === "denied"
+        ? 502
+        : 503,
+    "mail_send_failed",
+    `Email could not be delivered. own-domain: ${status.routingError ?? "not configured"} / kuro.boo: ${status.entamyError}`,
   );
 }
 
@@ -1620,7 +1723,39 @@ function adminBasePath(env: Env): string {
 /**
  * Request a recovery link by email. Always returns 200 (no account enumeration);
  * only sends mail when a matching, enabled user exists and isn't throttled.
+ *
+ * ⚠ 応答には**配送の不調だけ**を載せる（[`MailDeliveryStatus`]）。
+ *   ここは管理画面に入れなくなった人の最後の手段なので、「送ったはず」と
+ *   言われたまま何も届かないのが一番困る。理由が読めれば、待てばよいのか
+ *   設定を直すべきなのかが判断できる。
+ *
+ *   **順調なときは何も載せない。** 載せるのは「代送した」「上限に達した」
+ *   「送れなかった」だけで、宛先が登録済みかどうかは相変わらず読み取れない
+ *   （不調はインストール全体の状態であって、この宛先の話ではない）。
  */
+interface DeliveryNotice {
+  /** 自ドメインが失敗し、黒兎のサーバーが代送した。 */
+  relayed: boolean;
+  /** そもそも届いたか。false なら**どの経路でも送れていない**。 */
+  delivered: boolean;
+  ownDomainError: string | null;
+  kuroBooError: string | null;
+}
+
+function deliveryNotice(
+  status: MailDeliveryStatus | null,
+): DeliveryNotice | null {
+  if (!status) return null;
+  if (status.path === "routing") return null; // 自ドメインで送れた＝順調
+  if (status.path === "entamy" && !status.relayed) return null; // 元から黒兎経由
+  return {
+    relayed: status.relayed,
+    delivered: status.path !== null,
+    ownDomainError: status.routingError ?? null,
+    kuroBooError: status.entamyError ?? null,
+  };
+}
+
 async function recoverRequest(request: Request, env: Env): Promise<Response> {
   const body = await readJson(request);
   const email = (optionalString(body, "email") ?? "").trim().toLowerCase();
@@ -1666,7 +1801,7 @@ async function recoverRequest(request: Request, env: Env): Promise<Response> {
   const siteName = (settings?.site_name ?? "KuroCMS").trim() || "KuroCMS";
 
   try {
-    await sendMail(env, {
+    const sent = await sendMail(env, {
       to: user.email,
       fromName: siteName,
       subject: `[${siteName}] パスキー再設定のご案内 / Passkey recovery`,
@@ -1682,8 +1817,15 @@ async function recoverRequest(request: Request, env: Env): Promise<Response> {
         `<p style="color:#666;font-size:13px">このリンクは30分間有効で、1回のみ使用できます。心当たりがない場合は無視してください。</p>`,
       idempotencyKey: `recover-${tokenHash}`,
     });
+    // 代送された（自ドメインが失敗した）ときは、その旨を画面へ返す。
+    const notice = deliveryNotice(sent);
+    if (notice) {
+      return json({ ok: true, delivery: notice as unknown as JsonValue });
+    }
   } catch (err) {
-    // Never leak configuration/send errors to an anonymous caller; log only.
+    // ⚠ **握り潰さない。** どちらの経路でも送れなかった場合、利用者は
+    //   「送信しました」とだけ言われて永久に待つことになる。宛先の有無は
+    //   伏せたまま、**配送が失敗している事実と理由**は返す。
     console.warn(
       JSON.stringify({
         event: "recovery_mail_failed",
@@ -1691,6 +1833,15 @@ async function recoverRequest(request: Request, env: Env): Promise<Response> {
         error: err instanceof Error ? err.message : String(err),
       }),
     );
+    const notice: DeliveryNotice = deliveryNotice(
+      await readMailStatus(env),
+    ) ?? {
+      relayed: false,
+      delivered: false,
+      ownDomainError: null,
+      kuroBooError: err instanceof Error ? err.message : String(err),
+    };
+    return json({ ok: true, delivery: notice as unknown as JsonValue });
   }
   return ok;
 }
@@ -2651,6 +2802,470 @@ interface WorkerCustomDomain {
   cert_id?: string;
 }
 
+type WorkerSettingBinding = Record<string, unknown> & {
+  type?: string;
+  name?: string;
+};
+
+interface ProfileMailCloudflareState {
+  domains: Array<{ hostname: string; zoneName: string; zoneId?: string }>;
+  destination: string;
+  destinationVerified: boolean;
+  /**
+   * 送信元ドメイン（zone）で Email Routing が**有効になっているか**。
+   *
+   * ⚠ 宛先の verify は**アカウント単位**、Email Routing の有効化は
+   *   **zone 単位**である。ここを見ないと「宛先は verified だが送信元の
+   *   ドメインでは有効でない」状態で有効化でき、送信のたびに
+   *   `E_SENDER_NOT_VERIFIED` で失敗する —— しかも復旧メールの失敗は
+   *   画面に出にくいので、無言で届かなくなる。
+   */
+  /** `null` は「確認できなかった」。**「無効」と混同しない。** */
+  senderZoneEnabled: boolean | null;
+  senderZoneReason: string;
+  /**
+   * 宛先が未 verified の管理者。**この人たちには届かない。**
+   * 検証をトグル操作者だけにすると、他の管理者が締め出される。
+   */
+  unverifiedAdmins: string[];
+  enabled: boolean;
+  senderAddress: string;
+  bindings: WorkerSettingBinding[];
+  compatibilityDate: string;
+  compatibilityFlags: string[];
+}
+
+async function verifiedEmailRoutingAddresses(
+  token: string,
+  accountId: string,
+): Promise<Set<string>> {
+  const addresses = new Set<string>();
+  for (let page = 1; ; page++) {
+    const res = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${accountId}/email/routing/addresses?verified=true&per_page=50&page=${page}`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    const body = (await res.json().catch(() => null)) as {
+      success?: boolean;
+      result?: Array<{ email?: string; verified?: string | null }>;
+      result_info?: { total_pages?: number };
+      errors?: Array<{ message: string }>;
+    } | null;
+    if (!res.ok || !body?.success) {
+      throw new HttpError(
+        400,
+        "email_routing_addresses_failed",
+        body?.errors?.[0]?.message || `Cloudflare returned HTTP ${res.status}`,
+      );
+    }
+    for (const address of body.result ?? []) {
+      if (address.email && address.verified) {
+        addresses.add(address.email.trim().toLowerCase());
+      }
+    }
+    const totalPages = Math.max(1, body.result_info?.total_pages ?? 1);
+    if (page >= totalPages) break;
+  }
+  return addresses;
+}
+
+/**
+ * zone で Email Routing が有効かを見る。
+ *
+ * 戻り値の `enabled` は 3 値。**`null` は「確認できなかった」**であって
+ * 「無効」ではない。
+ *
+ * ⚠ 区別が要る理由：この確認は Zone 側の権限を使うが、**既存の導入が持つ
+ *   運用トークンにはその権限が無い**（アカウント単位の Addresses Read だけ）。
+ *   読めないことを「無効」と扱うと、**既存の導入では機能を一生有効にできない**。
+ *   だから「確認できない」は止めずに警告に留め、確実に無効と分かったときだけ
+ *   止める。
+ */
+async function emailRoutingZoneEnabled(
+  token: string,
+  zoneName: string,
+): Promise<{ enabled: boolean | null; reason: string }> {
+  const auth = { Authorization: `Bearer ${token}` };
+  try {
+    const zoneRes = await fetch(
+      `https://api.cloudflare.com/client/v4/zones?name=${encodeURIComponent(zoneName)}`,
+      { headers: auth },
+    );
+    const zoneBody = (await zoneRes.json().catch(() => null)) as {
+      success?: boolean;
+      result?: Array<{ id?: string }>;
+      errors?: Array<{ message: string }>;
+    } | null;
+    const zoneId = zoneBody?.result?.[0]?.id;
+    if (!zoneRes.ok || !zoneBody?.success || !zoneId) {
+      // 権限不足で zone を引けないことがある。**不明として通す。**
+      return {
+        enabled: null,
+        reason:
+          zoneBody?.errors?.[0]?.message ||
+          `zone "${zoneName}" could not be read (HTTP ${zoneRes.status})`,
+      };
+    }
+    const res = await fetch(
+      `https://api.cloudflare.com/client/v4/zones/${zoneId}/email/routing`,
+      { headers: auth },
+    );
+    const body = (await res.json().catch(() => null)) as {
+      success?: boolean;
+      result?: { enabled?: boolean; status?: string };
+      errors?: Array<{ message: string }>;
+    } | null;
+    if (!res.ok || !body?.success) {
+      return {
+        enabled: null,
+        reason:
+          body?.errors?.[0]?.message ||
+          `Cloudflare returned HTTP ${res.status}`,
+      };
+    }
+    const enabled =
+      body.result?.enabled === true || body.result?.status === "ready";
+    return {
+      enabled,
+      reason: enabled
+        ? ""
+        : `Email Routing is not enabled on ${zoneName} (status: ${body.result?.status ?? "unknown"})`,
+    };
+  } catch (err) {
+    return {
+      enabled: null,
+      reason: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+async function readProfileMailCloudflareState(
+  env: Env,
+  destination: string,
+): Promise<ProfileMailCloudflareState> {
+  const token = env.CF_API_TOKEN;
+  const accountId = env.CF_ACCOUNT_ID;
+  const workerName = env.CF_WORKER_NAME;
+  if (!token || !accountId || !workerName) {
+    throw new HttpError(
+      400,
+      "cf_creds_missing",
+      "Cloudflare credentials are not configured.",
+    );
+  }
+  const auth = { Authorization: `Bearer ${token}` };
+  const [domainsRes, settingsRes, verifiedAddresses] = await Promise.all([
+    fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/domains?service=${encodeURIComponent(workerName)}`,
+      { headers: auth },
+    ),
+    fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/scripts/${encodeURIComponent(workerName)}/settings`,
+      { headers: auth },
+    ),
+    verifiedEmailRoutingAddresses(token, accountId),
+  ]);
+  const domainsBody = (await domainsRes.json().catch(() => null)) as {
+    success?: boolean;
+    result?: WorkerCustomDomain[];
+    errors?: Array<{ message: string }>;
+  } | null;
+  if (!domainsRes.ok || !domainsBody?.success) {
+    throw new HttpError(
+      400,
+      "cf_domain_check_failed",
+      domainsBody?.errors?.[0]?.message ||
+        `Cloudflare returned HTTP ${domainsRes.status}`,
+    );
+  }
+  const settingsBody = (await settingsRes.json().catch(() => null)) as {
+    success?: boolean;
+    result?: {
+      bindings?: WorkerSettingBinding[];
+      compatibility_date?: string;
+      compatibility_flags?: string[];
+    };
+    errors?: Array<{ message: string }>;
+  } | null;
+  if (!settingsRes.ok || !settingsBody?.success || !settingsBody.result) {
+    throw new HttpError(
+      400,
+      "worker_settings_failed",
+      settingsBody?.errors?.[0]?.message ||
+        `Cloudflare returned HTTP ${settingsRes.status}`,
+    );
+  }
+
+  const bindings = settingsBody.result.bindings ?? [];
+  const domains = (domainsBody.result ?? [])
+    .filter((domain) => domain.service === workerName)
+    .map((domain) => ({
+      hostname: domain.hostname,
+      zoneName: domain.zone_name || apexDomain(domain.hostname),
+    }));
+  const senderBinding = bindings.find(
+    (binding) =>
+      binding.type === "plain_text" &&
+      binding.name === "KUROCMS_EMAIL_ROUTING_FROM",
+  );
+  const configuredSender =
+    typeof senderBinding?.text === "string" ? senderBinding.text.trim() : "";
+  const senderAddress =
+    configuredSender || (domains[0] ? `no-reply@${domains[0].zoneName}` : "");
+  const hasEmailBinding = bindings.some(
+    (binding) => binding.type === "send_email" && binding.name === "EMAIL",
+  );
+  const normalizedDestination = destination.trim().toLowerCase();
+
+  // 送信元 zone で Email Routing が有効かを確かめる（宛先の verify とは別軸）。
+  const senderZone = senderAddress.split("@")[1] ?? "";
+  const zoneState = senderZone
+    ? await emailRoutingZoneEnabled(token, senderZone)
+    : {
+        enabled: false as boolean | null,
+        reason: "no custom domain is attached to this Worker",
+      };
+
+  // ⚠ 検証はトグル操作者だけでは足りない。**復旧メールは要求した本人へ送る**
+  //   ので、他の管理者の宛先が未 verified なら、その人は締め出される。
+  const adminRows = await env.DB.prepare(
+    "SELECT email FROM users WHERE is_admin = 1 AND disabled_at IS NULL",
+  ).all<{ email: string }>();
+  const unverifiedAdmins = (adminRows.results ?? [])
+    .map((r) => (r.email ?? "").trim().toLowerCase())
+    .filter((e) => e && !verifiedAddresses.has(e));
+
+  return {
+    domains,
+    destination: normalizedDestination,
+    destinationVerified: verifiedAddresses.has(normalizedDestination),
+    senderZoneEnabled: zoneState.enabled,
+    senderZoneReason: zoneState.reason,
+    unverifiedAdmins,
+    enabled: hasEmailBinding && Boolean(configuredSender),
+    senderAddress,
+    bindings,
+    compatibilityDate: settingsBody.result.compatibility_date ?? "2024-11-01",
+    compatibilityFlags: settingsBody.result.compatibility_flags ?? [],
+  };
+}
+
+async function replaceProfileMailBindings(
+  env: Env,
+  state: ProfileMailCloudflareState,
+  enabled: boolean,
+): Promise<void> {
+  const token = env.CF_API_TOKEN!;
+  const accountId = env.CF_ACCOUNT_ID!;
+  const workerName = env.CF_WORKER_NAME!;
+  const supportedBindingTypes = new Set([
+    "d1",
+    "kv_namespace",
+    "r2_bucket",
+    "images",
+    "plain_text",
+    "json",
+    "service",
+    "send_email",
+  ]);
+  const unsupported = state.bindings.filter(
+    (binding) =>
+      binding.type !== "secret_text" &&
+      binding.type !== "secret_key" &&
+      !supportedBindingTypes.has(binding.type ?? ""),
+  );
+  if (unsupported.length > 0) {
+    throw new HttpError(
+      409,
+      "unsupported_worker_binding",
+      `Mail settings could not be changed safely because this Worker has unsupported bindings: ${unsupported
+        .map((binding) => `${binding.type}:${binding.name}`)
+        .join(", ")}`,
+    );
+  }
+  const bindings = state.bindings.filter(
+    (binding) =>
+      supportedBindingTypes.has(binding.type ?? "") &&
+      binding.name !== "EMAIL" &&
+      binding.name !== "KUROCMS_EMAIL_ROUTING_FROM",
+  );
+  if (enabled) {
+    bindings.push({
+      type: "plain_text",
+      name: "KUROCMS_EMAIL_ROUTING_FROM",
+      text: state.senderAddress,
+    });
+    bindings.push({
+      type: "send_email",
+      name: "EMAIL",
+      allowed_sender_addresses: [state.senderAddress],
+    });
+  }
+
+  const scriptRes = await fetch(
+    `https://github.com/${KUROCMS_GITHUB_REPO}/releases/download/v${KUROCMS_VERSION}/worker.js`,
+    { redirect: "follow", signal: AbortSignal.timeout(30_000) },
+  );
+  if (!scriptRes.ok) {
+    throw new HttpError(
+      502,
+      "worker_download_failed",
+      `Failed to download KuroCMS worker.js (HTTP ${scriptRes.status}).`,
+    );
+  }
+  const metadata = {
+    main_module: "worker.js",
+    compatibility_date: state.compatibilityDate,
+    compatibility_flags: state.compatibilityFlags,
+    bindings,
+  };
+  const form = new FormData();
+  form.append(
+    "metadata",
+    new Blob([JSON.stringify(metadata)], { type: "application/json" }),
+    "metadata.json",
+  );
+  form.append(
+    "worker.js",
+    new Blob([await scriptRes.text()], {
+      type: "application/javascript+module",
+    }),
+    "worker.js",
+  );
+  const res = await fetch(
+    `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/scripts/${encodeURIComponent(workerName)}`,
+    {
+      method: "PUT",
+      headers: { Authorization: `Bearer ${token}` },
+      body: form,
+      signal: AbortSignal.timeout(30_000),
+    },
+  );
+  const body = (await res.json().catch(() => null)) as {
+    success?: boolean;
+    errors?: Array<{ message: string }>;
+  } | null;
+  if (!res.ok || !body?.success) {
+    throw new HttpError(
+      400,
+      "email_routing_binding_failed",
+      body?.errors?.[0]?.message || `Cloudflare returned HTTP ${res.status}`,
+    );
+  }
+}
+
+async function profileMailSettings(
+  request: Request,
+  env: Env,
+  user: AuthUser,
+): Promise<Response> {
+  const row = await env.DB.prepare("SELECT email FROM users WHERE uid = ?")
+    .bind(user.uid)
+    .first<{ email: string }>();
+  if (!row) throw new HttpError(404, "user_not_found", "User was not found.");
+
+  if (request.method === "GET") {
+    try {
+      const state = await readProfileMailCloudflareState(env, row.email);
+      return json({
+        available: true,
+        enabled: state.enabled,
+        provider: state.enabled ? "custom_domain" : "kuro_boo",
+        domains: state.domains,
+        senderAddress: state.senderAddress,
+        destination: state.destination,
+        destinationVerified: state.destinationVerified,
+        senderZoneEnabled: state.senderZoneEnabled,
+        senderZoneReason: state.senderZoneReason,
+        unverifiedAdmins: state.unverifiedAdmins,
+        // ⚠ 有効化の条件は 3 つとも要る。1 つでも欠けると、送信のたびに
+        //   失敗して**無言で届かなくなる**（復旧メールは失敗が見えにくい）。
+        canEnable:
+          user.isAdmin &&
+          state.domains.length > 0 &&
+          state.destinationVerified &&
+          // `null`（確認できない）は止めない。止めると、権限の無い既存の
+          // 導入では一生有効にできなくなる。
+          state.senderZoneEnabled !== false,
+        canManage: user.isAdmin,
+      });
+    } catch (err) {
+      return json({
+        available: false,
+        enabled: false,
+        provider: "kuro_boo",
+        domains: [],
+        senderAddress: "",
+        destination: row.email.trim().toLowerCase(),
+        destinationVerified: false,
+        senderZoneEnabled: false,
+        senderZoneReason: "",
+        unverifiedAdmins: [],
+        canEnable: false,
+        canManage: user.isAdmin,
+        reason: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  if (request.method !== "PUT") {
+    throw new HttpError(405, "method_not_allowed", "Method not allowed.");
+  }
+  requireAdmin(user);
+  const body = await readJson(request);
+  if (typeof body.enabled !== "boolean") {
+    throw new HttpError(400, "invalid_enabled", "enabled must be boolean.");
+  }
+  const state = await readProfileMailCloudflareState(env, row.email);
+  if (body.enabled) {
+    if (state.domains.length === 0) {
+      throw new HttpError(
+        409,
+        "custom_domain_required",
+        "Configure a Worker Custom Domain before enabling Email Routing.",
+      );
+    }
+    if (!state.destinationVerified) {
+      throw new HttpError(
+        409,
+        "email_routing_destination_unverified",
+        "Add and verify this profile email in Email Routing Destination Addresses first.",
+      );
+    }
+    // ⚠ 宛先の verify は**アカウント単位**、Email Routing の有効化は
+    //   **zone 単位**。ここを見ないと「宛先は verified なのに送信元ドメインで
+    //   有効になっていない」状態で有効化でき、送信のたびに失敗する。
+    if (state.senderZoneEnabled === false) {
+      throw new HttpError(
+        409,
+        "email_routing_zone_disabled",
+        `Enable Email Routing on the sender domain first. ${state.senderZoneReason}`,
+      );
+    }
+    // ⚠ 復旧メールは**要求した本人**へ送る。未 verified の管理者がいると、
+    //   その人だけ届かず、しかも本人には理由が見えない。
+    if (state.unverifiedAdmins.length > 0) {
+      throw new HttpError(
+        409,
+        "email_routing_admin_unverified",
+        `These administrators are not verified Email Routing destinations and would stop receiving recovery mail: ${state.unverifiedAdmins.join(", ")}`,
+      );
+    }
+  }
+  await replaceProfileMailBindings(env, state, body.enabled);
+  await logActivity(env, user, "mail.provider.update", "system", "mail", {
+    provider: body.enabled ? "custom_domain" : "kuro_boo",
+    senderAddress: body.enabled ? state.senderAddress : null,
+  });
+  return json({
+    ok: true,
+    enabled: body.enabled,
+    provider: body.enabled ? "custom_domain" : "kuro_boo",
+    senderAddress: body.enabled ? state.senderAddress : "",
+    reloadRequired: true,
+  });
+}
+
 /**
  * Create KuroCMS's media bucket and attach it to this Worker. The installer
  * deliberately defers R2 creation until the owner opts in from Site Settings.
@@ -2747,6 +3362,7 @@ async function enableR2Storage(env: Env): Promise<Response> {
     "plain_text",
     "json",
     "service",
+    "send_email",
   ]);
   const existingBindings = settingsBody.result.bindings ?? [];
   const hasRequiredBindings =
@@ -3690,7 +4306,8 @@ async function systemUpdate(
           b.type === "r2_bucket" ||
           b.type === "images" ||
           b.type === "plain_text" ||
-          b.type === "service",
+          b.type === "service" ||
+          b.type === "send_email",
       );
     }
   } catch {

@@ -737,6 +737,25 @@ const i18n = {
     mcpEndpointLabel: "MCP endpoint (this site)",
     mcpConfigLabel: "Claude Code — copy & paste (replace kuro_… with your PAT)",
     email: "Email",
+    mailDeliveryTitle: "Email delivery",
+    mailDeliveryLead:
+      "You can send CMS emails from your own domain or use the Kuro-Boo server.",
+    mailDeliveryRequirement:
+      "To send passkey and other messages from your domain, configure a Worker Custom Domain for the sender and add this profile email to Email Routing Destination Addresses.",
+    mailDeliveryKuroLimit:
+      "The Kuro-Boo server is intended for light use and can send approximately two messages per day.",
+    mailDeliveryCurrent: "Current method",
+    mailDeliveryCustom: "Your domain (Email Routing)",
+    mailDeliveryKuro: "Kuro-Boo server",
+    mailDeliveryDomain: "Custom Domain",
+    mailDeliverySender: "Sender",
+    mailDeliveryDestination: "Destination",
+    mailDeliveryVerified: "verified",
+    mailDeliveryUnverified: "not verified",
+    mailDeliveryUnavailable: "Cloudflare settings could not be read",
+    mailDeliveryAdminOnly: "Only an administrator can change this setting.",
+    mailDeliveryToggle: "Send from my domain",
+    mailDeliverySaved: "Email delivery setting updated.",
     roles: "Roles",
     interfaceLanguage: "Interface Language",
     profileSaved: "Profile saved.",
@@ -914,6 +933,19 @@ const i18n = {
     recoverRequestLead:
       "Enter your registered email. We'll send a link to register a new passkey.",
     recoverSendLink: "Send recovery link",
+    mailDeliveryZoneOff: "Email Routing is not enabled on the sender domain",
+    mailDeliveryZoneOn: "Email Routing enabled on the sender domain",
+    mailDeliveryAdminsUnverified:
+      "These administrators are not verified destinations and would stop receiving recovery mail",
+    // 配送の不調。**順調なときは出さない。**
+    recoverRelayed:
+      "Your own domain could not send this message, so kuro.boo's server delivered it instead. The mail should arrive, but the own-domain setting is not working — check Profile → Mail delivery.",
+    recoverRelayedReason: "Own-domain error",
+    recoverNotDelivered:
+      "The message could NOT be sent. Nothing will arrive until this is resolved.",
+    recoverQuota:
+      "kuro.boo's sending limit has been reached. The limit resets, so try again after about 12 hours — or set up your own domain in Profile → Mail delivery to send without this limit.",
+    recoverReason: "Reason",
     recoverSent:
       "If that email is registered, a recovery link has been sent. Please check your inbox.",
     recoverTitle: "Recover access",
@@ -1548,6 +1580,25 @@ const i18n = {
     mcpEndpointLabel: "接続先エンドポイント（このサイト）",
     mcpConfigLabel: "Claude Code 設定（コピペ・kuro_… を自分の PAT に置換）",
     email: "メール",
+    mailDeliveryTitle: "メール送信設定",
+    mailDeliveryLead:
+      "CMSからのメールは、自分のドメインから送信する方法と、黒兎サーバーを使う方法があります。",
+    mailDeliveryRequirement:
+      "自分のドメイン名でパスキー発行などのメールを送るには、送信元となるWorker Custom Domainの設定と、Email RoutingのDestination Addressesへのプロフィールメール登録・検証が必要です。",
+    mailDeliveryKuroLimit:
+      "黒兎サーバーでメール送信する場合は、1日2通程度しか送信できないのでご注意ください。",
+    mailDeliveryCurrent: "現在の送信方法",
+    mailDeliveryCustom: "自分のドメイン（Email Routing）",
+    mailDeliveryKuro: "黒兎サーバー",
+    mailDeliveryDomain: "カスタムドメイン",
+    mailDeliverySender: "送信元",
+    mailDeliveryDestination: "送信先",
+    mailDeliveryVerified: "検証済み",
+    mailDeliveryUnverified: "未検証",
+    mailDeliveryUnavailable: "Cloudflareの設定を取得できません",
+    mailDeliveryAdminOnly: "この設定を変更できるのは管理者だけです。",
+    mailDeliveryToggle: "自分のドメインから送信する",
+    mailDeliverySaved: "メール送信設定を更新しました。",
     roles: "権限",
     interfaceLanguage: "管理画面の言語",
     profileSaved: "プロフィールを保存しました。",
@@ -1797,6 +1848,22 @@ const i18n = {
     recoverRequestLead:
       "登録済みのメールアドレスを入力してください。新しいパスキーを登録するためのリンクを送信します。",
     recoverSendLink: "再設定リンクを送信",
+    mailDeliveryZoneOff:
+      "送信元ドメインで Email Routing が有効になっていません",
+    mailDeliveryZoneUnknown:
+      "確認できませんでした（この導入のトークンに zone 側の権限が無い可能性があります）。送信に失敗する場合はここを疑ってください",
+    mailDeliveryZoneOn: "送信元ドメインで Email Routing が有効です",
+    mailDeliveryAdminsUnverified:
+      "次の管理者は verified な宛先ではないため、復旧メールが届かなくなります",
+    // 配送の不調。**順調なときは出さない。**
+    recoverRelayed:
+      "自ドメインからの送信に失敗したため、黒兎のサーバーが代わりに送信しました。メールは届くはずですが、自ドメインの設定は機能していません。プロフィール → メール配信をご確認ください。",
+    recoverRelayedReason: "自ドメイン側のエラー",
+    recoverNotDelivered:
+      "メールを送信できませんでした。このままでは届きません。",
+    recoverQuota:
+      "黒兎のサーバーの送信上限に達しました。上限は時間で戻るため、12 時間ほど空けて再度お試しください。プロフィール → メール配信で自ドメインを設定すると、この上限を受けずに送信できます。",
+    recoverReason: "理由",
     recoverSent:
       "登録があれば、再設定リンクを送信しました。メールをご確認ください。",
     recoverTitle: "アクセスを復旧",

@@ -35,6 +35,13 @@ export interface Env {
    * 未設定なら no-reply@kuro.boo（移行前と同じ差出人）。
    */
   KUROCMS_MAIL_FROM?: string;
+  /**
+   * Free Email Routing send path. The binding is present only while the owner
+   * has selected their own domain in Profile; the companion sender variable is
+   * written at the same time from the Worker's Custom Domain.
+   */
+  EMAIL?: SendEmail;
+  KUROCMS_EMAIL_ROUTING_FROM?: string;
 }
 
 export interface AuthUser {

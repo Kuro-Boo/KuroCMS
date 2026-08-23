@@ -25,6 +25,46 @@ async function loginScreen(errorMsg = "") {
     escapeHtml(t("loginNewDeviceAfter")) +
     "</div></div>" +
     "</div></div></section>";
+  /**
+   * 送信結果の表示。**順調なら「送信しました」だけ**を出す。
+   * 代送・上限・失敗のときだけ、その理由を足す。
+   */
+  function recoverStatusHtml(delivery: Dynamic): string {
+    const sent =
+      "<div class='notice'>" + escapeHtml(t("recoverSent")) + "</div>";
+    if (!delivery) return sent;
+    const reason = (label: string, value: string): string =>
+      value
+        ? "<div class='muted' style='font-size:12px;margin-top:4px'>" +
+          escapeHtml(label + ": " + value) +
+          "</div>"
+        : "";
+    // 上限に達した場合は、待てば戻ることを伝える（設定の誤りと区別する）。
+    const quota =
+      typeof delivery.kuroBooError === "string" &&
+      /quota|rate|limit/i.test(delivery.kuroBooError);
+    if (!delivery.delivered) {
+      return (
+        "<div class='notice' style='border-color:var(--danger,#b42318)'>" +
+        escapeHtml(t("recoverNotDelivered")) +
+        (quota ? " " + escapeHtml(t("recoverQuota")) : "") +
+        "</div>" +
+        reason(t("recoverRelayedReason"), delivery.ownDomainError || "") +
+        reason(t("recoverReason"), delivery.kuroBooError || "")
+      );
+    }
+    if (delivery.relayed) {
+      return (
+        sent +
+        "<div class='notice' style='margin-top:6px'>" +
+        escapeHtml(t("recoverRelayed")) +
+        "</div>" +
+        reason(t("recoverRelayedReason"), delivery.ownDomainError || "")
+      );
+    }
+    return sent;
+  }
+
   byId("recoverForm")?.addEventListener("submit", async (e: Dynamic) => {
     e.preventDefault();
     const btn = e.submitter || e.target.querySelector("button[type=submit]");
@@ -32,20 +72,20 @@ async function loginScreen(errorMsg = "") {
     if (!email) return;
     if (btn) btn.disabled = true;
     try {
-      await api("/api/auth/recover/request", {
+      const res = await api("/api/auth/recover/request", {
         method: "POST",
         body: JSON.stringify({ email }),
       });
       const st = byId("recoverReqStatus");
-      if (st)
-        st.innerHTML =
-          "<div class='notice'>" + escapeHtml(t("recoverSent")) + "</div>";
+      if (st) st.innerHTML = recoverStatusHtml(res?.delivery);
     } catch (err) {
-      // Always show the same neutral message (no account enumeration).
+      // 宛先が登録済みかどうかは相変わらず伏せる（同じ文面を出す）。
+      // ⚠ ただし**配送そのものの不調は伝える** —— ここは管理画面に入れなく
+      //   なった人の最後の手段で、「送信しました」と言われたまま何も届かない
+      //   のが一番困る。理由が読めれば、待てばよいのか設定を直すべきなのかが
+      //   判断できる。
       const st = byId("recoverReqStatus");
-      if (st)
-        st.innerHTML =
-          "<div class='notice'>" + escapeHtml(t("recoverSent")) + "</div>";
+      if (st) st.innerHTML = recoverStatusHtml(null);
       void err;
     }
   });
