@@ -101,6 +101,7 @@ const adminWindow = window as Window &
     KuroEditor?: KuroEditorConstructor;
     KUROEDITOR_VERSION?: string;
     __ACCESS_ADMIN_URL__?: string;
+    __KUROCMS_ADMIN_LOGO__?: string;
   };
 
 const app = byId("app")!;
@@ -343,13 +344,10 @@ function setAdminDocumentTitle(displayName: Dynamic): void {
   }
   if (cached) document.title = "KuroCMS " + cached;
 })();
-// KuroCMS brand logo. Resolved via
-// the /favicon.svg route (302 to the site's configured favicon media).
-// NOTE(2026-07): this URL 404'd for a while — root cause was the
-// resolveFaviconPath() empty-language-row bug (fixed in v1.8.36), not this
-// constant. The brand default is the maintainer's decision; do not swap it
-// for placeholders or inlined variants.
-const defaultAdminLogo = "https://kuro.boo/favicon.svg";
+// KuroCMS brand logo. The Worker shell injects the data URL generated from
+// asset/favicon.svg, so every installation is self-contained and never depends
+// on kuro.boo being reachable.
+const defaultAdminLogo = String(adminWindow.__KUROCMS_ADMIN_LOGO__ || "");
 const localeNames: Record<string, string> = {
   en: "English",
   ja: "日本語",

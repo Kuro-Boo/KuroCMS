@@ -181,6 +181,11 @@ export async function entamyPort(env: Env): Promise<EntamyPort> {
     productId: PRODUCT_ID,
     appVersion: KUROCMS_VERSION,
     storageNamespace: NAMESPACE,
+    // 送信先の差し替え口。**顧客の環境ごとに変えられる余地を残す** ——
+    // 既定は基盤の本番(mailer.entamy.com)。
+    ...(env.KUROMAILER_URL
+      ? { mailerBaseUrl: env.KUROMAILER_URL.replace(/\/+$/, "") }
+      : {}),
   };
   const store = new EntamyStore(NAMESPACE, kvSecrets(env));
   const session = new EntamySession(config, {

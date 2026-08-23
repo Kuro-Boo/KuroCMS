@@ -23,13 +23,12 @@ export interface Env {
   CF_WORKER_NAME?: string;
   COMMUNITY_PAT?: string;
   COMMUNITY_API?: Fetcher;
-  // 自動取得へ移行する前の互換用。新しい導入は KV に期限付き鍵を保存する。
   /**
-   * Entamy Mailer の旧送信キー。自動取得が一時的に失敗した場合の移行用控え。
+   * Entamy Mailer の送信先。**未設定なら基盤の本番**(mailer.entamy.com)。
+   *
+   * 鍵はここに置かない —— entamy-connect が SAT で取り直し、KV に控える
+   * (2026-08-23 に旧送信キーの控えを撤去)。
    */
-  MAILER_KEY?: string;
-  /** 旧名。既存の導入が更新後も送れるように読み続ける。 */
-  KUROCMS_AND_KUROMAILER_PAT?: string;
   KUROMAILER_URL?: string;
   /**
    * 差出人。Entamy Mailer の sender_domain に登録されたドメインであること。

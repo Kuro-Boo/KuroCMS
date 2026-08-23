@@ -33,7 +33,6 @@ import {
 // 本文 HTML の正規化（KuroEditor の paste と完全に同一実装の vendored コピー）。
 import { normalizeContentHtml, inspectContentHtml } from "./normalize.js";
 import { checkRecipeCards } from "./recipe-guard.js";
-import { KUROMAILER_SHARED_SECRET } from "./kuromailer-secret";
 import { entamyPort } from "./entamy-port";
 import { KUROCMS_VERSION } from "./version";
 import { COMMUNITY_SHARED_PAT } from "./community-secret";
@@ -1588,49 +1587,16 @@ async function sendMail(
 
   // ⚠ 失敗の理由を捨てない。「メールが送れない」だけだと、基盤が 401 なのか
   //   SAT なのか通信なのかを利用者も運営者も切り分けられない。
+  //
+  // **控えの経路は持たない**(2026-08-23 に撤去)。配布物に埋め込む共有鍵は、
+  // 1本で全員を名乗れる形そのもので、しかも顧客ごとに配り直せない ——
+  // 残しておくと「基盤が止まったとき用」の名目で生き続ける。
   const failure = sent.failure;
-  const legacy =
-    (env.MAILER_KEY ?? "").trim() ||
-    (env.KUROCMS_AND_KUROMAILER_PAT ?? "").trim() ||
-    KUROMAILER_SHARED_SECRET;
-  if (!legacy) {
-    const status = failure.kind === "denied" ? 502 : 503;
-    throw new HttpError(
-      status,
-      "mailer_not_configured",
-      `Email sending credentials could not be obtained (${failure.kind}${failure.message ? `: ${failure.message}` : ""}).`,
-    );
-  }
-
-  // 控えの経路。移行が終わったら消す。
-  const base = (env.KUROMAILER_URL ?? "https://mailer.entamy.com").replace(
-    /\/+$/,
-    "",
+  throw new HttpError(
+    failure.kind === "denied" ? 502 : 503,
+    "mailer_not_configured",
+    `Email sending credentials could not be obtained (${failure.kind}${failure.message ? `: ${failure.message}` : ""}).`,
   );
-  const resp = await fetch(`${base}/api/v1/emails`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${legacy}`,
-      "Content-Type": "application/json",
-      "X-Entamy-Version": KUROCMS_VERSION,
-      ...(msg.idempotencyKey ? { "Idempotency-Key": msg.idempotencyKey } : {}),
-    },
-    body: JSON.stringify({ ...msg, from, fromName: msg.fromName ?? "KuroCMS" }),
-  });
-  if (!resp.ok) {
-    let detail = resp.statusText;
-    try {
-      const d = (await resp.json()) as { error?: string };
-      if (d?.error) detail = d.error;
-    } catch {
-      /* non-JSON error body */
-    }
-    throw new HttpError(
-      502,
-      "mail_send_failed",
-      `Mailer ${resp.status}: ${detail} (auto credential failed: ${failure.kind})`,
-    );
-  }
 }
 
 // ─── Passkey recovery (emailed magic link) ─────────────────────────────────────
