@@ -938,10 +938,10 @@ const i18n = {
       "By default, Kuro's server sends on your behalf. Sending from your own domain uses your Cloudflare free quota and is not subject to Kuro's limit. The setup happens on Cloudflare — it cannot be done from this screen.",
     mailSetupStep1: "Step 1: Enable Email Routing on your domain",
     mailSetupStep1Body:
-      "Open {zone} in Cloudflare and enable Email Routing. The sending domain must be onboarded to your Cloudflare account.",
+      "In Cloudflare, open Compute → Email Service → Email Routing, select {zone}, and enable it. The sending domain must be onboarded to your Cloudflare account.",
     mailSetupStep2: "Step 2: Add and verify a destination address",
     mailSetupStep2Body:
-      "Under Email Routing → Destination addresses, add every admin email address — including {address} — then open the link in each confirmation email to mark it verified. Recovery mail goes to whoever requests it, so if you have several admins you need all of them. One unverified address locks out that person alone.",
+      "On the same screen, under Destination addresses (shared across the whole account), add every admin email address — including {address} — then open the link in each confirmation email to mark it verified. Recovery mail goes to whoever requests it, so if you have several admins you need all of them. One unverified address locks out that person alone.",
     mailSetupStep3: "Step 3: Turn on the switch here",
     mailSetupStep3Body:
       "Once steps 1 and 2 are done, the switch becomes available. With it on, mail is sent from your domain, and Kuro's server relays only when that fails.",
@@ -1869,10 +1869,10 @@ const i18n = {
       "既定では黒兎のサーバーが代理送信します。ご自身のドメインから送ると、Cloudflare の無料枠で送信でき、黒兎側の上限を受けません。設定は Cloudflare 側で行います（この画面からは実行できません）。",
     mailSetupStep1: "手順 1：ドメインで Email Routing を有効にする",
     mailSetupStep1Body:
-      "Cloudflare の {zone} を開き、Email Routing を有効化します。送信元のドメインが Cloudflare に登録されていることが条件です。",
+      "Cloudflare の Compute → Email Service → Email Routing を開き、{zone} を選んで有効化します。送信元のドメインが Cloudflare に登録されていることが条件です。",
     mailSetupStep2: "手順 2：宛先アドレスを追加して認証する",
     mailSetupStep2Body:
-      "Email Routing の Destination addresses に、{address} を含む管理者のメールアドレスをすべて追加し、届いた確認メールのリンクを開いて verified にします。⚠ 復旧メールは要求した本人へ送るため、管理者が複数いる場合は全員分が必要です。1 人でも未認証だと、その人だけログインできなくなります。",
+      "同じ画面の Destination addresses（宛先アドレス。アカウント全体で共有）に、{address} を含む管理者のメールアドレスをすべて追加し、届いた確認メールのリンクを開いて verified にします。⚠ 復旧メールは要求した本人へ送るため、管理者が複数いる場合は全員分が必要です。1 人でも未認証だと、その人だけログインできなくなります。",
     mailSetupStep3: "手順 3：この画面のスイッチを入れる",
     mailSetupStep3Body:
       "手順 1・2 が済むとスイッチが押せるようになります。入れると以後は自ドメインから送信し、失敗したときだけ黒兎のサーバーが代送します。",

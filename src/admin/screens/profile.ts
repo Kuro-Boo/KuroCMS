@@ -227,10 +227,13 @@ async function profile() {
       ((data.domains || [])[0] || {}).zoneName ||
       String(data.senderAddress || "").split("@")[1] ||
       "";
+    // ⚠ **zone 配下ではない。** 宛先アドレスはアカウント単位で共有され
+    //   （同じアカウントのどのドメインでも使い回せる）、現在の入口は
+    //   Compute → Email Service → Email Routing。zone を差し込んだ URL
+    //   （/:account/<zone>/email/routing）は宛先の画面に着かない。
+    //   ドメインは、この画面に入ってから選ぶ。
     const dash =
-      "https://dash.cloudflare.com/?to=/:account/" +
-      encodeURIComponent(zone || ":zone") +
-      "/email/routing";
+      "https://dash.cloudflare.com/?to=/:account/email-service/routing";
     const mark = (done: boolean) => (done ? "✅ " : "▢ ");
     const step = (done: boolean, title: string, desc: string) =>
       "<div><div><b>" +
