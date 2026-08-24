@@ -2954,30 +2954,13 @@ async function readProfileMailCloudflareState(
     );
   }
   const auth = { Authorization: `Bearer ${token}` };
-  const [domainsRes, settingsRes, verifiedAddresses] = await Promise.all([
-    fetch(
-      `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/domains?service=${encodeURIComponent(workerName)}`,
-      { headers: auth },
-    ),
+  const [settingsRes, verifiedAddresses] = await Promise.all([
     fetch(
       `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/scripts/${encodeURIComponent(workerName)}/settings`,
       { headers: auth },
     ),
     verifiedEmailRoutingAddresses(token, accountId),
   ]);
-  const domainsBody = (await domainsRes.json().catch(() => null)) as {
-    success?: boolean;
-    result?: WorkerCustomDomain[];
-    errors?: Array<{ message: string }>;
-  } | null;
-  if (!domainsRes.ok || !domainsBody?.success) {
-    throw new HttpError(
-      400,
-      "cf_domain_check_failed",
-      domainsBody?.errors?.[0]?.message ||
-        `Cloudflare returned HTTP ${domainsRes.status}`,
-    );
-  }
   const settingsBody = (await settingsRes.json().catch(() => null)) as {
     success?: boolean;
     result?: {
@@ -2997,12 +2980,38 @@ async function readProfileMailCloudflareState(
   }
 
   const bindings = settingsBody.result.bindings ?? [];
-  const domains = (domainsBody.result ?? [])
-    .filter((domain) => domain.service === workerName)
-    .map((domain) => ({
-      hostname: domain.hostname,
-      zoneName: domain.zone_name || apexDomain(domain.hostname),
-    }));
+
+  // 送信元にできるドメインは **DNS（zone）の話**であって、どの Worker に何が
+  // 結び付いているかとは別軸である。Cloudflare が求めるのは「送信元ドメインが
+  // Email Service に onboard 済みであること」だけで、その Worker がその
+  // ホスト名を持っている必要はない。宛先の verify も**アカウント単位**で聞く
+  // （`verifiedEmailRoutingAddresses`）。
+  //
+  // ⚠ 以前はここで `/workers/domains?service=<この worker>` を引いていた。
+  //   Worker Custom Domain は DNS レコードと証明書を作る仕組みであって、
+  //   「このサイトがどのドメインを名乗るか」の正本ではない。しかも導入された
+  //   KuroCMS は WorkerOps ガーディアンが前段に立ち、ドメインは**ガーディアン側**に
+  //   付くので、app 本体を名指しすると**構造上いつでも 0 件**になる。
+  //   `success:true` で空配列が返るだけなので「未設定」と区別がつかず、
+  //   インストーラーで作られた全ての導入で自ドメイン送信が有効化できなかった。
+  //   しかも書き込む送信元が空文字になるため、仮に有効化を通しても
+  //   `routingFrom` が空で①の経路に入らず、**黙って黒兎サーバー送信のまま**になる。
+  //
+  // 正本はサイト自身が名乗っている公開ドメイン。zone で Email Routing が
+  // 有効かどうかは、この下の `emailRoutingZoneEnabled` が別途確かめる。
+  const publicHost = await (async (): Promise<string> => {
+    try {
+      const row = await env.DB.prepare(
+        "SELECT public_domain FROM site_settings WHERE id = 1",
+      ).first<{ public_domain: string | null }>();
+      return new URL(row?.public_domain ?? "").hostname.toLowerCase();
+    } catch {
+      return "";
+    }
+  })();
+  const domains = publicHost
+    ? [{ hostname: publicHost, zoneName: apexDomain(publicHost) }]
+    : [];
   const senderBinding = bindings.find(
     (binding) =>
       binding.type === "plain_text" &&

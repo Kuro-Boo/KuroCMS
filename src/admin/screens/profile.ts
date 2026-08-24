@@ -42,6 +42,18 @@ async function profile() {
       "</div><div class='tokenHelp' style='color:var(--danger,#b42318)'>" +
       escapeHtml(t("mailDeliveryKuroLimit")) +
       "</div><div id='mailDeliveryStatus' class='tokenBox' style='white-space:normal'>-</div>" +
+      // ⚠ 設定は **Cloudflare 側でしか行えない**（宛先の verify も Email Routing の
+      //   有効化も CMS からは実行できない）。手順を出さないと、トグルが押せない
+      //   理由も、次に何をすればよいかも画面から分からない。
+      "<details id='mailSetupGuide' style='border:1px solid var(--line,#2a2f3a);border-radius:8px;padding:10px'>" +
+      "<summary style='cursor:pointer;font-weight:600'>" +
+      escapeHtml(t("mailSetupGuideTitle")) +
+      "</summary>" +
+      "<div class='tokenHelp' style='margin-top:8px'>" +
+      escapeHtml(t("mailSetupGuideIntro")) +
+      "</div>" +
+      "<div id='mailSetupGuideBody' class='stack' style='gap:10px;margin-top:10px'></div>" +
+      "</details>" +
       "<div class='toggleRow'><div><div><b>" +
       escapeHtml(t("mailDeliveryToggle")) +
       "</b></div><div id='mailDeliveryManageHelp' class='tokenMeta'></div></div>" +
@@ -197,6 +209,79 @@ async function profile() {
     toggle.checked = Boolean(data.enabled);
     toggle.disabled = !data.canManage || (!data.enabled && !data.canEnable);
     help.textContent = data.canManage ? "" : t("mailDeliveryAdminOnly");
+    renderMailSetupGuide(data);
+  }
+
+  /**
+   * 自ドメイン送信の設定手順。
+   *
+   * ⚠ **済んだ手順にも印を付ける。** どこで止まっているのかが分からないと、
+   *   トグルが押せない理由を探して Cloudflare 中をさまようことになる。
+   *   verify すべきアドレスは**この画面のプロフィールのメールアドレス**であって、
+   *   ドメインに紐づく適当なアドレスではない（復旧メールは本人へ送るため）。
+   */
+  function renderMailSetupGuide(data: Dynamic) {
+    const body = byId("mailSetupGuideBody");
+    if (!body) return;
+    const zone =
+      ((data.domains || [])[0] || {}).zoneName ||
+      String(data.senderAddress || "").split("@")[1] ||
+      "";
+    const dash =
+      "https://dash.cloudflare.com/?to=/:account/" +
+      encodeURIComponent(zone || ":zone") +
+      "/email/routing";
+    const mark = (done: boolean) => (done ? "✅ " : "▢ ");
+    const step = (done: boolean, title: string, desc: string) =>
+      "<div><div><b>" +
+      mark(done) +
+      escapeHtml(title) +
+      "</b></div><div class='tokenMeta' style='white-space:normal'>" +
+      escapeHtml(desc) +
+      "</div></div>";
+    body.innerHTML =
+      step(
+        data.senderZoneEnabled === true,
+        t("mailSetupStep1"),
+        t("mailSetupStep1Body").replace("{zone}", zone || "-"),
+      ) +
+      step(
+        // ⚠ **自分が verified でも足りない。** 管理者が複数いるなら全員分が要る。
+        //   誰か 1 人でも未 verified だと、その人だけ復旧メールが届かず、
+        //   自分の画面は緑のまま相手が締め出される。
+        Boolean(data.destinationVerified) &&
+          (data.unverifiedAdmins || []).length === 0,
+        t("mailSetupStep2"),
+        t("mailSetupStep2Body").replace(
+          "{address}",
+          // 本人のアドレスと、未 verified の管理者を重複なく並べる。
+          // そのまま Cloudflare に貼れる形で出す。
+          Array.from(
+            new Set(
+              [data.destination as string]
+                .concat(data.unverifiedAdmins || [])
+                .filter(Boolean),
+            ),
+          ).join(", ") || "-",
+        ),
+      ) +
+      step(
+        Boolean(data.enabled),
+        t("mailSetupStep3"),
+        t("mailSetupStep3Body"),
+      ) +
+      "<div style='display:flex;gap:8px;flex-wrap:wrap'>" +
+      "<a class='secondary' target='_blank' rel='noopener' href='" +
+      escapeHtml(dash) +
+      "' style='font-size:12px;padding:6px 14px;text-decoration:none'>" +
+      escapeHtml(t("mailSetupOpenCf")) +
+      "</a>" +
+      "<a class='secondary' target='_blank' rel='noopener' href='https://developers.cloudflare.com/email-routing/get-started/enable-email-routing/' style='font-size:12px;padding:6px 14px;text-decoration:none'>" +
+      escapeHtml(t("mailSetupDocs")) +
+      "</a></div>" +
+      "<div class='tokenMeta' style='white-space:normal'>" +
+      escapeHtml(t("mailSetupNote")) +
+      "</div>";
   }
 
   async function loadProfileMailSettings() {

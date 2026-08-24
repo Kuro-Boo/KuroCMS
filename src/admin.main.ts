@@ -933,6 +933,22 @@ const i18n = {
     recoverRequestLead:
       "Enter your registered email. We'll send a link to register a new passkey.",
     recoverSendLink: "Send recovery link",
+    mailSetupGuideTitle: "How to send from your own domain",
+    mailSetupGuideIntro:
+      "By default, Kuro's server sends on your behalf. Sending from your own domain uses your Cloudflare free quota and is not subject to Kuro's limit. The setup happens on Cloudflare — it cannot be done from this screen.",
+    mailSetupStep1: "Step 1: Enable Email Routing on your domain",
+    mailSetupStep1Body:
+      "Open {zone} in Cloudflare and enable Email Routing. The sending domain must be onboarded to your Cloudflare account.",
+    mailSetupStep2: "Step 2: Add and verify a destination address",
+    mailSetupStep2Body:
+      "Under Email Routing → Destination addresses, add every admin email address — including {address} — then open the link in each confirmation email to mark it verified. Recovery mail goes to whoever requests it, so if you have several admins you need all of them. One unverified address locks out that person alone.",
+    mailSetupStep3: "Step 3: Turn on the switch here",
+    mailSetupStep3Body:
+      "Once steps 1 and 2 are done, the switch becomes available. With it on, mail is sent from your domain, and Kuro's server relays only when that fails.",
+    mailSetupOpenCf: "Open Email Routing in Cloudflare",
+    mailSetupDocs: "Cloudflare documentation",
+    mailSetupNote:
+      "If the status says it could not be checked, this installation's token lacks zone-level permission, so KuroCMS cannot verify it. Sending still succeeds if the setup is correct; if it fails, mail is relayed and the screen says so.",
     mailDeliveryZoneOff: "Email Routing is not enabled on the sender domain",
     mailDeliveryZoneOn: "Email Routing enabled on the sender domain",
     mailDeliveryAdminsUnverified:
@@ -1848,6 +1864,22 @@ const i18n = {
     recoverRequestLead:
       "登録済みのメールアドレスを入力してください。新しいパスキーを登録するためのリンクを送信します。",
     recoverSendLink: "再設定リンクを送信",
+    mailSetupGuideTitle: "自ドメインで送信する設定方法",
+    mailSetupGuideIntro:
+      "既定では黒兎のサーバーが代理送信します。ご自身のドメインから送ると、Cloudflare の無料枠で送信でき、黒兎側の上限を受けません。設定は Cloudflare 側で行います（この画面からは実行できません）。",
+    mailSetupStep1: "手順 1：ドメインで Email Routing を有効にする",
+    mailSetupStep1Body:
+      "Cloudflare の {zone} を開き、Email Routing を有効化します。送信元のドメインが Cloudflare に登録されていることが条件です。",
+    mailSetupStep2: "手順 2：宛先アドレスを追加して認証する",
+    mailSetupStep2Body:
+      "Email Routing の Destination addresses に、{address} を含む管理者のメールアドレスをすべて追加し、届いた確認メールのリンクを開いて verified にします。⚠ 復旧メールは要求した本人へ送るため、管理者が複数いる場合は全員分が必要です。1 人でも未認証だと、その人だけログインできなくなります。",
+    mailSetupStep3: "手順 3：この画面のスイッチを入れる",
+    mailSetupStep3Body:
+      "手順 1・2 が済むとスイッチが押せるようになります。入れると以後は自ドメインから送信し、失敗したときだけ黒兎のサーバーが代送します。",
+    mailSetupOpenCf: "Cloudflare の Email Routing を開く",
+    mailSetupDocs: "Cloudflare の手順書",
+    mailSetupNote:
+      "「確認できませんでした」と出る場合、この導入のトークンに zone 側の権限が無く、CMS からは判定できない状態です。設定が正しければ送信は成功します。失敗した場合は代送に切り替わり、その旨が画面に表示されます。",
     mailDeliveryZoneOff:
       "送信元ドメインで Email Routing が有効になっていません",
     mailDeliveryZoneUnknown:
