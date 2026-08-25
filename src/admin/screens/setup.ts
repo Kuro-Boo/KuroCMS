@@ -74,7 +74,10 @@ async function loginScreen(errorMsg = "") {
     try {
       const res = await api("/api/auth/recover/request", {
         method: "POST",
-        body: JSON.stringify({ email }),
+        // ⚠ **いま見ている画面の言語を一緒に送る。** 管理画面の言語は
+        //   localStorage にしか無く、サーバーは知らない。送らないと、
+        //   ログインできなくなった人が**読めない言語の復旧メール**を受け取る。
+        body: JSON.stringify({ email, lang: state.uiLang }),
       });
       const st = byId("recoverReqStatus");
       if (st) st.innerHTML = recoverStatusHtml(res?.delivery);

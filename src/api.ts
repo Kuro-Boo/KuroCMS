@@ -1800,21 +1800,43 @@ async function recoverRequest(request: Request, env: Env): Promise<Response> {
   ).first<{ site_name: string | null }>();
   const siteName = (settings?.site_name ?? "KuroCMS").trim() || "KuroCMS";
 
+  // 管理画面の言語で書く。**用意があるのは ja と en だけ**なので、
+  // それ以外は英語へ倒す（読めない言語で届くくらいなら英語の方がまし）。
+  // 画面から届かなかった場合も英語。復旧メールは**ログインできなくなった人が
+  // 最後に頼る経路**で、読めないと詰む。
+  const lang = body.lang === "ja" ? "ja" : "en";
+  const mail =
+    lang === "ja"
+      ? {
+          subject: `[${siteName}] パスキー再設定のご案内`,
+          text:
+            `${siteName} の管理画面にサインインするための新しいパスキーを登録できます。\n` +
+            `次のリンクを開いてください（30分間有効・1回のみ）:\n${link}\n\n` +
+            `心当たりがない場合はこのメールを無視してください。\n`,
+          html:
+            `<p>${htmlEscape(siteName)} の管理画面にサインインするための新しいパスキーを登録できます。</p>` +
+            `<p><a href="${link}">パスキーを再設定する</a></p>` +
+            `<p style="color:#666;font-size:13px">このリンクは30分間有効で、1回のみ使用できます。心当たりがない場合は無視してください。</p>`,
+        }
+      : {
+          subject: `[${siteName}] Passkey recovery`,
+          text:
+            `Register a new passkey to sign in to ${siteName}.\n` +
+            `Open this link (valid for 30 minutes, single use):\n${link}\n\n` +
+            `If you did not request this, you can ignore this email.\n`,
+          html:
+            `<p>Register a new passkey to sign in to ${htmlEscape(siteName)}.</p>` +
+            `<p><a href="${link}">Register a new passkey</a></p>` +
+            `<p style="color:#666;font-size:13px">This link is valid for 30 minutes and can be used once. If you did not request this, you can ignore this email.</p>`,
+        };
+
   try {
     const sent = await sendMail(env, {
       to: user.email,
       fromName: siteName,
-      subject: `[${siteName}] パスキー再設定のご案内 / Passkey recovery`,
-      text:
-        `${siteName} の管理画面にサインインするための新しいパスキーを登録できます。\n` +
-        `次のリンクを開いてください（30分間有効・1回のみ）:\n${link}\n\n` +
-        `心当たりがない場合はこのメールを無視してください。\n\n` +
-        `Register a new passkey to sign in to ${siteName}.\n` +
-        `Open this link (valid for 30 minutes, single use):\n${link}\n`,
-      html:
-        `<p>${htmlEscape(siteName)} の管理画面にサインインするための新しいパスキーを登録できます。</p>` +
-        `<p><a href="${link}">パスキーを再設定する / Register a new passkey</a></p>` +
-        `<p style="color:#666;font-size:13px">このリンクは30分間有効で、1回のみ使用できます。心当たりがない場合は無視してください。</p>`,
+      subject: mail.subject,
+      text: mail.text,
+      html: mail.html,
       idempotencyKey: `recover-${tokenHash}`,
     });
     // 代送された（自ドメインが失敗した）ときは、その旨を画面へ返す。
