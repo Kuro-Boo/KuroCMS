@@ -57,6 +57,13 @@ function errorMessage(error: unknown, fallback = ""): string {
     return String(error || fallback);
   }
   const e = error as Error & { status?: number; code?: string };
+  // ⚠ **利用者が次にやることが分かる文にする。** サーバーは英語の説明と
+  //   コードを返すが、それをそのまま出すと「[HTTP 409] Publish AND build …
+  //   (bsky_not_published)」のようになり、何をすればよいか読み取れない。
+  //   状態がはっきりしているものだけ、画面の言語で言い換える。
+  //   （HTTP 番号もコードも出さない —— 対処が分かる文の方が役に立つ）
+  const known = snsPostErrorText(e.code);
+  if (known) return known;
   const status = e.status ? "[HTTP " + e.status + "] " : "";
   const code = e.code ? " (" + e.code + ")" : "";
   // SNS post failures (x_/bsky_/threads_ codes) are deliberate 5xx responses
@@ -70,6 +77,27 @@ function errorMessage(error: unknown, fallback = ""): string {
       /exceed|limit|cpu|timeout|too many|rate/i.test(e.message || ""));
   const hint = limitLike ? " — " + t("cfLimitHint") : "";
   return status + e.message + code + hint;
+}
+
+/**
+ * SNS 投稿で「押しても無理」と分かっている失敗を、画面の言語で言い換える。
+ *
+ * 対象は**状態がはっきりしているものだけ**。上流サービスの障害（post_failed
+ * など）は原因が毎回違うので、サーバーが埋めた実際の応答をそのまま見せる。
+ */
+function snsPostErrorText(code?: string): string {
+  const m = /^(?:bsky|x|threads)_(.+)$/.exec(code || "");
+  if (!m) return "";
+  const keys: Record<string, string> = {
+    not_found: "snsErrNotFound",
+    draft: "snsErrDraft",
+    not_built: "snsErrNotBuilt",
+    already_posted: "snsErrAlreadyPosted",
+    not_configured: "snsErrNotConfigured",
+    no_public_domain: "snsErrNoDomain",
+  };
+  const key = keys[m[1]];
+  return key ? t(key) : "";
 }
 
 type KuroEditorInstance = {
@@ -1050,6 +1078,15 @@ const i18n = {
     snsPublishStatus: "SNS Publish Status",
     snsPublished: "Published",
     snsUnpublished: "Unpublished",
+    snsErrNotFound: "The article was not found. It may have been deleted.",
+    snsErrDraft: "This article is still a draft. Publish it first, then post.",
+    snsErrNotBuilt:
+      "This article is published but not built yet. Build it first — posting now would share a link that does not open.",
+    snsErrAlreadyPosted: "This article has already been posted.",
+    snsErrNotConfigured:
+      "This SNS is not connected. Set it up under Settings → SNS.",
+    snsErrNoDomain:
+      "The site's public domain is not set. Set it under Settings → Basic.",
     snsPostBtn: "Post",
     snsPostingBtn: "Posting…",
     snsPostConfirm:
@@ -1984,6 +2021,16 @@ const i18n = {
     snsPublishStatus: "SNS公開状態",
     snsPublished: "公開済み",
     snsUnpublished: "未公開",
+    snsErrNotFound: "記事が見つかりません。削除された可能性があります。",
+    snsErrDraft:
+      "この記事はまだ下書きです。先に「公開する」を押してから投稿してください。",
+    snsErrNotBuilt:
+      "公開済みですが、まだビルドされていません。先にビルドしてください（未ビルドのまま投稿すると、開けないリンクを共有することになります）。",
+    snsErrAlreadyPosted: "この記事はすでに投稿済みです。",
+    snsErrNotConfigured:
+      "SNS の接続が未設定です。設定 → SNS で登録してください。",
+    snsErrNoDomain:
+      "サイトの公開ドメインが未設定です。設定 → 基本で登録してください。",
     snsPostBtn: "投稿",
     snsPostingBtn: "投稿中…",
     snsPostConfirm:

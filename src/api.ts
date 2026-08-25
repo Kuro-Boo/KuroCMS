@@ -4708,7 +4708,9 @@ type BlueskyPostResult =
       code:
         | "not_configured"
         | "no_public_domain"
-        | "not_published"
+        | "not_found"
+        | "draft"
+        | "not_built"
         | "already_posted"
         | "cover_failed"
         | "post_failed";
@@ -4854,16 +4856,25 @@ async function postBlueskyForDoc(
   const doc = await env.DB.prepare(
     // live (not just mode): the flag alone is unbuilt state — the public URL
     // is not served yet, so posting would share a dead link.
-    "SELECT tid, slug, initial_lang, sns_bsky_posted_at FROM documents WHERE did = ? AND mode = 1 AND live = 1",
+    // ⚠ **絞り込まずに引く。** mode/live で弾いた「見つからない」は、
+    //   下書き・未ビルド・そもそも無い、の 3 つを 1 つに潰してしまう。
+    //   利用者は次に何をすればよいか分からないので、状態を言い分ける。
+    "SELECT tid, slug, initial_lang, mode, live, sns_bsky_posted_at FROM documents WHERE did = ?",
   )
     .bind(did)
     .first<{
       tid: string;
       slug: string;
       initial_lang: string;
+      mode: number;
+      live: number;
       sns_bsky_posted_at: string | null;
     }>();
-  if (!doc) return { ok: false, code: "not_published" };
+  if (!doc) return { ok: false, code: "not_found" };
+  if (doc.mode !== 1) return { ok: false, code: "draft" };
+  // live は「ビルド済みで公開 URL が実際に配信されている」印。これが
+  // 立つ前に投稿すると、死んだリンクを共有することになる。
+  if (doc.live !== 1) return { ok: false, code: "not_built" };
   if (doc.sns_bsky_posted_at) return { ok: false, code: "already_posted" };
 
   const tl = await env.DB.prepare(
@@ -4931,9 +4942,11 @@ async function postDocumentToBluesky(
   const failures: Record<string, [number, string]> = {
     not_configured: [400, "Bluesky is not configured in Settings → SNS."],
     no_public_domain: [400, "Set the site's public domain first."],
-    not_published: [
+    not_found: [404, "The article was not found."],
+    draft: [409, "This article is still a draft. Publish it first."],
+    not_built: [
       409,
-      "Publish AND build the article before posting to Bluesky.",
+      "This article is published but not built yet. Run a build first.",
     ],
     already_posted: [409, "This article was already posted to Bluesky."],
     cover_failed: [502, "The cover image could not be prepared for Bluesky."],
@@ -5316,7 +5329,9 @@ type XPostResult =
       code:
         | "not_configured"
         | "no_public_domain"
-        | "not_published"
+        | "not_found"
+        | "draft"
+        | "not_built"
         | "already_posted"
         | "cover_failed"
         | "post_failed"
@@ -5364,16 +5379,25 @@ async function postXForDoc(env: Env, did: string): Promise<XPostResult> {
 
   const doc = await env.DB.prepare(
     // live (not just mode): see the matching Bluesky comment.
-    "SELECT tid, slug, initial_lang, sns_x_posted_at FROM documents WHERE did = ? AND mode = 1 AND live = 1",
+    // ⚠ **絞り込まずに引く。** mode/live で弾いた「見つからない」は、
+    //   下書き・未ビルド・そもそも無い、の 3 つを 1 つに潰してしまう。
+    //   利用者は次に何をすればよいか分からないので、状態を言い分ける。
+    "SELECT tid, slug, initial_lang, mode, live, sns_x_posted_at FROM documents WHERE did = ?",
   )
     .bind(did)
     .first<{
       tid: string;
       slug: string;
       initial_lang: string;
+      mode: number;
+      live: number;
       sns_x_posted_at: string | null;
     }>();
-  if (!doc) return { ok: false, code: "not_published" };
+  if (!doc) return { ok: false, code: "not_found" };
+  if (doc.mode !== 1) return { ok: false, code: "draft" };
+  // live は「ビルド済みで公開 URL が実際に配信されている」印。これが
+  // 立つ前に投稿すると、死んだリンクを共有することになる。
+  if (doc.live !== 1) return { ok: false, code: "not_built" };
   if (doc.sns_x_posted_at) return { ok: false, code: "already_posted" };
 
   const tl = await env.DB.prepare(
@@ -5470,7 +5494,12 @@ async function postDocumentToX(
   const failures: Record<string, [number, string]> = {
     not_configured: [400, "X is not configured in Settings → SNS."],
     no_public_domain: [400, "Set the site's public domain first."],
-    not_published: [409, "Publish AND build the article before posting to X."],
+    not_found: [404, "The article was not found."],
+    draft: [409, "This article is still a draft. Publish it first."],
+    not_built: [
+      409,
+      "This article is published but not built yet. Run a build first.",
+    ],
     already_posted: [409, "This article was already posted to X."],
     cover_failed: [502, "The cover image could not be prepared for X."],
     post_failed: [502, "Posting to X failed."],
@@ -5583,7 +5612,9 @@ type ThreadsPostResult =
       code:
         | "not_configured"
         | "no_public_domain"
-        | "not_published"
+        | "not_found"
+        | "draft"
+        | "not_built"
         | "already_posted"
         | "post_failed";
     };
@@ -5634,16 +5665,25 @@ async function postThreadsForDoc(
 
   const doc = await env.DB.prepare(
     // live (not just mode): see the matching Bluesky comment.
-    "SELECT tid, slug, initial_lang, sns_threads_posted_at FROM documents WHERE did = ? AND mode = 1 AND live = 1",
+    // ⚠ **絞り込まずに引く。** mode/live で弾いた「見つからない」は、
+    //   下書き・未ビルド・そもそも無い、の 3 つを 1 つに潰してしまう。
+    //   利用者は次に何をすればよいか分からないので、状態を言い分ける。
+    "SELECT tid, slug, initial_lang, mode, live, sns_threads_posted_at FROM documents WHERE did = ?",
   )
     .bind(did)
     .first<{
       tid: string;
       slug: string;
       initial_lang: string;
+      mode: number;
+      live: number;
       sns_threads_posted_at: string | null;
     }>();
-  if (!doc) return { ok: false, code: "not_published" };
+  if (!doc) return { ok: false, code: "not_found" };
+  if (doc.mode !== 1) return { ok: false, code: "draft" };
+  // live は「ビルド済みで公開 URL が実際に配信されている」印。これが
+  // 立つ前に投稿すると、死んだリンクを共有することになる。
+  if (doc.live !== 1) return { ok: false, code: "not_built" };
   // The flag was already CLAIMED by postDocumentToThreads before this job was
   // queued (it doubles as the in-flight lock), so a set value here is our own
   // claim — not a prior post. Don't bail out as already_posted.
@@ -5737,9 +5777,11 @@ async function postDocumentToThreads(
   const failures: Record<string, [number, string]> = {
     not_configured: [400, "Threads is not configured in Settings → SNS."],
     no_public_domain: [400, "Set the site's public domain first."],
-    not_published: [
+    not_found: [404, "The article was not found."],
+    draft: [409, "This article is still a draft. Publish it first."],
+    not_built: [
       409,
-      "Publish AND build the article before posting to Threads.",
+      "This article is published but not built yet. Run a build first.",
     ],
     already_posted: [409, "This article was already posted to Threads."],
     post_failed: [502, "Posting to Threads failed. Check your access token."],
@@ -5763,11 +5805,18 @@ async function postDocumentToThreads(
   }
   if (!origin) fail("no_public_domain");
   const doc = await env.DB.prepare(
-    "SELECT sns_threads_posted_at FROM documents WHERE did = ? AND mode = 1 AND live = 1",
+    // 絞り込まずに引き、下書き・未ビルド・不在を言い分ける（上と同じ理由）。
+    "SELECT mode, live, sns_threads_posted_at FROM documents WHERE did = ?",
   )
     .bind(did)
-    .first<{ sns_threads_posted_at: string | null }>();
-  if (!doc) fail("not_published");
+    .first<{
+      mode: number;
+      live: number;
+      sns_threads_posted_at: string | null;
+    }>();
+  if (!doc) fail("not_found");
+  if (doc!.mode !== 1) fail("draft");
+  if (doc!.live !== 1) fail("not_built");
   if (doc!.sns_threads_posted_at) fail("already_posted");
 
   // Atomically CLAIM the posted flag BEFORE queueing the background job. This
