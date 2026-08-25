@@ -62,7 +62,7 @@ function errorMessage(error: unknown, fallback = ""): string {
   //   (bsky_not_published)」のようになり、何をすればよいか読み取れない。
   //   状態がはっきりしているものだけ、画面の言語で言い換える。
   //   （HTTP 番号もコードも出さない —— 対処が分かる文の方が役に立つ）
-  const known = snsPostErrorText(e.code);
+  const known = errText(e.code);
   if (known) return known;
   const status = e.status ? "[HTTP " + e.status + "] " : "";
   const code = e.code ? " (" + e.code + ")" : "";
@@ -80,24 +80,28 @@ function errorMessage(error: unknown, fallback = ""): string {
 }
 
 /**
- * SNS 投稿で「押しても無理」と分かっている失敗を、画面の言語で言い換える。
+ * サーバーが返した `code` を、画面の言語の文に引き当てる。
  *
- * 対象は**状態がはっきりしているものだけ**。上流サービスの障害（post_failed
- * など）は原因が毎回違うので、サーバーが埋めた実際の応答をそのまま見せる。
+ * ⚠ **文言はサーバーに持たせない。** 対応言語が増えるたびに Worker へ全言語の
+ *   文字列を積むことになり、配布物が膨らむうえ、UI の辞書と二重管理になる。
+ *   サーバーは安定した `code` だけを返し、言い換えはここで行う ——
+ *   **言語を足す作業は、他の UI 文言と同じく辞書に足すだけ**で済む。
+ *
+ * 引き当ては `err_<code>` → SNS の接頭辞を落とした `err_<suffix>` の順。
+ * 3 サービスで同じ意味の失敗（draft / not_built / already_posted）を
+ * 1 つの訳で賄うため。**辞書に無ければ空を返し、サーバーの説明文に委ねる**
+ * —— 訳が無いことより、英語でも中身が読める方がよい。
  */
-function snsPostErrorText(code?: string): string {
-  const m = /^(?:bsky|x|threads)_(.+)$/.exec(code || "");
-  if (!m) return "";
-  const keys: Record<string, string> = {
-    not_found: "snsErrNotFound",
-    draft: "snsErrDraft",
-    not_built: "snsErrNotBuilt",
-    already_posted: "snsErrAlreadyPosted",
-    not_configured: "snsErrNotConfigured",
-    no_public_domain: "snsErrNoDomain",
-  };
-  const key = keys[m[1]];
-  return key ? t(key) : "";
+function errText(code?: string): string {
+  if (!code) return "";
+  const keys = ["err_" + code];
+  const bare = code.replace(/^(?:bsky|x|threads)_/, "");
+  if (bare !== code) keys.push("err_" + bare);
+  for (const key of keys) {
+    const v = t(key);
+    if (v !== key) return v; // t() は辞書に無いとキーをそのまま返す
+  }
+  return "";
 }
 
 type KuroEditorInstance = {
@@ -1078,15 +1082,72 @@ const i18n = {
     snsPublishStatus: "SNS Publish Status",
     snsPublished: "Published",
     snsUnpublished: "Unpublished",
-    snsErrNotFound: "The article was not found. It may have been deleted.",
-    snsErrDraft: "This article is still a draft. Publish it first, then post.",
-    snsErrNotBuilt:
-      "This article is published but not built yet. Build it first — posting now would share a link that does not open.",
-    snsErrAlreadyPosted: "This article has already been posted.",
-    snsErrNotConfigured:
+    err_not_found: "Not found. It may have already been deleted.",
+    err_draft: "This article is still a draft. Publish it first, then post.",
+    err_not_built:
+      "Published but not built yet. Build it first — posting now would share a link that does not open.",
+    err_already_posted: "This article has already been posted.",
+    err_not_configured:
       "This SNS is not connected. Set it up under Settings → SNS.",
-    snsErrNoDomain:
+    err_no_public_domain:
       "The site's public domain is not set. Set it under Settings → Basic.",
+    err_invalid_field: "Some input is invalid. Please check the values.",
+    err_invalid_email: "That email address is not in a valid format.",
+    err_document_not_found: "The article was not found.",
+    err_translation_not_found: "There is no translation for this language.",
+    err_user_not_found: "The user was not found.",
+    err_user_disabled: "This user is disabled.",
+    err_email_taken: "That email address is already in use.",
+    err_invite_not_found: "The invitation was not found.",
+    err_invite_expired: "The invitation has expired. Please issue a new one.",
+    err_invitation_required: "An invitation is required.",
+    err_recover_invalid:
+      "This recovery link is not valid. Please request a new email.",
+    err_recover_expired:
+      "This recovery link has expired (30 minutes). Please request a new email.",
+    err_credential_exists: "This passkey is already registered.",
+    err_credential_not_found: "The passkey was not found.",
+    err_passkey_not_found: "The passkey was not found.",
+    err_last_passkey:
+      "You cannot delete your last passkey. Register another one first.",
+    err_cannot_modify_self:
+      "You cannot change this setting on your own account.",
+    err_cannot_delete_self: "You cannot delete your own account.",
+    err_slug_exists: "That slug is already in use.",
+    err_slug_reserved: "That slug is reserved and cannot be used.",
+    err_name_conflict: "That name already exists.",
+    err_category_exists: "That category already exists.",
+    err_category_in_use:
+      "This category is in use by articles and cannot be deleted.",
+    err_category_not_found: "The category was not found.",
+    err_type_in_use: "This type is in use by articles and cannot be deleted.",
+    err_type_not_found: "The type was not found.",
+    err_file_too_large: "The file is too large.",
+    err_invalid_file_type: "This file type is not supported.",
+    err_missing_file: "No file was selected.",
+    err_media_not_found: "The media file was not found.",
+    err_r2_not_configured:
+      "Media storage (R2) is not set up. Create and connect it under Settings → Basic.",
+    err_cf_creds_missing: "Cloudflare credentials are not configured.",
+    err_custom_domain_required: "Assign a custom domain first.",
+    err_email_routing_destination_unverified:
+      "The destination address is not verified. Verify it in Cloudflare Email Routing.",
+    err_email_routing_zone_disabled:
+      "Email Routing is not enabled on the sending domain.",
+    err_email_routing_admin_unverified:
+      "Some admin addresses are not verified. Verify all of them.",
+    err_no_community_pat:
+      "The credential required for public templates is not configured.",
+    err_template_owner_required: "Only the owner of this template can do that.",
+    err_community_template_not_found: "The public template was not found.",
+    err_setup_completed: "Setup has already been completed.",
+    err_base_language_delete: "The base language cannot be deleted.",
+    err_last_translation: "You cannot delete the last translation.",
+    err_lang_required: "A language must be specified.",
+    err_invalid_language: "That language is not supported.",
+    err_body_conflict: "This was updated elsewhere. Reload before saving.",
+    err_revision_not_found: "The revision was not found.",
+    err_license_required: "This feature requires a license.",
     snsPostBtn: "Post",
     snsPostingBtn: "Posting…",
     snsPostConfirm:
@@ -2021,16 +2082,73 @@ const i18n = {
     snsPublishStatus: "SNS公開状態",
     snsPublished: "公開済み",
     snsUnpublished: "未公開",
-    snsErrNotFound: "記事が見つかりません。削除された可能性があります。",
-    snsErrDraft:
+    err_not_found:
+      "対象が見つかりません。すでに削除されている可能性があります。",
+    err_draft:
       "この記事はまだ下書きです。先に「公開する」を押してから投稿してください。",
-    snsErrNotBuilt:
+    err_not_built:
       "公開済みですが、まだビルドされていません。先にビルドしてください（未ビルドのまま投稿すると、開けないリンクを共有することになります）。",
-    snsErrAlreadyPosted: "この記事はすでに投稿済みです。",
-    snsErrNotConfigured:
-      "SNS の接続が未設定です。設定 → SNS で登録してください。",
-    snsErrNoDomain:
+    err_already_posted: "この記事はすでに投稿済みです。",
+    err_not_configured:
+      "この SNS の接続が未設定です。設定 → SNS で登録してください。",
+    err_no_public_domain:
       "サイトの公開ドメインが未設定です。設定 → 基本で登録してください。",
+    err_invalid_field: "入力に誤りがあります。内容をご確認ください。",
+    err_invalid_email: "メールアドレスの形式が正しくありません。",
+    err_document_not_found: "記事が見つかりません。",
+    err_translation_not_found: "この言語の翻訳がありません。",
+    err_user_not_found: "利用者が見つかりません。",
+    err_user_disabled: "この利用者は無効化されています。",
+    err_email_taken: "このメールアドレスは既に使われています。",
+    err_invite_not_found: "招待が見つかりません。",
+    err_invite_expired: "招待の有効期限が切れています。作り直してください。",
+    err_invitation_required: "招待が必要です。",
+    err_recover_invalid:
+      "この再設定リンクは使えません。もう一度メールを送ってください。",
+    err_recover_expired:
+      "再設定リンクの有効期限が切れています（30分）。もう一度メールを送ってください。",
+    err_credential_exists: "このパスキーは既に登録されています。",
+    err_credential_not_found: "パスキーが見つかりません。",
+    err_passkey_not_found: "パスキーが見つかりません。",
+    err_last_passkey:
+      "最後のパスキーは削除できません。先に別のパスキーを登録してください。",
+    err_cannot_modify_self: "自分自身のこの設定は変更できません。",
+    err_cannot_delete_self: "自分自身は削除できません。",
+    err_slug_exists: "このスラグは既に使われています。",
+    err_slug_reserved: "このスラグは予約されていて使えません。",
+    err_name_conflict: "同じ名前が既にあります。",
+    err_category_exists: "このカテゴリは既にあります。",
+    err_category_in_use: "このカテゴリは記事で使われているため削除できません。",
+    err_category_not_found: "カテゴリが見つかりません。",
+    err_type_in_use: "このタイプは記事で使われているため削除できません。",
+    err_type_not_found: "タイプが見つかりません。",
+    err_file_too_large: "ファイルが大きすぎます。",
+    err_invalid_file_type: "この形式のファイルは扱えません。",
+    err_missing_file: "ファイルが選ばれていません。",
+    err_media_not_found: "画像・メディアが見つかりません。",
+    err_r2_not_configured:
+      "画像の保存先（R2）が未設定です。設定 → 基本で作成・接続してください。",
+    err_cf_creds_missing: "Cloudflare の資格情報が未設定です。",
+    err_custom_domain_required: "先にカスタムドメインを割り当ててください。",
+    err_email_routing_destination_unverified:
+      "宛先アドレスが未認証です。Cloudflare の Email Routing で認証してください。",
+    err_email_routing_zone_disabled:
+      "送信元ドメインで Email Routing が有効になっていません。",
+    err_email_routing_admin_unverified:
+      "未認証の管理者アドレスがあります。全員分を認証してください。",
+    err_no_community_pat:
+      "公開テンプレートの操作に必要な資格情報が未設定です。",
+    err_template_owner_required: "このテンプレートの所有者だけが操作できます。",
+    err_community_template_not_found: "公開テンプレートが見つかりません。",
+    err_setup_completed: "初期設定は完了済みです。",
+    err_base_language_delete: "基準言語は削除できません。",
+    err_last_translation: "最後の翻訳は削除できません。",
+    err_lang_required: "言語を指定してください。",
+    err_invalid_language: "その言語は扱えません。",
+    err_body_conflict:
+      "他の場所で更新されています。読み込み直してから保存してください。",
+    err_revision_not_found: "履歴が見つかりません。",
+    err_license_required: "この機能にはライセンスが必要です。",
     snsPostBtn: "投稿",
     snsPostingBtn: "投稿中…",
     snsPostConfirm:
