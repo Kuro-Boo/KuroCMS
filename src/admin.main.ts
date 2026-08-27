@@ -1082,10 +1082,19 @@ const i18n = {
     snsPublishStatus: "SNS Publish Status",
     snsPublished: "Published",
     snsUnpublished: "Unpublished",
+    buildStateBuilt: "Built",
+    buildStateUnbuilt: "Not built",
+    buildStatePending: "Scheduled",
+    buildStateExpired: "Ended",
+    buildStateStillLive: "Not built (still live)",
     err_not_found: "Not found. It may have already been deleted.",
     err_draft: "This article is still a draft. Publish it first, then post.",
     err_not_built:
       "Published but not built yet. Build it first — posting now would share a link that does not open.",
+    err_scheduled:
+      "The publish time has not arrived yet, so a build will not publish it. Change the article's publish date/time, or set the build mode to build future-dated articles.",
+    err_expired:
+      "The unpublish time has passed, so this article is no longer published. Clear the unpublish date/time, or move it further out.",
     err_already_posted: "This article has already been posted.",
     err_not_configured:
       "This SNS is not connected. Set it up under Settings → SNS.",
@@ -2082,12 +2091,21 @@ const i18n = {
     snsPublishStatus: "SNS公開状態",
     snsPublished: "公開済み",
     snsUnpublished: "未公開",
+    buildStateBuilt: "ビルド済み",
+    buildStateUnbuilt: "未ビルド",
+    buildStatePending: "公開待ち",
+    buildStateExpired: "公開終了",
+    buildStateStillLive: "未ビルド（公開中）",
     err_not_found:
       "対象が見つかりません。すでに削除されている可能性があります。",
     err_draft:
       "この記事はまだ下書きです。先に「公開する」を押してから投稿してください。",
     err_not_built:
       "公開済みですが、まだビルドされていません。先にビルドしてください（未ビルドのまま投稿すると、開けないリンクを共有することになります）。",
+    err_scheduled:
+      "公開予定日時がまだ来ていません。ビルドしても、その時刻を過ぎるまでは公開されません。記事の公開日時を変更するか、ビルド設定を「未来記事も無条件にビルド」にしてください。",
+    err_expired:
+      "公開終了日時を過ぎているため、この記事は公開されていません。公開終了日時を空にするか、先の日時に変更してください。",
     err_already_posted: "この記事はすでに投稿済みです。",
     err_not_configured:
       "この SNS の接続が未設定です。設定 → SNS で登録してください。",
@@ -3685,6 +3703,9 @@ async function runBuildWithProgress(force = false) {
         body: JSON.stringify({ published: true }),
       }).catch(function () {});
     }
+    // ビルドが documents.live を実体化した直後。一覧のビルド状態バッジは古い
+    // ままなので取り直す（編集中は他の再読込と同じ約束で yank しない）。
+    if (activeListReload && !hasUnsavedArticleEdits()) activeListReload();
     showCloseButton();
   }
 

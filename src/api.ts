@@ -4701,6 +4701,41 @@ async function transformBlueskyCover(
   return bytes ? { bytes, mime: "image/webp" } : null;
 }
 
+/**
+ * live=0 の理由を言い分ける。
+ *
+ * ⚠ **「先にビルドしてください」は、ビルドで直るときにだけ言う。**
+ *   documents.live は「ビルドが mode を実体化した」印だが、mode=1 でも live が
+ *   立たない理由は 3 つある —— ①まだビルドしていない ②公開予定日時がまだ来て
+ *   いない ③公開終了日時を過ぎた。②③はビルドしても live にならないので、
+ *   一律に「先にビルドしてください」と返すと**何度ビルドしても同じ文言が出る**
+ *   堂々巡りになる。記事一覧の「公開日」は日付しか出さないため、時刻が未来だと
+ *   いうことは画面からは読み取れず、利用者からは原因不明の門前払いに見える。
+ *
+ * 判定は SQL 側で行う。liveCaseSql()（src/public.ts）と同じ datetime() 比較で
+ * なければ、境界のちょうどで食い違う。ビルド設定が「未来記事も無条件にビルド」
+ * のときは公開予定日時の上限が外れる＝ビルドすれば live になるので、②は
+ * not_built に倒す。
+ */
+async function classifyNotLive(
+  env: Env,
+  did: string,
+): Promise<"not_built" | "scheduled" | "expired"> {
+  const row = await env.DB.prepare(
+    `SELECT CASE WHEN datetime(publish_at) > datetime('now') THEN 1 ELSE 0 END AS pending,
+            CASE WHEN unpublish_at IS NOT NULL
+                  AND datetime(unpublish_at) <= datetime('now') THEN 1 ELSE 0 END AS expired
+       FROM documents WHERE did = ?`,
+  )
+    .bind(did)
+    .first<{ pending: number; expired: number }>();
+  if (!row) return "not_built";
+  if (row.expired === 1) return "expired";
+  if (row.pending === 1 && (await getBuildMode(env)) !== "always")
+    return "scheduled";
+  return "not_built";
+}
+
 type BlueskyPostResult =
   | { ok: true; postedAt: string }
   | {
@@ -4711,6 +4746,8 @@ type BlueskyPostResult =
         | "not_found"
         | "draft"
         | "not_built"
+        | "scheduled"
+        | "expired"
         | "already_posted"
         | "cover_failed"
         | "post_failed";
@@ -4874,7 +4911,9 @@ async function postBlueskyForDoc(
   if (doc.mode !== 1) return { ok: false, code: "draft" };
   // live は「ビルド済みで公開 URL が実際に配信されている」印。これが
   // 立つ前に投稿すると、死んだリンクを共有することになる。
-  if (doc.live !== 1) return { ok: false, code: "not_built" };
+  // 立っていない理由は 3 つあるので言い分ける（classifyNotLive 参照）。
+  if (doc.live !== 1)
+    return { ok: false, code: await classifyNotLive(env, did) };
   if (doc.sns_bsky_posted_at) return { ok: false, code: "already_posted" };
 
   const tl = await env.DB.prepare(
@@ -4947,6 +4986,14 @@ async function postDocumentToBluesky(
     not_built: [
       409,
       "This article is published but not built yet. Run a build first.",
+    ],
+    scheduled: [
+      409,
+      "This article's publish date/time has not arrived yet, so building cannot publish it. Change the publish date/time, or switch the build mode to build future-dated articles.",
+    ],
+    expired: [
+      409,
+      "This article's unpublish date/time has passed, so it is no longer published. Clear the unpublish date/time or move it further out.",
     ],
     already_posted: [409, "This article was already posted to Bluesky."],
     cover_failed: [502, "The cover image could not be prepared for Bluesky."],
@@ -5332,6 +5379,8 @@ type XPostResult =
         | "not_found"
         | "draft"
         | "not_built"
+        | "scheduled"
+        | "expired"
         | "already_posted"
         | "cover_failed"
         | "post_failed"
@@ -5397,7 +5446,9 @@ async function postXForDoc(env: Env, did: string): Promise<XPostResult> {
   if (doc.mode !== 1) return { ok: false, code: "draft" };
   // live は「ビルド済みで公開 URL が実際に配信されている」印。これが
   // 立つ前に投稿すると、死んだリンクを共有することになる。
-  if (doc.live !== 1) return { ok: false, code: "not_built" };
+  // 立っていない理由は 3 つあるので言い分ける（classifyNotLive 参照）。
+  if (doc.live !== 1)
+    return { ok: false, code: await classifyNotLive(env, did) };
   if (doc.sns_x_posted_at) return { ok: false, code: "already_posted" };
 
   const tl = await env.DB.prepare(
@@ -5499,6 +5550,14 @@ async function postDocumentToX(
     not_built: [
       409,
       "This article is published but not built yet. Run a build first.",
+    ],
+    scheduled: [
+      409,
+      "This article's publish date/time has not arrived yet, so building cannot publish it. Change the publish date/time, or switch the build mode to build future-dated articles.",
+    ],
+    expired: [
+      409,
+      "This article's unpublish date/time has passed, so it is no longer published. Clear the unpublish date/time or move it further out.",
     ],
     already_posted: [409, "This article was already posted to X."],
     cover_failed: [502, "The cover image could not be prepared for X."],
@@ -5615,6 +5674,8 @@ type ThreadsPostResult =
         | "not_found"
         | "draft"
         | "not_built"
+        | "scheduled"
+        | "expired"
         | "already_posted"
         | "post_failed";
     };
@@ -5683,7 +5744,9 @@ async function postThreadsForDoc(
   if (doc.mode !== 1) return { ok: false, code: "draft" };
   // live は「ビルド済みで公開 URL が実際に配信されている」印。これが
   // 立つ前に投稿すると、死んだリンクを共有することになる。
-  if (doc.live !== 1) return { ok: false, code: "not_built" };
+  // 立っていない理由は 3 つあるので言い分ける（classifyNotLive 参照）。
+  if (doc.live !== 1)
+    return { ok: false, code: await classifyNotLive(env, did) };
   // The flag was already CLAIMED by postDocumentToThreads before this job was
   // queued (it doubles as the in-flight lock), so a set value here is our own
   // claim — not a prior post. Don't bail out as already_posted.
@@ -5783,6 +5846,14 @@ async function postDocumentToThreads(
       409,
       "This article is published but not built yet. Run a build first.",
     ],
+    scheduled: [
+      409,
+      "This article's publish date/time has not arrived yet, so building cannot publish it. Change the publish date/time, or switch the build mode to build future-dated articles.",
+    ],
+    expired: [
+      409,
+      "This article's unpublish date/time has passed, so it is no longer published. Clear the unpublish date/time or move it further out.",
+    ],
     already_posted: [409, "This article was already posted to Threads."],
     post_failed: [502, "Posting to Threads failed. Check your access token."],
   };
@@ -5816,7 +5887,7 @@ async function postDocumentToThreads(
     }>();
   if (!doc) fail("not_found");
   if (doc!.mode !== 1) fail("draft");
-  if (doc!.live !== 1) fail("not_built");
+  if (doc!.live !== 1) fail(await classifyNotLive(env, did));
   if (doc!.sns_threads_posted_at) fail("already_posted");
 
   // Atomically CLAIM the posted flag BEFORE queueing the background job. This

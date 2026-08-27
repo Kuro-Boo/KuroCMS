@@ -263,6 +263,15 @@ export function adminHtml(
       .statusDraft { background: rgba(120,120,120,.12); color: var(--muted); }
       .statusPublished { background: rgba(21,122,110,.12); color: var(--accent); }
       .statusHidden { background: rgba(239,68,68,.12); color: var(--danger); }
+      /* 行の「ビルド状態」バッジ — 公開フラグ(mode)が公開サイトに実体化(live)
+         されているか。⚠ 隣の公開/下書きバッジは mode しか表さないので、これが
+         無いと「公開なのにサイトに出ない」理由（未ビルド／公開待ち／公開終了）
+         が画面のどこにも現れない。 */
+      .buildState { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 10px; font-weight: 700; }
+      .buildStateOk { background: rgba(21,122,110,.12); color: var(--accent); }
+      .buildStateWarn { background: rgba(245,158,11,.15); color: #b45309; }
+      [data-theme="dark"] .buildStateWarn { color: #fbbf24; }
+      .buildStateBad { background: rgba(239,68,68,.12); color: var(--danger); }
       .artMeta2 { font-size: 11px; color: var(--muted); }
       .artsToolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; width: 100%; box-sizing: border-box; overflow: hidden; }
       .artTitleLink { font-weight: 700; font-size: 13px; color: var(--ink); text-decoration: none; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }

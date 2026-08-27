@@ -644,6 +644,11 @@ async function articles() {
         if (d && typeof d.mode === "string") {
           lastMode = d.mode;
           buildModeSel.value = d.mode;
+          // 一覧より後に届く。ビルド状態バッジの意味が変わるので描き直す。
+          if (listBuildMode !== d.mode) {
+            listBuildMode = d.mode;
+            if (allDocs.length) renderList();
+          }
         }
       })
       .catch(function () {});
@@ -663,6 +668,8 @@ async function articles() {
       })
         .then(function () {
           lastMode = mode;
+          listBuildMode = mode;
+          if (allDocs.length) renderList();
         })
         .catch(function () {
           buildModeSel.value = prev; // revert on failure
@@ -1142,6 +1149,12 @@ function formatDateShort(value: Dynamic) {
 // final backstop either way).
 const snsPosting = new Set<string>();
 
+// ビルド設定（manual / auto / always）。行の「ビルド状態」バッジの判定に要る:
+// always（未来記事も無条件にビルド）では公開予定日時の上限が外れる＝公開待ちの
+// 記事もビルドで live になるので、"公開待ち" として扱ってはいけない。
+// 既定は manual —— 取得前に一覧が描かれても、実物と一致する側に倒しておく。
+let listBuildMode = "manual";
+
 function renderArticleTable(documents: Dynamic) {
   if (!documents || !documents.length)
     return "<div class='emptyState'>" + escapeHtml(t("noDocuments")) + "</div>";
@@ -1175,7 +1188,57 @@ function renderArticleTable(documents: Dynamic) {
           escapeHtml(t("langsSuffix")) +
           "</span>"
         : "";
-    const pubDate = formatDateShort(doc.publish_at);
+    // 公開日は日付だけを出すが、公開予定日時がまだ来ていない記事だけは時刻も
+    // 添える。⚠ 日付だけだと「今日付なのに公開されない（＝時刻が未来）」が
+    // 画面から読み取れず、ビルドを繰り返す羽目になる（SNS 投稿の scheduled
+    // エラーと同じ問題。src/api.ts の classifyNotLive を参照）。
+    const pubAt = doc.publish_at ? new Date(doc.publish_at) : null;
+    const scheduled =
+      !!pubAt && !Number.isNaN(pubAt.getTime()) && pubAt.getTime() > Date.now();
+    const pubDate =
+      scheduled && pubAt
+        ? pubAt.toLocaleDateString() +
+          " " +
+          pubAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+        : formatDateShort(doc.publish_at);
+
+    // ── ビルド状態 ──────────────────────────────────────────────────────────
+    // 隣の公開/下書きバッジは mode（公開フラグ）＝「こうしたい」であって、
+    // 公開サイトの現状ではない。実体化した印は live で、ビルドが完了して
+    // はじめて立つ。⚠ この 2 つの食い違いが画面に出ていなかったため、
+    // 「公開なのにサイトに出ない・SNS へ投稿できない」の理由が読み取れず、
+    // 効かないビルドを繰り返すことになっていた（scheduled の場合、何度
+    // ビルドしても公開予定日時が来るまで live は立たない）。
+    const unpubAt = doc.unpublish_at ? new Date(doc.unpublish_at) : null;
+    const expired =
+      !!unpubAt &&
+      !Number.isNaN(unpubAt.getTime()) &&
+      unpubAt.getTime() <= Date.now();
+    // 次のビルドが live をどちらに倒すか（src/public.ts の liveCaseSql と同じ条件。
+    // always は公開予定日時の上限が外れる）。
+    const shouldBeLive =
+      isPublished && !expired && (!scheduled || listBuildMode === "always");
+    const buildState = (function () {
+      if (doc.live === 1)
+        return shouldBeLive
+          ? { cls: "buildStateOk", label: t("buildStateBuilt") }
+          : // 下書きに戻した／公開終了日時を過ぎたが、まだビルドしていない
+            // ＝サイトにはまだ出たまま。
+            { cls: "buildStateBad", label: t("buildStateStillLive") };
+      if (!isPublished) return null; // 下書きが出ていないのは正常 —— 印は要らない
+      if (expired)
+        return { cls: "buildStateBad", label: t("buildStateExpired") };
+      if (!shouldBeLive)
+        return { cls: "buildStateWarn", label: t("buildStatePending") };
+      return { cls: "buildStateWarn", label: t("buildStateUnbuilt") };
+    })();
+    const buildStateBadge = buildState
+      ? "<span class='buildState " +
+        buildState.cls +
+        "'>" +
+        escapeHtml(buildState.label) +
+        "</span>"
+      : "";
     const updText = doc.updated_at
       ? "<span class='artMeta2'>(" +
         formatDateShort(doc.updated_at) +
@@ -1315,6 +1378,7 @@ function renderArticleTable(documents: Dynamic) {
         "'>" +
         escapeHtml(modeLbl) +
         "</span>" +
+        buildStateBadge +
         "<button class='artModeBtn' data-did='" +
         escapeHtml(doc.did) +
         "' data-mode='" +
@@ -1357,6 +1421,11 @@ function renderArticleTable(documents: Dynamic) {
       "' style='display:block;margin-bottom:3px'>" +
       escapeHtml(modeLbl) +
       "</span>" +
+      (buildStateBadge
+        ? "<span style='display:block;margin-bottom:3px'>" +
+          buildStateBadge +
+          "</span>"
+        : "") +
       "<button class='artModeBtn' data-did='" +
       escapeHtml(doc.did) +
       "' data-mode='" +
