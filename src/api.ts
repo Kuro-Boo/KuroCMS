@@ -35,6 +35,7 @@ import { normalizeContentHtml, inspectContentHtml } from "./normalize.js";
 import { checkRecipeCards } from "./recipe-guard.js";
 import { entamyPort } from "./entamy-port";
 import { KUROCMS_VERSION } from "./version";
+import { isValidTimeZone } from "./timezone";
 import { COMMUNITY_SHARED_PAT } from "./community-secret";
 import { verifyRegistration, verifyAuthentication } from "./webauthn";
 // migrations/ を順番どおりに適用した最終形（スキーマの正本）。ビルド時生成。
@@ -4516,6 +4517,9 @@ async function settings(
         xLinkInReply: (row?.x_link_in_reply as number | undefined) !== 0,
         mobileMediaFullWidth:
           (row?.mobile_media_full_width as number | undefined) === 1,
+        // サイトの時計（IANA 名）。"" = UTC。月アーカイブの区切りと公開ページの
+        // 日付表示の両方がこの値で決まる（src/timezone.ts）。
+        siteTimezone: (row?.site_timezone as string | undefined) ?? "",
         threadsTokenSet: !!(row?.threads_token as string | undefined),
         siteIsPublished: (row?.site_is_published as number | undefined) === 1,
         templateId: (row?.template_id as string | undefined) ?? "",
@@ -4565,6 +4569,10 @@ async function settings(
     const mobileMediaFullWidth =
       body.mobileMediaFullWidth === true ||
       body.mobileMediaFullWidth === "true";
+    // サイトの時計。IANA 名（"" = UTC）。ビルド出力を変える設定なので、
+    // 変更後は全ページの再ビルドが要る（設定画面が案内する）。
+    const hasSiteTimezone = "siteTimezone" in body;
+    const siteTimezone = (optionalString(body, "siteTimezone") ?? "").trim();
 
     if (publicDomain) validateDomain(publicDomain, "publicDomain");
     if (ga4MeasurementId && !/^G-[A-Z0-9]+$/.test(ga4MeasurementId)) {
@@ -4579,6 +4587,13 @@ async function settings(
     validateHexColor(themeAccent, "themeAccent");
     validateHexColor(themeSidebar, "themeSidebar");
     validateHexColor(themeMainPane, "themeMainPane");
+    if (hasSiteTimezone && !isValidTimeZone(siteTimezone)) {
+      throw new HttpError(
+        400,
+        "invalid_field",
+        "siteTimezone must be an IANA time zone name (e.g. Asia/Tokyo), or empty for UTC.",
+      );
+    }
 
     const settingsToSave: Record<string, string | number> = {
       site_name: siteName,
@@ -4609,6 +4624,7 @@ async function settings(
     if (hasXLinkInReply) settingsToSave.x_link_in_reply = xLinkInReply ? 1 : 0;
     if (hasMobileMediaFullWidth)
       settingsToSave.mobile_media_full_width = mobileMediaFullWidth ? 1 : 0;
+    if (hasSiteTimezone) settingsToSave.site_timezone = siteTimezone;
     await saveSettings(env, settingsToSave);
 
     // 公開フラグは本来 PUT /api/v1/published の担当（テンプレート系の一族に
@@ -11818,6 +11834,7 @@ const SETTINGS_COLS = new Set([
   "x_access_secret",
   "x_link_in_reply",
   "mobile_media_full_width",
+  "site_timezone",
   "sns_auto_post",
   "threads_token",
   "threads_user_id",

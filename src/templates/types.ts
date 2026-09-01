@@ -6,7 +6,7 @@ export interface ArticleCardData {
   title: string;
   summary: string;
   publishAt: string;
-  /** Build-time fallback date. Public templates hydrate it from publishAt in the browser timezone. */
+  /** Build-time fallback date. Public templates hydrate it from publishAt in the SITE timezone. */
   date: string;
   /** Build-time fallback day of month without leading zero. */
   dateDay: string;
@@ -116,4 +116,11 @@ export interface RenderContext {
   article?: ArticleData;
   lang: string;
   basePath: string;
+  /**
+   * サイトの時計（IANA 名。既定 "UTC"）。日付の hydration はこの TZ で行う。
+   * ⚠ 閲覧者のローカル TZ で整形しないこと —— 月アーカイブの区切りはビルド時に
+   * この TZ で決まっており、閲覧者ごとに日付が動くと「8 月のアーカイブに 9/1 の
+   * 記事」が生まれる（src/timezone.ts）。
+   */
+  timezone?: string;
 }

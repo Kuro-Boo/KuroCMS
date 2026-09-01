@@ -171,6 +171,54 @@ async function settings() {
     defaultSelect.value = list.includes(nd) ? nd : list[0];
   }
 
+  /**
+   * サイトの時計の選択肢。値 "" = UTC（既定）。
+   * ⚠ ここで選んだ TZ が「月アーカイブの区切り」と「公開ページに出る日付」の
+   *   両方を決める。以前はこの 2 つが別々の時計（UTC とブラウザ）で動いていて、
+   *   8 月のアーカイブに 9/1 の記事が混ざっていた。
+   */
+  function renderTimezoneSelect(current: string) {
+    const select = byId("siteTimezone");
+    if (!select) return;
+    let zones: string[] = [];
+    try {
+      const supported = (Intl as Dynamic).supportedValuesOf;
+      if (typeof supported === "function")
+        zones = supported.call(Intl, "timeZone") as string[];
+    } catch {
+      zones = [];
+    }
+    let browserZone: string;
+    try {
+      browserZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+    } catch {
+      browserZone = "";
+    }
+    // supportedValuesOf が無いブラウザでも、少なくとも今の値とこの端末の TZ は
+    // 選べるようにする（選択肢に無い値を保存で失うのが一番まずい）。
+    const list = Array.from(
+      new Set([...zones, browserZone, current].filter(Boolean)),
+    ).sort();
+    select.innerHTML =
+      "<option value=''>" +
+      escapeHtml(t("siteTimezoneUtc")) +
+      "</option>" +
+      list
+        .map(
+          (z) =>
+            "<option value='" +
+            escapeHtml(z) +
+            "'>" +
+            escapeHtml(z) +
+            "</option>",
+        )
+        .join("");
+    select.value = current || "";
+    const note = byId("siteTimezoneNote");
+    if (note && browserZone)
+      note.textContent = t("siteTimezoneDetected").replace("{tz}", browserZone);
+  }
+
   const tabBar = ["basic", "sns", "mobile", "license", "import"]
     .map((id) => {
       const labels: Record<string, string> = {
@@ -243,6 +291,14 @@ async function settings() {
       "<div class='muted'>" +
       escapeHtml(t("defaultLanguageHelp")) +
       "</div><select id='defaultLang' required></select></label>" +
+      // サイトの時計。月アーカイブの区切りと公開ページの日付表示の両方が
+      // これで決まる（未設定 = UTC）。ビルド出力を変えるので再ビルドが要る。
+      "<label>" +
+      escapeHtml(t("siteTimezone")) +
+      "<div class='muted'>" +
+      escapeHtml(t("siteTimezoneHelp")) +
+      "</div><select id='siteTimezone'></select></label>" +
+      "<div class='muted' id='siteTimezoneNote' style='font-size:12px'></div>" +
       "<button>" +
       escapeHtml(t("saveSiteSettings")) +
       "</button>" +
@@ -1098,6 +1154,7 @@ async function settings() {
     }
     byId("xLinkInReply")!.checked = s.xLinkInReply !== false;
     byId("mobileMediaFullWidth")!.checked = s.mobileMediaFullWidth === true;
+    renderTimezoneSelect(String(s.siteTimezone || ""));
     if (s.threadsTokenSet) {
       byId("threadsToken")!.placeholder =
         "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022 \u2713";
@@ -2346,6 +2403,8 @@ async function settings() {
             // siteName 等を必須にしているので、この 1 項目だけを送る部分更新は
             // できない。他タブと同じ saveAll に相乗りさせる。
             mobileMediaFullWidth: !!byId("mobileMediaFullWidth")?.checked,
+            // サイトの時計。ビルド出力を変えるので、保存後は全ページの再ビルドが要る。
+            siteTimezone: byId("siteTimezone")?.value ?? "",
             xLinkInReply: !!byId("xLinkInReply")?.checked,
             threadsToken: (byId("threadsToken")?.value || "").trim(),
             ...extraFields,

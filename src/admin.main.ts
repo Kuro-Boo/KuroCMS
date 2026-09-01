@@ -839,6 +839,11 @@ const i18n = {
     settingsTabSns: "SNS",
     settingsTabMobile: "Mobile",
     settingsTabLicense: "License",
+    siteTimezone: "Site time zone",
+    siteTimezoneHelp:
+      "The clock your site keeps. It decides which calendar month an article belongs to in the archive filter, and the date shown on public pages — both for every visitor, wherever they are. Leave it on UTC only if that is really your editorial time zone. Changing it changes generated HTML, so run a build (all pages) afterwards.",
+    siteTimezoneUtc: "UTC (default)",
+    siteTimezoneDetected: "This browser is in {tz}.",
     mobileTitle: "Mobile layout (site build)",
     mobileIntro:
       "These settings change the HTML that the SITE BUILD generates for your public pages. They do not affect the KuroCMS admin screens or the editor — what you see while writing stays exactly the same.",
@@ -1848,6 +1853,11 @@ const i18n = {
     settingsTabSns: "SNS連動",
     settingsTabMobile: "スマホ設定",
     settingsTabLicense: "ライセンス表示",
+    siteTimezone: "サイトのタイムゾーン",
+    siteTimezoneHelp:
+      "サイトが使う時計です。記事一覧の月による絞り込みでどの月に入るか、公開ページに出る日付がいつになるか——この 2 つを、どこから見ている閲覧者に対しても同じにします。日本で運用しているなら Asia/Tokyo を選んでください（UTC のままだと、日本時間 0:00〜8:59 に公開した記事が前の月のアーカイブに入り、9/1 の記事が 8 月に混ざります）。生成される HTML が変わるので、変更後はビルド（全ページ）を実行してください。",
+    siteTimezoneUtc: "UTC（既定）",
+    siteTimezoneDetected: "このブラウザのタイムゾーンは {tz} です。",
     mobileTitle: "スマホ向けレイアウト（サイトビルドの設定）",
     mobileIntro:
       "ここの設定は、サイトビルドが生成する公開ページの HTML を変えるものです。KuroCMS の管理画面やエディタの表示は変わりません（執筆中の見え方はそのままです）。",

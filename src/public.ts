@@ -45,13 +45,20 @@ import { totalMinutes } from "./kuro-recipe.js";
 import { checkRecipeCards } from "./recipe-guard.js";
 import { unfurlSign } from "./unfurl";
 import { json } from "./http";
+import {
+  resolveTimeZone,
+  zonedMonth,
+  currentZonedMonth,
+  monthRangeUtc,
+  zonedDateParts,
+} from "./timezone";
 import type { Env, JsonValue } from "./types";
 
 // Bump when the page-rendering OUTPUT changes in a way the per-page source_hash
 // can't see (e.g. the <head> content-CSS <link>, template-model shape). The
 // build salts every page hash with this, so cached builds are invalidated and
 // all pages regenerate even when their underlying content is unchanged.
-const RENDER_FORMAT_VERSION = "27";
+const RENDER_FORMAT_VERSION = "28";
 
 /** Cheap, synchronous string hash (FNV-1a, base36) for cache keys. Not crypto. */
 /**
@@ -201,6 +208,13 @@ interface SettingsMap {
    *  する CSS を入れ、YouTube はオーバーレイではなくその場で再生させる。 */
   mobile_media_full_width?: string;
   /**
+   * サイトの時計（IANA 名。"" = UTC）。月アーカイブの区切りも、公開ページに
+   * 出る日付も、これ 1 つで決まる。⚠ ここが空だった頃は「区切り = UTC /
+   * 表示 = 閲覧者のローカル TZ」の 2 つの時計が並走していて、JST 00:00〜08:59
+   * の記事が前月のアーカイブに落ちていた（src/timezone.ts の冒頭に経緯）。
+   */
+  site_timezone?: string;
+  /**
    * Content generation stamp — changes whenever anything that renders into a
    * public page changes (articles, site texts, categories, settings, template).
    * Mixed into the edge cache key so a change ORPHANS every cached object
@@ -244,6 +258,10 @@ async function fetchSettings(env: Env): Promise<SettingsMap> {
   // 列を足す前の install でも公開ページを落とさないよう、他の後付け列と同じく
   // 別グループで問い合わせてフォールバックする。
   const GEN_MOBILE = `mobile_media_full_width`;
+  // site_timezone は migration 0069 から。mobile_media_full_width(0066) より
+  // 新しいので別グループにする —— 一緒にすると 0066 済み 0069 未の install で
+  // mobile 側まで道連れに落ちる。
+  const GEN_TZ = `site_timezone`;
   // CORE: tables/columns guaranteed by migration 0001 — this variant cannot fail
   // on any schema old enough to serve pages at all.
   const GEN_CORE = `updated_at AS settings_ts,
@@ -279,6 +297,7 @@ async function fetchSettings(env: Env): Promise<SettingsMap> {
       base_font: string;
       font_configs_json: string;
       mobile_media_full_width?: number;
+      site_timezone?: string;
       settings_ts: string;
       doc_ts: string;
       doc_n: number;
@@ -290,15 +309,21 @@ async function fetchSettings(env: Env): Promise<SettingsMap> {
   let row: Awaited<ReturnType<typeof read>>;
   try {
     row = await read(
-      `${BASE_COLS}, ${GEN_MOBILE},\n            ${GEN_CORE},\n            ${GEN_CAT},\n            ${GEN_BUILD}`,
+      `${BASE_COLS}, ${GEN_MOBILE}, ${GEN_TZ},\n            ${GEN_CORE},\n            ${GEN_CAT},\n            ${GEN_BUILD}`,
     );
   } catch {
     try {
       row = await read(
-        `${BASE_COLS},\n            ${GEN_CORE},\n            ${GEN_BUILD}`,
-      ); // categories / mobile_media_full_width 以前の install
+        `${BASE_COLS}, ${GEN_MOBILE},\n            ${GEN_CORE},\n            ${GEN_CAT},\n            ${GEN_BUILD}`,
+      ); // site_timezone 以前の install
     } catch {
-      row = await read(`${BASE_COLS},\n            ${GEN_CORE}`); // page_build_cache 以前の install
+      try {
+        row = await read(
+          `${BASE_COLS},\n            ${GEN_CORE},\n            ${GEN_BUILD}`,
+        ); // categories / mobile_media_full_width 以前の install
+      } catch {
+        row = await read(`${BASE_COLS},\n            ${GEN_CORE}`); // page_build_cache 以前の install
+      }
     }
   }
   let basePath = "";
@@ -322,6 +347,7 @@ async function fetchSettings(env: Env): Promise<SettingsMap> {
     base_font: row?.base_font || "",
     font_configs_json: row?.font_configs_json || "{}",
     mobile_media_full_width: row?.mobile_media_full_width === 1 ? "1" : "",
+    site_timezone: row?.site_timezone || "",
     // Short, opaque stamp — only ever compared for change, never interpreted.
     // Include template_id too: switching template swaps every page's markup and
     // (on an unchanged template row) would not move any updated_at.
@@ -961,6 +987,7 @@ async function resolveTemplateDataRefs(
   lang: string,
   defaultLang: string,
   filter: PubFilter,
+  tz: string,
   prefetch?: RenderPrefetch,
 ): Promise<Record<string, unknown[]>> {
   const refs = [
@@ -990,7 +1017,7 @@ async function resolveTemplateDataRefs(
           n,
           filter,
         );
-        out[ref] = rows.map((r) => toArticleCard(r, basePath));
+        out[ref] = rows.map((r) => toArticleCard(r, basePath, tz));
       } else if (kind === "category" && slug) {
         const rows = await fetchArticlesByCategory(
           env,
@@ -1001,7 +1028,7 @@ async function resolveTemplateDataRefs(
           n,
           filter,
         );
-        out[ref] = rows.map((r) => toArticleCard(r, basePath));
+        out[ref] = rows.map((r) => toArticleCard(r, basePath, tz));
       } else if (kind === "articles" && slug === "latest") {
         const rows = await fetchPublishedArticles(
           env,
@@ -1011,7 +1038,7 @@ async function resolveTemplateDataRefs(
           n,
           filter,
         );
-        out[ref] = rows.map((r) => toArticleCard(r, basePath));
+        out[ref] = rows.map((r) => toArticleCard(r, basePath, tz));
       } else {
         // 未知の参照は空配列 → [[#each]] は何も出さない（テンプレートは壊れない）。
         out[ref] = [];
@@ -1033,6 +1060,7 @@ async function expandContentRefs(
   filter: PubFilter = "live",
 ): Promise<TemplateContent> {
   const allHtml = Object.values(content).join("\n");
+  const tz = resolveTimeZone(settings?.site_timezone);
 
   // ── Data refs: [[type:all]], [[category:all]], [[articles:latest:N]], etc. ──
   const dataRefPattern = /\[\[([a-z0-9_-]+(?::[a-z0-9_-]*)+)\]\]/g;
@@ -1060,7 +1088,7 @@ async function expandContentRefs(
             filter,
           );
           dataExpanded[ref] = JSON.stringify(
-            rows.map((r) => toArticleCard(r, basePath)),
+            rows.map((r) => toArticleCard(r, basePath, tz)),
           );
         } else if (parts[0] === "category" && parts[1] === "all") {
           const rows =
@@ -1079,7 +1107,7 @@ async function expandContentRefs(
             filter,
           );
           dataExpanded[ref] = JSON.stringify(
-            rows.map((r) => toArticleCard(r, basePath)),
+            rows.map((r) => toArticleCard(r, basePath, tz)),
           );
         } else if (parts[0] === "articles" && parts[1] === "latest") {
           const n = parseInt(parts[2] || "10", 10);
@@ -1092,7 +1120,7 @@ async function expandContentRefs(
             filter,
           );
           dataExpanded[ref] = JSON.stringify(
-            rows.map((r) => toArticleCard(r, basePath)),
+            rows.map((r) => toArticleCard(r, basePath, tz)),
           );
         } else if (parts[0] === "article" && parts[1]) {
           const r = await env.DB.prepare(
@@ -1568,7 +1596,16 @@ async function fetchArticlesLatest(
   });
 }
 
-/** All articles published within a single calendar month (month = 'YYYY-MM'). */
+/**
+ * All articles published within a single calendar month of the SITE timezone
+ * (month = 'YYYY-MM').
+ *
+ * ⚠ 月の切り出しを SQL の `strftime('%Y-%m', ...)` でやらないこと。あれは
+ * publish_at を UTC で読むので、JST 00:00〜08:59 の記事が前月に落ちる（それが
+ * 「8 月を選ぶと 9/1 が出る」の正体）。`datetime(x,'+9 hours')` のような固定
+ * オフセットもだめで、DST のある TZ では行ごとに正解が違う。月 → UTC 区間の
+ * 変換は timezone.ts に任せ、SQL には境界 2 つだけを渡す（半開区間）。
+ */
 async function fetchArticlesByMonth(
   env: Env,
   scope: ArticleScope,
@@ -1576,10 +1613,13 @@ async function fetchArticlesByMonth(
   lang: string,
   defaultLang = "",
   filter: PubFilter = "live",
+  tz = "UTC",
 ): Promise<ArticleRow[]> {
+  const range = monthRangeUtc(month, tz);
+  if (!range) return [];
   return fetchArticlesScoped(env, scope, lang, defaultLang, {
-    extraWhere: `AND strftime('%Y-%m', datetime(d.publish_at)) = ?`,
-    extraBinds: [month],
+    extraWhere: `AND datetime(d.publish_at) >= datetime(?) AND datetime(d.publish_at) < datetime(?)`,
+    extraBinds: [range.startIso, range.endIso],
     filter,
   });
 }
@@ -1588,22 +1628,31 @@ async function fetchArticlesByMonth(
  * Completed months (descending) that have at least one published article in the
  * scope. The current month is excluded — its posts live in the latest view and
  * never get a (mutable) archive page.
+ *
+ * 月はサイトの TZ で数える（fetchArticlesByMonth と同じ理由）。SQL は
+ * publish_at をそのまま返し、バケット分けは JS で行う。返るのは 1 列だけで、
+ * ビルドはどのみち全記事の本文を読むので、この読み出しは相対的に無視できる。
  */
 async function fetchDistinctMonths(
   env: Env,
   scope: ArticleScope,
   filter: PubFilter = "live",
+  tz = "UTC",
 ): Promise<string[]> {
   const sc = scopeFromSql(scope);
   const rows = await env.DB.prepare(
-    `SELECT DISTINCT strftime('%Y-%m', datetime(d.publish_at)) AS ym FROM documents d ${sc.sql} ` +
-      `WHERE ${publishedSql("d.", filter)} ` +
-      `AND strftime('%Y-%m', datetime(d.publish_at)) < strftime('%Y-%m', 'now') ` +
-      `ORDER BY ym DESC`,
+    `SELECT d.publish_at AS publish_at FROM documents d ${sc.sql} ` +
+      `WHERE ${publishedSql("d.", filter)}`,
   )
     .bind(...sc.binds)
-    .all<{ ym: string }>();
-  return (rows.results ?? []).map((r) => r.ym).filter(Boolean);
+    .all<{ publish_at: string }>();
+  const cur = currentZonedMonth(tz);
+  const months = new Set<string>();
+  for (const r of rows.results ?? []) {
+    const ym = zonedMonth(r.publish_at, tz);
+    if (ym && ym < cur) months.add(ym);
+  }
+  return Array.from(months).sort().reverse();
 }
 
 /** Live article count per category slug — for the single shared counts KV value. */
@@ -2165,6 +2214,7 @@ function monthLabel(ym: string, lang: string): string {
   if (!y || !m) return ym;
   try {
     return new Intl.DateTimeFormat(lang, {
+      timeZone: "UTC", // ラベルは 'YYYY-MM' の literal 表示。Date.UTC と揃える。
       year: "numeric",
       month: "long",
     }).format(new Date(Date.UTC(y, m - 1, 1)));
@@ -2219,7 +2269,11 @@ function buildArchivesWidget(opts: {
 
 // ─── Data assembly ────────────────────────────────────────────────────────────
 
-function toArticleCard(r: ArticleRow, basePath: string): ArticleCardData {
+function toArticleCard(
+  r: ArticleRow,
+  basePath: string,
+  tz: string,
+): ArticleCardData {
   let coverUrl: string | null = null;
   if (r.seo_json) {
     try {
@@ -2237,7 +2291,7 @@ function toArticleCard(r: ArticleRow, basePath: string): ArticleCardData {
       /* ignore */
     }
   }
-  const d = formatCardDate(r.publish_at);
+  const d = formatCardDate(r.publish_at, tz);
   return {
     slug: r.slug,
     tid: r.tid,
@@ -2255,28 +2309,31 @@ function toArticleCard(r: ArticleRow, basePath: string): ArticleCardData {
 
 const JP_WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
 
-/** Build-time fallback only. Visible public dates are hydrated in the browser
- *  from `publishAt`, so they follow the visitor's local timezone. */
-function formatCardDate(iso: string | null | undefined): {
+/** Build-time fallback text for `<time>`; hydration re-formats it in the
+ *  visitor's LOCALE but in the SAME (site) timezone, so this and the hydrated
+ *  text always name the same calendar day.
+ *  ⚠ `new Date(iso).getFullYear()` を使わないこと。Worker のローカルは UTC で、
+ *  JST 00:00〜08:59 の記事が前日として焼き込まれ、hydration 後の表示と 1 日
+ *  ずれる（月アーカイブの区切りともずれる）。 */
+function formatCardDate(
+  iso: string | null | undefined,
+  tz: string,
+): {
   date: string;
   day: string;
   ym: string;
   weekday: string;
 } {
-  if (!iso) return { date: "", day: "", ym: "", weekday: "" };
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime()))
-    return { date: "", day: "", ym: "", weekday: "" };
-  const y = d.getFullYear();
-  const m = d.getMonth() + 1;
-  const day = d.getDate();
+  const parts = zonedDateParts(iso, tz);
+  if (!parts) return { date: "", day: "", ym: "", weekday: "" };
+  const { year: y, month: m, day } = parts;
   const mm = String(m).padStart(2, "0");
   const dd = String(day).padStart(2, "0");
   return {
     date: `${y}年${mm}月${dd}日`,
     day: String(day),
     ym: `${y}年${m}月`,
-    weekday: JP_WEEKDAYS[d.getDay()],
+    weekday: JP_WEEKDAYS[parts.weekday],
   };
 }
 
@@ -2291,6 +2348,9 @@ async function buildRenderContext(
   staticPages: StaticPageDefinition[] = [],
 ): Promise<RenderContext | null> {
   const basePath = settings.base_path || "";
+  // サイトの時計。ここで 1 度だけ解決して、月の区切り・カードの日付・記事の
+  // 日付・hydration スクリプトの全部に同じ値を配る（2 つの時計を作らない）。
+  const tz = resolveTimeZone(settings.site_timezone);
   const LIMIT = 30;
 
   const [rawContent, types, categories] = await Promise.all([
@@ -2548,7 +2608,7 @@ async function buildRenderContext(
       publishAt: r.publish_at,
       updatedAt: r.updated_at,
       coverUrl: articleCover,
-      date: formatCardDate(r.publish_at).date,
+      date: formatCardDate(r.publish_at, tz).date,
       authorName: authorName || null,
       // レシピ記事なら本文の RecipeCard(data-recipe = 正本)を読み出してモデルへ。
       // テンプレートは型比較をせず page.isRecipe / article.recipe で分岐する。
@@ -2605,7 +2665,7 @@ async function buildRenderContext(
             : countPublishedArticles(env, filter),
       ]);
       content["_articles"] = JSON.stringify(
-        rows.map((r) => toArticleCard(r, basePath)),
+        rows.map((r) => toArticleCard(r, basePath, tz)),
       );
       content["_pagination"] = JSON.stringify(
         buildPagination(page, total, LIMIT, baseUrl),
@@ -2615,12 +2675,12 @@ async function buildRenderContext(
     const month = params.month || null;
     const [rows, months] = await Promise.all([
       month
-        ? fetchArticlesByMonth(env, scope, month, lang, defaultLang, filter)
+        ? fetchArticlesByMonth(env, scope, month, lang, defaultLang, filter, tz)
         : fetchArticlesLatest(env, scope, lang, defaultLang, filter),
-      fetchDistinctMonths(env, scope, filter),
+      fetchDistinctMonths(env, scope, filter, tz),
     ]);
     content["_articles"] = JSON.stringify(
-      rows.map((r) => toArticleCard(r, basePath)),
+      rows.map((r) => toArticleCard(r, basePath, tz)),
     );
     content["_archives-html"] = buildArchivesWidget({
       scope,
@@ -2656,7 +2716,7 @@ async function buildRenderContext(
   }
   // else: static template page (e.g. /about/) — no article injection needed
 
-  return { path, params, content, article, lang, basePath };
+  return { path, params, content, article, lang, basePath, timezone: tz };
 }
 
 /** Languages for which an article has a translation (for the switcher gray-out). */
@@ -2743,6 +2803,7 @@ export async function generatePage(
       lang,
       s.default_lang ?? "",
       filter,
+      resolveTimeZone(s.site_timezone),
       prefetch,
     );
     if (Object.keys(refs).length) {
@@ -4264,8 +4325,12 @@ export async function buildDocumentPages(
   // Completed-month archives are immutable, so they only need rebuilding when the
   // affected post belongs to a PAST month (a back-dated publish or an unpublish).
   // Current-month posts live only in the latest view above.
-  const artMonth = (row.publish_at || "").slice(0, 7); // 'YYYY-MM'
-  const curMonth = new Date().toISOString().slice(0, 7);
+  // ⚠ publish_at の先頭 7 文字を切るのは UTC の月。アーカイブの中身はサイト TZ
+  //   で選ばれるので、それだと月末の記事で「作るべきページを作らない／無いページ
+  //   を作る」がずれる。同じ関数で数える。
+  const tz = resolveTimeZone(settings.site_timezone);
+  const artMonth = zonedMonth(row.publish_at, tz);
+  const curMonth = currentZonedMonth(tz);
   if (artMonth && artMonth < curMonth) {
     const [y, m] = artMonth.split("-");
     await writeBundle(`/monthly/${y}/${m}/`, allLangs, { month: artMonth });
@@ -4303,8 +4368,9 @@ export async function rebuildIndexPages(
   for (const t of uniqueTids) {
     await writeBundle(`/${t}/`, allLangs, { type: t });
   }
-  const artMonth = (publishAt || "").slice(0, 7); // 'YYYY-MM'
-  const curMonth = new Date().toISOString().slice(0, 7);
+  const tz = resolveTimeZone(settings.site_timezone);
+  const artMonth = zonedMonth(publishAt, tz);
+  const curMonth = currentZonedMonth(tz);
   if (artMonth && artMonth < curMonth) {
     const [y, m] = artMonth.split("-");
     await writeBundle(`/monthly/${y}/${m}/`, allLangs, { month: artMonth });
@@ -4570,19 +4636,38 @@ export async function buildAllPublicPages(
   // is an immutable `/monthly/YYYY/MM/` page; its hash depends only on that month's
   // articles, so a new (current-month) post never rebuilds past months. The current
   // month is excluded — its posts live in the latest view ("/", "/{type}/").
+  // ⚠ 月の切り出しは SQL でやらない。strftime は publish_at を UTC で読むので、
+  //   サイト TZ で組み立てるアーカイブの中身と署名の対象がずれる（JST 00:00〜
+  //   08:59 の記事が前月に落ちる）。SQL は素の値を返し、バケット分けは JS。
+  const buildTz = resolveTimeZone(settings.site_timezone);
+  const buildCurMonth = currentZonedMonth(buildTz);
   const monthRows = await env.DB.prepare(
-    `SELECT d.tid AS tid, strftime('%Y-%m', datetime(d.publish_at)) AS ym,
-            COUNT(*) AS cnt, COALESCE(MAX(d.updated_at), '') AS ts
+    `SELECT d.tid AS tid, d.publish_at AS publish_at,
+            COALESCE(d.updated_at, '') AS ts
      FROM documents d
-     WHERE ${publishedSql("d.", filter)}
-       AND strftime('%Y-%m', datetime(d.publish_at)) < strftime('%Y-%m', 'now')
-     GROUP BY d.tid, ym`,
-  ).all<{ tid: string; ym: string; cnt: number; ts: string }>();
+     WHERE ${publishedSql("d.", filter)}`,
+  ).all<{ tid: string; publish_at: string; ts: string }>();
   // Per-type: tid → (ym → signature). Home: ym → aggregated signature.
   const typeMonthSig = new Map<string, Map<string, string>>();
   const homeMonthAgg = new Map<string, { cnt: number; ts: string }>();
-  for (const r of monthRows.results ?? []) {
-    if (!r.ym) continue;
+  // (tid, ym) ごとの件数と最新 updated_at —— SQL の GROUP BY を JS で組み直す。
+  const monthAgg = new Map<
+    string,
+    { tid: string; ym: string; cnt: number; ts: string }
+  >();
+  for (const raw of monthRows.results ?? []) {
+    const ym = zonedMonth(raw.publish_at, buildTz);
+    if (!ym || ym >= buildCurMonth) continue; // 今月は最新ビューが持つ
+    const key = `${raw.tid}\u0000${ym}`;
+    const agg = monthAgg.get(key);
+    if (agg) {
+      agg.cnt += 1;
+      if (raw.ts > agg.ts) agg.ts = raw.ts;
+    } else {
+      monthAgg.set(key, { tid: raw.tid, ym, cnt: 1, ts: raw.ts });
+    }
+  }
+  for (const r of monthAgg.values()) {
     let tm = typeMonthSig.get(r.tid);
     if (!tm) {
       tm = new Map();
@@ -4745,7 +4830,11 @@ export async function buildAllPublicPages(
         .map((l) => `${l}=${hashFor(l)}`)
         .join("|") +
       "|" +
-      RENDER_FORMAT_VERSION;
+      RENDER_FORMAT_VERSION +
+      // サイトの時計は全ページの日付表記と hydration スクリプトに焼き込まれる
+      // のに、どのページの内容ハッシュにも現れない。混ぜておかないと TZ を
+      // 変えた次のビルドが「変更なし」と判断して全ページを読み飛ばす。
+      `|tz=${buildTz}`;
     if (cache.get(cacheKey) === combined) {
       skipped++;
       onEvent?.({
@@ -5239,7 +5328,13 @@ export async function buildSitemapXml(env: Env): Promise<string> {
     entries.push({ path: `/category/${c.slug}/`, langs: registered });
   // Completed-month archives (home + per type). Category month pages are served
   // on-demand and omitted to avoid enumerating non-pre-built URLs.
-  const homeMonths = await fetchDistinctMonths(env, { kind: "home" }, filter);
+  const tz = resolveTimeZone(settings.site_timezone);
+  const homeMonths = await fetchDistinctMonths(
+    env,
+    { kind: "home" },
+    filter,
+    tz,
+  );
   for (const ym of homeMonths) {
     const [y, m] = ym.split("-");
     entries.push({ path: `/monthly/${y}/${m}/`, langs: registered });
@@ -5249,6 +5344,7 @@ export async function buildSitemapXml(env: Env): Promise<string> {
       env,
       { kind: "type", slug: t.slug },
       filter,
+      tz,
     );
     for (const ym of tMonths) {
       const [y, m] = ym.split("-");
