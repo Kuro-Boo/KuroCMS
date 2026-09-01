@@ -186,13 +186,21 @@ function localDateTimeHtml(
   );
 }
 
-function localDateHydrationScript(): string {
-  return `<script>(function(){function z(n){return String(n).padStart(2,"0")}function fmt(iso,kind){var d=new Date(iso);if(!isFinite(d.getTime()))return"";var loc=(navigator.languages&&navigator.languages[0])||navigator.language||document.documentElement.lang||undefined;if(kind==="dateDay")return String(d.getDate());if(kind==="dateYm")return new Intl.DateTimeFormat(loc,{year:"numeric",month:"long"}).format(d);if(kind==="dateWeekday")return new Intl.DateTimeFormat(loc,{weekday:"short"}).format(d);try{return new Intl.DateTimeFormat(loc,{year:"numeric",month:"2-digit",day:"2-digit"}).format(d)}catch(e){return d.getFullYear()+"-"+z(d.getMonth()+1)+"-"+z(d.getDate())}}function run(){document.querySelectorAll("time[data-kuro-local-date]").forEach(function(el){var v=fmt(el.getAttribute("data-kuro-local-date")||"",el.getAttribute("data-kuro-date-format")||"date");if(v)el.textContent=v})}if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",run);else run()})();</script>`;
+function localDateHydrationScript(timezone: string): string {
+  // 日付は「サイトの時計」で整形する。ロケール（曜日名・月名・区切り）だけを
+  // 閲覧者に合わせ、どの暦日かは全閲覧者で同じにする。
+  // ⚠ ここを閲覧者のローカル TZ に戻さないこと。月アーカイブの区切りはビルド時
+  //   にサイト TZ で決まっているので、表示だけ動かすと「8 月のアーカイブに 9/1
+  //   の記事」が生まれる（src/timezone.ts の冒頭に経緯）。
+  // Intl が TZ を拒んだ場合は "" を返す = ビルド時に焼いた文字（同じ TZ で
+  // 作ってある）をそのまま残す。
+  const tz = JSON.stringify(timezone || "UTC");
+  return `<script>(function(){var TZ=${tz};function o(x){x.timeZone=TZ;return x}function fmt(iso,kind){var d=new Date(iso);if(!isFinite(d.getTime()))return"";var loc=(navigator.languages&&navigator.languages[0])||navigator.language||document.documentElement.lang||undefined;try{if(kind==="dateDay")return new Intl.DateTimeFormat("en-US",o({day:"numeric"})).format(d);if(kind==="dateYm")return new Intl.DateTimeFormat(loc,o({year:"numeric",month:"long"})).format(d);if(kind==="dateWeekday")return new Intl.DateTimeFormat(loc,o({weekday:"short"})).format(d);return new Intl.DateTimeFormat(loc,o({year:"numeric",month:"2-digit",day:"2-digit"})).format(d)}catch(e){return""}}function run(){document.querySelectorAll("time[data-kuro-local-date]").forEach(function(el){var v=fmt(el.getAttribute("data-kuro-local-date")||"",el.getAttribute("data-kuro-date-format")||"date");if(v)el.textContent=v})}if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",run);else run()})();</script>`;
 }
 
-function injectLocalDateHydration(html: string): string {
+function injectLocalDateHydration(html: string, timezone: string): string {
   if (!html.includes("data-kuro-local-date")) return html;
-  const script = localDateHydrationScript();
+  const script = localDateHydrationScript(timezone);
   return html.includes("</body>")
     ? html.replace("</body>", script + "</body>")
     : html + script;
@@ -361,5 +369,6 @@ export function renderTemplate(source: string, ctx: RenderContext): string {
   const parsed = parseNodes(source);
   return injectLocalDateHydration(
     renderNodes(parsed.nodes, [buildTemplateModel(ctx)]),
+    ctx.timezone || "UTC",
   );
 }
