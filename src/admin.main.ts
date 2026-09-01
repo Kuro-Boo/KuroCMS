@@ -42,6 +42,22 @@ function byId(id: string): AdminElement | null {
   return document.getElementById(id) as AdminElement | null;
 }
 
+/**
+ * このブラウザの IANA タイムゾーン名（取れなければ ""）。
+ *
+ * ⚠ これを「サイトの時計」として**勝手に保存してよいのはセットアップの 1 回だけ**。
+ * 管理画面を開いたブラウザ = サイトの TZ とは限らず（管理者の出張、別の国の
+ * 共同管理者）、保存されると次のビルドで全ページの日付が黙って書き換わる。
+ * 既存サイトでは候補として見せるだけにして、保存は利用者の操作に委ねる。
+ */
+function detectBrowserTimezone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+  } catch {
+    return "";
+  }
+}
+
 function errorMessage(error: unknown, fallback = ""): string {
   if (!(error instanceof Error)) {
     // A thrown non-Error (e.g. a plain object) would otherwise stringify to the
@@ -844,6 +860,8 @@ const i18n = {
       "The clock your site keeps. It decides which calendar month an article belongs to in the archive filter, and the date shown on public pages — both for every visitor, wherever they are. Leave it on UTC only if that is really your editorial time zone. Changing it changes generated HTML, so run a build (all pages) afterwards.",
     siteTimezoneUtc: "UTC (default)",
     siteTimezoneDetected: "This browser is in {tz}.",
+    siteTimezoneAutoSet:
+      "Site time zone set to {tz} (from this browser). Article dates and the monthly archive now follow it — run a build (all pages) to apply it to the public site. You can change it under Settings → Basic.",
     mobileTitle: "Mobile layout (site build)",
     mobileIntro:
       "These settings change the HTML that the SITE BUILD generates for your public pages. They do not affect the KuroCMS admin screens or the editor — what you see while writing stays exactly the same.",
@@ -1858,6 +1876,8 @@ const i18n = {
       "サイトが使う時計です。記事一覧の月による絞り込みでどの月に入るか、公開ページに出る日付がいつになるか——この 2 つを、どこから見ている閲覧者に対しても同じにします。日本で運用しているなら Asia/Tokyo を選んでください（UTC のままだと、日本時間 0:00〜8:59 に公開した記事が前の月のアーカイブに入り、9/1 の記事が 8 月に混ざります）。生成される HTML が変わるので、変更後はビルド（全ページ）を実行してください。",
     siteTimezoneUtc: "UTC（既定）",
     siteTimezoneDetected: "このブラウザのタイムゾーンは {tz} です。",
+    siteTimezoneAutoSet:
+      "サイトのタイムゾーンを {tz}（このブラウザの設定）にしました。記事の日付と月別アーカイブの区切りがこれに従います。公開ページに反映するにはビルド（全ページ）を実行してください。変更は設定 → 基本タブから行えます。",
     mobileTitle: "スマホ向けレイアウト（サイトビルドの設定）",
     mobileIntro:
       "ここの設定は、サイトビルドが生成する公開ページの HTML を変えるものです。KuroCMS の管理画面やエディタの表示は変わりません（執筆中の見え方はそのままです）。",
@@ -3358,6 +3378,35 @@ function checkStorageAlertOnce() {
     .catch(function () {});
 }
 
+let _siteTimezoneInited = false;
+/**
+ * サイトの時計の初期設定 —— **まだ一度も決まっていないときだけ**、この
+ * ブラウザの TZ を採る。判定はサーバー側の `WHERE site_timezone = ''` が持つ
+ * ので、ここは投げるだけでよい（管理者が複数いても二度目は空振りする）。
+ *
+ * ⚠ 効くのは初回の 1 回だけ。以後の変更は設定画面から明示的に行う —— 毎回の
+ * 起動で上書きすると、管理者が旅先で開くたびにサイトの時計が動き、次のビルドで
+ * 全ページの日付が黙って書き換わる。
+ *
+ * 実際に設定できたときだけ「ビルドが要る」ことを伝える。既存記事の日付表記は
+ * 公開ページに焼き込まれているので、再ビルドするまで変わらない。
+ */
+function initSiteTimezoneOnce() {
+  if (_siteTimezoneInited || !state.isAdmin) return;
+  _siteTimezoneInited = true;
+  const timezone = detectBrowserTimezone();
+  if (!timezone) return;
+  api("/api/settings/timezone-init", {
+    method: "POST",
+    body: JSON.stringify({ timezone }),
+  })
+    .then(function (res) {
+      if (res && res.applied)
+        toast(t("siteTimezoneAutoSet").replace("{tz}", res.timezone));
+    })
+    .catch(function () {});
+}
+
 let _toastWrap: Dynamic = null;
 function getToastWrap() {
   if (!_toastWrap || !document.body.contains(_toastWrap)) {
@@ -4443,6 +4492,8 @@ async function render() {
     }
     await loadTheme();
     setTimeout(checkStorageAlertOnce, 0);
+    // サイトの時計がまだ空なら、このブラウザの TZ で埋める（初回のみ）。
+    setTimeout(initSiteTimezoneOnce, 0);
     // 規約の再同意。**画面の描画は止めない** —— 同意が要るかどうかは
     // 外部への問い合わせで決まるので、待たせると管理画面が開かなくなる。
     setTimeout(checkLegalConsentOnce, 0);

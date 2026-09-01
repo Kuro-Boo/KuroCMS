@@ -365,6 +365,10 @@ async function setupScreen(
           licenseAccepted: true,
           defaultLang: setupLang,
           initialLang: setupLang,
+          // サイトの時計。立ち上げている本人のブラウザの TZ をそのまま採る
+          // （新規サイトはこれで設定画面を一度も開かずに正しくなる）。
+          // 検出できない環境では送らず、サーバー側で UTC 既定になる。
+          siteTimezone: detectBrowserTimezone(),
         }),
       });
       submitBtn.textContent = t("registeringPasskey");

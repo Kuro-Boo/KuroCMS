@@ -717,6 +717,10 @@ async function handleApiDispatch(
       return withJsonHeaders(await settings(request, env, user));
     }
 
+    if (path === "/api/settings/timezone-init") {
+      return withJsonHeaders(await initSiteTimezone(request, env, user));
+    }
+
     if (path === "/api/settings/worker-secrets") {
       return withJsonHeaders(await workerSecretsSettings(request, env, user));
     }
@@ -2558,6 +2562,13 @@ async function setup(request: Request, env: Env): Promise<Response> {
   const defaultLang =
     optionalString(body, "defaultLang") ?? env.SITE_DEFAULT_LANG ?? "en";
   const initialLang = optionalString(body, "initialLang") ?? defaultLang;
+  // サイトの時計。セットアップ画面のブラウザが検出した IANA 名を受け取る。
+  // ⚠ ここが「自動で決めてよい唯一の瞬間」——サイトを立ち上げている本人が
+  //   サイトの TZ に居る、と最も確実に言える。以後は設定画面で明示的に
+  //   選ぶまで動かさない（管理者が出張先から開いただけで全ページの日付が
+  //   書き換わる、を作らないため）。Intl に無い値なら黙って UTC に落とす。
+  const setupTimezone = (optionalString(body, "siteTimezone") ?? "").trim();
+  const siteTimezone = isValidTimeZone(setupTimezone) ? setupTimezone : "";
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
     throw new HttpError(
       400,
@@ -2581,6 +2592,7 @@ async function setup(request: Request, env: Env): Promise<Response> {
     public_domain: publicDomain,
     default_lang: defaultLang,
     initial_lang: initialLang,
+    site_timezone: siteTimezone,
     license_accepted_at: acceptedAt,
     license_accepted_by: result.uid,
     license_name: "Kuro License",
@@ -4467,6 +4479,54 @@ export async function unfurlEndpoint(
   }).catch(() => {});
   return new Response(body, {
     headers: { ...jhead, "Cache-Control": "public, max-age=1800" },
+  });
+}
+
+/**
+ * サイトの時計の初期設定。管理画面が起動時に、そのブラウザで検出した IANA 名を
+ * 1 度だけ投げてくる。
+ *
+ * ⚠ 「まだ空のときだけ書く」判定は **SQL の WHERE でやる**（クライアントが読んで
+ * から書く形にしない）。管理者が複数いれば同時に開くし、片方が選び直した直後に
+ * もう片方の起動が上書きする。ここを取り違えると「設定したのに戻る」になる。
+ *
+ * ⚠ 一度でも値が入ったら二度と自動では動かさない。以後の変更は設定画面から
+ * 明示的に行う —— 管理者が旅先で開くたびにサイトの時計が動き、次のビルドで
+ * 全ページの日付が黙って書き換わる、を作らないため。
+ */
+async function initSiteTimezone(
+  request: Request,
+  env: Env,
+  user: AuthUser,
+): Promise<Response> {
+  requireAdmin(user);
+  if (request.method !== "POST")
+    throw new HttpError(405, "method_not_allowed", "POST only.");
+  const body = await readJson(request);
+  const timezone = (optionalString(body, "timezone") ?? "").trim();
+  // 空（検出できないブラウザ）は何もせず成功で返す。UTC 既定のままで正しい。
+  if (!timezone) return json({ ok: true, applied: false, timezone: "" });
+  if (!isValidTimeZone(timezone)) {
+    throw new HttpError(
+      400,
+      "invalid_field",
+      "timezone must be an IANA time zone name (e.g. Asia/Tokyo).",
+    );
+  }
+  const res = await env.DB.prepare(
+    `UPDATE site_settings SET site_timezone = ?, updated_at = ?
+      WHERE id = 1 AND COALESCE(site_timezone, '') = ''`,
+  )
+    .bind(timezone, nowIso())
+    .run();
+  const applied = (res.meta?.changes ?? 0) > 0;
+  const row = await env.DB.prepare(
+    "SELECT site_timezone FROM site_settings WHERE id = 1",
+  ).first<{ site_timezone: string }>();
+  return json({
+    ok: true,
+    applied,
+    timezone: row?.site_timezone || "",
   });
 }
 

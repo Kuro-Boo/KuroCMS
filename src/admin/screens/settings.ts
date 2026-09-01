@@ -188,12 +188,7 @@ async function settings() {
     } catch {
       zones = [];
     }
-    let browserZone: string;
-    try {
-      browserZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
-    } catch {
-      browserZone = "";
-    }
+    const browserZone = detectBrowserTimezone();
     // supportedValuesOf が無いブラウザでも、少なくとも今の値とこの端末の TZ は
     // 選べるようにする（選択肢に無い値を保存で失うのが一番まずい）。
     const list = Array.from(
@@ -213,10 +208,16 @@ async function settings() {
             "</option>",
         )
         .join("");
-    select.value = current || "";
+    // ⚠ ここでは検出値を当てない。初期設定は管理画面の起動時に 1 回だけ走る
+    // （initSiteTimezoneOnce → POST /api/settings/timezone-init）ので、この
+    // 画面は**保存されている値をそのまま映す**だけでよい。2 箇所で決めると
+    // 「設定したのに別の値に戻る」が生まれる。
+    select.value = list.includes(current) ? current : "";
     const note = byId("siteTimezoneNote");
-    if (note && browserZone)
-      note.textContent = t("siteTimezoneDetected").replace("{tz}", browserZone);
+    if (note)
+      note.textContent = browserZone
+        ? t("siteTimezoneDetected").replace("{tz}", browserZone)
+        : "";
   }
 
   const tabBar = ["basic", "sns", "mobile", "license", "import"]
