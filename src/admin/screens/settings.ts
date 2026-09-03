@@ -405,8 +405,14 @@ async function settings() {
       "</button>" +
       "</div>" +
       "</div>" +
-      "<div style='margin-top:16px;display:flex;justify-content:flex-end'><button type='submit'>" +
-      escapeHtml(t("saveSiteSettings")) +
+      // Console link goes where THIS card's credential lives (app password page),
+      // not the public profile — that is what the operator needs to re-issue it.
+      "<div style='margin-top:16px;display:flex;justify-content:flex-end;align-items:center;gap:8px;flex-wrap:wrap'>" +
+      "<a id='bskyConsoleLink' class='secondary' target='_blank' rel='noopener' href='https://bsky.app/settings/app-passwords' title='https://bsky.app/settings/app-passwords' style='display:inline-flex;align-items:center;gap:6px;padding:6px 14px;font-size:12px;text-decoration:none;white-space:nowrap'>" +
+      escapeHtml(t("openSnsConsole")) +
+      " &#8599;</a>" +
+      "<button type='submit'>" +
+      escapeHtml(t("saveSnsSettings")) +
       "</button></div>" +
       "</form>" +
       "</div>" +
@@ -454,8 +460,13 @@ async function settings() {
       "</button>" +
       "</div>" +
       "</div>" +
-      "<div style='margin-top:16px;display:flex;justify-content:flex-end'><button type='submit'>" +
-      escapeHtml(t("saveSiteSettings")) +
+      // X: the four keys above are issued per app in the developer portal.
+      "<div style='margin-top:16px;display:flex;justify-content:flex-end;align-items:center;gap:8px;flex-wrap:wrap'>" +
+      "<a id='xConsoleLink' class='secondary' target='_blank' rel='noopener' href='https://developer.x.com/en/portal/projects-and-apps' title='https://developer.x.com/en/portal/projects-and-apps' style='display:inline-flex;align-items:center;gap:6px;padding:6px 14px;font-size:12px;text-decoration:none;white-space:nowrap'>" +
+      escapeHtml(t("openSnsConsole")) +
+      " &#8599;</a>" +
+      "<button type='submit'>" +
+      escapeHtml(t("saveSnsSettings")) +
       "</button></div>" +
       "</form>" +
       // ── Threads (Meta) auto-post card: one long-lived access token ──
@@ -488,8 +499,13 @@ async function settings() {
       "</button>" +
       "</div>" +
       "</div>" +
-      "<div style='margin-top:16px;display:flex;justify-content:flex-end'><button type='submit'>" +
-      escapeHtml(t("saveSiteSettings")) +
+      // Threads: the long-lived token comes from a Meta app, so link the app list.
+      "<div style='margin-top:16px;display:flex;justify-content:flex-end;align-items:center;gap:8px;flex-wrap:wrap'>" +
+      "<a id='threadsConsoleLink' class='secondary' target='_blank' rel='noopener' href='https://developers.facebook.com/apps/' title='https://developers.facebook.com/apps/' style='display:inline-flex;align-items:center;gap:6px;padding:6px 14px;font-size:12px;text-decoration:none;white-space:nowrap'>" +
+      escapeHtml(t("openSnsConsole")) +
+      " &#8599;</a>" +
+      "<button type='submit'>" +
+      escapeHtml(t("saveSnsSettings")) +
       "</button></div>" +
       "</form>" +
       "<div id='extraSnsCards'></div>" +

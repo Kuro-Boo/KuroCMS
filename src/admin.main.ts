@@ -917,6 +917,8 @@ const i18n = {
     defaultLanguageHelp:
       "Select the fallback language used when a translation is missing for a visitor.",
     saveSiteSettings: "Save Site Settings",
+    saveSnsSettings: "Save SNS Settings",
+    openSnsConsole: "Open SNS console",
     maintenanceTitle: "Maintenance",
     cleanupStylesHelp:
       "Removes style noise that Chrome's rich copy baked into article bodies pasted with an older editor (huge revert-layer property dumps and hard-coded theme colors), and normalizes plain external links into the KuroEditor link notation ([[url|text]]). Only style attributes carrying the copy-noise signature are touched; decorations you applied on purpose stay, and links that the notation cannot represent (non-http, formatted content inside the link, etc.) are left as-is. The previous body of every changed article is saved to revision history. Run a build afterwards to regenerate the cleaned pages.",
@@ -1934,6 +1936,8 @@ const i18n = {
     defaultLanguageHelp:
       "ユーザーが記事を見た時に、翻訳がない記事の場合に利用するフォールバック言語を選択します。",
     saveSiteSettings: "サイト設定を保存",
+    saveSnsSettings: "SNS情報を保存",
+    openSnsConsole: "SNS管理画面を開く",
     maintenanceTitle: "メンテナンス",
     cleanupStylesHelp:
       "旧バージョンのエディタで貼り付けた本文に Chrome のリッチコピーが焼き込んだスタイルノイズ（revert-layer の大量羅列やテーマ色の固定値）を除去し、あわせてプレーンな外部リンクを KuroEditor のリンク記法（[[url|表示テキスト]]）に正規化します。コピー由来の署名がある style 属性だけが対象で、意図的に付けた装飾には触れません。記法で表現できないリンク（http以外・装飾入りリンク等）はそのまま維持されます。変更された記事の元本文はリビジョン履歴に保存されます。実行後はビルドを実行して掃除後のページを再生成してください。",
