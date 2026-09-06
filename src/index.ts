@@ -4,6 +4,7 @@ import { serveFont } from "./fonts";
 import { handleApi, unfurlEndpoint } from "./api";
 import { reportInstall } from "./entamy";
 import { entamyPort } from "./entamy-port";
+import { runScheduledThreadsTokenRefresh } from "./threads-token";
 import { html, notFound, notFoundPage } from "./http";
 import {
   buildCountsJs,
@@ -26,7 +27,7 @@ export default {
   // time since the last run; idle ticks are a single cheap query. No-op unless
   // the persisted build mode is "auto".
   async scheduled(
-    _event: ScheduledController,
+    event: ScheduledController,
     env: Env,
     ctx: ExecutionContext,
   ): Promise<void> {
@@ -36,6 +37,11 @@ export default {
         console.error("scheduled auto-build failed:", err);
       }),
     );
+    // The Worker already runs every minute for scheduled publishing. Threads
+    // token maintenance shares that trigger, but the helper only touches D1 at
+    // UTC 00:17 and only calls Meta after 30 days. Its D1 claim also absorbs
+    // duplicate Cron deliveries.
+    ctx.waitUntil(runScheduledThreadsTokenRefresh(env, event.scheduledTime));
     // 導入の報告。**cron に乗せる** —— 利用者の操作に相乗りさせると、
     // 画面の応答が外部サービスの調子に引きずられる。中で1日1回に絞っている。
     // refresh token は呼ぶたびに回転するため、同じ cron で並列に使わない。

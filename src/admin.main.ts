@@ -1212,6 +1212,11 @@ const i18n = {
     threadsSettingsTitle: "Threads Auto-Post",
     threadsCredsHelp:
       "Enter a long-lived Threads API access token (create an app in Meta for Developers with the threads_basic and threads_content_publish permissions). The token is stored server-side and never shown again.",
+    threadsTokenUpdatedAt: "Last token update",
+    threadsTokenNextRefreshAt: "Next automatic update (estimate)",
+    threadsTokenUpdatePending: "Waiting for automatic confirmation",
+    threadsTokenRefreshHelp:
+      "The token is refreshed automatically 30 days after the last successful update. The next date is an estimate calculated from the last successful update.",
     threadsPostNote:
       "Each article is posted as ONE post: cover image + title/summary + 1 topic tag + article link (500-char limit; Threads renders only one topic tag per post). Unlike X there is no per-post pricing, so no parent/reply split.",
     snsPostConfirmThreads:
@@ -2231,6 +2236,11 @@ const i18n = {
     threadsSettingsTitle: "Threads 自動投稿",
     threadsCredsHelp:
       "Threads API の長期アクセストークンを入力します（Meta for Developers でアプリを作成し、threads_basic と threads_content_publish 権限が必要）。値はサーバー側に保存され、再表示されません。",
+    threadsTokenUpdatedAt: "トークン更新完了日",
+    threadsTokenNextRefreshAt: "次回自動更新予定（目安）",
+    threadsTokenUpdatePending: "自動更新の確認待ち",
+    threadsTokenRefreshHelp:
+      "最終更新の成功から30日後に自動更新します。次回予定日は、更新完了日から算出した目安です。",
     threadsPostNote:
       "投稿は1通構成：カバー画像＋タイトル/要約＋トピックタグ1つ＋記事リンク（500字制限。Threadsは1投稿につきタグ1つのみリンク化されます）。Xと違い投稿ごとの課金がないため、親＋リプライ分割はしません。",
     snsPostConfirmThreads:

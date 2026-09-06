@@ -36,6 +36,7 @@ import { checkRecipeCards } from "./recipe-guard.js";
 import { entamyPort } from "./entamy-port";
 import { KUROCMS_VERSION } from "./version";
 import { isValidTimeZone } from "./timezone";
+import { nextThreadsTokenRefreshAt } from "./threads-token";
 import { COMMUNITY_SHARED_PAT } from "./community-secret";
 import { verifyRegistration, verifyAuthentication } from "./webauthn";
 // migrations/ を順番どおりに適用した最終形（スキーマの正本）。ビルド時生成。
@@ -4545,6 +4546,8 @@ async function settings(
       (row?.default_lang as string | undefined) ??
       env.SITE_DEFAULT_LANG ??
       "en";
+    const threadsTokenUpdatedAt =
+      (row?.threads_token_updated_at as string | undefined) ?? "";
     return json({
       settings: {
         siteName: (row?.site_name as string | undefined) ?? "KuroCMS",
@@ -4581,6 +4584,9 @@ async function settings(
         // 日付表示の両方がこの値で決まる（src/timezone.ts）。
         siteTimezone: (row?.site_timezone as string | undefined) ?? "",
         threadsTokenSet: !!(row?.threads_token as string | undefined),
+        threadsTokenUpdatedAt,
+        threadsTokenNextRefreshAt:
+          nextThreadsTokenRefreshAt(threadsTokenUpdatedAt) ?? "",
         siteIsPublished: (row?.site_is_published as number | undefined) === 1,
         templateId: (row?.template_id as string | undefined) ?? "",
       },
@@ -4676,6 +4682,8 @@ async function settings(
     if (threadsToken) {
       settingsToSave.threads_token = threadsToken;
       settingsToSave.threads_user_id = "";
+      settingsToSave.threads_token_updated_at = nowIso();
+      settingsToSave.threads_token_refresh_attempted_at = "";
     }
     if (xApiKey) settingsToSave.x_api_key = xApiKey;
     if (xApiSecret) settingsToSave.x_api_secret = xApiSecret;
@@ -11898,6 +11906,8 @@ const SETTINGS_COLS = new Set([
   "sns_auto_post",
   "threads_token",
   "threads_user_id",
+  "threads_token_updated_at",
+  "threads_token_refresh_attempted_at",
   "license_accepted_at",
   "license_accepted_by",
   "license_name",

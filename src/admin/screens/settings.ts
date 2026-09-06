@@ -483,6 +483,17 @@ async function settings() {
       "<label style='margin-bottom:10px'>" +
       escapeHtml(t("snsAccessToken")) +
       "<input id='threadsToken' type='password' autocomplete='off' /></label>" +
+      "<div style='display:grid;grid-template-columns:minmax(140px,auto) 1fr;gap:5px 12px;margin:0 0 10px;font-size:12px'>" +
+      "<span class='muted'>" +
+      escapeHtml(t("threadsTokenUpdatedAt")) +
+      "</span><span id='threadsTokenUpdatedAt'>—</span>" +
+      "<span class='muted'>" +
+      escapeHtml(t("threadsTokenNextRefreshAt")) +
+      "</span><span id='threadsTokenNextRefreshAt'>—</span>" +
+      "</div>" +
+      "<div class='muted' style='margin-bottom:10px;font-size:11px'>" +
+      escapeHtml(t("threadsTokenRefreshHelp")) +
+      "</div>" +
       "<div class='muted' style='margin-bottom:6px'>" +
       escapeHtml(t("threadsPostNote")) +
       "</div>" +
@@ -1176,6 +1187,15 @@ async function settings() {
       byId("threadsToken")!.placeholder =
         "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022 \u2713";
     }
+    const threadsTokenPendingText = s.threadsTokenSet
+      ? t("threadsTokenUpdatePending")
+      : "—";
+    byId("threadsTokenUpdatedAt")!.textContent = s.threadsTokenUpdatedAt
+      ? formatDateTime(s.threadsTokenUpdatedAt)
+      : threadsTokenPendingText;
+    byId("threadsTokenNextRefreshAt")!.textContent = s.threadsTokenNextRefreshAt
+      ? formatDateTime(s.threadsTokenNextRefreshAt)
+      : threadsTokenPendingText;
     // Auto-generate Bluesky SID if not set
     if (!s.blueskySid && s.blueskyHandle) {
       s.blueskySid = "sns-001";
