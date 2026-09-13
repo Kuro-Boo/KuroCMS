@@ -41,6 +41,8 @@ export interface Pagination {
 
 /** A single article's data, available on article pages. */
 export interface ArticleData {
+  /** Stable document identifier shared by all languages and slug changes. */
+  did: string;
   slug: string;
   type: string;
   title: string;
