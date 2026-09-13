@@ -10804,6 +10804,13 @@ const BACKUP_TABLES_INSERT_ORDER = [
   "document_translations",
   "document_translation_revisions",
   "search_entries",
+  // 記事の反応(migration 0071)。**documents より後ろに置く** ——
+  // この一覧は挿入の順で、`did` の外部キーが先に親を要求する。
+  //
+  // ★**足さないと、復元で票が全部消える。** 消し込みは `documents` を
+  //   DELETE するので、`ON DELETE CASCADE` が反応を道連れにする ——
+  //   バックアップに入っていなければ戻す元も無い(2026-09-13)。
+  "article_reactions",
 ];
 const BACKUP_TABLE_SET = new Set(BACKUP_TABLES_INSERT_ORDER);
 const BACKUP_PAGE_SIZE = 500;
@@ -11672,6 +11679,24 @@ async function reapplyRestoreBootstraps(env: Env): Promise<JsonValue> {
     `INSERT OR IGNORE INTO taxonomy_items
        (id, kind, lang, name, is_system, created_at, updated_at)
      VALUES ('about-nav', 'template', '', 'About', 1, ?, ?)`,
+    nowIso(),
+    nowIso(),
+  );
+
+  // migration 0071: article reactions are a fixed, per-language site text.
+  // Restore wipes seed rows; re-create missing rows without replacing edits.
+  await run(
+    "article_reactions_site_text",
+    `INSERT OR IGNORE INTO taxonomy_items
+       (id, kind, lang, name, is_system, created_at, updated_at)
+     SELECT 'article-reactions', 'template', id,
+            CASE id
+              WHEN 'ja' THEN '<h2>この記事はいかがでしたか？</h2>'
+              WHEN 'en' THEN '<h2>How was this article?</h2>'
+              ELSE ''
+            END,
+            1, ?, ?
+       FROM taxonomy_items WHERE kind = 'language'`,
     nowIso(),
     nowIso(),
   );

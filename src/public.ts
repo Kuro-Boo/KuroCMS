@@ -45,6 +45,7 @@ import { totalMinutes } from "./kuro-recipe.js";
 import { checkRecipeCards } from "./recipe-guard.js";
 import { unfurlSign } from "./unfurl";
 import { json } from "./http";
+import { placeReactionSlot, renderReactionWidget } from "./reactions";
 import {
   resolveTimeZone,
   zonedMonth,
@@ -58,7 +59,10 @@ import type { Env, JsonValue } from "./types";
 // can't see (e.g. the <head> content-CSS <link>, template-model shape). The
 // build salts every page hash with this, so cached builds are invalidated and
 // all pages regenerate even when their underlying content is unchanged.
-const RENDER_FORMAT_VERSION = "28";
+// 30: 反応ウィジェットに id を足し、枠の置き方をトークンの綴り(空白可)に
+//     合わせた。**出力が変わるのに、記事の中身は変わっていない** ——
+//     塩を振り直さないと、既に焼いたページがそのまま出続ける。
+const RENDER_FORMAT_VERSION = "30";
 
 /** Cheap, synchronous string hash (FNV-1a, base36) for cache keys. Not crypto. */
 /**
@@ -1124,7 +1128,7 @@ async function expandContentRefs(
           );
         } else if (parts[0] === "article" && parts[1]) {
           const r = await env.DB.prepare(
-            `SELECT d.slug, d.tid, d.publish_at, d.updated_at,
+            `SELECT d.did, d.slug, d.tid, d.publish_at, d.updated_at,
                     COALESCE(NULLIF(NULLIF(dt_req.title, ''), d.slug), NULLIF(NULLIF(dt_en.title, ''), d.slug), NULLIF(NULLIF(dt_fb.title, ''), d.slug), NULLIF(NULLIF(dt_init.title, ''), d.slug), NULLIF(NULLIF(dt_site.title, ''), d.slug), NULLIF(NULLIF(dt_any.title, ''), d.slug)) AS title,
                     COALESCE(NULLIF(dt_req.summary, ''), NULLIF(dt_en.summary, ''), NULLIF(dt_fb.summary, ''), NULLIF(dt_init.summary, ''), NULLIF(dt_site.summary, ''), NULLIF(dt_any.summary, '')) AS summary,
                     COALESCE(NULLIF(dt_req.body_html, ''), NULLIF(dt_en.body_html, ''), NULLIF(dt_fb.body_html, ''), NULLIF(dt_init.body_html, ''), NULLIF(dt_site.body_html, ''), NULLIF(dt_any.body_html, '')) AS body_html
@@ -1144,6 +1148,7 @@ async function expandContentRefs(
           )
             .bind(lang, settings?.default_lang || lang, parts[1])
             .first<{
+              did: string;
               slug: string;
               tid: string;
               publish_at: string;
@@ -1154,6 +1159,7 @@ async function expandContentRefs(
             }>();
           if (r) {
             dataExpanded[ref] = JSON.stringify({
+              did: r.did,
               slug: r.slug,
               type: r.tid,
               title: r.title || r.slug,
@@ -2589,6 +2595,7 @@ async function buildRenderContext(
       (authorName ? buildBylineHtml(authorName, lang) : "");
     const wrappedBody = wrapKuroContentWithHeadings(bodyWithByline, lang);
     article = {
+      did: r.did,
       slug: r.slug,
       type: r.tid,
       title: r.title || r.slug,
@@ -2764,13 +2771,26 @@ export async function generatePage(
     staticPages,
   );
   if (!ctx) return null;
+  if (ctx.article) {
+    ctx.content["article-reactions"] = renderReactionWidget(
+      ctx.article.did,
+      ctx.basePath,
+      lang,
+      ctx.content["article-reactions"],
+    );
+  } else {
+    ctx.content["article-reactions"] = "";
+  }
   // Spec §12: `[[sid]]` in the template body renders the SNS widget in place.
   // Expand before the template parser consumes the token (it would otherwise
   // resolve `[[sns-001]]` as an unknown value path and drop it).
   const extConns =
     prefetch?.externalConnections ?? (await fetchExternalConnections(env));
   const { snsSids, resolveSns } = buildSnsContext(s, extConns);
-  let sourceHtml = expandSnsRefs(template.sourceHtml, snsSids, resolveSns);
+  let sourceHtml = placeReactionSlot(
+    expandSnsRefs(template.sourceHtml, snsSids, resolveSns),
+    Boolean(ctx.article),
+  );
 
   // Languages registered site-wide (for the switcher list / hreflang fallback).
   let availableLangs: Array<{ code: string; name: string }> = [];

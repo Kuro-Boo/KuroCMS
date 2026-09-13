@@ -393,7 +393,7 @@ function setAdminDocumentTitle(displayName: Dynamic): void {
   if (cached) document.title = "KuroCMS " + cached;
 })();
 // KuroCMS brand logo. The Worker shell injects the data URL generated from
-// asset/favicon.svg, so every installation is self-contained and never depends
+// KuroBrand/asset/kuroBoo.svg, so every installation is self-contained and never depends
 // on kuro.boo being reachable.
 const defaultAdminLogo = String(adminWindow.__KUROCMS_ADMIN_LOGO__ || "");
 const localeNames: Record<string, string> = {

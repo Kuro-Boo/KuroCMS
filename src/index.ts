@@ -6,6 +6,7 @@ import { reportInstall } from "./entamy";
 import { entamyPort } from "./entamy-port";
 import { runScheduledThreadsTokenRefresh } from "./threads-token";
 import { html, notFound, notFoundPage } from "./http";
+import { reactionEndpoint } from "./reactions";
 import {
   buildCountsJs,
   buildLlmsTxt,
@@ -245,6 +246,13 @@ export default {
       // promotion worker on production hosts).
       if (publicPath === "/_search") {
         return searchEndpoint(request, env);
+      }
+      // Dynamic reactions live on the public base, not the shadowable admin path.
+      const reactionMatch = publicPath.match(
+        /^\/_reactions\/([a-zA-Z0-9_-]+)$/,
+      );
+      if (reactionMatch) {
+        return reactionEndpoint(request, env, reactionMatch[1]);
       }
       // Per-type feed: /{type}-rss.xml
       const rssM = publicPath.match(
