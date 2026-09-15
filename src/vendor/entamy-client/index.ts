@@ -3,7 +3,7 @@
  *
  * ## なぜ本体が入っていないのか
  *
- * 基盤へ繋ぐ実装は別のリポジトリ（EntamyCom/entamy-connect）にあり、
+ * 基盤へ繋ぐ実装は別の場所（Entamy の非公開のリポジトリにある entamy-connect）にあり、
  * **所有者もライセンスも KuroCMS とは別**である。KuroCMS の公開ミラーは
  * Kuro License で配られるので、他所のコードを同じライセンスで再配布しない。
  *

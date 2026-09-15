@@ -2,7 +2,7 @@
  * KuroCMS から Entamy 基盤へ繋ぐ組み立て。
  *
  * **接続そのものは書かない。** 通信・トークン管理・鍵の回転は
- * `vendor/entamy-client`（EntamyCom/entamy-connect）が持つ（API 仕様 §0.3 MUST）。
+ * entamy-connect の web クライアント（モノレポの正本を直接参照）が持つ（API 仕様 §0.3 MUST）。
  * ここにあるのは「この製品が何者か」と「保管庫をどこに置くか」だけである。
  *
  * ⚠ ここに基盤の HTTP を書き始めた時点で §0.3 は破られている。足りない経路は
