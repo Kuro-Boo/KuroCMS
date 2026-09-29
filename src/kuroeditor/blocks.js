@@ -7,7 +7,7 @@
 //   - 外部依存ゼロ（このファイルは copy でそのまま dist/kuro-blocks.js になる）
 //
 // editor.js はここから import して再 export する（後方互換）。KuroCMS の Worker・
-// Plan B の DO サーバー・KuroNotes の同期層はこのモジュールを唯一の実装として使う
+// Plan B の DO サーバー・KuroNote の同期層はこのモジュールを唯一の実装として使う
 // （仕様書 §4.10 / §10.7 F0：正規表現で HTML を処理しない・共有 tokenizer 一本化）。
 
 // ── block id ─────────────────────────────────────────────────────────────────
@@ -378,7 +378,7 @@ export function mergeBlock(base, local, remote) {
 }
 
 /**
- * Deterministic auto-resolution for hosts without a conflict UI (KuroNotes 案C・
+ * Deterministic auto-resolution for hosts without a conflict UI (KuroNote 案C・
  * オフライン復帰): keep the local block, and re-insert each remote-side conflict
  * value as a NEW block (fresh bid) right after it, so no edit is silently lost.
  * @param {{ html: string, conflicts: Array<{ bid: string|null, remote: string|null }> }} result
