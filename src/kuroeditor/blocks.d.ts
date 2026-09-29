@@ -1,6 +1,6 @@
 // 型定義: src/blocks.js（DOM 非依存のブロック単位 tokenizer / 3-way マージ）。
 // KuroEditor が単一の正として保守し、dist/kuro-blocks.d.ts として emit する。
-// ホスト（KuroCMS 等）はこれを vendored する（手書き .d.ts のドリフトを断つ）。
+// Entamy のモノレポの製品（KuroCMS・Admin・KuroNote）は src を直接 import する（写しは置かない）。
 
 export type KuroBlockSegment = {
   html: string;
@@ -67,8 +67,22 @@ export function resolveConflictsAsDuplicates(
 /** ブロック順序を既知集合に照らして整合させる。 */
 export function reconcileOrder(order: string[], known: Iterable<string>): string[];
 
-/** before→after のブロック差分を操作列として返す。 */
-export function diffBlocks(before: string, after: string): unknown[];
+/** キー(bid)付きのブロック。diffBlocks / applyBlockOps の入出力。 */
+export type KuroKeyedBlock = { bid: string; html: string };
 
-/** diffBlocks の操作列を before に適用して after 相当を得る。 */
-export function applyBlockOps(before: string, ops: unknown[]): string;
+/** diffBlocks が返す操作。左から順に当てると before が after になる(afterBid null = 先頭)。 */
+export type KuroBlockOp =
+  | { op: "delete"; bid: string }
+  | { op: "insert"; bid: string; html: string; afterBid: string | null }
+  | { op: "move"; bid: string; afterBid: string | null }
+  | { op: "update"; bid: string; html: string };
+
+/**
+ * before→after のブロック差分を操作列として返す。両方とも bid が一意に付いていること。
+ * ⚠ 引数は HTML の文字列ではなく**ブロックの配列**(実装の JSDoc と同じ)。以前の宣言は
+ *   文字列になっていたが、写しで使われていて型が効かず、誤りに気づけなかった(2026-09-15)。
+ */
+export function diffBlocks(before: readonly KuroKeyedBlock[], after: readonly KuroKeyedBlock[]): KuroBlockOp[];
+
+/** diffBlocks の操作列を before に適用して after 相当のブロック配列を得る。 */
+export function applyBlockOps(before: readonly KuroKeyedBlock[], ops: readonly KuroBlockOp[]): KuroKeyedBlock[];

@@ -531,7 +531,7 @@ function transformChildren(children, topLevel, clipboardRepair) {
  *   deliberately is legitimate — the caller just has to say so, having been told
  *   what will change. KuroCMS's maintenance screen exposes exactly that: an
  *   unchecked-by-default box, with a preview of the counts.
- *   (Decision recorded 2026-08-16; see KuroEditor/docs/貼り付け破壊の修正仕様.md)
+ *   (Decision recorded 2026-08-16; see "貼り付け破壊の修正仕様" at admin.entamy.com (KuroEditor))
  * @returns {string}
  */
 export function normalizeContentHtml(html, opts = {}) {

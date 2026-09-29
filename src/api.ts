@@ -29,9 +29,12 @@ import {
   mergeBlocks,
   normalizeBlockIds,
   type MergeConflict,
-} from "./kuro-blocks.js";
-// 本文 HTML の正規化（KuroEditor の paste と完全に同一実装の vendored コピー）。
-import { normalizeContentHtml, inspectContentHtml } from "./normalize.js";
+} from "./kuroeditor/blocks.js";
+// 本文 HTML の正規化（KuroEditor の paste と同じ実装を**直接参照**する。モノレポ・写しは置かない）。
+import {
+  normalizeContentHtml,
+  inspectContentHtml,
+} from "./kuroeditor/normalize.js";
 import { checkRecipeCards } from "./recipe-guard.js";
 import { entamyPort } from "./entamy-port";
 import { KUROCMS_VERSION } from "./version";
@@ -8128,7 +8131,7 @@ async function cleanupCopyNoise(env: Env, user: AuthUser): Promise<Response> {
  * だから既定では掛けない。**禁止するのではなく、勝手にやらない。** 直したい
  * ときは画面のチェックを入れて明示的に選ぶ（何が変わるかは先に「変更内容を
  * 確認」で件数が出る）。手で直せば直る形は残しつつ、意図しない一括変更だけを
- * 防ぐ。（2026-08-16 の決定。KuroEditor/docs/貼り付け破壊の修正仕様.md）
+ * 防ぐ。（2026-08-16 の決定。貼り付け破壊の修正仕様。admin.entamy.com の KuroEditor）
  *
  * @param clipboardRepair 呼び出し側が明示的に true を渡したときだけ R6〜R8 を掛ける
  */

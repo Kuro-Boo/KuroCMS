@@ -28,7 +28,14 @@ export interface Env {
    *
    * 鍵はここに置かない —— entamy-connect が SAT で取り直し、KV に控える
    * (2026-08-23 に旧送信キーの控えを撤去)。
+   *
+   * ⚠ 2026-09-18 に `KUROMAILER_URL` から改名。**中身は 2026-08-23 から
+   *   Entamy Mailer だったのに、名前だけ旧製品(KuroMailer)のままだった** ——
+   *   名前を読んだ人は「まだ KuroMailer へ送っている」と受け取る。
+   *   旧名も読むので、設定済みの環境はそのまま動く。
    */
+  ENTAMY_MAILER_URL?: string;
+  /** @deprecated 旧名。`ENTAMY_MAILER_URL` を使うこと。 */
   KUROMAILER_URL?: string;
   /**
    * 差出人。Entamy Mailer の sender_domain に登録されたドメインであること。

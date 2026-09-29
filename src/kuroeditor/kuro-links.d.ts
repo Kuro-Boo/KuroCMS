@@ -1,6 +1,6 @@
 // 型定義: src/kuro-links.js（DOM 非依存の [[...]] リンク/メディアレンダラ）。
 // KuroEditor が単一の正として保守し、dist/kuro-links.d.ts として emit する。
-// ホスト（KuroCMS 等）はこれを vendored して型安全に判定ロジックを共有する。
+// Entamy のモノレポの製品（KuroCMS・Admin・KuroNote）は src を直接 import する（写しは置かない）。
 
 /** classifyLink が返すホスト非依存の記述子（判定結果）。マークアップ生成は各ホストの責務。 */
 export type LinkDescriptor =

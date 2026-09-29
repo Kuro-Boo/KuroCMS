@@ -1,6 +1,6 @@
 // 型定義: src/recipe.js（DOM 非依存・外部依存ゼロの RecipeCard 純関数）。
 // KuroEditor が単一の正として保守し、dist/kuro-recipe.js と対で emit する。
-// ホスト（KuroCMS 等）はこれを vendored して、保存 API のサーバー側検証や
+// Entamy のモノレポの製品（KuroCMS・Admin・KuroNote）は src を直接 import する（写しは置かない）。
 // 公開ページ生成でエディタと**同一の実装**を共有する。
 //
 // 仕様の正本は KuroCMS「レシピ専用タイプの追加の仕様」(2026-07-30)。

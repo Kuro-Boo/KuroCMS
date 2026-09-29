@@ -38,10 +38,10 @@ import {
   isMapEmbed,
   LINK_TOKEN_RE,
   MEDIA_ID_RE,
-} from "./kuro-links.js";
+} from "./kuroeditor/kuro-links.js";
 // RecipeCard の読み出しは KuroEditor 上流の共有純関数に委譲する
 // （エディタ・保存 API・公開ビルドで実装を 1 つに保つ）。
-import { totalMinutes } from "./kuro-recipe.js";
+import { totalMinutes } from "./kuroeditor/recipe.js";
 import { checkRecipeCards } from "./recipe-guard.js";
 import { unfurlSign } from "./unfurl";
 import { json } from "./http";

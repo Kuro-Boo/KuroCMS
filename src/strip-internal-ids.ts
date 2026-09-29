@@ -7,4 +7,4 @@
 // re-export を import するので、vendored 実装が F0-2 の敵対的ケース
 // (属性値内の '>'・単引用符・属性順・data-cbid・入れ子 bid) を守り続けることを
 // 引き続き検証する。
-export { stripInternalIds } from "./kuro-blocks.js";
+export { stripInternalIds } from "./kuroeditor/blocks.js";

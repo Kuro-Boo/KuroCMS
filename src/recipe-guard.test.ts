@@ -2,7 +2,10 @@
 // 保存 API の最後の砦（checkRecipeCards）の振る舞いを固定する。
 // 実装を import するのでテストと本体が乖離しない。
 import { checkRecipeCards } from "./recipe-guard.ts";
-import { buildRecipeCardHtml, normalizeRecipe } from "./kuro-recipe.js";
+import {
+  buildRecipeCardHtml,
+  normalizeRecipe,
+} from "./kuroeditor/recipe.js";
 
 const RECIPE = normalizeRecipe({
   yield: "2人分",

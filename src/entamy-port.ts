@@ -183,8 +183,15 @@ export async function entamyPort(env: Env): Promise<EntamyPort> {
     storageNamespace: NAMESPACE,
     // 送信先の差し替え口。**顧客の環境ごとに変えられる余地を残す** ——
     // 既定は基盤の本番(mailer.entamy.com)。
-    ...(env.KUROMAILER_URL
-      ? { mailerBaseUrl: env.KUROMAILER_URL.replace(/\/+$/, "") }
+    // ⚠ 旧名 `KUROMAILER_URL` も読む。**設定済みの環境を止めない**ため
+    //   (2026-09-18 に改名。送り先は 2026-08-23 から Entamy Mailer)。
+    ...((env.ENTAMY_MAILER_URL ?? env.KUROMAILER_URL)
+      ? {
+          mailerBaseUrl: (env.ENTAMY_MAILER_URL ?? env.KUROMAILER_URL)!.replace(
+            /\/+$/,
+            "",
+          ),
+        }
       : {}),
   };
   const store = new EntamyStore(NAMESPACE, kvSecrets(env));

@@ -1,6 +1,6 @@
 // 型定義: src/normalize.js（DOM 非依存の本文 HTML 正規化）。
 // KuroEditor が単一の正として保守し、dist/kuro-normalize.d.ts として emit する。
-// ホスト（KuroCMS 等）はこれを vendored して、API 取込み・メンテナンス掃除で
+// Entamy のモノレポの製品（KuroCMS・Admin・KuroNote）は src を直接 import する（写しは置かない）。
 // エディタのペーストと「完全に同じ正規化」を適用する。
 
 /** inspectContentHtml が返す、正規化で変わる箇所の内訳。 */
@@ -53,7 +53,7 @@ export interface NormalizeOptions {
    * ⚠ **「やってはいけない」ではなく「黙ってやらない」。** 意図して直すのは
    * 正当なので、呼び出し側が何が変わるか分かった上で明示的に選べばよい。
    * KuroCMS の保守画面は、既定オフのチェックと件数の予告でそれを提供する。
-   * （2026-08-16 の決定。KuroEditor/docs/貼り付け破壊の修正仕様.md）
+   * （2026-08-16 の決定。貼り付け破壊の修正仕様。admin.entamy.com の KuroEditor）
    */
   clipboardRepair?: boolean;
 }

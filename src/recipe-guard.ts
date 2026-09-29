@@ -10,13 +10,13 @@
 //   トップレベル分解は共有 tokenizer（parseBlocks）に任せ、開始タグの中だけを
 //   属性抽出の対象にする。
 
-import { parseBlocks } from "./kuro-blocks.js";
+import { parseBlocks } from "./kuroeditor/blocks.js";
 import {
   RECIPE_BLOCK,
   decodeRecipe,
   normalizeRecipe,
   validateRecipe,
-} from "./kuro-recipe.js";
+} from "./kuroeditor/recipe.js";
 
 // v1.8.78 で `RECIPE_TYPE_ID = "recipe"`（レシピ専用タイプ）を撤去した。
 // `recipe` はもう予約 ID ではない — 同名のタイプを普通のタイプとして自由に
