@@ -11,7 +11,7 @@
 
 </div>
 
-![KuroCMS admin — article management](docs/admin-screenshot.jpg)
+![KuroCMS admin — article management](docs/admin-screenshot-202610.jpg)
 
 > KuroCMS admin · article management — multilingual, per‑article SNS publish state, and one‑click build.
 
