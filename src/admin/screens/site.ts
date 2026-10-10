@@ -31,6 +31,16 @@ async function fetchSourceWhenSameZone(sourceUrl: string): Promise<string> {
   }
 }
 
+/**
+ * テンプレート一覧の削除ボタンのゴミ箱。
+ * ⚠ 絵文字(&#128465;)にしない: 絵文字は自前の色で描かれ、ボタンの
+ *   color:var(--danger) が効かずグレーに見える（削除の危うさが伝わらない）。
+ *   currentColor で塗る SVG なら、ボタンの赤がそのまま乗る。
+ */
+const TMPL_TRASH_ICON =
+  "<svg viewBox='0 0 24 24' width='14' height='14' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' aria-hidden='true' style='display:block'>" +
+  "<path d='M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6'/></svg>";
+
 async function siteManagement() {
   function switchSiteTab(tab: Dynamic) {
     document.querySelectorAll<AdminElement>(".siteTab").forEach(function (
@@ -769,21 +779,25 @@ async function siteManagement() {
               : "";
             const deleteBtn =
               tm.isLocalItem && isLoaded
-                ? "<button type='button' class='secondary small' data-tmpl-local-delete='" +
+                ? "<button type='button' class='danger-soft small' data-tmpl-local-delete='" +
                   escapeHtml(tm.id) +
                   "' data-tmpl-active='" +
                   (isActive ? "1" : "0") +
                   "' style='flex-shrink:0;font-size:11px;padding:4px 8px;color:var(--danger)' title='" +
                   escapeHtml(t("delete")) +
-                  "'>&#128465;</button>"
+                  "'>" +
+                  TMPL_TRASH_ICON +
+                  "</button>"
                 : isCommunityOwner
-                  ? "<button type='button' class='secondary small' data-tmpl-community-delete='" +
+                  ? "<button type='button' class='danger-soft small' data-tmpl-community-delete='" +
                     escapeHtml(tm.id) +
                     "' data-tmpl-name='" +
                     escapeHtml(tm.name || "") +
                     "' style='flex-shrink:0;font-size:11px;padding:4px 8px;color:var(--danger)' title='" +
                     escapeHtml(t("delete")) +
-                    "'>&#128465;</button>"
+                    "'>" +
+                    TMPL_TRASH_ICON +
+                    "</button>"
                   : isCommunityItem
                     ? "<span class='secondary small' style='flex-shrink:0;font-size:11px;padding:4px 8px;display:inline-flex;align-items:center;justify-content:center' title='" +
                       escapeHtml(t("publicLibraryTemplate")) +
