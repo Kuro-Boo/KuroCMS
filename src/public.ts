@@ -36,9 +36,12 @@ import {
 import {
   classifyLink,
   isMapEmbed,
+  isSafeUrl,
   LINK_TOKEN_RE,
   MEDIA_ID_RE,
 } from "./kuroeditor/kuro-links.js";
+// [[...]] の URL を属性値にする(javascript: などは空にする・2026-10-11)。
+import { urlAttr } from "./link-attr";
 // RecipeCard の読み出しは KuroEditor 上流の共有純関数に委譲する
 // （エディタ・保存 API・公開ビルドで実装を 1 つに保つ）。
 import { totalMinutes } from "./kuroeditor/recipe.js";
@@ -1890,7 +1893,7 @@ function keIframeFigure(
   const map = isMapEmbed(embedUrl);
   const kindClass = map ? " kuro-media-wrap--map" : "";
   const title = map ? "埋め込み地図" : "埋め込み動画";
-  const iframe = `<iframe src="${escHtml(embedUrl)}" class="kuro-media kuro-media--iframe" allowfullscreen frameborder="0" loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" title="${title}"></iframe>`;
+  const iframe = `<iframe src="${urlAttr(embedUrl, "src")}" class="kuro-media kuro-media--iframe" allowfullscreen frameborder="0" loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" title="${title}"></iframe>`;
   // YouTube はサムネイル（facade）にして、タップで全画面オーバーレイ再生にする。
   // ⚠ 理由は見た目ではなく YouTube 側の要件: 埋め込みプレイヤーは
   //   「viewport が最低 200x200」と規定されていて（IFrame Player API の
@@ -1929,10 +1932,11 @@ function keMediaFigure(
 ): string {
   const sizeStyle = size && size !== "100%" ? ` style="width:${size}"` : "";
   const alignClass = align ? ` kuro-media-wrap--${align}` : "";
-  const linkBtn = link
-    ? `<a class="kuro-media-open-link" href="${escHtml(link)}" target="_blank" rel="noopener">↗ URLを新規タブで開く</a>`
-    : "";
-  const esc = escHtml(src);
+  const linkBtn =
+    link && isSafeUrl(link)
+      ? `<a class="kuro-media-open-link" href="${urlAttr(link)}" target="_blank" rel="noopener">↗ URLを新規タブで開く</a>`
+      : "";
+  const esc = urlAttr(src, "src");
   if (mediaKind === "video") {
     return `<figure class="kuro-media-wrap kuro-media-wrap--video${alignClass}"${sizeStyle}><video src="${esc}" controls class="kuro-media kuro-media--video"></video>${linkBtn}</figure>`;
   }
@@ -1960,7 +1964,7 @@ function keUrlCard(slug: string, href: string): string {
   // 内部 slug は unfurl しない（安定なので簡易表示のまま）。
   const unfurlAttr = isHttp ? ` data-kuro-unfurl="${escHtml(slug)}"` : "";
   return (
-    `<a href="${escHtml(href)}"${ext} class="kuro-url-card"${unfurlAttr}>` +
+    `<a href="${urlAttr(href)}"${ext} class="kuro-url-card"${unfurlAttr}>` +
     `<span class="kuro-url-card__icon">${KE_URL_CARD_ICON}</span>` +
     `<span class="kuro-url-card__body">` +
     `<span class="kuro-url-card__title">${escHtml(title)}</span>` +
@@ -2168,7 +2172,7 @@ function expandSpecialLinks(
       }
       switch (d.kind) {
         case "card":
-          return `<a href="${escHtml(d.url)}" target="_blank" rel="noopener" class="kuro-card-link">${escHtml(d.raw)}</a>`;
+          return `<a href="${urlAttr(d.url)}" target="_blank" rel="noopener" class="kuro-card-link">${escHtml(d.raw)}</a>`;
         case "urlcard":
           return keUrlCard(d.slug, d.url);
         case "iframe":
@@ -2177,11 +2181,11 @@ function expandSpecialLinks(
           return keMediaFigure(d.url, d.size, d.align, d.link, d.mediaKind);
         case "wikilink": {
           const ext = d.isExternal ? ' target="_blank" rel="noopener"' : "";
-          return `<a href="${escHtml(d.url)}"${ext}>${escHtml(d.label)}</a>`;
+          return `<a href="${urlAttr(d.url)}"${ext}>${escHtml(d.label)}</a>`;
         }
         case "hyperlink": {
           const ext = d.isExternal ? ' target="_blank" rel="noopener"' : "";
-          return `<a href="${escHtml(d.url)}"${ext}>${escHtml(d.slug)}</a>`;
+          return `<a href="${urlAttr(d.url)}"${ext}>${escHtml(d.slug)}</a>`;
         }
         default:
           return match;

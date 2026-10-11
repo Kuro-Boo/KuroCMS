@@ -144,6 +144,10 @@ export function _escapeHtml(s: unknown): string;
 
 /** favicon/og:image 用に http(s)・data:image のみ許可（それ以外は空文字）。 */
 export function _safeImgUrl(u: unknown): string;
+/** [[...]] から来た URL を属性に入れてよいか(javascript: などを通さない・2026-10-11)。 */
+export function isSafeUrl(u: unknown, kind?: 'href' | 'src'): boolean;
+/** [[...]] の URL を編集用 HTML の属性値にする(通さない URL は空・& は触らない)。 */
+export function _attrUrl(u: unknown, kind?: 'href' | 'src'): string;
 
 export const MEDIA_EXT_RE: RegExp;
 export const VIDEO_EXT_RE: RegExp;
