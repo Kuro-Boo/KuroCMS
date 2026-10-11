@@ -1,10 +1,16 @@
 // Serves the externalized admin assets (admin-app.<hash>.js, ke.<ver>.{js,css}) that
 // are NOT bundled into worker.js. Source of truth at runtime:
-//   1) Cache API (edge)  2) KV PUBLIC_PAGES  3) ASSETS (local dev)  4) GitHub release.
+//   1) Cache API (edge)  2) KV PUBLIC_PAGES  3) ASSETS (local dev)  4) 配布基盤(update・取り先が update の導入)  5) GitHub release.
 // Hashed filenames are immutable, so everything is cached aggressively.
 // NOTE: lives at src/ root (a Worker module). src/admin/** is browser-only (tsconfig.admin.json).
 import { KUROCMS_VERSION } from "./api";
 import type { Env } from "./types";
+import {
+  fetchUpdateArtifact,
+  fetchUpdateManifest,
+  getReleaseSource,
+  noteFallback,
+} from "./release-source";
 
 // Version-pinned release base. NOT `latest/download` — that path is CDN-stale.
 const RELEASE_BASE = `https://github.com/Kuro-Boo/KuroCMS/releases/download/v${KUROCMS_VERSION}`;
@@ -101,7 +107,23 @@ export async function serveAdminAsset(
     }
   }
 
-  // 4) GitHub release (version-pinned), with retry. Cache into KV on success.
+  // 4) 配布基盤(update)から入った導入は、自分の版の成果物から取る(署名と sha256 を確かめる)。
+  //    取れなければ GitHub へ落ちる —— 並行の間は管理画面を止めない。落ちた事実は記録して
+  //    版の画面に出す(カナリアで update の不具合を見つけるため。cms-release)。
+  if ((await getReleaseSource(env)) === "update") {
+    try {
+      const manifest = await fetchUpdateManifest(
+        KUROCMS_VERSION.replace(/^v/, ""),
+      );
+      const buf = await fetchUpdateArtifact(manifest, filename);
+      ctx.waitUntil(env.PUBLIC_PAGES.put(kvKey, buf));
+      return finalize(assetResponse(buf, filename));
+    } catch (err) {
+      await noteFallback(env, `admin asset ${filename}`, err);
+    }
+  }
+
+  // 5) GitHub release (version-pinned), with retry. Cache into KV on success.
   const rel = await fetchWithRetry(`${RELEASE_BASE}/${filename}`);
   if (rel) {
     const buf = await rel.arrayBuffer();

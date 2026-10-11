@@ -12,6 +12,17 @@ import {
   tryAuth,
 } from "./auth";
 import {
+  fetchUpdateArtifact,
+  fetchUpdateManifest,
+  getReleaseSource,
+  lastFallback,
+  noteFallback,
+  setReleaseSource,
+  updateChannelOf,
+  updateChannelVersion,
+  UPDATE_ORIGIN,
+} from "./release-source";
+import {
   buildDocumentPages,
   buildAllPublicPages,
   cheapHash,
@@ -269,7 +280,12 @@ async function handleApiDispatch(
       await env.PUBLIC_PAGES.put(MIGRATE_THROTTLE_KEY, String(Date.now()), {
         expirationTtl: 60,
       });
-      const applied = await applyPendingMigrations(env);
+      // update から入った導入は、**自分の版の** migration の一覧を update の成果物から取る
+      // (WorkerOps が配った版と、当てる migration が必ず対応する)。
+      const applied = await applyPendingMigrations(
+        env,
+        await ownMigrationsSource(env),
+      );
       // ⚠ WorkerOps 経由のデプロイ（インストーラーが作った guardian が叩く経路）
       //   でも必ずスキーマを収束させる。これで「どの経路で入った DB でも、
       //   デプロイのたびに正本へ揃う」が成立する。
@@ -560,6 +576,29 @@ async function handleApiDispatch(
     if (request.method === "PUT" && path === "/api/system/update-channel") {
       requireAdmin(user);
       return withJsonHeaders(await setUpdateChannel(request, env));
+    }
+
+    // 版の取り先(GitHub か配布基盤か)。移行の間だけの切り替え(cms-release)。
+    if (request.method === "PUT" && path === "/api/system/release-source") {
+      requireAdmin(user);
+      const body = await readJson(request);
+      if (body.source !== "github" && body.source !== "update") {
+        throw new HttpError(
+          400,
+          "invalid_source",
+          "source must be github or update.",
+        );
+      }
+      const source = await setReleaseSource(env, body.source);
+      await logActivity(
+        env,
+        user,
+        "system.release_source",
+        "system",
+        "worker",
+        { source },
+      );
+      return json({ ok: true, source });
     }
 
     if (request.method === "GET" && path === "/api/system/custom-domains") {
@@ -4063,7 +4102,11 @@ async function setUpdateChannel(request: Request, env: Env): Promise<Response> {
 async function systemVersion(env: Env, refresh = false): Promise<Response> {
   const current = KUROCMS_VERSION;
   const channel = await getUpdateChannel(env);
-  const check = await fetchReleaseChannels(env, refresh);
+  const source = await getReleaseSource(env);
+  const check =
+    source === "update"
+      ? await fetchUpdateChannels()
+      : await fetchReleaseChannels(env, refresh);
   const stable = check.channels?.stable ?? null;
   const latest = check.channels?.latest ?? null;
   const target = channel === "latest" ? latest : stable;
@@ -4077,9 +4120,60 @@ async function systemVersion(env: Env, refresh = false): Promise<Response> {
     hasUpdate,
     checkOk: check.ok,
     checkedAt: check.checkedAt,
-    checkError: check.ok ? null : check.error,
+    checkError: check.ok ? null : (check.error ?? null),
     repo: KUROCMS_GITHUB_REPO,
+    // 版の取り先と、update から取れずに GitHub へ落ちた最後の記録(カナリアで見る)。
+    releaseSource: source,
+    releaseSourceFallback: (await lastFallback(env)) as JsonValue,
   });
+}
+
+/** 配布基盤の stable / dev(KuroCMS の stable / latest)。取れなければ null で、確認できていないと返す。 */
+async function fetchUpdateChannels(): Promise<{
+  ok: boolean;
+  checkedAt: string;
+  error?: string;
+  channels?: { stable: string | null; latest: string | null };
+}> {
+  const checkedAt = nowIso();
+  try {
+    const [stable, dev] = await Promise.all([
+      updateChannelVersion("stable"),
+      updateChannelVersion("dev"),
+    ]);
+    return {
+      ok: true,
+      checkedAt,
+      channels: { stable: "v" + stable, latest: "v" + dev },
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      checkedAt,
+      error: `${UPDATE_ORIGIN}: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+}
+
+/** 自分の版の migration の一覧。update から入った導入は update の成果物、そうでなければ従来どおり。 */
+async function ownMigrationsSource(
+  env: Env,
+): Promise<
+  string | { migrations: Array<{ name: string; sql: string }> } | undefined
+> {
+  if ((await getReleaseSource(env)) !== "update") return undefined;
+  try {
+    const manifest = await fetchUpdateManifest(
+      KUROCMS_VERSION.replace(/^v/, ""),
+    );
+    const buf = await fetchUpdateArtifact(manifest, "migrations-manifest.json");
+    return JSON.parse(new TextDecoder().decode(buf)) as {
+      migrations: Array<{ name: string; sql: string }>;
+    };
+  } catch (err) {
+    await noteFallback(env, "migrations", err);
+    return `https://github.com/${KUROCMS_GITHUB_REPO}/releases/download/v${KUROCMS_VERSION.replace(/^v/, "")}/migrations-manifest.json`;
+  }
 }
 
 // Apply any pending migrations from the latest release's migrations-manifest.json.
@@ -4169,8 +4263,14 @@ async function reconcileSchema(
 // idempotent. Shared by systemUpdate and the WorkerOps Contract POST /api/migrate.
 async function applyPendingMigrations(
   env: Env,
-  manifestUrl?: string,
+  manifestSource?:
+    | string
+    | { migrations: Array<{ name: string; sql: string }> },
 ): Promise<number> {
+  // 配布基盤から取った一覧(確かめ済み)はそのまま使う。
+  const given = typeof manifestSource === "object" ? manifestSource : null;
+  const manifestUrl =
+    typeof manifestSource === "string" ? manifestSource : undefined;
   // Prefer an immutable, version-pinned asset URL (passed by systemUpdate from
   // the GitHub API). The `latest/download` redirect is CDN-cached and the
   // Worker's own fetch() can be served a STALE manifest from Cloudflare's cache,
@@ -4178,15 +4278,20 @@ async function applyPendingMigrations(
   const url =
     manifestUrl ??
     `https://github.com/${KUROCMS_GITHUB_REPO}/releases/latest/download/migrations-manifest.json?_cb=${Date.now()}`;
-  const mRes = await fetch(url, {
-    redirect: "follow",
-    signal: AbortSignal.timeout(15_000),
-    cf: { cacheTtl: 0 },
-  });
-  if (!mRes.ok) return 0;
-  const manifest = (await mRes.json()) as {
-    migrations: Array<{ name: string; sql: string }>;
-  };
+  let manifest: { migrations: Array<{ name: string; sql: string }> };
+  if (given) {
+    manifest = given;
+  } else {
+    const mRes = await fetch(url, {
+      redirect: "follow",
+      signal: AbortSignal.timeout(15_000),
+      cf: { cacheTtl: 0 },
+    });
+    if (!mRes.ok) return 0;
+    manifest = (await mRes.json()) as {
+      migrations: Array<{ name: string; sql: string }>;
+    };
+  }
   // Build applied set from both wrangler's d1_migrations and our _kurocms_migrations
   const appliedNames = new Set<string>();
   for (const tbl of ["d1_migrations", "_kurocms_migrations"]) {
@@ -4278,53 +4383,101 @@ async function systemUpdate(
   // 取れるので（不変＝CDN の stale もチャンネル取り違えも起きない）、API から
   // browser_download_url を貰う必要がない。既定構成では更新経路から GitHub API が
   // 完全に消える（resolveChannelTag は非 API を第一候補にする）。
+  // 版の取り先(cms-release)。update なら、チャンネルの指す版の manifest の署名と
+  // 成果物の sha256 を確かめてから入れる。並行の間、GitHub の経路はそのまま残す。
+  const source = await getReleaseSource(env);
   let resolvedTag = requestedTag;
-  if (!resolvedTag) {
+  let scriptContent: string;
+  let migrationsApplied: number;
+  let schemaDrift: SchemaDriftReport;
+  if (source === "update") {
+    let manifest;
     try {
-      resolvedTag = await resolveChannelTag(env, channel);
+      const version = requestedTag
+        ? requestedTag.slice(1)
+        : await updateChannelVersion(updateChannelOf(channel));
+      manifest = await fetchUpdateManifest(version);
+      resolvedTag = "v" + version;
     } catch (err) {
       throw new HttpError(
-        502,
-        "github_unreachable",
-        `Could not resolve the "${channel}" release from GitHub: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
+        requestedTag && String(err).includes("not found") ? 404 : 502,
+        requestedTag && String(err).includes("not found")
+          ? "release_not_found"
+          : "update_unreachable",
+        `Could not resolve the "${channel}" release from ${UPDATE_ORIGIN}: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
-  }
-  const workerUrl = releaseAssetUrl(resolvedTag, "worker.js");
-  const manifestUrl = releaseAssetUrl(resolvedTag, "migrations-manifest.json");
-
-  // Apply pending migrations directly via D1 binding (run-once, additive-only).
-  // Use the immutable, version-pinned manifest asset URL — NOT the CDN-cached
-  // latest/download redirect, which the Worker's fetch() can serve stale,
-  // skipping freshly-released migrations, AND which always resolves to GitHub's
-  // true latest regardless of channel. (資産が無い古いリリースでも
-  // applyPendingMigrations は 0 件で素通しするので安全。)
-  const migrationsApplied = await applyPendingMigrations(env, manifestUrl);
-  // ⚠ migration の後に必ずスキーマを突き合わせる。履歴（d1_migrations）は
-  //   復元で失われうるので、履歴ではなく現物を正とする。
-  const schemaDrift = await reconcileSchema(env, true);
-
-  // Download the compiled Worker script from the version-pinned asset URL —
-  // NOT /latest/download/, which always resolves to GitHub's true latest
-  // release regardless of which channel was selected above.
-  const scriptRes = await fetch(workerUrl, {
-    redirect: "follow",
-    signal: AbortSignal.timeout(30_000),
-  });
-  if (!scriptRes.ok)
-    throw new HttpError(
-      502,
-      // 版固定 URL が 404 = そのタグのリリース（か worker.js 資産）が無い。
-      // タグ指名で呼ばれたときは「指定が悪い」と分かる形で返す（リリース
-      // パイプラインが直後に叩くので、取り違えでなく不在だと判別できること）。
-      requestedTag && scriptRes.status === 404
-        ? "release_not_found"
-        : "download_failed",
-      `Failed to download worker.js from ${workerUrl} (HTTP ${scriptRes.status}).`,
+    let workerBuf: ArrayBuffer;
+    let migrations: { migrations: Array<{ name: string; sql: string }> };
+    try {
+      workerBuf = await fetchUpdateArtifact(manifest, "worker.js");
+      migrations = JSON.parse(
+        new TextDecoder().decode(
+          await fetchUpdateArtifact(manifest, "migrations-manifest.json"),
+        ),
+      ) as { migrations: Array<{ name: string; sql: string }> };
+    } catch (err) {
+      // **確かめの通らないものは入れない。** ここで GitHub へ落とすと、update の不具合が見えなくなる。
+      throw new HttpError(
+        502,
+        "release_verify_failed",
+        `${resolvedTag}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    migrationsApplied = await applyPendingMigrations(env, migrations);
+    schemaDrift = await reconcileSchema(env, true);
+    scriptContent = new TextDecoder().decode(workerBuf);
+  } else {
+    if (!resolvedTag) {
+      try {
+        resolvedTag = await resolveChannelTag(env, channel);
+      } catch (err) {
+        throw new HttpError(
+          502,
+          "github_unreachable",
+          `Could not resolve the "${channel}" release from GitHub: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+    }
+    const workerUrl = releaseAssetUrl(resolvedTag, "worker.js");
+    const manifestUrl = releaseAssetUrl(
+      resolvedTag,
+      "migrations-manifest.json",
     );
-  const scriptContent = await scriptRes.text();
+
+    // Apply pending migrations directly via D1 binding (run-once, additive-only).
+    // Use the immutable, version-pinned manifest asset URL — NOT the CDN-cached
+    // latest/download redirect, which the Worker's fetch() can serve stale,
+    // skipping freshly-released migrations, AND which always resolves to GitHub's
+    // true latest regardless of channel. (資産が無い古いリリースでも
+    // applyPendingMigrations は 0 件で素通しするので安全。)
+    migrationsApplied = await applyPendingMigrations(env, manifestUrl);
+    // ⚠ migration の後に必ずスキーマを突き合わせる。履歴（d1_migrations）は
+    //   復元で失われうるので、履歴ではなく現物を正とする。
+    schemaDrift = await reconcileSchema(env, true);
+
+    // Download the compiled Worker script from the version-pinned asset URL —
+    // NOT /latest/download/, which always resolves to GitHub's true latest
+    // release regardless of which channel was selected above.
+    const scriptRes = await fetch(workerUrl, {
+      redirect: "follow",
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!scriptRes.ok)
+      throw new HttpError(
+        502,
+        // 版固定 URL が 404 = そのタグのリリース（か worker.js 資産）が無い。
+        // タグ指名で呼ばれたときは「指定が悪い」と分かる形で返す（リリース
+        // パイプラインが直後に叩くので、取り違えでなく不在だと判別できること）。
+        requestedTag && scriptRes.status === 404
+          ? "release_not_found"
+          : "download_failed",
+        `Failed to download worker.js from ${workerUrl} (HTTP ${scriptRes.status}).`,
+      );
+    scriptContent = await scriptRes.text();
+  }
 
   // Read current settings to preserve compatibility_date and non-secret bindings.
   // type:"inherit" for secrets is Enterprise-only — instead we upload without
@@ -4419,6 +4572,7 @@ async function systemUpdate(
   await logActivity(env, user, "system.update", "system", "worker", {
     version: resolvedTag,
     channel,
+    source,
     migrationsApplied,
   });
   // Invalidate the cached channel lookup so the next check reflects reality now.
@@ -4433,6 +4587,8 @@ async function systemUpdate(
     ok: true,
     version: resolvedTag,
     channel,
+    // どこから取ったか(github / update)。カナリアでは update と出ること。
+    source,
     migrationsApplied,
     schema: schemaDrift as unknown as JsonValue,
   });
