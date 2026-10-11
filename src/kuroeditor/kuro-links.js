@@ -71,6 +71,53 @@ export function _escapeHtml(s) {
 }
 
 /**
+ * [[...]] から来た URL を、属性に入れてよいかを決める(2026-10-11)。
+ *
+ * [[...]] の中身は利用者(または AI・貼り付け)が書いた文字で、`"` や `javascript:` が
+ * そのまま入りうる。以前は href / src へ素のまま埋めていたので、`"` で属性の外へ出たり
+ * (onmouseover 等を足せる)、メディアの飛び先 `[[img.png|60%|javascript:…]]` が
+ * そのまま押せるリンクになった。エディタと公開ページ(KuroCMS)の**両方がこの1つを使う**。
+ *
+ * - 枠組み(scheme)の無い URL(相対・# 始まり)は通す。
+ * - 枠組みがあるときは、href は http / https / mailto / tel、src は http / https / blob /
+ *   data:(image|video|audio) だけを通す。
+ * - 属性の中では文字参照(`&#106;` `&colon;`)が解かれ、空白や制御文字は読み飛ばされるので、
+ *   **解いた形で**枠組みを見る。
+ * @param {string} u
+ * @param {'href'|'src'} [kind]
+ * @returns {boolean}
+ */
+export function isSafeUrl(u, kind = 'href') {
+  const cp = (n) => { try { return String.fromCodePoint(n) } catch { return '' } }
+  const decoded = String(u ?? '')
+    .replace(/&#x([0-9a-f]+);?/gi, (_, h) => cp(parseInt(h, 16)))
+    .replace(/&#(\d+);?/g, (_, d) => cp(Number(d)))
+    .replace(/&colon;/gi, ':')
+    .replace(/&(tab|newline);/gi, '')
+    .replace(/[\u0000-\u0020\u007f]/g, '')
+  const m = /^([a-z][a-z0-9+.-]*):/i.exec(decoded)
+  if (!m) return true
+  const scheme = m[1].toLowerCase()
+  if (kind === 'src') {
+    if (scheme === 'data') return /^data:(image|video|audio)\//i.test(decoded)
+    return scheme === 'http' || scheme === 'https' || scheme === 'blob'
+  }
+  return scheme === 'http' || scheme === 'https' || scheme === 'mailto' || scheme === 'tel'
+}
+
+/**
+ * [[...]] の URL を、編集用の HTML の属性値にする。通さない URL は空にする。
+ * 入力は**すでに HTML の文字**(本文の中の [[...]])なので `&` は触らない(`&amp;` を
+ * 二重にしない)。属性を閉じる `"` と、タグを作る `<` `>` だけを文字参照にする。
+ * @param {string} u
+ * @param {'href'|'src'} [kind]
+ */
+export function _attrUrl(u, kind = 'href') {
+  if (!isSafeUrl(u, kind)) return ''
+  return String(u ?? '').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+/**
  * Sanitize a host-supplied image URL (favicon / og:image) for use in a src
  * attribute. Only http(s) and data:image URLs are allowed — anything else
  * (javascript:, etc.) is dropped so the untrusted fetched metadata can't
@@ -170,7 +217,7 @@ export function buildBrokenMedia(src) {
  */
 export function _buildUrlCard(slug, url) {
   const ext = slug.startsWith('http')
-  return `<a href="${url}"${ext ? ' target="_blank" rel="noopener"' : ''} class="kuro-url-card" contenteditable="false" data-kuro-wiki="${encodeURIComponent('[[' + slug + '|]]')}">${_urlCardInner(slug, url)}</a>`
+  return `<a href="${_attrUrl(url)}"${ext ? ' target="_blank" rel="noopener"' : ''} class="kuro-url-card" contenteditable="false" data-kuro-wiki="${encodeURIComponent('[[' + slug + '|]]')}">${_urlCardInner(slug, url)}</a>`
 }
 
 /** Shared [[...]] token regex — single-pass, order card > wiki > hyper. */
@@ -244,7 +291,7 @@ export function renderSpecialLinks(text, resolver = defaultResolver, supportedKi
     const d = classifyLink({ card, wikiSlug, wikiLabel, hyper }, resolver, supportedKinds)
     switch (d.kind) {
       case 'card':
-        return `<a href="${d.url}" target="_blank" rel="noopener" class="kuro-card-link" data-kuro-card="${encodeURIComponent('[[[' + d.raw + ']]]')}">${d.raw}</a>`
+        return `<a href="${_attrUrl(d.url)}" target="_blank" rel="noopener" class="kuro-card-link" data-kuro-card="${encodeURIComponent('[[[' + d.raw + ']]]')}">${d.raw}</a>`
       case 'urlcard':
         return _buildUrlCard(d.slug, d.url)
       case 'iframe': {
@@ -255,8 +302,9 @@ export function renderSpecialLinks(text, resolver = defaultResolver, supportedKi
         const enc = buildMediaAttr(d.slug, d.size, d.align, d.link)
         const sizeStyle = (d.size && d.size !== '100%') ? ` style="width:${d.size}"` : ''
         const alignClass = d.align ? ` kuro-media-wrap--${d.align}` : ''
-        const hrefAttr = d.link ? ` data-kuro-href="${d.link}"` : ''
-        const linkBtn = d.link ? `<a class="kuro-media-open-link" href="${d.link}" target="_blank" rel="noopener" contenteditable="false">↗ URLを新規タブで開く</a>` : ''
+        const link = d.link ? _attrUrl(d.link) : ''
+        const hrefAttr = link ? ` data-kuro-href="${link}"` : ''
+        const linkBtn = link ? `<a class="kuro-media-open-link" href="${link}" target="_blank" rel="noopener" contenteditable="false">↗ URLを新規タブで開く</a>` : ''
         if (d.unsupported) {
           // このホストが対応しない種別（例: 画像のみのアプリに動画/音声）。壊れた
           // プレーヤーではなく【リンクカード】へ落とす。data-kuro-media を保持するので
@@ -268,21 +316,22 @@ export function renderSpecialLinks(text, resolver = defaultResolver, supportedKi
           // クラスにして見た目（ボックス）だけ url-card と共有する。
           const isHttp = /^https?:\/\//i.test(d.url)
           const linkUrl = d.link || (isHttp ? d.url : null)
-          const attrs = linkUrl ? ` href="${linkUrl}" target="_blank" rel="noopener"` : ''
+          const safeLink = linkUrl ? _attrUrl(linkUrl) : ''
+          const attrs = safeLink ? ` href="${safeLink}" target="_blank" rel="noopener"` : ''
           return `<a class="kuro-media-fallback-card"${attrs} contenteditable="false" data-kuro-media="${enc}">${_urlCardInner(d.slug, d.slug)}</a>`
         }
         if (d.mediaKind === 'video') {
-          return `<figure class="kuro-media-wrap kuro-media-wrap--video${alignClass}"${sizeStyle} data-kuro-media="${enc}"${hrefAttr}><video src="${d.url}" controls class="kuro-media kuro-media--video"></video>${linkBtn}</figure>`
+          return `<figure class="kuro-media-wrap kuro-media-wrap--video${alignClass}"${sizeStyle} data-kuro-media="${enc}"${hrefAttr}><video src="${_attrUrl(d.url, 'src')}" controls class="kuro-media kuro-media--video"></video>${linkBtn}</figure>`
         }
         if (d.mediaKind === 'audio') {
-          return `<figure class="kuro-media-wrap kuro-media-wrap--audio${alignClass}"${sizeStyle} data-kuro-media="${enc}"${hrefAttr}><audio src="${d.url}" controls class="kuro-media kuro-media--audio"></audio>${linkBtn}</figure>`
+          return `<figure class="kuro-media-wrap kuro-media-wrap--audio${alignClass}"${sizeStyle} data-kuro-media="${enc}"${hrefAttr}><audio src="${_attrUrl(d.url, 'src')}" controls class="kuro-media kuro-media--audio"></audio>${linkBtn}</figure>`
         }
-        return `<figure class="kuro-media-wrap${alignClass}"${sizeStyle} data-kuro-media="${enc}"${hrefAttr}><img src="${d.url}" alt="" class="kuro-media">${linkBtn}</figure>`
+        return `<figure class="kuro-media-wrap${alignClass}"${sizeStyle} data-kuro-media="${enc}"${hrefAttr}><img src="${_attrUrl(d.url, 'src')}" alt="" class="kuro-media">${linkBtn}</figure>`
       }
       case 'wikilink':
-        return `<a href="${d.url}" data-kuro-wiki="${encodeURIComponent('[[' + d.slug + '|' + d.label + ']]')}">${d.label}</a>`
+        return `<a href="${_attrUrl(d.url)}" data-kuro-wiki="${encodeURIComponent('[[' + d.slug + '|' + d.label + ']]')}">${d.label}</a>`
       case 'hyperlink':
-        return `<a href="${d.url}"${d.isExternal ? ' target="_blank" rel="noopener"' : ''} data-kuro-link="${encodeURIComponent('[[' + d.slug + ']]')}">${d.slug}</a>`
+        return `<a href="${_attrUrl(d.url)}"${d.isExternal ? ' target="_blank" rel="noopener"' : ''} data-kuro-link="${encodeURIComponent('[[' + d.slug + ']]')}">${d.slug}</a>`
       default:
         return match
     }
@@ -331,7 +380,7 @@ export function _buildIframeFigure(embedUrl, enc, size, align) {
   const map = isMapEmbed(embedUrl)
   const kindClass = map ? ' kuro-media-wrap--map' : ''
   const title = map ? '埋め込み地図' : '埋め込み動画'
-  return `<figure class="kuro-media-wrap kuro-media-wrap--iframe${kindClass}${alignClass}"${sizeStyle} data-kuro-media="${enc}"><div class="kuro-iframe-wrap"><iframe src="${embedUrl}" class="kuro-media kuro-media--iframe" allowfullscreen frameborder="0" loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" title="${title}"></iframe></div></figure>`
+  return `<figure class="kuro-media-wrap kuro-media-wrap--iframe${kindClass}${alignClass}"${sizeStyle} data-kuro-media="${enc}"><div class="kuro-iframe-wrap"><iframe src="${_attrUrl(embedUrl, 'src')}" class="kuro-media kuro-media--iframe" allowfullscreen frameborder="0" loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" title="${title}"></iframe></div></figure>`
 }
 
 /**
