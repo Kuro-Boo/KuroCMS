@@ -1,5 +1,6 @@
 // Public page renderer. Template HTML comes only from D1.
 import { createStaleFallback } from "./stale-fallback";
+import { expandEntamySubprocessors } from "./entamy-subprocessors";
 import type {
   ArticleCardData,
   ArticleData,
@@ -2417,10 +2418,17 @@ async function buildRenderContext(
       content[page.coverKey] = wrapKuroContent(content[page.coverKey], lang);
   }
   // Same for the legal pages' site texts (privacy policy / terms of service).
+  // `[[entamy.subprocessors]]` は同梱した Entamy の委託先の表になる(entamy-subprocessors.ts)。
   if (content["privacy"])
-    content["privacy"] = wrapKuroContent(content["privacy"], lang);
+    content["privacy"] = expandEntamySubprocessors(
+      wrapKuroContent(content["privacy"], lang),
+      lang,
+    );
   if (content["terms"])
-    content["terms"] = wrapKuroContent(content["terms"], lang);
+    content["terms"] = expandEntamySubprocessors(
+      wrapKuroContent(content["terms"], lang),
+      lang,
+    );
 
   // /privacy/ and /terms/ exist only while their site text has content (after
   // the language fallback above): an empty key means 404 — and the matching

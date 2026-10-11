@@ -1,0 +1,16 @@
+{
+  "schema": "entamy.subprocessors/1",
+  "status": "published",
+  "fetched_at": "2026-10-11T09:01:42.611Z",
+  "updated_at": "2026-10-11T06:44:27.238Z",
+  "page": "https://kuro.boo/subprocessors/",
+  "items": [
+    {
+      "name": "Cloudflare, Inc.",
+      "purpose": "基盤の実行・データの保存・配信",
+      "data": "アカウントの情報（登録したメールアドレスを含む）、利用者が作成したデータ（製品によっては暗号化された状態）、通信の記録（IP アドレス等）",
+      "location": "米国（委託先の所在国）。データの保存は日本（東京）、通信の処理は利用者に近い世界各地の拠点で行われます。",
+      "url": "https://www.cloudflare.com/privacypolicy/"
+    }
+  ]
+}
