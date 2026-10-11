@@ -17,11 +17,13 @@ import {
   getReleaseSource,
   lastFallback,
   noteFallback,
+  reasonOf,
   setReleaseSource,
   updateChannelOf,
   updateChannelVersion,
   UPDATE_ORIGIN,
 } from "./release-source";
+import { reportRelease } from "./release-report";
 import {
   buildDocumentPages,
   buildAllPublicPages,
@@ -4168,17 +4170,42 @@ async function ownMigrationsSource(
   string | { migrations: Array<{ name: string; sql: string }> } | undefined
 > {
   if ((await getReleaseSource(env)) !== "update") return undefined;
+  const version = KUROCMS_VERSION.replace(/^v/, "");
   try {
-    const manifest = await fetchUpdateManifest(
-      KUROCMS_VERSION.replace(/^v/, ""),
-    );
+    const manifest = await fetchUpdateManifest(version);
     const buf = await fetchUpdateArtifact(manifest, "migrations-manifest.json");
-    return JSON.parse(new TextDecoder().decode(buf)) as {
+    const parsed = JSON.parse(new TextDecoder().decode(buf)) as {
       migrations: Array<{ name: string; sql: string }>;
     };
+    await reportRelease(env, "release_update_ok", {
+      what: "migrations",
+      version,
+    });
+    return parsed;
   } catch (err) {
     await noteFallback(env, "migrations", err);
-    return `https://github.com/${KUROCMS_GITHUB_REPO}/releases/download/v${KUROCMS_VERSION.replace(/^v/, "")}/migrations-manifest.json`;
+    // 落ちた先(GitHub)で取れたかまでを Defects へ送るため、ここで取る。
+    const reason = reasonOf(err);
+    const parsed = await fetch(
+      `https://github.com/${KUROCMS_GITHUB_REPO}/releases/download/v${version}/migrations-manifest.json`,
+      { redirect: "follow", signal: AbortSignal.timeout(15_000) },
+    )
+      .then((r) =>
+        r.ok
+          ? (r.json() as Promise<{
+              migrations?: Array<{ name: string; sql: string }>;
+            }>)
+          : null,
+      )
+      .catch(() => null);
+    const ok = Array.isArray(parsed?.migrations);
+    await reportRelease(
+      env,
+      ok ? "release_fallback_github_ok" : "release_fallback_github_failed",
+      { what: "migrations", version, reason },
+    );
+    // 取れなければ当てるものは無い(従来どおり 0 件で素通し)。
+    return { migrations: ok ? parsed!.migrations! : [] };
   }
 }
 
@@ -4419,6 +4446,11 @@ async function systemUpdate(
       resolvedTag = "v" + version;
     } catch (err) {
       if (err instanceof HttpError) throw err;
+      await reportRelease(env, "release_update_failed", {
+        what: "worker",
+        version: requestedTag ? requestedTag.slice(1) : "unknown",
+        reason: reasonOf(err),
+      });
       throw new HttpError(
         requestedTag && String(err).includes("not found") ? 404 : 502,
         requestedTag && String(err).includes("not found")
@@ -4438,12 +4470,21 @@ async function systemUpdate(
       ) as { migrations: Array<{ name: string; sql: string }> };
     } catch (err) {
       // **確かめの通らないものは入れない。** ここで GitHub へ落とすと、update の不具合が見えなくなる。
+      await reportRelease(env, "release_update_failed", {
+        what: "worker",
+        version: manifest.version,
+        reason: reasonOf(err),
+      });
       throw new HttpError(
         502,
         "release_verify_failed",
         `${resolvedTag}: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
+    await reportRelease(env, "release_update_ok", {
+      what: "worker",
+      version: manifest.version,
+    });
     migrationsApplied = await applyPendingMigrations(env, migrations);
     schemaDrift = await reconcileSchema(env, true);
     scriptContent = new TextDecoder().decode(workerBuf);

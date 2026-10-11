@@ -294,3 +294,24 @@ export class EntamyMailer {
     return Promise.resolve();
   }
 }
+
+// ── 不具合の報告 ────────────────────────────────────────────────────────
+/** 何も送らない。報告は本体でも「失敗しても黙って戻る」ので、呼ぶ側の挙動は変わらない。 */
+export class EntamyDefects {
+  constructor(
+    readonly config: EntamyConfig,
+    readonly session: EntamySession,
+  ) {}
+  report(
+    _code: string,
+    _options: {
+      osVersion?: string;
+      deviceModel?: string;
+      detail?: Record<string, unknown>;
+      verbose?: string;
+      record?: boolean;
+    } = {},
+  ): Promise<EntamyFailure | null> {
+    return Promise.resolve(null);
+  }
+}

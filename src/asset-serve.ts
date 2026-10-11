@@ -10,7 +10,9 @@ import {
   fetchUpdateManifest,
   getReleaseSource,
   noteFallback,
+  reasonOf,
 } from "./release-source";
+import { reportRelease } from "./release-report";
 
 // Version-pinned release base. NOT `latest/download` — that path is CDN-stale.
 const RELEASE_BASE = `https://github.com/Kuro-Boo/KuroCMS/releases/download/v${KUROCMS_VERSION}`;
@@ -110,21 +112,39 @@ export async function serveAdminAsset(
   // 4) 配布基盤(update)から入った導入は、自分の版の成果物から取る(署名と sha256 を確かめる)。
   //    取れなければ GitHub へ落ちる —— 並行の間は管理画面を止めない。落ちた事実は記録して
   //    版の画面に出す(カナリアで update の不具合を見つけるため。cms-release)。
+  //    結果は Defects へ送る(取れた・落ちて GitHub で取れた・どちらでも取れない。release-report)。
+  const version = KUROCMS_VERSION.replace(/^v/, "");
+  let updateFailure: string | null = null;
   if ((await getReleaseSource(env)) === "update") {
     try {
-      const manifest = await fetchUpdateManifest(
-        KUROCMS_VERSION.replace(/^v/, ""),
-      );
+      const manifest = await fetchUpdateManifest(version);
       const buf = await fetchUpdateArtifact(manifest, filename);
       ctx.waitUntil(env.PUBLIC_PAGES.put(kvKey, buf));
+      ctx.waitUntil(
+        reportRelease(env, "release_update_ok", {
+          what: "asset",
+          version,
+          asset: filename,
+        }),
+      );
       return finalize(assetResponse(buf, filename));
     } catch (err) {
+      updateFailure = reasonOf(err);
       await noteFallback(env, `admin asset ${filename}`, err);
     }
   }
 
   // 5) GitHub release (version-pinned), with retry. Cache into KV on success.
   const rel = await fetchWithRetry(`${RELEASE_BASE}/${filename}`);
+  if (updateFailure) {
+    ctx.waitUntil(
+      reportRelease(
+        env,
+        rel ? "release_fallback_github_ok" : "release_fallback_github_failed",
+        { what: "asset", version, asset: filename, reason: updateFailure },
+      ),
+    );
+  }
   if (rel) {
     const buf = await rel.arrayBuffer();
     ctx.waitUntil(env.PUBLIC_PAGES.put(kvKey, buf));

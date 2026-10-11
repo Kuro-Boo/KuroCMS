@@ -10,6 +10,7 @@
  */
 
 import {
+  EntamyDefects,
   EntamyLegal,
   EntamyMailer,
   EntamySat,
@@ -165,6 +166,7 @@ export interface EntamyPort {
   sat: EntamySat;
   mailer: EntamyMailer;
   legal: EntamyLegal;
+  defects: EntamyDefects;
 }
 
 /**
@@ -205,7 +207,9 @@ export async function entamyPort(env: Env): Promise<EntamyPort> {
   const sat = new EntamySat(config, session, store);
   const mailer = new EntamyMailer(config, session, sat, store);
   const legal = new EntamyLegal(config, { store });
-  cachedPort = { session, sat, mailer, legal };
+  // 段は既定(符号だけ)のまま。配布する束なので素の言い分は送らない —— 理由は符号で detail に載せる。
+  const defects = new EntamyDefects(config, session);
+  cachedPort = { session, sat, mailer, legal, defects };
   return cachedPort;
 }
 

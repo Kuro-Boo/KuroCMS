@@ -73,6 +73,27 @@ export interface UpdateManifest {
 
 const VERSION_RE = /^\d+\.\d+\.\d+$/;
 
+/**
+ * 取れなかった・確かめが通らなかった理由。`reason` は Defects へ送る符号
+ * (detail は符号と数値だけ —— 文は送れないので、何が起きたかは符号で言い切る)。
+ */
+export class ReleaseError extends Error {
+  readonly reason: string;
+  constructor(reason: string, message: string) {
+    super(message);
+    this.name = "ReleaseError";
+    this.reason = reason;
+  }
+}
+
+/** 例外を Defects の符号にする。ReleaseError 以外は通信の失敗として分ける。 */
+export function reasonOf(err: unknown): string {
+  if (err instanceof ReleaseError) return err.reason;
+  if (err instanceof Error && err.name === "TimeoutError") return "timeout";
+  if (err instanceof TypeError) return "unreachable";
+  return "other";
+}
+
 const fromB64url = (s: string): Uint8Array => {
   const b = atob(
     s
@@ -108,8 +129,10 @@ async function getJson(path: string): Promise<unknown> {
     signal: AbortSignal.timeout(15_000),
     cf: { cacheTtl: 0 },
   });
-  if (r.status === 404) throw new Error(`not found: ${path}`);
-  if (!r.ok) throw new Error(`HTTP ${r.status}: ${path}`);
+  if (r.status === 404)
+    throw new ReleaseError("not_found", `not found: ${path}`);
+  if (!r.ok)
+    throw new ReleaseError(`http_${r.status}`, `HTTP ${r.status}: ${path}`);
   return r.json();
 }
 
@@ -121,7 +144,7 @@ export async function updateChannelVersion(
     `/v1/dist/${UPDATE_PRODUCT}/channels/${channel}.json`,
   )) as { product_id?: string; version?: string };
   if (p.product_id !== UPDATE_PRODUCT || !VERSION_RE.test(p.version ?? ""))
-    throw new Error("channel pointer is invalid");
+    throw new ReleaseError("bad_pointer", "channel pointer is invalid");
   return p.version!;
 }
 
@@ -129,7 +152,8 @@ export async function updateChannelVersion(
 export async function fetchUpdateManifest(
   version: string,
 ): Promise<UpdateManifest> {
-  if (!VERSION_RE.test(version)) throw new Error("version is invalid");
+  if (!VERSION_RE.test(version))
+    throw new ReleaseError("bad_version", "version is invalid");
   const m = (await getJson(
     `/v1/dist/${UPDATE_PRODUCT}/${version}/manifest.json`,
   )) as UpdateManifest;
@@ -139,12 +163,19 @@ export async function fetchUpdateManifest(
     m.version !== version ||
     !Array.isArray(m.artifacts)
   ) {
-    throw new Error("release identity does not match");
+    throw new ReleaseError(
+      "identity_mismatch",
+      "release identity does not match",
+    );
   }
   if (!m.signature || m.signature.alg !== "ed25519")
-    throw new Error("release signature is missing");
+    throw new ReleaseError("signature_missing", "release signature is missing");
   const trusted = RELEASE_PUBKEYS.find((k) => k.key_id === m.signature.key_id);
-  if (!trusted) throw new Error("release signing key is not trusted");
+  if (!trusted)
+    throw new ReleaseError(
+      "untrusted_key",
+      "release signing key is not trusted",
+    );
   const key = await crypto.subtle.importKey(
     "raw",
     fromB64url(trusted.pub),
@@ -160,7 +191,11 @@ export async function fetchUpdateManifest(
       canonical(m as unknown as Record<string, unknown>),
     ),
   );
-  if (!ok) throw new Error("release signature does not match");
+  if (!ok)
+    throw new ReleaseError(
+      "signature_mismatch",
+      "release signature does not match",
+    );
   return m;
 }
 
@@ -170,21 +205,29 @@ export async function fetchUpdateArtifact(
   name: string,
 ): Promise<ArrayBuffer> {
   const a = manifest.artifacts.find((x) => x.name === name);
-  if (!a) throw new Error(`${name} is not in release ${manifest.version}`);
+  if (!a)
+    throw new ReleaseError(
+      "artifact_missing",
+      `${name} is not in release ${manifest.version}`,
+    );
   const r = await fetch(
     `${UPDATE_ORIGIN}/v1/dist/${UPDATE_PRODUCT}/blobs/${a.sha256}`,
     { signal: AbortSignal.timeout(30_000) },
   );
   if (!r.ok || !r.body)
-    throw new Error(`${name} fetch failed: HTTP ${r.status}`);
+    throw new ReleaseError(
+      `http_${r.status}`,
+      `${name} fetch failed: HTTP ${r.status}`,
+    );
   const body =
     r.headers.get("x-entamy-encoding") === "gzip"
       ? r.body.pipeThrough(new DecompressionStream("gzip"))
       : r.body;
   const buf = await new Response(body).arrayBuffer();
-  if (buf.byteLength !== a.size) throw new Error(`${name} size does not match`);
+  if (buf.byteLength !== a.size)
+    throw new ReleaseError("size_mismatch", `${name} size does not match`);
   if (hex(await crypto.subtle.digest("SHA-256", buf)) !== a.sha256)
-    throw new Error(`${name} digest does not match`);
+    throw new ReleaseError("digest_mismatch", `${name} digest does not match`);
   return buf;
 }
 
