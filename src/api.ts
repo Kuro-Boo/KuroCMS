@@ -269,7 +269,12 @@ async function handleApiDispatch(
     // issues a single post-deploy call, and the admin update path applies
     // migrations directly (systemUpdate → applyPendingMigrations), so the throttle
     // never blocks a legitimate migration.
-    if (request.method === "POST" && path === "/api/migrate") {
+    // 仕様(cms-workerops)の MIGRATE_PATH は /api/system/migrate。旧名 /api/migrate も、
+    // すでにその名前で WorkerOps を入れた導入のために受ける。
+    if (
+      request.method === "POST" &&
+      (path === "/api/system/migrate" || path === "/api/migrate")
+    ) {
       const last = await env.PUBLIC_PAGES.get(MIGRATE_THROTTLE_KEY);
       if (last && Date.now() - Number(last) < MIGRATE_THROTTLE_MS) {
         return json(
@@ -4397,9 +4402,23 @@ async function systemUpdate(
       const version = requestedTag
         ? requestedTag.slice(1)
         : await updateChannelVersion(updateChannelOf(channel));
+      // **前方のみ。** 取得口はチャンネルの応答を拠点ごとに数分キャッシュするので、
+      // 上げた直後は古い版を読むことがある(2026-10-11 のカナリアで実際に 1.10.18 を読んだ)。
+      // 版を名指ししない更新で今より古い版を読んだら、入れずに断る。名指しは管理者の意図として受ける。
+      if (
+        !requestedTag &&
+        compareVersions(version, KUROCMS_VERSION.replace(/^v/, "")) < 0
+      ) {
+        throw new HttpError(
+          409,
+          "not_newer",
+          `${UPDATE_ORIGIN} の ${updateChannelOf(channel)} が ${version} を指しています(今は ${KUROCMS_VERSION})。古い版には戻しません。数分おいてもう一度試してください。`,
+        );
+      }
       manifest = await fetchUpdateManifest(version);
       resolvedTag = "v" + version;
     } catch (err) {
+      if (err instanceof HttpError) throw err;
       throw new HttpError(
         requestedTag && String(err).includes("not found") ? 404 : 502,
         requestedTag && String(err).includes("not found")
