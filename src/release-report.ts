@@ -1,13 +1,12 @@
 /**
  * update から版を取った結果を Entamy Defects へ送る(cms-release・2026-10-12)。
  *
- * 取り先が update の導入だけが送る。カナリアの目的は update の経路の不具合を見つけることで、
+ * 取り先が update の導入(既定)が送る。github だけを選んだ導入は送らない。カナリアの目的は update の経路の不具合を見つけることで、
  * 版の画面(/api/system/version)の「最後に落ちた記録」だけでは、**見に行かなければ気づかない**
  * うえに最後の1件しか残らない。Defects なら起きた回数だけ積まれ、管理画面の一覧で読める。
  *
  *   release_update_ok               update から取れて、署名と sha256 が通った(記録 —— 不具合ではない)
- *   release_update_failed           update から取れない・確かめが通らない。**入れなかった**(worker・migration)
- *   release_fallback_github_ok      update から取れず、GitHub から取れた(管理画面のアセット・migration)
+ *   release_fallback_github_ok      update から取れず(確かめが通らないものも)、同じ版を GitHub から取れた
  *   release_fallback_github_failed  update からも GitHub からも取れなかった
  *
  * detail は符号と数値だけ(what・version・asset・reason)。報告が通らなくても更新は止めない。
@@ -17,7 +16,6 @@ import type { Env } from "./types";
 
 export type ReleaseEvent =
   | "release_update_ok"
-  | "release_update_failed"
   | "release_fallback_github_ok"
   | "release_fallback_github_failed";
 

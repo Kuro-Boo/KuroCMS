@@ -1,9 +1,9 @@
 /**
  * 版の取り先 —— GitHub Release か、Entamy の配布基盤(update)か(仕様 cms-release・2026-10-11)。
  *
- * KuroCMS は GitHub Release から配布基盤へ移る途中にある。移り終わるまで**両方へ出し**、
- * 導入ごとに取り先を選ぶ。既定は GitHub。カナリア(kurocms.kuro.boo)だけ update にして、
- * 基盤の経路で dev / stable が正しく届くかを確かめる。
+ * KuroCMS は GitHub Release から配布基盤へ移る途中にある。移り終わるまで(1 年以上)**両方へ出し**、
+ * 取るのは update から(既定・2026-10-12)。取れなければ GitHub へ落ち、結果は Defects へ送る。
+ * 導入ごとに github だけへ戻すこともできる(PUT /api/system/release-source)。
  *
  * update から取るときは、
  *   ① チャンネルの指す版を読み(stable → stable、latest → dev)
@@ -33,13 +33,18 @@ const RELEASE_PUBKEYS: { key_id: string; pub: string }[] = [
 
 export type ReleaseSource = "github" | "update";
 
+/**
+ * 既定は update(2026-10-12)。GitHub Release への並行の公開は 1 年以上続けるが、取るのは
+ * 最新の版から順次 update にし、取れなければ GitHub へ落ちる。結果はすべて Defects へ送る
+ * (release-report)。GitHub だけから取るのは、管理者が明示的に github を選んだ導入だけ。
+ */
 export async function getReleaseSource(env: Env): Promise<ReleaseSource> {
   try {
-    return (await env.PUBLIC_PAGES.get(SOURCE_KEY)) === "update"
-      ? "update"
-      : "github";
+    return (await env.PUBLIC_PAGES.get(SOURCE_KEY)) === "github"
+      ? "github"
+      : "update";
   } catch {
-    return "github";
+    return "update";
   }
 }
 
@@ -47,7 +52,7 @@ export async function setReleaseSource(
   env: Env,
   source: unknown,
 ): Promise<ReleaseSource> {
-  const v: ReleaseSource = source === "update" ? "update" : "github";
+  const v: ReleaseSource = source === "github" ? "github" : "update";
   await env.PUBLIC_PAGES.put(SOURCE_KEY, v);
   return v;
 }

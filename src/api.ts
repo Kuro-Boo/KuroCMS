@@ -4110,10 +4110,16 @@ async function systemVersion(env: Env, refresh = false): Promise<Response> {
   const current = KUROCMS_VERSION;
   const channel = await getUpdateChannel(env);
   const source = await getReleaseSource(env);
-  const check =
+  let check =
     source === "update"
       ? await fetchUpdateChannels()
       : await fetchReleaseChannels(env, refresh);
+  // update の版が読めなければ GitHub の版で答える(並行の間は同じ版が両方にある)。
+  // 画面を開くたびに走るので Defects には送らず、版の画面の記録にだけ残す。
+  if (source === "update" && !check.ok) {
+    await noteFallback(env, "version check", check.error ?? "unknown");
+    check = await fetchReleaseChannels(env, refresh);
+  }
   const stable = check.channels?.stable ?? null;
   const latest = check.channels?.latest ?? null;
   const target = channel === "latest" ? latest : stable;
@@ -4373,6 +4379,71 @@ async function applyPendingMigrations(
   return applied;
 }
 
+/**
+ * GitHub Release から取る(取り先が github の導入と、update から取れなかったときの退路)。
+ * `fallbackTag` は update で決まった版。落ちたときも同じ版を取るために渡す。
+ */
+async function fetchFromGithub(
+  env: Env,
+  channel: "stable" | "latest",
+  requestedTag: string | undefined,
+  fallbackTag: string | undefined,
+): Promise<{
+  resolvedTag: string;
+  migrationsApplied: number;
+  schemaDrift: SchemaDriftReport;
+  scriptContent: string;
+}> {
+  let resolvedTag = fallbackTag ?? requestedTag;
+  if (!resolvedTag) {
+    try {
+      resolvedTag = await resolveChannelTag(env, channel);
+    } catch (err) {
+      throw new HttpError(
+        502,
+        "github_unreachable",
+        `Could not resolve the "${channel}" release from GitHub: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  }
+  const workerUrl = releaseAssetUrl(resolvedTag, "worker.js");
+  const manifestUrl = releaseAssetUrl(resolvedTag, "migrations-manifest.json");
+
+  // Apply pending migrations directly via D1 binding (run-once, additive-only).
+  // Use the immutable, version-pinned manifest asset URL — NOT the CDN-cached
+  // latest/download redirect, which the Worker's fetch() can serve stale,
+  // skipping freshly-released migrations, AND which always resolves to GitHub's
+  // true latest regardless of channel. (資産が無い古いリリースでも
+  // applyPendingMigrations は 0 件で素通しするので安全。)
+  const migrationsApplied = await applyPendingMigrations(env, manifestUrl);
+  // ⚠ migration の後に必ずスキーマを突き合わせる。履歴（d1_migrations）は
+  //   復元で失われうるので、履歴ではなく現物を正とする。
+  const schemaDrift = await reconcileSchema(env, true);
+
+  // Download the compiled Worker script from the version-pinned asset URL —
+  // NOT /latest/download/, which always resolves to GitHub's true latest
+  // release regardless of which channel was selected above.
+  const scriptRes = await fetch(workerUrl, {
+    redirect: "follow",
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!scriptRes.ok)
+    throw new HttpError(
+      502,
+      // 版固定 URL が 404 = そのタグのリリース（か worker.js 資産）が無い。
+      // タグ指名で呼ばれたときは「指定が悪い」と分かる形で返す（リリース
+      // パイプラインが直後に叩くので、取り違えでなく不在だと判別できること）。
+      requestedTag && scriptRes.status === 404
+        ? "release_not_found"
+        : "download_failed",
+      `Failed to download worker.js from ${workerUrl} (HTTP ${scriptRes.status}).`,
+    );
+  const scriptContent = await scriptRes.text();
+  return { resolvedTag, migrationsApplied, schemaDrift, scriptContent };
+}
+
 async function systemUpdate(
   request: Request,
   env: Env,
@@ -4418,13 +4489,20 @@ async function systemUpdate(
   // 完全に消える（resolveChannelTag は非 API を第一候補にする）。
   // 版の取り先(cms-release)。update なら、チャンネルの指す版の manifest の署名と
   // 成果物の sha256 を確かめてから入れる。並行の間、GitHub の経路はそのまま残す。
-  const source = await getReleaseSource(env);
+  const configured = await getReleaseSource(env);
+  // 実際に取った先(応答と活動記録に残す)。update で取れなければ github になる。
+  let source: "github" | "update" = configured;
   let resolvedTag = requestedTag;
-  let scriptContent: string;
-  let migrationsApplied: number;
-  let schemaDrift: SchemaDriftReport;
-  if (source === "update") {
-    let manifest;
+  let scriptContent = "";
+  let migrationsApplied = 0;
+  let schemaDrift: SchemaDriftReport | null = null;
+  // update で取れなかった理由(GitHub へ落ちたときに Defects へ添える)。
+  let updateFailure: string | null = null;
+  let fromUpdate: {
+    workerBuf: ArrayBuffer;
+    migrations: { migrations: Array<{ name: string; sql: string }> };
+  } | null = null;
+  if (configured === "update") {
     try {
       const version = requestedTag
         ? requestedTag.slice(1)
@@ -4442,102 +4520,57 @@ async function systemUpdate(
           `${UPDATE_ORIGIN} の ${updateChannelOf(channel)} が ${version} を指しています(今は ${KUROCMS_VERSION})。古い版には戻しません。数分おいてもう一度試してください。`,
         );
       }
-      manifest = await fetchUpdateManifest(version);
+      // 版が決まれば、GitHub へ落ちても**同じ版**を取る(チャンネルを読み直さない)。
       resolvedTag = "v" + version;
-    } catch (err) {
-      if (err instanceof HttpError) throw err;
-      await reportRelease(env, "release_update_failed", {
-        what: "worker",
-        version: requestedTag ? requestedTag.slice(1) : "unknown",
-        reason: reasonOf(err),
-      });
-      throw new HttpError(
-        requestedTag && String(err).includes("not found") ? 404 : 502,
-        requestedTag && String(err).includes("not found")
-          ? "release_not_found"
-          : "update_unreachable",
-        `Could not resolve the "${channel}" release from ${UPDATE_ORIGIN}: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
-    let workerBuf: ArrayBuffer;
-    let migrations: { migrations: Array<{ name: string; sql: string }> };
-    try {
-      workerBuf = await fetchUpdateArtifact(manifest, "worker.js");
-      migrations = JSON.parse(
+      const manifest = await fetchUpdateManifest(version);
+      const workerBuf = await fetchUpdateArtifact(manifest, "worker.js");
+      const migrations = JSON.parse(
         new TextDecoder().decode(
           await fetchUpdateArtifact(manifest, "migrations-manifest.json"),
         ),
       ) as { migrations: Array<{ name: string; sql: string }> };
-    } catch (err) {
-      // **確かめの通らないものは入れない。** ここで GitHub へ落とすと、update の不具合が見えなくなる。
-      await reportRelease(env, "release_update_failed", {
+      fromUpdate = { workerBuf, migrations };
+      await reportRelease(env, "release_update_ok", {
         what: "worker",
         version: manifest.version,
-        reason: reasonOf(err),
       });
-      throw new HttpError(
-        502,
-        "release_verify_failed",
-        `${resolvedTag}: ${err instanceof Error ? err.message : String(err)}`,
-      );
+    } catch (err) {
+      if (err instanceof HttpError) throw err;
+      // **確かめの通らないバイト列は入れない。** 同じ版を GitHub から取り直す(並行の間の退路)。
+      // 落ちた事実は Defects と版の画面に残すので、update の不具合は隠れない。
+      updateFailure = reasonOf(err);
+      source = "github";
+      await noteFallback(env, "worker", err);
     }
-    await reportRelease(env, "release_update_ok", {
-      what: "worker",
-      version: manifest.version,
-    });
-    migrationsApplied = await applyPendingMigrations(env, migrations);
-    schemaDrift = await reconcileSchema(env, true);
-    scriptContent = new TextDecoder().decode(workerBuf);
-  } else {
-    if (!resolvedTag) {
-      try {
-        resolvedTag = await resolveChannelTag(env, channel);
-      } catch (err) {
-        throw new HttpError(
-          502,
-          "github_unreachable",
-          `Could not resolve the "${channel}" release from GitHub: ${
-            err instanceof Error ? err.message : String(err)
-          }`,
-        );
-      }
-    }
-    const workerUrl = releaseAssetUrl(resolvedTag, "worker.js");
-    const manifestUrl = releaseAssetUrl(
-      resolvedTag,
-      "migrations-manifest.json",
+  }
+  if (fromUpdate) {
+    // 当てるのは確かめが済んでから。ここで落ちても update の経路の失敗ではない。
+    migrationsApplied = await applyPendingMigrations(
+      env,
+      fromUpdate.migrations,
     );
-
-    // Apply pending migrations directly via D1 binding (run-once, additive-only).
-    // Use the immutable, version-pinned manifest asset URL — NOT the CDN-cached
-    // latest/download redirect, which the Worker's fetch() can serve stale,
-    // skipping freshly-released migrations, AND which always resolves to GitHub's
-    // true latest regardless of channel. (資産が無い古いリリースでも
-    // applyPendingMigrations は 0 件で素通しするので安全。)
-    migrationsApplied = await applyPendingMigrations(env, manifestUrl);
-    // ⚠ migration の後に必ずスキーマを突き合わせる。履歴（d1_migrations）は
-    //   復元で失われうるので、履歴ではなく現物を正とする。
     schemaDrift = await reconcileSchema(env, true);
-
-    // Download the compiled Worker script from the version-pinned asset URL —
-    // NOT /latest/download/, which always resolves to GitHub's true latest
-    // release regardless of which channel was selected above.
-    const scriptRes = await fetch(workerUrl, {
-      redirect: "follow",
-      signal: AbortSignal.timeout(30_000),
-    });
-    if (!scriptRes.ok)
-      throw new HttpError(
-        502,
-        // 版固定 URL が 404 = そのタグのリリース（か worker.js 資産）が無い。
-        // タグ指名で呼ばれたときは「指定が悪い」と分かる形で返す（リリース
-        // パイプラインが直後に叩くので、取り違えでなく不在だと判別できること）。
-        requestedTag && scriptRes.status === 404
-          ? "release_not_found"
-          : "download_failed",
-        `Failed to download worker.js from ${workerUrl} (HTTP ${scriptRes.status}).`,
-      );
-    scriptContent = await scriptRes.text();
+    scriptContent = new TextDecoder().decode(fromUpdate.workerBuf);
+  }
+  if (source === "github") {
+    try {
+      ({ resolvedTag, migrationsApplied, schemaDrift, scriptContent } =
+        await fetchFromGithub(env, channel, requestedTag, resolvedTag));
+    } catch (err) {
+      if (updateFailure)
+        await reportRelease(env, "release_fallback_github_failed", {
+          what: "worker",
+          version: resolvedTag?.slice(1) ?? "unknown",
+          reason: updateFailure,
+        });
+      throw err;
+    }
+    if (updateFailure)
+      await reportRelease(env, "release_fallback_github_ok", {
+        what: "worker",
+        version: (resolvedTag ?? "unknown").replace(/^v/, ""),
+        reason: updateFailure,
+      });
   }
 
   // Read current settings to preserve compatibility_date and non-secret bindings.
