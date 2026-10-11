@@ -4144,7 +4144,8 @@ async function fetchUpdateChannels(): Promise<{
     return {
       ok: true,
       checkedAt,
-      channels: { stable: "v" + stable, latest: "v" + dev },
+      // GitHub の経路と同じく「v」を付けない(current と比べるため)。
+      channels: { stable, latest: dev },
     };
   } catch (err) {
     return {
