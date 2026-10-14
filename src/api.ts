@@ -4836,6 +4836,8 @@ async function settings(
         // サイトの時計（IANA 名）。"" = UTC。月アーカイブの区切りと公開ページの
         // 日付表示の両方がこの値で決まる（src/timezone.ts）。
         siteTimezone: (row?.site_timezone as string | undefined) ?? "",
+        // 記事末尾の筆者表示。列の無い（0072 以前の）install は表示扱い。
+        showByline: (row?.show_byline as number | undefined) !== 0,
         threadsTokenSet: !!(row?.threads_token as string | undefined),
         threadsTokenUpdatedAt,
         threadsTokenNextRefreshAt:
@@ -4890,6 +4892,9 @@ async function settings(
       body.mobileMediaFullWidth === "true";
     // サイトの時計。IANA 名（"" = UTC）。ビルド出力を変える設定なので、
     // 変更後は全ページの再ビルドが要る（設定画面が案内する）。
+    // 記事末尾の筆者表示（ビルド出力を変える設定）。送られたときだけ更新する。
+    const hasShowByline = "showByline" in body;
+    const showByline = body.showByline === true || body.showByline === "true";
     const hasSiteTimezone = "siteTimezone" in body;
     const siteTimezone = (optionalString(body, "siteTimezone") ?? "").trim();
 
@@ -4946,6 +4951,7 @@ async function settings(
     if (hasMobileMediaFullWidth)
       settingsToSave.mobile_media_full_width = mobileMediaFullWidth ? 1 : 0;
     if (hasSiteTimezone) settingsToSave.site_timezone = siteTimezone;
+    if (hasShowByline) settingsToSave.show_byline = showByline ? 1 : 0;
     await saveSettings(env, settingsToSave);
 
     // 公開フラグは本来 PUT /api/v1/published の担当（テンプレート系の一族に
@@ -12181,6 +12187,7 @@ const SETTINGS_COLS = new Set([
   "x_link_in_reply",
   "mobile_media_full_width",
   "site_timezone",
+  "show_byline",
   "sns_auto_post",
   "threads_token",
   "threads_user_id",

@@ -300,6 +300,14 @@ async function settings() {
       escapeHtml(t("siteTimezoneHelp")) +
       "</div><select id='siteTimezone'></select></label>" +
       "<div class='muted' id='siteTimezoneNote' style='font-size:12px'></div>" +
+      // 記事末尾の「筆者: 表示名」。会社・製品紹介のサイトなど不要なら外す。
+      "<label style='flex-direction:row;align-items:center;gap:8px;cursor:pointer'>" +
+      "<input id='showByline' type='checkbox' style='width:auto;margin:0' />" +
+      escapeHtml(t("showByline")) +
+      "</label>" +
+      "<div class='muted' style='font-size:12px'>" +
+      escapeHtml(t("showBylineHelp")) +
+      "</div>" +
       "<button>" +
       escapeHtml(t("saveSiteSettings")) +
       "</button>" +
@@ -1183,6 +1191,7 @@ async function settings() {
     byId("xLinkInReply")!.checked = s.xLinkInReply !== false;
     byId("mobileMediaFullWidth")!.checked = s.mobileMediaFullWidth === true;
     renderTimezoneSelect(String(s.siteTimezone || ""));
+    byId("showByline")!.checked = s.showByline !== false;
     if (s.threadsTokenSet) {
       byId("threadsToken")!.placeholder =
         "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022 \u2713";
@@ -2442,6 +2451,8 @@ async function settings() {
             mobileMediaFullWidth: !!byId("mobileMediaFullWidth")?.checked,
             // サイトの時計。ビルド出力を変えるので、保存後は全ページの再ビルドが要る。
             siteTimezone: byId("siteTimezone")?.value ?? "",
+            // 筆者表示もビルド出力を変えるので、保存後は全ページの再ビルドが要る。
+            showByline: byId("showByline")?.checked !== false,
             xLinkInReply: !!byId("xLinkInReply")?.checked,
             threadsToken: (byId("threadsToken")?.value || "").trim(),
             ...extraFields,

@@ -222,6 +222,9 @@ interface SettingsMap {
    * の記事が前月のアーカイブに落ちていた（src/timezone.ts の冒頭に経緯）。
    */
   site_timezone?: string;
+  /** 記事末尾の筆者表示（"0" で出さない。既定・列の無い install は "1"）。
+   *  "0" のときは構造化データの author もサイト名（Organization）にする。 */
+  show_byline?: string;
   /**
    * Content generation stamp — changes whenever anything that renders into a
    * public page changes (articles, site texts, categories, settings, template).
@@ -270,6 +273,8 @@ async function fetchSettings(env: Env): Promise<SettingsMap> {
   // 新しいので別グループにする —— 一緒にすると 0066 済み 0069 未の install で
   // mobile 側まで道連れに落ちる。
   const GEN_TZ = `site_timezone`;
+  // show_byline は migration 0072 から。同じ理由で、さらに別のグループにする。
+  const GEN_BYLINE = `show_byline`;
   // CORE: tables/columns guaranteed by migration 0001 — this variant cannot fail
   // on any schema old enough to serve pages at all.
   const GEN_CORE = `updated_at AS settings_ts,
@@ -306,6 +311,7 @@ async function fetchSettings(env: Env): Promise<SettingsMap> {
       font_configs_json: string;
       mobile_media_full_width?: number;
       site_timezone?: string;
+      show_byline?: number;
       settings_ts: string;
       doc_ts: string;
       doc_n: number;
@@ -317,20 +323,26 @@ async function fetchSettings(env: Env): Promise<SettingsMap> {
   let row: Awaited<ReturnType<typeof read>>;
   try {
     row = await read(
-      `${BASE_COLS}, ${GEN_MOBILE}, ${GEN_TZ},\n            ${GEN_CORE},\n            ${GEN_CAT},\n            ${GEN_BUILD}`,
+      `${BASE_COLS}, ${GEN_MOBILE}, ${GEN_TZ}, ${GEN_BYLINE},\n            ${GEN_CORE},\n            ${GEN_CAT},\n            ${GEN_BUILD}`,
     );
   } catch {
     try {
       row = await read(
-        `${BASE_COLS}, ${GEN_MOBILE},\n            ${GEN_CORE},\n            ${GEN_CAT},\n            ${GEN_BUILD}`,
-      ); // site_timezone 以前の install
+        `${BASE_COLS}, ${GEN_MOBILE}, ${GEN_TZ},\n            ${GEN_CORE},\n            ${GEN_CAT},\n            ${GEN_BUILD}`,
+      ); // show_byline 以前の install
     } catch {
       try {
         row = await read(
-          `${BASE_COLS},\n            ${GEN_CORE},\n            ${GEN_BUILD}`,
-        ); // categories / mobile_media_full_width 以前の install
+          `${BASE_COLS}, ${GEN_MOBILE},\n            ${GEN_CORE},\n            ${GEN_CAT},\n            ${GEN_BUILD}`,
+        ); // site_timezone 以前の install
       } catch {
-        row = await read(`${BASE_COLS},\n            ${GEN_CORE}`); // page_build_cache 以前の install
+        try {
+          row = await read(
+            `${BASE_COLS},\n            ${GEN_CORE},\n            ${GEN_BUILD}`,
+          ); // categories / mobile_media_full_width 以前の install
+        } catch {
+          row = await read(`${BASE_COLS},\n            ${GEN_CORE}`); // page_build_cache 以前の install
+        }
       }
     }
   }
@@ -356,6 +368,8 @@ async function fetchSettings(env: Env): Promise<SettingsMap> {
     font_configs_json: row?.font_configs_json || "{}",
     mobile_media_full_width: row?.mobile_media_full_width === 1 ? "1" : "",
     site_timezone: row?.site_timezone || "",
+    // 列が無い（0072 以前の）install は従来どおり表示する。
+    show_byline: row?.show_byline === 0 ? "0" : "1",
     // Short, opaque stamp — only ever compared for change, never interpreted.
     // Include template_id too: switching template swaps every page's markup and
     // (on an unchanged template row) would not move any updated_at.
@@ -2600,8 +2614,12 @@ async function buildRenderContext(
       : null;
     // CMS-appended byline (visible authorship for E-E-A-T; matches the
     // Person author emitted in the article JSON-LD). Skipped when the
-    // creating user has no display name.
-    const authorName = (r.author_name || "").trim();
+    // creating user has no display name, or when the site turned the byline
+    // off (基本設定「筆者を表示する」) — then the JSON-LD author falls back to
+    // the site Organization too, so a name hidden from readers is not
+    // published to crawlers alone.
+    const authorName =
+      settings.show_byline === "0" ? "" : (r.author_name || "").trim();
     const bodyWithByline =
       (expandedBody.body || "") +
       (authorName ? buildBylineHtml(authorName, lang) : "");

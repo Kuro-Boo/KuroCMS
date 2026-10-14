@@ -860,6 +860,9 @@ const i18n = {
       "The clock your site keeps. It decides which calendar month an article belongs to in the archive filter, and the date shown on public pages — both for every visitor, wherever they are. Leave it on UTC only if that is really your editorial time zone. Changing it changes generated HTML, so run a build (all pages) afterwards.",
     siteTimezoneUtc: "UTC (default)",
     siteTimezoneDetected: "This browser is in {tz}.",
+    showByline: "Show the author at the end of articles",
+    showBylineHelp:
+      "Adds “Written by: <display name of the person who created the article>” below each article, and names that person as the author in the structured data for search engines. Turn it off for sites that do not need an author line, such as company or product sites — the structured data then names the site as the author instead. Changing it changes generated HTML, so run a build (all pages) afterwards.",
     siteTimezoneAutoSet:
       "Site time zone set to {tz} (from this browser). Article dates and the monthly archive now follow it — run a build (all pages) to apply it to the public site. You can change it under Settings → Basic.",
     mobileTitle: "Mobile layout (site build)",
@@ -1883,6 +1886,9 @@ const i18n = {
       "サイトが使う時計です。記事一覧の月による絞り込みでどの月に入るか、公開ページに出る日付がいつになるか——この 2 つを、どこから見ている閲覧者に対しても同じにします。日本で運用しているなら Asia/Tokyo を選んでください（UTC のままだと、日本時間 0:00〜8:59 に公開した記事が前の月のアーカイブに入り、9/1 の記事が 8 月に混ざります）。生成される HTML が変わるので、変更後はビルド（全ページ）を実行してください。",
     siteTimezoneUtc: "UTC（既定）",
     siteTimezoneDetected: "このブラウザのタイムゾーンは {tz} です。",
+    showByline: "記事の末尾に筆者を表示する",
+    showBylineHelp:
+      "記事の下に「筆者: 記事を作った人の表示名」を出し、検索エンジン向けの構造化データでもその人を著者にします。会社・製品紹介のサイトなど、筆者を出す必要がないサイトは OFF にしてください（構造化データの著者はサイト名になります）。生成される HTML が変わるので、変更後はビルド（全ページ）を実行してください。",
     siteTimezoneAutoSet:
       "サイトのタイムゾーンを {tz}（このブラウザの設定）にしました。記事の日付と月別アーカイブの区切りがこれに従います。公開ページに反映するにはビルド（全ページ）を実行してください。変更は設定 → 基本タブから行えます。",
     mobileTitle: "スマホ向けレイアウト（サイトビルドの設定）",
