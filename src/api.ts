@@ -2702,6 +2702,42 @@ const FREE_KV_BYTES = 1 * 1024 * 1024 * 1024; //  1 GB
 const FREE_KV_WRITES_DAY = 1000; // KV writes/day (different keys), Free plan
 const FREE_KV_READS_DAY = 100000; // KV reads/day, Free plan
 
+/**
+ * Entamy 委託の導入だけが持つメディアの保存上限(MEDIA_QUOTA_BYTES・受付が置く)。
+ * 委託はホスティング用アカウントの R2 を全顧客で分け合うので、1 導入あたりを絞る。
+ * 未設定(お客様自身の Cloudflare)なら null で、上限を掛けない。
+ */
+function mediaQuotaBytes(env: Env): number | null {
+  const n = Number((env.MEDIA_QUOTA_BYTES ?? "").trim());
+  return Number.isSafeInteger(n) && n > 0 ? n : null;
+}
+
+/** 使用量は media_assets.size_bytes の合計(ダッシュボードの R2 と同じ数え方)。 */
+async function mediaBytesUsed(env: Env): Promise<number> {
+  const row = await env.DB.prepare(
+    "SELECT COALESCE(SUM(size_bytes),0) AS total FROM media_assets",
+  ).first<{ total: number }>();
+  return Number(row?.total ?? 0);
+}
+
+/** 書く前に止める。incomingBytes を足して上限を超えるなら 413。 */
+async function assertMediaQuota(
+  env: Env,
+  incomingBytes: number,
+): Promise<void> {
+  const quota = mediaQuotaBytes(env);
+  if (quota === null) return;
+  const used = await mediaBytesUsed(env);
+  if (used + incomingBytes > quota) {
+    const mb = (b: number) => (b / (1024 * 1024)).toFixed(1);
+    throw new HttpError(
+      413,
+      "media_quota_exceeded",
+      `メディアの保存上限（${mb(quota)} MB）を超えます（使用中 ${mb(used)} MB・追加 ${mb(incomingBytes)} MB）。Entamy 委託では 1 サイトあたりの保存量に上限があります。不要なメディアを削除してください。`,
+    );
+  }
+}
+
 // Max pages BUILT per /api/build invocation. Each built page costs several
 // subrequests (D1 reads + KV/D1 writes); a Worker invocation allows ~1000
 // subrequests. Keep this well under that so a full rebuild never trips the
@@ -2796,10 +2832,10 @@ async function systemStorage(env: Env): Promise<Response> {
   const d1Bytes = Number(d1SizeRow?.est ?? 524288);
 
   // R2 usage tracked via media_assets.size_bytes in D1
-  const r2Row = await env.DB.prepare(
-    "SELECT COALESCE(SUM(size_bytes),0) AS total FROM media_assets",
-  ).first<{ total: number }>();
-  const r2Bytes = Number(r2Row?.total ?? 0);
+  const r2Bytes = await mediaBytesUsed(env);
+  // 委託なら上限は 1 導入の割り当て、そうでなければ Cloudflare の無料枠。
+  const r2Quota = mediaQuotaBytes(env);
+  const r2Max = r2Quota ?? FREE_R2_BYTES;
 
   // KV public pages count — use D1 page_build_cache to avoid KV list operation
   let kvBytes = 0;
@@ -2872,8 +2908,9 @@ async function systemStorage(env: Env): Promise<Response> {
     },
     r2: {
       usedBytes: r2Bytes,
-      maxBytes: FREE_R2_BYTES,
-      pct: Math.min(100, (r2Bytes / FREE_R2_BYTES) * 100),
+      maxBytes: r2Max,
+      pct: Math.min(100, (r2Bytes / r2Max) * 100),
+      managedQuota: r2Quota !== null,
     },
     kv: {
       usedBytes: kvBytes,
@@ -10970,6 +11007,7 @@ async function uploadMediaFile(
     }
   }
 
+  await assertMediaQuota(env, sizeBytes);
   const mid = await nextMediaId(env, kind);
   const version = cacheVersion();
   const publicPath = `/${folder}/${mid}.${ext}`;
@@ -11504,6 +11542,8 @@ async function restoreMedia(
       `Refusing to write media to an unexpected key: ${key}`,
     );
   }
+  // 復元した行はもう media_assets に入っていて数えられている —— 足さずに上限と比べる。
+  await assertMediaQuota(env, 0);
   await (env.MEDIA_BUCKET as R2Bucket).put(key, request.body, {
     httpMetadata: { contentType: row.mime || "application/octet-stream" },
   });
@@ -13159,6 +13199,7 @@ async function downloadStrapiImage(
     const filename = fullUrl.split("/").pop()?.split("?")[0] || `image.${ext}`;
     const buffer = await resp.arrayBuffer();
     const sizeBytes = buffer.byteLength;
+    await assertMediaQuota(env, sizeBytes);
     const mid = await nextMediaId(env, "image");
     const version = cacheVersion();
     const publicPath = `/images/${mid}.${ext}`;
@@ -13838,6 +13879,7 @@ async function downloadKurocmsImage(
           : "jpg";
     const filename = fullUrl.split("/").pop()?.split("?")[0] || `image.${ext}`;
     const buffer = await resp.arrayBuffer();
+    await assertMediaQuota(env, buffer.byteLength);
     const mid = await nextMediaId(env, "image");
     const version = cacheVersion();
     const publicPath = `/images/${mid}.${ext}`;

@@ -172,12 +172,19 @@ async function dashboard() {
           "</div>"
         );
       };
+      // 委託(Entamy の Cloudflare)では 1 サイトの割り当てが上限。無料枠と取り違えないよう見出しを変える。
+      // 上限は整った数なので末尾の .0 を落とす(100.0 MB → 100 MB、10.00 GB → 10 GB)。
+      const r2MaxLabel = fmtBytes(s.r2.maxBytes).replace(/\.0+ /, " ");
+      const r2Limit = s.r2.managedQuota
+        ? { label: t("managedLimitLabel"), note: t("managedR2Note") }
+        : undefined;
       const r2Card = r2Avail
         ? makePieChart(
             s.r2.pct,
             t("r2Media"),
             fmtBytes(s.r2.usedBytes),
-            "10 GB",
+            r2MaxLabel,
+            r2Limit,
           )
         : unavailWrap(
             "<div class='storageCard unavailable'>" +
@@ -187,8 +194,9 @@ async function dashboard() {
               "<div class='pieWrap'><svg viewBox='0 0 100 100'><circle class='pieBg' cx='50' cy='50' r='36'/></svg>" +
               "<div class='piePct' style='color:var(--muted)'>—</div></div>" +
               "<div class='storageDetail'>" +
-              escapeHtml(t("freeLimitLabel")) +
-              "10 GB</div></div>",
+              escapeHtml(r2Limit ? r2Limit.label : t("freeLimitLabel")) +
+              escapeHtml(r2MaxLabel) +
+              "</div></div>",
           );
       const mediaCard = r2Avail
         ? "<div class='storageCard'><div class='storageCardTitle'>" +

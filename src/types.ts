@@ -10,6 +10,11 @@ export interface Env {
   // tolerate missing KV; public-page persistence and cache behavior depend on it.
   PUBLIC_PAGES: KVNamespace;
   MEDIA_BUCKET?: R2Bucket;
+  /**
+   * メディア(R2)の保存上限(バイト)。Entamy 委託の導入にだけ受付が置く(1 導入 100 MB)。
+   * 未設定ならお客様自身の Cloudflare なので上限を掛けない。
+   */
+  MEDIA_QUOTA_BYTES?: string;
   IMAGES?: ImagesBinding;
   DEBUG_LOG_ENABLED?: string;
   SITE_DEFAULT_LANG?: string;

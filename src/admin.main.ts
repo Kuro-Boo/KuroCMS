@@ -1080,6 +1080,9 @@ const i18n = {
     updateConfirm: "Update KuroCMS to the latest version?",
     storageFreeUsage: "CF Free Tier Usage",
     freeLimitLabel: "Free limit: ",
+    managedLimitLabel: "Limit: ",
+    managedR2Note:
+      "Sites hosted by Entamy can store up to 100 MB of media. Delete unused media to free space.",
     r2Unavailable: "R2 not enabled",
     r2Media: "R2 Media",
     d1Database: "D1 Database",
@@ -2111,6 +2114,9 @@ const i18n = {
     updateConfirm: "KuroCMS を最新バージョンに更新しますか？",
     storageFreeUsage: "CF 無料枠使用状況",
     freeLimitLabel: "無料枠上限: ",
+    managedLimitLabel: "上限: ",
+    managedR2Note:
+      "Entamy 委託のサイトは、メディアの保存が 100 MB までです。不要なメディアを削除すると空きが増えます。",
     r2Unavailable: "R2 未有効",
     r2Media: "R2 メディア",
     d1Database: "D1 データベース",
@@ -3950,6 +3956,8 @@ function makePieChart(
   label: Dynamic,
   used: Dynamic,
   maxLabel: Dynamic,
+  // 委託の上限のように「無料枠」ではない上限は、見出しと注記を差し替える。
+  limit?: { label: string; note?: string },
 ) {
   const r = 36;
   const circ = 2 * Math.PI * r;
@@ -3991,9 +3999,12 @@ function makePieChart(
     "</div>" +
     "</div>" +
     "<div class='storageDetail'>" +
-    escapeHtml(t("freeLimitLabel")) +
+    escapeHtml(limit ? limit.label : t("freeLimitLabel")) +
     escapeHtml(maxLabel) +
     "</div>" +
+    (limit?.note
+      ? "<div class='storageDetail'>" + escapeHtml(limit.note) + "</div>"
+      : "") +
     "</div>"
   );
 }
