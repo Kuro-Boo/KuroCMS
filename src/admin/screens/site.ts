@@ -2529,6 +2529,9 @@ async function siteManagement() {
           }
           return null;
         },
+        // 失敗の印も画面の言語で(KuroEditor は言語を持たない)。
+        uploadErrorText: (file: File) =>
+          t("mediaUploadFailedInline").replace("{name}", file.name),
         onMediaUpload: async function (file: File) {
           const fd = new FormData();
           const mime = file.type || "";

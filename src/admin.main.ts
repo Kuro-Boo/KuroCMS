@@ -1110,8 +1110,10 @@ const i18n = {
     updateSuccessReload: "Updated. Please reload.",
     updateConfirm: "Update KuroCMS to the latest version?",
     storageFreeUsage: "CF Free Tier Usage",
+    storageManagedUsage: "Usage (hosted by Entamy)",
     freeLimitLabel: "Free limit: ",
     managedLimitLabel: "Limit: ",
+    mediaUploadFailedInline: "Upload failed: {name}",
     err_media_quota_exceeded:
       "The media storage limit has been reached. Sites hosted by Entamy have a media storage limit. Delete unused media and try again.",
     managedR2Note:
@@ -2146,8 +2148,10 @@ const i18n = {
     updateSuccessReload: "更新しました。ページをリロードしてください。",
     updateConfirm: "KuroCMS を最新バージョンに更新しますか？",
     storageFreeUsage: "CF 無料枠使用状況",
+    storageManagedUsage: "使用状況（Entamy 委託）",
     freeLimitLabel: "無料枠上限: ",
     managedLimitLabel: "上限: ",
+    mediaUploadFailedInline: "アップロード失敗: {name}",
     err_media_quota_exceeded:
       "メディアの保存上限に達したため、保存できません。Entamy 委託のサイトは、メディアの保存に上限があります。不要なメディアを削除してから、もう一度お試しください。",
     managedR2Note:

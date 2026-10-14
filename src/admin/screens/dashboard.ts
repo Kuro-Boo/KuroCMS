@@ -97,7 +97,7 @@ async function dashboard() {
       // made the layout misbehave differently at different widths.
       // Storage gauges
       "<div class='panel stack'>" +
-      "<h3>" +
+      "<h3 id='storageHeading'>" +
       escapeHtml(t("storageFreeUsage")) +
       "</h3>" +
       "<div class='storageGrid' id='storageGrid'><div class='muted' style='font-size:12px'>" +
@@ -124,6 +124,11 @@ async function dashboard() {
   // Storage stats
   try {
     const s = await api("/api/system/storage");
+    // 委託はお客様の Cloudflare の無料枠ではない —— 「無料枠」と書かない。
+    if (s.r2?.managedQuota) {
+      const heading = byId("storageHeading");
+      if (heading) heading.textContent = t("storageManagedUsage");
+    }
     const imgCount = s.media?.image?.count || 0;
     const vidCount = s.media?.video?.count || 0;
     const audCount = s.media?.audio?.count || 0;

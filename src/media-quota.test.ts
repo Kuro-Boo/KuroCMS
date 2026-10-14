@@ -118,6 +118,29 @@ for (const f of ["article-editor.ts", "site.ts"]) {
   );
 }
 
+// 本文に残る失敗の印も画面の言語で(KuroEditor 2.40.0 の uploadErrorText)。
+for (const f of ["article-editor.ts", "site.ts"]) {
+  const s = screens.find((x) => x.f === f)!.s;
+  check(
+    `${f}: 失敗の印の文を KuroEditor に渡す`,
+    /uploadErrorText:[\s\S]{0,80}t\("mediaUploadFailedInline"\)/.test(s),
+    true,
+  );
+}
+check(
+  "失敗の印の文が英語と日本語の辞書にある",
+  main.split("mediaUploadFailedInline:").length - 1,
+  2,
+);
+
+// 委託はお客様の無料枠ではない —— 見出しを替える。
+const dash = screens.find((x) => x.f === "dashboard.ts")!.s;
+check(
+  "委託のときはダッシュボードの見出しから「無料枠」を外す",
+  /managedQuota[\s\S]{0,200}storageManagedUsage/.test(dash),
+  true,
+);
+
 if (failed) {
   console.log(`\n${failed} 件失敗`);
   process.exit(1);

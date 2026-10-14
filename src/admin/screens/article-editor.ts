@@ -1721,6 +1721,9 @@ async function newArticle(editDid: Dynamic) {
       // without this, such an edit leaves art.dirty false and the onSave guard
       // above silently DROPS the save the user just clicked.
       onDirty: markBodyDirty,
+      // 失敗の印も画面の言語で(KuroEditor は言語を持たない)。
+      uploadErrorText: (file: File) =>
+        t("mediaUploadFailedInline").replace("{name}", file.name),
       onMediaUpload: r2Ok
         ? async function (file: File) {
             const fd = new FormData();
