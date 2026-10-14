@@ -1744,13 +1744,12 @@ async function newArticle(editDid: Dynamic) {
               body: fd,
             });
             const data = await resp.json();
-            if (!resp.ok)
-              throw new Error(
-                data.error?.message ||
-                  data.error?.code ||
-                  (typeof data.error === "string" ? data.error : "") ||
-                  resp.statusText,
-              );
+            if (!resp.ok) {
+              // KuroEditor は失敗を「アップロード失敗: ファイル名」としか出さない —— 理由はここで出す。
+              const msg = uploadErrorMessage(data, resp.statusText);
+              toast(msg, true);
+              throw new Error(msg);
+            }
             // ?v=cache_version 付き（data.url）で保持する。mid の URL は
             // immutable キャッシュされるため、素の publicPath だと（過去に
             // 同じパスが存在した場合）古いキャッシュ画像が表示される。
@@ -1898,13 +1897,7 @@ async function newArticle(editDid: Dynamic) {
         const json = await resp.json();
         // The API returns errors as { error: { code, message } }; passing that
         // object straight to new Error() yields "[object Object]".
-        if (!resp.ok)
-          throw new Error(
-            json.error?.message ||
-              json.error?.code ||
-              (typeof json.error === "string" ? json.error : "") ||
-              resp.statusText,
-          );
+        if (!resp.ok) throw uploadError(json, resp);
         readFields(); // preserve in-progress body/title edits before re-render
         art.coverMid = json.mid;
         art.coverPath = json.publicPath;
