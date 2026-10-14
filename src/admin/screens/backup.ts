@@ -931,6 +931,7 @@ async function runRestore() {
     );
     let mediaDone = 0;
     let mediaBytes = 0;
+    let quotaReason = "";
     for (const entry of mediaEntries) {
       if (backupCancelled()) throw new Error("cancelled");
       const base = entry.name.substring(entry.name.lastIndexOf("/") + 1);
@@ -948,7 +949,16 @@ async function runRestore() {
             body: blob,
           },
         );
-        if (!res.ok) restoreFailed.push({ mid, reason: "HTTP " + res.status });
+        if (!res.ok) {
+          const data = await res.json().catch(() => null);
+          const reason = uploadErrorMessage(data, "HTTP " + res.status);
+          restoreFailed.push({ mid, reason });
+          // 保存上限は残りのメディアでも必ず当たる —— 送り続けず、理由を 1 度だけ出して止める。
+          if (data?.error?.code === "media_quota_exceeded") {
+            quotaReason = reason;
+            break;
+          }
+        }
       } catch (err) {
         restoreFailed.push({
           mid,
@@ -1020,6 +1030,7 @@ async function runRestore() {
       for (const f of restoreFailed.slice(0, 20))
         summary.push("  - " + f.mid + " " + f.reason);
     }
+    if (quotaReason) summary.push(quotaReason);
     if (restoreFailed.length)
       console.warn("[restore] media failures", restoreFailed);
     backupProgressSummary(summary, restoreFailed.length === 0);

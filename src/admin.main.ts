@@ -120,6 +120,37 @@ function errText(code?: string): string {
   return "";
 }
 
+/**
+ * アップロードの失敗の文。決まった状態(コードが辞書にあるもの)は画面の言語で言い換え、
+ * それ以外はサーバーの説明を出す。どのアップロードの口もここを通す ——
+ * 口ごとに書くと、上限の言い換えが一部の口にだけ付く。
+ */
+function uploadErrorMessage(data: Dynamic, statusText: string): string {
+  const err = data?.error;
+  const code = typeof err?.code === "string" ? err.code : "";
+  return (
+    errText(code) ||
+    err?.message ||
+    code ||
+    (typeof err === "string" ? err : "") ||
+    statusText
+  );
+}
+
+/**
+ * 投げる形。コードを持たせる —— errorMessage はコードが辞書にあればその文だけを出す。
+ * 持たせないと、英語の言い換えの "limit" を見て Cloudflare の制限の注記を足してしまう。
+ */
+function uploadError(data: Dynamic, resp: Response): Error {
+  const e = new Error(uploadErrorMessage(data, resp.statusText)) as Error & {
+    status?: number;
+    code?: string;
+  };
+  e.status = resp.status;
+  if (typeof data?.error?.code === "string") e.code = data.error.code;
+  return e;
+}
+
 type KuroEditorInstance = {
   destroy(): void;
   getContent(): string;
@@ -1081,8 +1112,10 @@ const i18n = {
     storageFreeUsage: "CF Free Tier Usage",
     freeLimitLabel: "Free limit: ",
     managedLimitLabel: "Limit: ",
+    err_media_quota_exceeded:
+      "The media storage limit has been reached. Sites hosted by Entamy have a media storage limit. Delete unused media and try again.",
     managedR2Note:
-      "Sites hosted by Entamy can store up to 100 MB of media. Delete unused media to free space.",
+      "Sites hosted by Entamy have a media storage limit ({limit}). Delete unused media to free space.",
     r2Unavailable: "R2 not enabled",
     r2Media: "R2 Media",
     d1Database: "D1 Database",
@@ -2115,8 +2148,10 @@ const i18n = {
     storageFreeUsage: "CF 無料枠使用状況",
     freeLimitLabel: "無料枠上限: ",
     managedLimitLabel: "上限: ",
+    err_media_quota_exceeded:
+      "メディアの保存上限に達したため、保存できません。Entamy 委託のサイトは、メディアの保存に上限があります。不要なメディアを削除してから、もう一度お試しください。",
     managedR2Note:
-      "Entamy 委託のサイトは、メディアの保存が 100 MB までです。不要なメディアを削除すると空きが増えます。",
+      "Entamy 委託のサイトは、メディアの保存に上限（{limit}）があります。不要なメディアを削除すると空きが増えます。",
     r2Unavailable: "R2 未有効",
     r2Media: "R2 メディア",
     d1Database: "D1 データベース",

@@ -176,7 +176,10 @@ async function dashboard() {
       // 上限は整った数なので末尾の .0 を落とす(100.0 MB → 100 MB、10.00 GB → 10 GB)。
       const r2MaxLabel = fmtBytes(s.r2.maxBytes).replace(/\.0+ /, " ");
       const r2Limit = s.r2.managedQuota
-        ? { label: t("managedLimitLabel"), note: t("managedR2Note") }
+        ? {
+            label: t("managedLimitLabel"),
+            note: t("managedR2Note").replace("{limit}", r2MaxLabel),
+          }
         : undefined;
       const r2Card = r2Avail
         ? makePieChart(

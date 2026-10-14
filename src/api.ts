@@ -52,6 +52,11 @@ import { checkRecipeCards } from "./recipe-guard.js";
 import { entamyPort } from "./entamy-port";
 import { KUROCMS_VERSION } from "./version";
 import { isValidTimeZone } from "./timezone";
+import {
+  exceedsMediaQuota,
+  MEDIA_QUOTA_ERROR,
+  parseMediaQuota,
+} from "./media-quota";
 import { nextThreadsTokenRefreshAt } from "./threads-token";
 import { COMMUNITY_SHARED_PAT } from "./community-secret";
 import { verifyRegistration, verifyAuthentication } from "./webauthn";
@@ -2702,14 +2707,9 @@ const FREE_KV_BYTES = 1 * 1024 * 1024 * 1024; //  1 GB
 const FREE_KV_WRITES_DAY = 1000; // KV writes/day (different keys), Free plan
 const FREE_KV_READS_DAY = 100000; // KV reads/day, Free plan
 
-/**
- * Entamy 委託の導入だけが持つメディアの保存上限(MEDIA_QUOTA_BYTES・受付が置く)。
- * 委託はホスティング用アカウントの R2 を全顧客で分け合うので、1 導入あたりを絞る。
- * 未設定(お客様自身の Cloudflare)なら null で、上限を掛けない。
- */
+/** 委託の導入だけが持つメディアの保存上限(判定は media-quota.ts)。 */
 function mediaQuotaBytes(env: Env): number | null {
-  const n = Number((env.MEDIA_QUOTA_BYTES ?? "").trim());
-  return Number.isSafeInteger(n) && n > 0 ? n : null;
+  return parseMediaQuota(env.MEDIA_QUOTA_BYTES);
 }
 
 /** 使用量は media_assets.size_bytes の合計(ダッシュボードの R2 と同じ数え方)。 */
@@ -2728,11 +2728,11 @@ async function assertMediaQuota(
   const quota = mediaQuotaBytes(env);
   if (quota === null) return;
   const used = await mediaBytesUsed(env);
-  if (used + incomingBytes > quota) {
+  if (exceedsMediaQuota(used, incomingBytes, quota)) {
     const mb = (b: number) => (b / (1024 * 1024)).toFixed(1);
     throw new HttpError(
       413,
-      "media_quota_exceeded",
+      MEDIA_QUOTA_ERROR,
       `メディアの保存上限（${mb(quota)} MB）を超えます（使用中 ${mb(used)} MB・追加 ${mb(incomingBytes)} MB）。Entamy 委託では 1 サイトあたりの保存量に上限があります。不要なメディアを削除してください。`,
     );
   }
@@ -13230,7 +13230,9 @@ async function downloadStrapiImage(
       )
       .run();
     return { mid, publicPath, version };
-  } catch {
+  } catch (e) {
+    // 保存上限は取り込みを止めて利用者に伝える(黙って元の URL のまま進めると気づけない)。
+    if (e instanceof HttpError && e.code === MEDIA_QUOTA_ERROR) throw e;
     return null;
   }
 }
@@ -13786,6 +13788,8 @@ async function strapiImportExecute(
         imported++;
       }
     } catch (err) {
+      // 保存上限は以降の記事でも必ず当たる —— 記事ごとの失敗に積まず、取り込みを止めて返す。
+      if (err instanceof HttpError && err.code === MEDIA_QUOTA_ERROR) throw err;
       errors.push(err instanceof Error ? err.message : String(err));
     }
   }
@@ -13910,7 +13914,9 @@ async function downloadKurocmsImage(
       )
       .run();
     return { mid, publicPath };
-  } catch {
+  } catch (e) {
+    // 保存上限は取り込みを止めて利用者に伝える(黙って元の URL のまま進めると気づけない)。
+    if (e instanceof HttpError && e.code === MEDIA_QUOTA_ERROR) throw e;
     return null;
   }
 }
@@ -14220,6 +14226,8 @@ async function kurocmsImportExecute(
         imported++;
       }
     } catch (err) {
+      // 保存上限は以降の記事でも必ず当たる —— 記事ごとの失敗に積まず、取り込みを止めて返す。
+      if (err instanceof HttpError && err.code === MEDIA_QUOTA_ERROR) throw err;
       errors.push(err instanceof Error ? err.message : String(err));
     }
   }

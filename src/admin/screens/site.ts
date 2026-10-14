@@ -2551,13 +2551,12 @@ async function siteManagement() {
             body: fd,
           });
           const data = await resp.json();
-          if (!resp.ok)
-            throw new Error(
-              data.error?.message ||
-                data.error?.code ||
-                (typeof data.error === "string" ? data.error : "") ||
-                resp.statusText,
-            );
+          if (!resp.ok) {
+            // KuroEditor は失敗を「アップロード失敗: ファイル名」としか出さない —— 理由はここで出す。
+            const msg = uploadErrorMessage(data, resp.statusText);
+            toast(msg, true);
+            throw new Error(msg);
+          }
           midUrlCache[data.mid] = publicBase + data.publicPath;
           return data.mid;
         },
