@@ -252,12 +252,20 @@ async function handleApiDispatch(
 
   try {
     if (request.method === "GET" && path === "/api/health") {
+      // WorkerOps Contract の任意の名乗り(2026-10-14・cms-unified-update)。
+      // product_id で番人は配布基盤から取り、update_policy で持ち主の選択
+      // (この画面のダッシュボードで選ぶ)に従って1日1回自動更新する ——
+      // 番人の設定を書き換えずに、既存の導入を共通の形へ移すため。
+      // 選択が読めなくても health は落とさない(名乗らないだけ)。
+      const policy = await updatePolicy(env).catch(() => null);
       return json(
         {
           ok: true,
           service: "KuroCMS",
           version: KUROCMS_VERSION,
           time: nowIso(),
+          product_id: "cms",
+          ...(policy ? { update_policy: policy } : {}),
         },
         { headers: jsonHeaders },
       );
@@ -583,6 +591,22 @@ async function handleApiDispatch(
     if (request.method === "PUT" && path === "/api/system/update-channel") {
       requireAdmin(user);
       return withJsonHeaders(await setUpdateChannel(request, env));
+    }
+
+    // 自動更新の入切(既定は入)。実際に版を入れるのは番人(WorkerOps)で、
+    // 番人は /api/health の update_policy でこの選択を読む。
+    if (request.method === "PUT" && path === "/api/system/auto-update") {
+      requireAdmin(user);
+      const body = await readJson(request);
+      if (typeof body.enabled !== "boolean") {
+        throw new HttpError(
+          400,
+          "invalid_request",
+          "enabled must be true or false.",
+        );
+      }
+      await env.PUBLIC_PAGES.put(AUTO_UPDATE_KEY, body.enabled ? "1" : "0");
+      return json({ ok: true, autoUpdate: body.enabled });
     }
 
     // 版の取り先(GitHub か配布基盤か)。移行の間だけの切り替え(cms-release)。
@@ -4082,6 +4106,23 @@ async function fetchReleaseChannels(
   }
 }
 
+const AUTO_UPDATE_KEY = "system:auto_update"; // "0" = 切。無い・"1" = 入(既定)
+
+async function getAutoUpdate(env: Env): Promise<boolean> {
+  return (await env.PUBLIC_PAGES.get(AUTO_UPDATE_KEY)) !== "0";
+}
+
+/** 番人へ名乗る持ち主の選択。KuroCMS の latest は配布基盤の dev。 */
+async function updatePolicy(
+  env: Env,
+): Promise<{ auto: boolean; channel: "stable" | "dev" }> {
+  const [auto, channel] = await Promise.all([
+    getAutoUpdate(env),
+    getUpdateChannel(env),
+  ]);
+  return { auto, channel: channel === "latest" ? "dev" : "stable" };
+}
+
 async function getUpdateChannel(env: Env): Promise<"stable" | "latest"> {
   const v = await env.PUBLIC_PAGES.get(UPDATE_CHANNEL_KEY);
   return v === "latest" ? "latest" : "stable";
@@ -4130,6 +4171,7 @@ async function systemVersion(env: Env, refresh = false): Promise<Response> {
     stable,
     latest,
     channel,
+    autoUpdate: await getAutoUpdate(env).catch(() => true),
     hasUpdate,
     checkOk: check.ok,
     checkedAt: check.checkedAt,

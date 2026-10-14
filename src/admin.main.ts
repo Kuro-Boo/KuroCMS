@@ -1059,6 +1059,11 @@ const i18n = {
     installedVersionLabel: "Installed Version",
     stableVersionLabel: "Stable Version",
     latestVersionLabel: "Latest Version",
+    autoUpdateLabel: "Update automatically",
+    autoUpdateHint:
+      "ON (default): the newest version of the chosen channel is checked once a day and installed by the recovery guardian (WorkerOps), which rolls it back if it fails verification. Press Update Now when it cannot wait.",
+    autoUpdateOffConfirm:
+      "Turn automatic updates off? New versions will be installed only when you press Update Now.",
     updateChannelLabel: "Always update to latest",
     updateChannelHint:
       "ON: update button targets the latest release (every release). OFF: targets the stable release only (promoted by the maintainer).",
@@ -2085,6 +2090,11 @@ const i18n = {
     installedVersionLabel: "導入バージョン",
     stableVersionLabel: "安定バージョン",
     latestVersionLabel: "最新バージョン",
+    autoUpdateLabel: "自動で更新する",
+    autoUpdateHint:
+      "ON（既定）: 選んだ版の新しいものを1日に1回確かめ、復旧の番人（WorkerOps）が入れます。入れた直後の検証に失敗すれば元の版に戻します。急ぐときは「今すぐ更新」を押してください。",
+    autoUpdateOffConfirm:
+      "自動更新を切にします。新しい版は「今すぐ更新」を押したときだけ入ります。続けますか？",
     updateChannelLabel: "常に最新版に更新",
     updateChannelHint:
       "ON: 更新ボタンは最新版（リリースのたび）を対象にします。OFF: 安定版（管理者が昇格したリリース）のみを対象にします。",

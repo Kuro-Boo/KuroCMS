@@ -74,6 +74,18 @@ async function dashboard() {
       "<span class='toggleSlider'></span>" +
       "</label>" +
       "</div>" +
+      // 自動更新(既定は入)。版を入れるのは番人(WorkerOps)で、1日1回確かめる。
+      "<div class='versionRow'>" +
+      "<span class='versionLabel'>" +
+      escapeHtml(t("autoUpdateLabel")) +
+      "</span>" +
+      "<label class='toggleSwitch' title='" +
+      escapeHtml(t("autoUpdateHint")) +
+      "'>" +
+      "<input type='checkbox' id='autoUpdateToggle' />" +
+      "<span class='toggleSlider'></span>" +
+      "</label>" +
+      "</div>" +
       // 版を確認できなかったときに出す一行。**空欄のままにしない** ——
       // 「分からない」を黙って隠すと「最新です」と見分けがつかなくなる。
       "<div id='versionNote' style='display:none;font-size:11px;line-height:1.5;color:var(--muted);border-top:1px solid var(--line);padding-top:8px;margin-top:2px'></div>" +
@@ -409,6 +421,8 @@ async function dashboard() {
         (v.channel === "latest" && v.hasUpdate ? " has-update" : "");
     }
     if (toggle) toggle.checked = v.channel === "latest";
+    const autoToggle = byId("autoUpdateToggle") as HTMLInputElement | null;
+    if (autoToggle) autoToggle.checked = v.autoUpdate !== false;
     if (badge) badge.style.display = v.hasUpdate ? "" : "none";
     const btn = byId("btnUpdate");
     if (btn)
@@ -482,6 +496,28 @@ async function dashboard() {
         toast(errorMessage(err), true);
       }
       channelToggle.disabled = false;
+    });
+  }
+
+  const autoToggle = byId("autoUpdateToggle") as HTMLInputElement | null;
+  if (autoToggle) {
+    autoToggle.addEventListener("change", async () => {
+      const enabled = autoToggle.checked;
+      if (!enabled && !confirm(t("autoUpdateOffConfirm"))) {
+        autoToggle.checked = true;
+        return;
+      }
+      autoToggle.disabled = true;
+      try {
+        await api("/api/system/auto-update", {
+          method: "PUT",
+          body: JSON.stringify({ enabled }),
+        });
+      } catch (err) {
+        autoToggle.checked = !enabled; // revert on failure
+        toast(errorMessage(err), true);
+      }
+      autoToggle.disabled = false;
     });
   }
 
