@@ -25,6 +25,10 @@ import { KE_VERSION } from "./admin-assets";
 import { buildFontHead, type LoadedFont } from "./fonts";
 import { stripInternalIds } from "./strip-internal-ids";
 import {
+  templateTypeCollectionDependencies,
+  typeCollectionDependencySignature,
+} from "./build-dependencies";
+import {
   annotateHeadings,
   asPageHeadingHtml,
   htmlToPlainText,
@@ -4627,6 +4631,17 @@ export async function buildAllPublicPages(
   );
   const siteHash = `${siteMaxTs}:${contentTs}:${tplId}:${siteLiveSig}`;
 
+  // Article pages can embed another type's live collection, e.g.
+  // `[[#each type:products:50]]` on a brand page.  That collection is an input
+  // to the rendered article even though the article's own row did not change.
+  // Without this fragment the full build sees the old article hash, skips it,
+  // and leaves newly-added products out of the stored page indefinitely.
+  const articleCollectionHash = typeCollectionDependencySignature(
+    templateTypeCollectionDependencies(template.sourceHtml),
+    typeMaxTs,
+    typeLiveSig,
+  );
+
   // 2. Per-article-translation updated_at (for article pages). The DOCUMENT's
   // updated_at participates too: document-level changes that render on the
   // article page — category assignment (chips), publish date, type — bump
@@ -4652,7 +4667,7 @@ export async function buildAllPublicPages(
   const artHash = new Map(
     artRows.results.map((r) => [
       `${r.slug}:${r.tid}:${r.lang}`,
-      `${r.ts || ""}:${r.dts || ""}:${contentTs}:${tplId}`,
+      `${r.ts || ""}:${r.dts || ""}:${contentTs}:${tplId}:${articleCollectionHash}`,
     ]),
   );
 
