@@ -53,7 +53,11 @@ import { totalMinutes } from "./kuroeditor/recipe.js";
 import { checkRecipeCards } from "./recipe-guard.js";
 import { unfurlSign } from "./unfurl";
 import { json } from "./http";
-import { placeReactionSlot, renderReactionWidget } from "./reactions";
+import {
+  placeReactionSlot,
+  renderReactionWidget,
+  templateAllowsReactions,
+} from "./reactions";
 import {
   resolveTimeZone,
   zonedMonth,
@@ -2805,7 +2809,11 @@ export async function generatePage(
     staticPages,
   );
   if (!ctx) return null;
-  if (ctx.article) {
+  const reactionsEnabled = Boolean(
+    ctx.article &&
+    templateAllowsReactions(template.sourceHtml, ctx.article.type),
+  );
+  if (ctx.article && reactionsEnabled) {
     ctx.content["article-reactions"] = renderReactionWidget(
       ctx.article.did,
       ctx.basePath,
@@ -2823,7 +2831,7 @@ export async function generatePage(
   const { snsSids, resolveSns } = buildSnsContext(s, extConns);
   let sourceHtml = placeReactionSlot(
     expandSnsRefs(template.sourceHtml, snsSids, resolveSns),
-    Boolean(ctx.article),
+    reactionsEnabled,
   );
 
   // Languages registered site-wide (for the switcher list / hreflang fallback).

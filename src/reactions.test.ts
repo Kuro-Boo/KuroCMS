@@ -7,6 +7,7 @@ import {
   placeReactionSlot,
   reactionEndpoint,
   renderReactionWidget,
+  templateAllowsReactions,
 } from "./reactions.ts";
 import type { Env } from "./types.ts";
 
@@ -126,6 +127,35 @@ assert.equal(
     true,
   ),
   "[[html:article.bodyHtml]][[html:content.article-reactions]]",
+);
+assert.equal(
+  templateAllowsReactions(
+    "<!-- kurocms-reactions:off -->[[html:article.bodyHtml]]",
+    "blog",
+  ),
+  false,
+  "off directive must disable every article type",
+);
+assert.equal(
+  templateAllowsReactions(
+    "<!-- kurocms-reactions:exclude=brands,landing-pages -->",
+    "brands",
+  ),
+  false,
+  "excluded index-like article type must not render reactions",
+);
+assert.equal(
+  templateAllowsReactions(
+    "<!-- kurocms-reactions:exclude=brands,landing-pages -->",
+    "blog",
+  ),
+  true,
+  "non-excluded article types remain eligible",
+);
+assert.equal(
+  templateAllowsReactions("[[html:article.bodyHtml]]", "blog"),
+  true,
+  "legacy templates keep automatic insertion",
 );
 
 const first = await api("a");
