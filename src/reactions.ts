@@ -19,6 +19,33 @@ const MAX_BODY = 1024;
  */
 const BODY_TOKEN = /\[\[\s*html:article\.bodyHtml\s*\]\]/;
 const SLOT_TOKEN = /\[\[\s*html:content\.article-reactions\s*\]\]/;
+const REACTIONS_OFF = /<!--\s*kurocms-reactions:off\s*-->/i;
+const REACTIONS_EXCLUDE =
+  /<!--\s*kurocms-reactions:exclude=([a-z0-9_,-]+)\s*-->/gi;
+
+/**
+ * Template-owned reaction visibility policy.
+ *
+ * Removing the slot cannot mean "off": older templates predate the slot and
+ * rely on placeReactionSlot() to add it after the article body.  Explicit
+ * directives distinguish an intentional opt-out from that legacy shape.
+ * `exclude` stays useful when a site turns reactions back on globally: article
+ * types used as index/portfolio pages can remain excluded.
+ */
+export function templateAllowsReactions(
+  sourceHtml: string,
+  articleType: string,
+): boolean {
+  if (REACTIONS_OFF.test(sourceHtml)) return false;
+  const excluded = new Set<string>();
+  for (const match of sourceHtml.matchAll(REACTIONS_EXCLUDE)) {
+    for (const tid of match[1].split(",")) {
+      const normalized = tid.trim();
+      if (normalized) excluded.add(normalized);
+    }
+  }
+  return !excluded.has(articleType);
+}
 
 export function placeReactionSlot(
   sourceHtml: string,
