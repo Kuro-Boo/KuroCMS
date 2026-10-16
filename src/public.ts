@@ -24,6 +24,7 @@ import {
 import { KE_VERSION } from "./admin-assets";
 import { buildFontHead, type LoadedFont } from "./fonts";
 import { stripInternalIds } from "./strip-internal-ids";
+import { sanitizeContentHtml } from "./kuroeditor/normalize.js";
 import {
   templateTypeCollectionDependencies,
   typeCollectionDependencySignature,
@@ -1208,7 +1209,10 @@ async function expandContentRefs(
               title: r.title || r.slug,
               summary: r.summary || "",
               // data-bid / data-cbid は編集用の内部キーなので公開 JSON にも出さない
-              bodyHtml: stripInternalIds(r.body_html || ""),
+              // 保存済みの本文が古くても、公開に出す前に守り（R0）を通す
+              bodyHtml: sanitizeContentHtml(
+                stripInternalIds(r.body_html || ""),
+              ),
               publishAt: r.publish_at,
               updatedAt: r.updated_at,
             } satisfies ArticleData);
@@ -2602,9 +2606,13 @@ async function buildRenderContext(
       filter,
     );
     if (!r) return null;
+    // 記事本文の出口。保存済みの古い本文・API が書いた本文に script / on* /
+    // javascript: が残っていても、公開に出す前に落とす（書き込み側と同じ R0）。
+    // ⚠ [[…]] の展開より【前】に掛ける。展開は CMS 自身が svg のアイコンや
+    //   埋め込みを足すので、後で掛けるとそれまで消える。
     const expandedBody = await expandContentRefs(
       env,
-      { body: r.body_html || "" },
+      { body: sanitizeContentHtml(r.body_html || "") },
       basePath,
       settings,
       lang,

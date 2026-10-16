@@ -17,6 +17,8 @@ export interface ContentHtmlStats {
   blockDecor: number;
   /** ブロックを内包している見出し・段落の数（Chrome のコピーの文脈要素）。 */
   nestedBlocks: number;
+  /** R0 で落とす要素・属性の数（script / style / on* / javascript: / 外部の iframe など）。 */
+  unsafe: number;
   /** 正規化で実際に HTML が変化するか。 */
   changed: boolean;
 }
@@ -32,8 +34,10 @@ export interface ContentHtmlStats {
  * - ブロックを内包した見出し・段落 → 解いて兄弟に並べる（文字は落とさない、
  *   `data-bid` は 1 ブロックに 1 つだけ残す）
  *
- * `<pre>` / `<code>` 配下は一切触らない。壊れた HTML は入力をそのまま返す。
- * 冪等（2 回適用しても同じ）。
+ * - R0: 動くもの・ページ全体に効くものを落とす（{@link sanitizeContentHtml}。最後に掛ける）
+ *
+ * `<pre>` / `<code>` 配下は形を触らない。壊れた HTML は形を推測して直さないが、
+ * R0 だけは掛ける。冪等（2 回適用しても同じ）。
  */
 export function normalizeContentHtml(html: string, opts?: NormalizeOptions): string;
 
@@ -57,3 +61,19 @@ export interface NormalizeOptions {
    */
   clipboardRepair?: boolean;
 }
+
+/**
+ * R0 — 本文から「動くもの」と「ページ全体に効くもの」を落とす。
+ *
+ * - 中身ごと: script / style / noscript / template / title / object / applet / frameset / svg / math など
+ * - タグだけ: link / meta / base / embed / form（中身は残す）など
+ * - iframe: KuroEditor の埋め込みと同じ行き先（YouTube / Vimeo / Google マップ）だけ残す
+ * - 属性: on* / srcdoc / formaction、危ない枠組みの href・src など（javascript: 等）、
+ *   expression() 等を含む style
+ *
+ * 木を作らずブラウザと同じ区切りでタグを読むので、**壊れた HTML でも効く**。
+ * 危ないものが無ければ入力をそのまま返す。冪等。
+ * 書き込む経路（normalizeContentHtml の最後）と、出す経路（公開ページ・エディタへの
+ * 読み込み）の両方で使う。
+ */
+export function sanitizeContentHtml(html: string): string;

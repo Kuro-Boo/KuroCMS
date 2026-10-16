@@ -829,6 +829,14 @@ async function settings() {
               .replace("{w}", String(res.boldSpans || 0))
               .replace("{d}", String(res.divBlocks || 0))
               .replace("{e}", String(res.emptyBlocks || 0)) +
+            // 守り（R0）で落ちるものは、見つかったときだけ出す
+            (Number(res.unsafe || 0)
+              ? " " +
+                t("normalizeFormatPreviewUnsafe").replace(
+                  "{u}",
+                  String(res.unsafe),
+                )
+              : "") +
             // コピー由来の修復を選んだときだけ、その内訳も足す（既定では
             // 常に 0 なので、出しても意味の無い数字が並ぶだけ）。
             (normalizeFormatQuery()

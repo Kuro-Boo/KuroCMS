@@ -48,6 +48,7 @@ import {
 // 本文 HTML の正規化（KuroEditor の paste と同じ実装を**直接参照**する。モノレポ・写しは置かない）。
 import {
   normalizeContentHtml,
+  sanitizeContentHtml,
   inspectContentHtml,
 } from "./kuroeditor/normalize.js";
 import { checkRecipeCards } from "./recipe-guard.js";
@@ -1510,7 +1511,9 @@ async function getSingle(
     lang,
     title: row.title ?? "",
     summary: row.summary ?? "",
-    bodyHtml: row.body_html ?? "",
+    // 公開の読み取り口。受け取った側がそのまま描くので、保存済みの古い本文でも
+    // 公開ページと同じ守り（R0）を通して返す。
+    bodyHtml: sanitizeContentHtml(row.body_html ?? ""),
     metadata,
   });
 }
@@ -8125,9 +8128,12 @@ async function writeTranslationContent(
     validateRecipe?: boolean;
   },
 ): Promise<{ bodyHtml: string }> {
+  // normalizeBody:false（PUT の 3-way マージ後・メタだけの保存）でも守り（R0）は
+  // 掛ける。綴りは変えないが、保存済みの古い本文に残っていた script / on* などを
+  // 書き戻さない — 危ないものが無ければ R0 は入力をそのまま返す。
   const bodyHtml =
     args.normalizeBody === false
-      ? args.bodyHtml
+      ? sanitizeContentHtml(args.bodyHtml)
       : normalizeBlockIds(normalizeContentHtml(args.bodyHtml));
   if (args.validateRecipe !== false) {
     const check = checkRecipeCards(bodyHtml);
@@ -8452,8 +8458,9 @@ async function cleanupCopyNoise(env: Env, user: AuthUser): Promise<Response> {
     if (changed >= MAX_CHANGED_PER_RUN) break;
     // スタイルノイズ除去 → リンク記法正規化の順（ノイズ style が消えた
     // プレーンリンクは属性ホワイトリストを通過して変換対象になる）。
-    const cleaned = normalizePlainLinks(
-      stripCopyNoiseStyles(row.body_html || ""),
+    // 書き戻す本文はどの経路でも R0 を通す（保守の掃除で危ないものを残さない）
+    const cleaned = sanitizeContentHtml(
+      normalizePlainLinks(stripCopyNoiseStyles(row.body_html || "")),
     );
     if (cleaned === (row.body_html || "")) continue;
     const statements: D1PreparedStatement[] = [];
@@ -8551,6 +8558,36 @@ function wantsClipboardRepair(url: URL): boolean {
   return url.searchParams.get("clipboard") === "1";
 }
 
+const UNSAFE_SWEEP_PATTERNS = [
+  "<script",
+  "<style",
+  "<iframe",
+  "<object",
+  "<embed",
+  "<link",
+  "<meta",
+  "<base",
+  "<svg",
+  "<math",
+  "<form",
+  "<template",
+  "<noscript",
+  "<plaintext",
+  "javascript:",
+  "vbscript:",
+  "data:text",
+  "srcdoc",
+  "expression(",
+  "onerror",
+  "onload",
+  "onclick",
+  "onmouse",
+  "onfocus",
+  "ontoggle",
+  "onbegin",
+  "onanimation",
+];
+
 function normalizeSweepFilter(clipboardRepair: boolean): string {
   const base =
     `body_html LIKE '%<b>%' OR body_html LIKE '%<b %'` +
@@ -8558,7 +8595,11 @@ function normalizeSweepFilter(clipboardRepair: boolean): string {
     // 復旧対象: 旧版が段落化してしまった構造コンテナ（callout / code block）。
     // これらは <div> が残っていない行もあるため、上の条件では拾えない。
     ` OR body_html LIKE '%<p class="kuro-%' OR body_html LIKE '%<p data-%'` +
-    ` OR body_html LIKE '%<p spellcheck%'`;
+    ` OR body_html LIKE '%<p spellcheck%'` +
+    // R0（守り）の候補。公開ページ・読み取り API・エディタへの読み込みは出口で
+    // 同じ守りを通すので、ここが拾い漏らしても動きはしない —— 保存されたまま
+    // 残っているものを片付けるための条件（LIKE は ASCII の大文字小文字を区別しない）。
+    ` OR ${UNSAFE_SWEEP_PATTERNS.map((p) => `body_html LIKE '%${p}%'`).join(" OR ")}`;
   if (!clipboardRepair) return base;
   const nested = ["h1", "h2", "h3", "h4", "h5", "h6", "p"]
     .flatMap((tag) => [
@@ -8663,6 +8704,7 @@ async function normalizeBodyFormatPreview(
     emptyBlocks: 0,
     blockDecor: 0,
     nestedBlocks: 0,
+    unsafe: 0,
   };
   let affected = 0;
   for (const row of rows.results ?? []) {
@@ -8677,6 +8719,7 @@ async function normalizeBodyFormatPreview(
     totals.emptyBlocks += s.emptyBlocks;
     totals.blockDecor += s.blockDecor;
     totals.nestedBlocks += s.nestedBlocks;
+    totals.unsafe += s.unsafe;
   }
   return json({
     ok: true,

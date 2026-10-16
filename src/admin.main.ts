@@ -976,6 +976,8 @@ const i18n = {
       "{a} translation(s) would change — <b>: {b}, bold spans: {w}, <div> paragraphs: {d}, empty blocks: {e}",
     normalizeFormatPreviewClipboard:
       "Also repairing clipboard damage — block font sizes: {f}, headings holding blocks: {n}",
+    normalizeFormatPreviewUnsafe:
+      "Unsafe markup removed (script / style / on* handlers / javascript: links, etc.): {u}",
     normalizeFormatPreviewNone:
       "Nothing to change — all bodies are already canonical.",
     normalizeFormatClipboardLabel:
@@ -2014,6 +2016,8 @@ const i18n = {
       "{a} 件の翻訳が変更されます — <b>: {b} 個、太字span: {w} 個、<div>段落: {d} 個、空ブロック: {e} 個",
     normalizeFormatPreviewClipboard:
       "コピー由来の修復も含みます — ブロックの文字サイズ: {f} 個、ブロックを飲み込んだ見出し: {n} 個",
+    normalizeFormatPreviewUnsafe:
+      "危ない記述を落とします（script・style・on* 属性・javascript: のリンクなど）: {u} 個",
     normalizeFormatPreviewNone: "変更対象はありません。すべて正規形です。",
     normalizeFormatClipboardLabel:
       "Chrome のコピーによる破壊も直す（ブロックに焼き込まれた文字サイズ、下の本文を飲み込んだ見出し）。既定では外しています。上の書き換えと違い、これは見た目が変わります — 破壊されたまま公開されている記事は、実行後に表示が変わります。先に「変更対象を確認」で件数を見てください。変更された本文はリビジョン履歴に残るので、元に戻せます。",

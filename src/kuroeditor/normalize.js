@@ -502,6 +502,330 @@ function transformChildren(children, topLevel, clipboardRepair) {
   return out
 }
 
+// ── sanitize (R0) ─────────────────────────────────────────────────────────────
+//
+// 本文に「動くもの」と「ページ全体に効くもの」を残さない。書き込む経路（貼り付け・
+// API・保存・メンテナンス）も、出す経路（公開ページ・エディタへの読み込み）も
+// これを通す — 保存済みの本文が古くても、出口で同じ規則が効く。
+//
+// ## なぜ木（parseTree）の上に作らないのか
+//
+// normalizeContentHtml は壊れた HTML を【無変換で返す】（推測して直さない）。
+// 守りがその上に載っていると、閉じない <a> を 1 つ混ぜるだけで素通りできる。
+// だからここは木を作らず、ブラウザの字句解析と【同じ区切り】でタグを読む:
+//   - 属性の引用符が効くのは `=` の直後だけ（`<a "x>` の `>` はタグの終わり）
+//   - `/` は属性の区切り（`<img/onerror=…>`）
+//   - script / style / iframe … の中身は文字（RAWTEXT）。閉じタグまで読み飛ばす
+//   - コメントは最初の `-->` か `--!>` で終わる（`<!-->` `<!--->` は空コメント）
+// ブラウザと食い違う所は【多めに消す】側にだけ倒す（svg の中など）。
+//
+// ## 何を残すか
+//
+// エディタが書けない・本文に置く理由が無いものだけを落とす。見た目の許可リスト
+// （色・字間…）は貼り付けだけの規則で、ここには入れない — API や AI が書く本文の
+// 書式まで削ると、それは守りではなく書き換えになる。
+//
+// ⚠ 出力は必ずこの関数を【最後に】通す。normalize の規則は要素を外すので、
+//   `<<div></div>script>` が外したあとで `<script>` に繋がりうる。
+//   ここ自身も、消した跡で `<` と文字が繋がらないように `&lt;` にする。
+
+/** 中身ごと落とす要素。 */
+const DROP_WITH_CONTENT = new Set([
+  'script', 'style', 'noscript', 'template', 'title', 'xmp', 'noembed', 'noframes',
+  'object', 'applet', 'frameset', 'svg', 'math',
+])
+/** タグだけ落とす要素（空要素・中身は残してよい包み）。 */
+const DROP_TAG_ONLY = new Set([
+  'link', 'meta', 'base', 'embed', 'param', 'frame', 'form', 'plaintext',
+  // svg の外に漏れても効く余地を残さない（attributeName=href values=javascript:）
+  'animate', 'set', 'animatemotion', 'animatetransform', 'use', 'foreignobject',
+  'handler', 'listener',
+])
+/** 中身が文字として読まれる要素（閉じタグまで読み飛ばす）。 */
+const RAWTEXT_TAGS = new Set([
+  'script', 'style', 'xmp', 'iframe', 'noembed', 'noframes', 'noscript', 'textarea', 'title',
+])
+/** 行き先を持つ属性（src 系は読み込み、それ以外は移動先として判定する）。 */
+const URL_ATTRS = new Map([
+  ['href', 'href'], ['xlink:href', 'href'], ['action', 'href'], ['formaction', 'href'],
+  ['cite', 'href'], ['ping', 'href'], ['data', 'src'], ['codebase', 'src'],
+  ['src', 'src'], ['poster', 'src'], ['background', 'src'], ['lowsrc', 'src'], ['dynsrc', 'src'],
+])
+/** 値を問わず落とす属性。 */
+const DROP_ATTRS = new Set(['srcdoc', 'formaction'])
+
+const isWs = (ch) => ch === ' ' || ch === '\t' || ch === '\n' || ch === '\f' || ch === '\r'
+const isAsciiAlpha = (ch) => /^[a-zA-Z]$/.test(ch || '')
+
+/**
+ * 属性値の URL が本文に置いてよい枠組みか。
+ * ⚠ kuro-links.js の isSafeUrl と【同じ規則】（このファイルは import を持てない
+ *   ＝ブラウザと Worker へ単体で配る）。ずれは tests/sanitize.test.js が見張る。
+ */
+function isSafeContentUrl(u, kind) {
+  const cp = (n) => { try { return String.fromCodePoint(n) } catch { return '' } }
+  const decoded = String(u ?? '')
+    .replace(/&#x([0-9a-f]+);?/gi, (_, h) => cp(parseInt(h, 16)))
+    .replace(/&#(\d+);?/g, (_, d) => cp(Number(d)))
+    .replace(/&colon;/gi, ':')
+    .replace(/&(tab|newline);/gi, '')
+    .replace(/[\u0000- \u007f]/g, '')
+  const m = /^([a-z][a-z0-9+.-]*):/i.exec(decoded)
+  if (!m) return true
+  const scheme = m[1].toLowerCase()
+  if (kind === 'src') {
+    if (scheme === 'data') return /^data:(image|video|audio)\//i.test(decoded)
+    return scheme === 'http' || scheme === 'https' || scheme === 'blob'
+  }
+  return scheme === 'http' || scheme === 'https' || scheme === 'mailto' || scheme === 'tel'
+}
+
+/**
+ * 残してよい iframe の行き先 — KuroEditor が [[URL]] から作る埋め込み
+ * （kuro-links.js の resolveEmbedUrl が返す形）と同じ所だけ。
+ */
+function isAllowedEmbedSrc(raw) {
+  let u
+  try { u = new URL(String(raw ?? '').replace(/&amp;/gi, '&').trim()) } catch { return false }
+  if (u.protocol !== 'https:') return false
+  const host = u.hostname.toLowerCase()
+  const path = u.pathname
+  if (host === 'www.youtube.com' || host === 'youtube.com' || host === 'www.youtube-nocookie.com') {
+    return path.startsWith('/embed/')
+  }
+  if (host === 'player.vimeo.com') return path.startsWith('/video/')
+  if (/^maps\.google\.[a-z.]+$/.test(host)) return path.startsWith('/maps')
+  if (/^(www\.)?google\.[a-z.]+$/.test(host)) return path.startsWith('/maps')
+  return false
+}
+
+/** style 属性のうち、古いブラウザでスクリプトになりうる書き方。 */
+function isDangerousStyle(v) {
+  const d = String(v ?? '')
+    .replace(/&#x([0-9a-f]+);?/gi, (_, h) => { try { return String.fromCodePoint(parseInt(h, 16)) } catch { return '' } })
+    .replace(/&#(\d+);?/g, (_, n) => { try { return String.fromCodePoint(Number(n)) } catch { return '' } })
+    .replace(/\\/g, '')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .toLowerCase()
+  return /expression\s*\(|javascript:|vbscript:|-moz-binding|behavior\s*:/.test(d)
+}
+
+/**
+ * `<` から始まるタグを、ブラウザの字句解析と同じ規則で読む。
+ * @returns {{ name: string, attrs: Array<{name:string, value:string|null, raw:string}>,
+ *             selfClose: boolean, end: number } | null}  null = 文書の終わりで切れた
+ */
+function readTag(html, lt) {
+  const n = html.length
+  let j = lt + 1
+  if (html[j] === '/') j++
+  const nameStart = j
+  while (j < n && !isWs(html[j]) && html[j] !== '/' && html[j] !== '>') j++
+  const name = html.slice(nameStart, j).toLowerCase()
+  const attrs = []
+  let selfClose = false
+  for (;;) {
+    while (j < n && (isWs(html[j]) || html[j] === '/')) {
+      selfClose = html[j] === '/' && html[j + 1] === '>'
+      j++
+    }
+    if (j >= n) return null
+    if (html[j] === '>') return { name, attrs, selfClose, end: j + 1 }
+    const aStart = j
+    j++   // 先頭の 1 文字は `=` でも名前に入る（HTML の規則）
+    while (j < n && !isWs(html[j]) && html[j] !== '/' && html[j] !== '>' && html[j] !== '=') j++
+    const aName = html.slice(aStart, j).toLowerCase()
+    let k = j
+    while (k < n && isWs(html[k])) k++
+    let value = null
+    if (html[k] === '=') {
+      k++
+      while (k < n && isWs(html[k])) k++
+      const q = html[k]
+      if (q === '"' || q === "'") {
+        const close = html.indexOf(q, k + 1)
+        if (close === -1) return null
+        value = html.slice(k + 1, close)
+        k = close + 1
+      } else {
+        const vStart = k
+        while (k < n && !isWs(html[k]) && html[k] !== '>') k++
+        value = html.slice(vStart, k)
+      }
+      j = k
+    }
+    attrs.push({ name: aName, value, raw: html.slice(aStart, j) })
+  }
+}
+
+/** コメント `<!--` の終わり（終端の直後）。閉じなければ文書の終わり。 */
+function commentEnd(html, lt) {
+  const body = lt + 4
+  if (html[body] === '>') return body + 1                       // <!-->
+  if (html.startsWith('->', body)) return body + 2              // <!--->
+  const a = html.indexOf('-->', body)
+  const b = html.indexOf('--!>', body)
+  if (a === -1 && b === -1) return html.length
+  if (a === -1) return b + 4
+  if (b === -1) return a + 3
+  return a < b ? a + 3 : b + 4
+}
+
+/** RAWTEXT 要素の閉じタグの位置（`</name` の `<`）。無ければ文書の終わり。 */
+function rawtextClose(html, from, name) {
+  const re = new RegExp(`</${name}(?=[\\s/>]|$)`, 'ig')
+  re.lastIndex = from
+  const m = re.exec(html)
+  return m ? m.index : html.length
+}
+
+/**
+ * @param {string} html
+ * @returns {{ html: string, removed: number }}
+ */
+function sanitizeWithCount(html) {
+  const n = html.length
+  let out = ''
+  let removed = 0
+  const dropping = []   // 中身ごと落としている要素名の積み
+  let i = 0
+
+  // 消した跡で `<` と文字が繋がってタグにならないようにする
+  const emitText = (s) => {
+    if (dropping.length || !s) return
+    if (out.endsWith('<') && /^[a-zA-Z/!?]/.test(s)) out = out.slice(0, -1) + '&lt;'
+    out += s
+  }
+  const emitMarkup = (s) => { if (!dropping.length) out += s }
+
+  while (i < n) {
+    const lt = html.indexOf('<', i)
+    if (lt === -1) { emitText(html.slice(i)); break }
+    emitText(html.slice(i, lt))
+    const next = html[lt + 1]
+
+    if (html.startsWith('<!--', lt)) {
+      const end = commentEnd(html, lt)
+      emitMarkup(html.slice(lt, end))
+      i = end
+      continue
+    }
+    if (next === '!' || next === '?' || (next === '/' && !isAsciiAlpha(html[lt + 2]))) {
+      // <!DOCTYPE> / <![CDATA[ / <?…> / </ 1> はどれも「> までのコメント」。</> は無視される。
+      const gt = html.indexOf('>', lt + 2)
+      i = gt === -1 ? n : gt + 1
+      continue
+    }
+    if (!isAsciiAlpha(next) && next !== '/') {
+      emitText('<')
+      i = lt + 1
+      continue
+    }
+
+    const tag = readTag(html, lt)
+    if (!tag) { i = n; break }   // 文書の終わりで切れたタグはブラウザも捨てる
+    const isEnd = next === '/'
+    const { name } = tag
+    i = tag.end
+
+    if (isEnd) {
+      if (dropping.length) {
+        const at = dropping.lastIndexOf(name)
+        if (at !== -1) dropping.length = at
+        continue
+      }
+      if (DROP_WITH_CONTENT.has(name) || DROP_TAG_ONLY.has(name) || name === 'iframe') continue
+      emitMarkup(`</${name}>`)
+      continue
+    }
+
+    if (name === 'plaintext') {   // 以降はすべて文字になる — 残りを捨てる
+      removed++
+      i = n
+      break
+    }
+
+    if (RAWTEXT_TAGS.has(name)) {
+      const close = rawtextClose(html, i, name)
+      const content = html.slice(i, close)
+      const closeTag = close < n ? readTag(html, close) : null
+      const after = closeTag ? closeTag.end : n
+      if (name === 'textarea') {
+        if (!dropping.length) out += sanitizeStartTag(tag, html.slice(lt, tag.end)).html + content + '</textarea>'
+        i = after
+        continue
+      }
+      if (name === 'iframe') {
+        const src = tag.attrs.find((a) => a.name === 'src')?.value
+        if (!dropping.length && isAllowedEmbedSrc(src)) {
+          const st = sanitizeStartTag(tag, html.slice(lt, tag.end))
+          removed += st.removed
+          out += st.html + '</iframe>'
+        } else if (!dropping.length) {
+          removed++
+        }
+        i = after
+        continue
+      }
+      if (!dropping.length) removed++
+      i = after
+      continue
+    }
+
+    if (DROP_WITH_CONTENT.has(name)) {
+      if (!dropping.length) removed++
+      if (!tag.selfClose) dropping.push(name)
+      continue
+    }
+    if (DROP_TAG_ONLY.has(name)) {
+      if (!dropping.length) removed++
+      continue
+    }
+    if (dropping.length) continue
+
+    const st = sanitizeStartTag(tag, html.slice(lt, tag.end))
+    removed += st.removed
+    out += st.html
+  }
+  return { html: out, removed }
+}
+
+/**
+ * 開きタグから危ない属性を落とす。何も落とさなければ元の綴りのまま返す。
+ * @returns {{ html: string, removed: number }}
+ */
+function sanitizeStartTag(tag, raw) {
+  const kept = []
+  let removed = 0
+  for (const a of tag.attrs) {
+    const kind = URL_ATTRS.get(a.name)
+    const bad =
+      a.name.startsWith('on') ||
+      DROP_ATTRS.has(a.name) ||
+      (kind && a.value !== null && !isSafeContentUrl(a.value, kind)) ||
+      (a.name === 'srcset' && a.value !== null &&
+        a.value.split(',').some((c) => !isSafeContentUrl(c.trim().split(/\s+/)[0], 'src'))) ||
+      (a.name === 'style' && isDangerousStyle(a.value))
+    if (bad) removed++
+    else kept.push(a.raw)
+  }
+  if (!removed) return { html: raw, removed: 0 }
+  const attrs = kept.length ? ' ' + kept.join(' ') : ''
+  return { html: `<${tag.name}${attrs}${tag.selfClose ? ' /' : ''}>`, removed }
+}
+
+/**
+ * R0 — 本文から「動くもの」と「ページ全体に効くもの」を落とす。
+ * 壊れた HTML でも効く（木を作らない）。冪等。危ないものが無ければ入力のまま。
+ * @param {string} html
+ * @returns {string}
+ */
+export function sanitizeContentHtml(html) {
+  if (typeof html !== 'string' || html === '') return html ?? ''
+  if (!html.includes('<')) return html
+  return sanitizeWithCount(html).html
+}
+
 // ── public API ────────────────────────────────────────────────────────────────
 
 /**
@@ -514,7 +838,9 @@ function transformChildren(children, topLevel, clipboardRepair) {
  *   font-size/weight on a block → dropped (kept on <span>)
  *   heading/paragraph holding blocks → unwrapped, one data-bid kept
  *
- * Malformed input is returned unchanged.
+ *   script / style / on* / javascript: など（R0）→ 落とす（壊れた HTML にも掛かる）
+ *
+ * Malformed input keeps its shape (only R0 is applied).
  *
  * @param {string} html
  * @param {{ clipboardRepair?: boolean }} [opts]
@@ -537,9 +863,11 @@ function transformChildren(children, topLevel, clipboardRepair) {
 export function normalizeContentHtml(html, opts = {}) {
   if (typeof html !== 'string' || html === '') return html ?? ''
   const { root, ok } = parseTree(html)
-  if (!ok) return html
+  // 壊れた HTML は形を推測して直さない —— が、守り（R0）は必ず掛ける。
+  if (!ok) return sanitizeContentHtml(html)
   root.children = transformChildren(root.children, true, opts.clipboardRepair !== false)
-  return serialize(root)
+  // R0 は最後。上の規則が要素を外した跡で、文字とタグが繋がりうるため。
+  return sanitizeContentHtml(serialize(root))
 }
 
 /**
@@ -547,15 +875,17 @@ export function normalizeContentHtml(html, opts = {}) {
  * Used by the maintenance screen to show a preview count per rule.
  * @param {string} html
  * @returns {{ bTags:number, boldSpans:number, divBlocks:number, emptyBlocks:number,
- *             blockDecor:number, nestedBlocks:number, changed:boolean }}
+ *             blockDecor:number, nestedBlocks:number, unsafe:number, changed:boolean }}
  */
 export function inspectContentHtml(html, opts = {}) {
   const clipboardRepair = opts.clipboardRepair !== false
   const stats = {
     bTags: 0, boldSpans: 0, divBlocks: 0, emptyBlocks: 0,
-    blockDecor: 0, nestedBlocks: 0, changed: false,
+    blockDecor: 0, nestedBlocks: 0, unsafe: 0, changed: false,
   }
   if (typeof html !== 'string' || html === '') return stats
+  // R0 は壊れた HTML にも掛かるので、木を作る前に数える
+  if (html.includes('<')) stats.unsafe = sanitizeWithCount(html).removed
   const { root, ok } = parseTree(html)
   if (!ok) return stats
   const walk = (children, topLevel) => {
