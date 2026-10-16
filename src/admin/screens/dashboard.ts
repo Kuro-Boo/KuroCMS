@@ -6,31 +6,18 @@ async function dashboard() {
     "<div class='stack' style='gap:20px'>" +
       // Top row: compact stats + version card
       "<div class='split' style='align-items:start'>" +
-      // Stats grid
-      "<div class='panel'>" +
-      "<div class='sectionLabel' style='margin-bottom:14px'>" +
-      escapeHtml(t("overview")) +
-      "</div>" +
-      "<div class='grid'>" +
-      "<div style='background:var(--surface-2);border:1px solid var(--line);border-radius:var(--radius);padding:20px 16px;text-align:center'>" +
-      "<div style='font-size:48px;font-weight:800;color:var(--accent);line-height:1' id='statDocs'>…</div>" +
-      "<div style='font-size:12px;color:var(--muted);font-weight:600;margin-top:10px'>" +
+      // 記事数などは「概要」の枠に入れず、使用状況と同じ小さな枠にする。
+      // 見出し(storageCardTitle)と数字(statNum)の大きさ・色を全体で揃える。
+      "<div class='statGrid'>" +
+      "<div class='storageCard'><div class='storageCardTitle'>" +
       escapeHtml(t("registeredDocuments")) +
-      "</div>" +
-      "</div>" +
-      "<div style='background:var(--surface-2);border:1px solid var(--line);border-radius:var(--radius);padding:20px 16px;text-align:center'>" +
-      "<div style='font-size:48px;font-weight:800;color:var(--accent);line-height:1' id='statPub'>…</div>" +
-      "<div style='font-size:12px;color:var(--muted);font-weight:600;margin-top:10px'>" +
+      "</div><div class='statNum' id='statDocs'>…</div></div>" +
+      "<div class='storageCard'><div class='storageCardTitle'>" +
       escapeHtml(t("publishedDocuments")) +
-      "</div>" +
-      "</div>" +
-      "<div style='background:var(--surface-2);border:1px solid var(--line);border-radius:var(--radius);padding:20px 16px;text-align:center'>" +
-      "<div style='font-size:48px;font-weight:800;color:var(--accent);line-height:1' id='statMedia'>…</div>" +
-      "<div style='font-size:12px;color:var(--muted);font-weight:600;margin-top:10px'>" +
+      "</div><div class='statNum' id='statPub'>…</div></div>" +
+      "<div class='storageCard'><div class='storageCardTitle'>" +
       escapeHtml(t("mediaLabel")) +
-      "</div>" +
-      "</div>" +
-      "</div>" +
+      "</div><div class='statNum' id='statMedia'>…</div></div>" +
       "</div>" +
       // Version card
       "<div class='panel'>" +
@@ -270,7 +257,7 @@ async function dashboard() {
           ? "<div class='storageCard'><div class='storageCardTitle'>" +
             escapeHtml(t("mediaLabel")) +
             "</div>" +
-            "<div style='font-size:32px;font-weight:800;color:var(--accent)'>" +
+            "<div class='statNum'>" +
             (imgCount + vidCount + audCount) +
             "</div>" +
             "<div class='storageDetail'>" +
@@ -293,7 +280,7 @@ async function dashboard() {
               "<div class='storageCard unavailable'><div class='storageCardTitle'>" +
                 escapeHtml(t("mediaLabel")) +
                 "</div>" +
-                "<div style='font-size:32px;font-weight:800;color:var(--muted)'>—</div>" +
+                "<div class='statNum' style='color:var(--muted)'>—</div>" +
                 "<div class='storageDetail'>" +
                 t("r2MediaUnavailMsg") +
                 "</div></div>",
@@ -410,7 +397,7 @@ async function dashboard() {
           "<div class='storageCard'><div class='storageCardTitle'>" +
           escapeHtml(t("articleCountTitle")) +
           "</div>" +
-          "<div style='font-size:32px;font-weight:800;color:var(--accent)'>" +
+          "<div class='statNum'>" +
           docCount +
           "</div>" +
           "<div class='storageDetail'>" +

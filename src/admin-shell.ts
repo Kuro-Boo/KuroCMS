@@ -523,6 +523,9 @@ export function adminHtml(
       .storageCard.unavailable { opacity: 0.45; filter: grayscale(1); pointer-events: none; }
       .storageUnavailable { font-size: 11px; font-weight: 700; color: var(--muted); background: var(--surface-3); border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px; margin-bottom: -4px; text-align: center; }
       .storageCardTitle { font-weight: 700; font-size: 13px; color: var(--muted); text-align: center; }
+      /* ダッシュボードの数字の枠(記事数・公開数・メディア・使用状況の件数)。見出しは storageCardTitle で揃える。 */
+      .statGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-content: start; }
+      .statNum { font-size: 32px; font-weight: 800; color: var(--accent); line-height: 1; }
       .navAlertDot { position: absolute; top: 7px; right: 8px; width: 8px; height: 8px; border-radius: 50%; background: var(--danger); pointer-events: none; }
       /* 実行中マーク。バックアップ/復元はページ内ループなので、動いていることが
          一目で分かるよう脈打たせる（赤い navAlertDot＝中断/警告 とは色で区別）。 */
