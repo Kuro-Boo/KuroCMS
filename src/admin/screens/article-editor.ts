@@ -1043,7 +1043,7 @@ async function newArticle(editDid: Dynamic) {
           t("revisionHistoryRange")
             .replace("{from}", String(from))
             .replace("{to}", String(to))
-            .replace("{total}", String(total)),
+            .replace("{total}", fmtNum(total)),
         ) +
         "</span>" +
         (pages > 1
@@ -1266,7 +1266,7 @@ async function newArticle(editDid: Dynamic) {
       "<div style='display:flex;justify-content:space-between;align-items:baseline'>" +
       escapeHtml(t("summary")) +
       "<span style='font-size:11px;color:var(--muted);font-weight:400'><span id='arSummaryCount'>" +
-      art.summary.length +
+      fmtNum(art.summary.length) +
       "</span> / 200</span>" +
       "</div>" +
       "<textarea id='arSummary' maxlength='200' style='resize:none;height:120px;min-height:120px;font-family:inherit' placeholder='" +
@@ -2171,7 +2171,7 @@ async function newArticle(editDid: Dynamic) {
     }
     byId("arSummary")?.addEventListener("input", function (e: Dynamic) {
       const cnt = byId("arSummaryCount");
-      if (cnt) cnt.textContent = String(e.target.value.length);
+      if (cnt) cnt.textContent = fmtNum(e.target.value.length);
       markDirty();
     });
     [

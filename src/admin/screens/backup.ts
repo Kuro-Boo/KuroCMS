@@ -271,7 +271,7 @@ function paintBackupTables(): void {
         " " +
         escapeHtml(tb.name) +
         "</div><div class='muted' style='text-align:right;font-variant-numeric:tabular-nums'>" +
-        tb.total.toLocaleString() +
+        fmtNum(tb.total) +
         "</div>"
       );
     })
@@ -290,15 +290,15 @@ function paintBackupMedia(): void {
     "<b>" +
     escapeHtml(t("mediaLabel")) +
     "</b> " +
-    m.done +
+    fmtNum(m.done) +
     " / " +
-    m.total +
+    fmtNum(m.total) +
     "  <span class='muted'>(" +
     fmtBytes(m.bytes) +
     ")</span>" +
     (m.failed
       ? " <span style='color:var(--danger)'>" +
-        escapeHtml(t("backupFailedCount").replace("{n}", String(m.failed))) +
+        escapeHtml(t("backupFailedCount").replace("{n}", fmtNum(m.failed))) +
         "</span>"
       : "");
 }
@@ -572,8 +572,8 @@ async function runBackup() {
     });
     backupProgressLog(
       t("backupPlanLine")
-        .replace("{rows}", tableTotal.toLocaleString())
-        .replace("{files}", String(mediaTotal))
+        .replace("{rows}", fmtNum(tableTotal))
+        .replace("{files}", fmtNum(mediaTotal))
         .replace(
           "{bytes}",
           fmtBytes(manifest.media ? manifest.media.totalBytes || 0 : 0),
@@ -595,7 +595,7 @@ async function runBackup() {
       setBackupPhase(
         "backup",
         t("backupPhaseTables"),
-        tbl.name + " (" + (tbl.count || 0).toLocaleString() + ")",
+        tbl.name + " (" + fmtNum(tbl.count || 0) + ")",
       );
       backupProgressTable(tbl.name, "active");
       setBackupProgress((done / total) * 100, "data/" + tbl.name + ".jsonl");
@@ -654,7 +654,7 @@ async function runBackup() {
           setBackupPhase(
             "backup",
             t("backupPhaseMedia"),
-            mediaOk + mediaFailed.length + "/" + mediaTotal,
+            fmtNum(mediaOk + mediaFailed.length) + "/" + fmtNum(mediaTotal),
           );
       }
       mediaCursor = page.nextCursor;
@@ -683,10 +683,10 @@ async function runBackup() {
     const summary = [
       "",
       t("backupSummaryFile").replace("{name}", filename),
-      t("backupSummaryRows").replace("{rows}", tableTotal.toLocaleString()),
+      t("backupSummaryRows").replace("{rows}", fmtNum(tableTotal)),
       t("backupSummaryMedia")
-        .replace("{ok}", String(mediaOk))
-        .replace("{total}", String(mediaTotal))
+        .replace("{ok}", fmtNum(mediaOk))
+        .replace("{total}", fmtNum(mediaTotal))
         .replace("{bytes}", fmtBytes(mediaBytes)),
       t("backupSummaryTime").replace(
         "{t}",
@@ -698,8 +698,8 @@ async function runBackup() {
     if (mediaFailed.length) {
       summary.push(
         t("backupMediaIncomplete")
-          .replace("{failed}", String(mediaFailed.length))
-          .replace("{total}", String(mediaTotal)),
+          .replace("{failed}", fmtNum(mediaFailed.length))
+          .replace("{total}", fmtNum(mediaTotal)),
       );
       for (const f of mediaFailed.slice(0, 20))
         summary.push("  - " + f.mid + " " + f.reason);
@@ -875,10 +875,10 @@ async function runRestore() {
         t("restorePhaseTables"),
         name +
           " (" +
-          (
+          fmtNum(
             (manifest.tables || []).find((x: Dynamic) => x.name === name)
-              ?.count || 0
-          ).toLocaleString() +
+              ?.count || 0,
+          ) +
           ")",
       );
       backupProgressTable(name, "active");
@@ -989,10 +989,10 @@ async function runRestore() {
     clearBackupJob();
     const summary = [
       "",
-      t("restoreSummaryRows").replace("{rows}", tableTotal.toLocaleString()),
+      t("restoreSummaryRows").replace("{rows}", fmtNum(tableTotal)),
       t("restoreSummaryMedia")
-        .replace("{ok}", String(mediaDone - restoreFailed.length))
-        .replace("{total}", String(mediaEntries.length))
+        .replace("{ok}", fmtNum(mediaDone - restoreFailed.length))
+        .replace("{total}", fmtNum(mediaEntries.length))
         .replace("{bytes}", fmtBytes(mediaBytes)),
       t("backupSummaryTime").replace(
         "{t}",
@@ -1015,7 +1015,7 @@ async function runRestore() {
       );
     if (renamedRows.length) {
       summary.push(
-        t("restoreRenamedSummary").replace("{n}", String(renamedRows.length)),
+        t("restoreRenamedSummary").replace("{n}", fmtNum(renamedRows.length)),
       );
       for (const line of renamedRows.slice(0, 20)) summary.push("  - " + line);
       if (renamedRows.length > 20)
@@ -1024,8 +1024,8 @@ async function runRestore() {
     if (restoreFailed.length) {
       summary.push(
         t("restoreMediaIncomplete")
-          .replace("{failed}", String(restoreFailed.length))
-          .replace("{total}", String(mediaEntries.length)),
+          .replace("{failed}", fmtNum(restoreFailed.length))
+          .replace("{total}", fmtNum(mediaEntries.length)),
       );
       for (const f of restoreFailed.slice(0, 20))
         summary.push("  - " + f.mid + " " + f.reason);
