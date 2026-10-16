@@ -103,6 +103,8 @@ INSERT OR IGNORE INTO taxonomy_items (id, kind, lang, name, slug, created_at, up
 -- Managed languages. Names are NATIVE labels (same convention as the admin
 -- language picker): they surface user-facing, e.g. the SNS post language line
 -- ("🌐 日本語, English, …") — never English exonyms.
+-- The 11 base languages of Entamy products (Admin spec admin-languages). pt/ar were
+-- added 2026-10-16 for NEW installs only; existing installs add them in 言語管理.
 INSERT OR IGNORE INTO taxonomy_items (id, kind, lang, name, created_at, updated_at) VALUES
   ('en', 'language', '', 'English',    datetime('now'), datetime('now')),
   ('ja', 'language', '', '日本語',      datetime('now'), datetime('now')),
@@ -111,8 +113,10 @@ INSERT OR IGNORE INTO taxonomy_items (id, kind, lang, name, created_at, updated_
   ('it', 'language', '', 'Italiano',   datetime('now'), datetime('now')),
   ('es', 'language', '', 'Español',    datetime('now'), datetime('now')),
   ('zh', 'language', '', '中文',        datetime('now'), datetime('now')),
+  ('pt', 'language', '', 'Português',  datetime('now'), datetime('now')),
   ('ko', 'language', '', '한국어',      datetime('now'), datetime('now')),
-  ('uk', 'language', '', 'Українська', datetime('now'), datetime('now'));
+  ('uk', 'language', '', 'Українська', datetime('now'), datetime('now')),
+  ('ar', 'language', '', 'العربية',     datetime('now'), datetime('now'));
 
 -- ── Content ───────────────────────────────────────────────────────────────────
 
