@@ -524,6 +524,10 @@ export function adminHtml(
       .storageUnavailable { font-size: 11px; font-weight: 700; color: var(--muted); background: var(--surface-3); border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px; margin-bottom: -4px; text-align: center; }
       .storageCardTitle { font-weight: 700; font-size: 13px; color: var(--muted); text-align: center; }
       /* ダッシュボードの数字(使用状況の記事数・メディア)。見出しは storageCardTitle で揃える。 */
+      /* ダッシュボード: 左に使用状況(縦長)、右に更新の枠。狭いと縦に積む。 */
+      .dashGrid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr); gap: 20px; align-items: start; }
+      @media(max-width:1000px){ .dashGrid { grid-template-columns: minmax(0, 1fr); } }
+      .dashGrid .storageGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .statNum { font-size: 32px; font-weight: 800; color: var(--accent); line-height: 1; }
       .navAlertDot { position: absolute; top: 7px; right: 8px; width: 8px; height: 8px; border-radius: 50%; background: var(--danger); pointer-events: none; }
       /* 実行中マーク。バックアップ/復元はページ内ループなので、動いていることが
