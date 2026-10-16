@@ -97,9 +97,26 @@ async function dashboard() {
       // made the layout misbehave differently at different widths.
       // Storage gauges
       "<div class='panel stack'>" +
-      "<h3 id='storageHeading'>" +
+      // 見出しの右端に「無料枠 / Paid」の切り替え。下のグラフをその上限で描き直す。
+      "<div style='display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap'>" +
+      "<h3 id='storageHeading' style='margin:0'>" +
       escapeHtml(t("storageFreeUsage")) +
       "</h3>" +
+      "<div style='display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600;color:var(--muted)'>" +
+      "<span id='storagePlanFree'>" +
+      escapeHtml(t("planFree")) +
+      "</span>" +
+      "<label class='toggleSwitch' title='" +
+      escapeHtml(t("storagePlanHint")) +
+      "'>" +
+      "<input type='checkbox' id='storagePlanToggle' />" +
+      "<span class='toggleSlider'></span>" +
+      "</label>" +
+      "<span id='storagePlanPaid'>" +
+      escapeHtml(t("planPaid")) +
+      "</span>" +
+      "</div>" +
+      "</div>" +
       "<div class='storageGrid' id='storageGrid'><div class='muted' style='font-size:12px'>" +
       escapeHtml(t("loading")) +
       "</div></div>" +
@@ -124,10 +141,15 @@ async function dashboard() {
   // Storage stats
   try {
     const s = await api("/api/system/storage");
-    // 委託はお客様の Cloudflare の無料枠ではない —— 「無料枠」と書かない。
-    if (s.r2?.managedQuota) {
-      const heading = byId("storageHeading");
-      if (heading) heading.textContent = t("storageManagedUsage");
+    // どのプランの上限でグラフを描くか。閲覧者ごとの好み(localStorage)。
+    // 既定は、委託(Entamy の Cloudflare は Paid)なら Paid、それ以外は無料枠。
+    const PLAN_KEY = "kurocms_storage_plan";
+    let plan: "free" | "paid" = s.r2?.managedQuota ? "paid" : "free";
+    try {
+      const saved = localStorage.getItem(PLAN_KEY);
+      if (saved === "free" || saved === "paid") plan = saved;
+    } catch {
+      /* storage blocked: keep the default */
     }
     const imgCount = s.media?.image?.count || 0;
     const vidCount = s.media?.video?.count || 0;
@@ -164,187 +186,238 @@ async function dashboard() {
     }
     if (byId("statMedia"))
       byId("statMedia")!.textContent = String(imgCount + vidCount + audCount);
-    const grid = byId("storageGrid");
-    if (grid) {
-      const r2Avail = !!s.r2Available;
-      const unavailWrap = function (inner: Dynamic) {
-        return (
-          "<div style='display:flex;flex-direction:column;gap:6px'>" +
-          "<div class='storageUnavailable'>" +
-          escapeHtml(t("r2Unavailable")) +
-          "</div>" +
-          inner +
-          "</div>"
-        );
-      };
-      // 委託(Entamy の Cloudflare)では 1 サイトの割り当てが上限。無料枠と取り違えないよう見出しを変える。
-      // 上限は整った数なので末尾の .0 を落とす(100.0 MB → 100 MB、10.00 GB → 10 GB)。
-      const r2MaxLabel = fmtBytes(s.r2.maxBytes).replace(/\.0+ /, " ");
-      const r2Limit = s.r2.managedQuota
-        ? {
-            label: t("managedLimitLabel"),
-            note: t("managedR2Note").replace("{limit}", r2MaxLabel),
-          }
-        : undefined;
-      const r2Card = r2Avail
-        ? makePieChart(
-            s.r2.pct,
-            t("r2Media"),
-            fmtBytes(s.r2.usedBytes),
-            r2MaxLabel,
-            r2Limit,
-          )
-        : unavailWrap(
-            "<div class='storageCard unavailable'>" +
-              "<div class='storageCardTitle'>" +
-              escapeHtml(t("r2Media")) +
-              "</div>" +
-              "<div class='pieWrap'><svg viewBox='0 0 100 100'><circle class='pieBg' cx='50' cy='50' r='36'/></svg>" +
-              "<div class='piePct' style='color:var(--muted)'>—</div></div>" +
-              "<div class='storageDetail'>" +
-              escapeHtml(r2Limit ? r2Limit.label : t("freeLimitLabel")) +
-              escapeHtml(r2MaxLabel) +
-              "</div></div>",
+    // Cloudflare の文書の値(2026-10-16 に確認。d1/kv/r2 の pricing・d1 limits)。
+    //   無料枠: D1 5 GB(口座全体)・KV 保存 1 GB・KV 書き込み 1,000/日・読み出し 10 万/日
+    //   Paid  : D1 5 GB まで料金に含む・KV 保存 1 GB まで含む・KV 書き込み 100 万/月・
+    //           読み出し 1,000 万/月まで含む(超えた分は課金。止まらない)
+    //   R2 の無料分(10 GB/月)はプランで変わらない。
+    const PAID_KV_WRITES_MONTH = 1_000_000;
+    const PAID_KV_READS_MONTH = 10_000_000;
+    const renderStorage = function () {
+      const paid = plan === "paid";
+      const heading = byId("storageHeading");
+      // 委託はお客様の Cloudflare の無料枠ではない —— 「無料枠」と書かない。
+      if (heading)
+        heading.textContent = s.r2?.managedQuota
+          ? t("storageManagedUsage")
+          : paid
+            ? t("storagePaidUsage")
+            : t("storageFreeUsage");
+      const toggle = byId("storagePlanToggle") as HTMLInputElement | null;
+      if (toggle) toggle.checked = paid;
+      const freeLabel = byId("storagePlanFree");
+      const paidLabel = byId("storagePlanPaid");
+      if (freeLabel) freeLabel.style.color = paid ? "" : "var(--accent)";
+      if (paidLabel) paidLabel.style.color = paid ? "var(--accent)" : "";
+      // Paid の上限は「料金に含まれる量」(超えても止まらない)。見出しを替えて区別する。
+      const included = paid ? { label: t("paidIncludedLabel") } : undefined;
+      const grid = byId("storageGrid");
+      if (grid) {
+        const r2Avail = !!s.r2Available;
+        const unavailWrap = function (inner: Dynamic) {
+          return (
+            "<div style='display:flex;flex-direction:column;gap:6px'>" +
+            "<div class='storageUnavailable'>" +
+            escapeHtml(t("r2Unavailable")) +
+            "</div>" +
+            inner +
+            "</div>"
           );
-      const mediaCard = r2Avail
-        ? "<div class='storageCard'><div class='storageCardTitle'>" +
-          escapeHtml(t("mediaLabel")) +
+        };
+        // 委託(Entamy の Cloudflare)では 1 サイトの割り当てが上限。無料枠と取り違えないよう見出しを変える。
+        // 上限は整った数なので末尾の .0 を落とす(100.0 MB → 100 MB、10.00 GB → 10 GB)。
+        const r2MaxLabel = fmtBytes(s.r2.maxBytes).replace(/\.0+ /, " ");
+        const r2Limit = s.r2.managedQuota
+          ? {
+              label: t("managedLimitLabel"),
+              note: t("managedR2Note").replace("{limit}", r2MaxLabel),
+            }
+          : undefined;
+        const r2Card = r2Avail
+          ? makePieChart(
+              s.r2.pct,
+              t("r2Media"),
+              fmtBytes(s.r2.usedBytes),
+              r2MaxLabel,
+              r2Limit,
+            )
+          : unavailWrap(
+              "<div class='storageCard unavailable'>" +
+                "<div class='storageCardTitle'>" +
+                escapeHtml(t("r2Media")) +
+                "</div>" +
+                "<div class='pieWrap'><svg viewBox='0 0 100 100'><circle class='pieBg' cx='50' cy='50' r='36'/></svg>" +
+                "<div class='piePct' style='color:var(--muted)'>—</div></div>" +
+                "<div class='storageDetail'>" +
+                escapeHtml(r2Limit ? r2Limit.label : t("freeLimitLabel")) +
+                escapeHtml(r2MaxLabel) +
+                "</div></div>",
+            );
+        const mediaCard = r2Avail
+          ? "<div class='storageCard'><div class='storageCardTitle'>" +
+            escapeHtml(t("mediaLabel")) +
+            "</div>" +
+            "<div style='font-size:32px;font-weight:800;color:var(--accent)'>" +
+            (imgCount + vidCount + audCount) +
+            "</div>" +
+            "<div class='storageDetail'>" +
+            escapeHtml(t("imageTypeLabel")) +
+            " " +
+            imgCount +
+            " / " +
+            escapeHtml(t("videoTypeLabel")) +
+            " " +
+            vidCount +
+            " / " +
+            escapeHtml(t("audioTypeLabel")) +
+            " " +
+            audCount +
+            "<br>" +
+            fmtBytes(mediaTotal) +
+            "</div>" +
+            "</div>"
+          : unavailWrap(
+              "<div class='storageCard unavailable'><div class='storageCardTitle'>" +
+                escapeHtml(t("mediaLabel")) +
+                "</div>" +
+                "<div style='font-size:32px;font-weight:800;color:var(--muted)'>—</div>" +
+                "<div class='storageDetail'>" +
+                t("r2MediaUnavailMsg") +
+                "</div></div>",
+            );
+        // KV daily operations (writes are the constrained Free-plan resource).
+        const ops = s.kvOps as
+          | {
+              available: boolean;
+              writes: number;
+              reads: number;
+              maxWrites: number;
+              maxReads: number;
+              writesPct: number;
+              resetUtc: string;
+            }
+          | undefined;
+        const fmtReset = function (iso: Dynamic) {
+          if (!iso) return "";
+          try {
+            return new Date(iso).toLocaleString(undefined, {
+              month: "numeric",
+              day: "numeric",
+              hour: "2-digit",
+              minute: "2-digit",
+            });
+          } catch {
+            return "";
+          }
+        };
+        let kvOpsCard = "";
+        if (ops) {
+          // Paid は月の含み分しか無い。今日の回数を、その月の含み分に対する割合で出す。
+          const maxWrites = paid ? PAID_KV_WRITES_MONTH : ops.maxWrites;
+          const maxReads = paid ? PAID_KV_READS_MONTH : ops.maxReads;
+          const wpct = Math.min(
+            100,
+            paid ? (ops.writes / maxWrites) * 100 : ops.writesPct || 0,
+          );
+          const cls = wpct < 70 ? "ok" : wpct < 90 ? "warn" : "danger";
+          const color =
+            wpct < 70
+              ? "var(--accent)"
+              : wpct < 90
+                ? "var(--accent-3)"
+                : "var(--danger)";
+          const r = 36,
+            circ = 2 * Math.PI * r,
+            filled = Math.min(1, wpct / 100) * circ;
+          const pieVal = ops.available
+            ? wpct.toFixed(1) + "<span style='font-size:10px'>%</span>"
+            : "—";
+          const sub = ops.available
+            ? ops.writes + " / " + maxWrites.toLocaleString()
+            : escapeHtml(t("kvOpsUnavailable"));
+          kvOpsCard =
+            "<div class='storageCard" +
+            (wpct >= 50 ? " storage-alert" : "") +
+            "'><div class='storageCardTitle'>" +
+            escapeHtml(paid ? t("kvWritesTodayPaid") : t("kvWritesToday")) +
+            "</div><div class='pieWrap'><svg viewBox='0 0 100 100'>" +
+            "<circle class='pieBg' cx='50' cy='50' r='" +
+            r +
+            "'/>" +
+            (ops.available
+              ? "<circle class='pieArc " +
+                cls +
+                "' cx='50' cy='50' r='" +
+                r +
+                "' stroke-dasharray='" +
+                filled.toFixed(1) +
+                " " +
+                circ.toFixed(1) +
+                "'/>"
+              : "") +
+            "</svg><div class='piePct' style='color:" +
+            color +
+            "'>" +
+            pieVal +
+            "<div class='piePctSub'>" +
+            sub +
+            "</div></div></div><div class='storageDetail'>" +
+            (ops.available
+              ? escapeHtml(t("kvReadsLabel")) +
+                " " +
+                ops.reads +
+                " / " +
+                maxReads.toLocaleString() +
+                "<br>"
+              : "") +
+            (paid
+              ? escapeHtml(t("kvPaidMonthlyNote"))
+              : escapeHtml(t("kvResetLabel")) +
+                " " +
+                escapeHtml(fmtReset(ops.resetUtc))) +
+            "</div></div>";
+        }
+        grid.innerHTML =
+          makePieChart(
+            s.d1.pct,
+            t("d1Database"),
+            fmtBytes(s.d1.usedBytes),
+            "5 GB",
+            included,
+          ) +
+          r2Card +
+          makePieChart(
+            s.kv.pct,
+            t("kvPages"),
+            fmtBytes(s.kv.usedBytes),
+            "1 GB",
+            included,
+          ) +
+          kvOpsCard +
+          "<div class='storageCard'><div class='storageCardTitle'>" +
+          escapeHtml(t("articleCountTitle")) +
           "</div>" +
           "<div style='font-size:32px;font-weight:800;color:var(--accent)'>" +
-          (imgCount + vidCount + audCount) +
+          docCount +
           "</div>" +
           "<div class='storageDetail'>" +
-          escapeHtml(t("imageTypeLabel")) +
-          " " +
-          imgCount +
-          " / " +
-          escapeHtml(t("videoTypeLabel")) +
-          " " +
-          vidCount +
-          " / " +
-          escapeHtml(t("audioTypeLabel")) +
-          " " +
-          audCount +
-          "<br>" +
-          fmtBytes(mediaTotal) +
+          escapeHtml(t("collectionArticleCount")) +
+          langDocsHtml +
           "</div>" +
-          "</div>"
-        : unavailWrap(
-            "<div class='storageCard unavailable'><div class='storageCardTitle'>" +
-              escapeHtml(t("mediaLabel")) +
-              "</div>" +
-              "<div style='font-size:32px;font-weight:800;color:var(--muted)'>—</div>" +
-              "<div class='storageDetail'>" +
-              t("r2MediaUnavailMsg") +
-              "</div></div>",
-          );
-      // KV daily operations (writes are the constrained Free-plan resource).
-      const ops = s.kvOps as
-        | {
-            available: boolean;
-            writes: number;
-            reads: number;
-            maxWrites: number;
-            maxReads: number;
-            writesPct: number;
-            resetUtc: string;
-          }
-        | undefined;
-      const fmtReset = function (iso: Dynamic) {
-        if (!iso) return "";
-        try {
-          return new Date(iso).toLocaleString(undefined, {
-            month: "numeric",
-            day: "numeric",
-            hour: "2-digit",
-            minute: "2-digit",
-          });
-        } catch {
-          return "";
-        }
-      };
-      let kvOpsCard = "";
-      if (ops) {
-        const wpct = Math.min(100, ops.writesPct || 0);
-        const cls = wpct < 70 ? "ok" : wpct < 90 ? "warn" : "danger";
-        const color =
-          wpct < 70
-            ? "var(--accent)"
-            : wpct < 90
-              ? "var(--accent-3)"
-              : "var(--danger)";
-        const r = 36,
-          circ = 2 * Math.PI * r,
-          filled = Math.min(1, wpct / 100) * circ;
-        const pieVal = ops.available
-          ? wpct.toFixed(1) + "<span style='font-size:10px'>%</span>"
-          : "—";
-        const sub = ops.available
-          ? ops.writes + " / " + ops.maxWrites
-          : escapeHtml(t("kvOpsUnavailable"));
-        kvOpsCard =
-          "<div class='storageCard" +
-          (wpct >= 50 ? " storage-alert" : "") +
-          "'><div class='storageCardTitle'>" +
-          escapeHtml(t("kvWritesToday")) +
-          "</div><div class='pieWrap'><svg viewBox='0 0 100 100'>" +
-          "<circle class='pieBg' cx='50' cy='50' r='" +
-          r +
-          "'/>" +
-          (ops.available
-            ? "<circle class='pieArc " +
-              cls +
-              "' cx='50' cy='50' r='" +
-              r +
-              "' stroke-dasharray='" +
-              filled.toFixed(1) +
-              " " +
-              circ.toFixed(1) +
-              "'/>"
-            : "") +
-          "</svg><div class='piePct' style='color:" +
-          color +
-          "'>" +
-          pieVal +
-          "<div class='piePctSub'>" +
-          sub +
-          "</div></div></div><div class='storageDetail'>" +
-          (ops.available
-            ? escapeHtml(t("kvReadsLabel")) +
-              " " +
-              ops.reads +
-              " / " +
-              ops.maxReads +
-              "<br>"
-            : "") +
-          escapeHtml(t("kvResetLabel")) +
-          " " +
-          escapeHtml(fmtReset(ops.resetUtc)) +
-          "</div></div>";
+          "</div>" +
+          mediaCard;
       }
-      grid.innerHTML =
-        makePieChart(
-          s.d1.pct,
-          t("d1Database"),
-          fmtBytes(s.d1.usedBytes),
-          "5 GB",
-        ) +
-        r2Card +
-        makePieChart(s.kv.pct, t("kvPages"), fmtBytes(s.kv.usedBytes), "1 GB") +
-        kvOpsCard +
-        "<div class='storageCard'><div class='storageCardTitle'>" +
-        escapeHtml(t("articleCountTitle")) +
-        "</div>" +
-        "<div style='font-size:32px;font-weight:800;color:var(--accent)'>" +
-        docCount +
-        "</div>" +
-        "<div class='storageDetail'>" +
-        escapeHtml(t("collectionArticleCount")) +
-        langDocsHtml +
-        "</div>" +
-        "</div>" +
-        mediaCard;
-    }
+    };
+    renderStorage();
+    byId("storagePlanToggle")?.addEventListener("change", function (e) {
+      plan = (e.target as HTMLInputElement).checked ? "paid" : "free";
+      try {
+        localStorage.setItem(PLAN_KEY, plan);
+      } catch {
+        /* storage blocked: the choice lasts until reload */
+      }
+      renderStorage();
+    });
     setStorageAlertBadge(
       s.d1.pct >= 50 || (s.r2Available && s.r2.pct >= 50) || s.kv.pct >= 50,
     );

@@ -1113,6 +1113,15 @@ const i18n = {
     updateConfirm: "Update KuroCMS to the latest version?",
     storageFreeUsage: "CF Free Tier Usage",
     storageManagedUsage: "Usage (hosted by Entamy)",
+    storagePaidUsage: "CF Paid Usage (included in the plan)",
+    planFree: "Free",
+    planPaid: "Paid",
+    storagePlanHint:
+      "Draw the gauges against the Free limits or the Workers Paid included amounts",
+    paidIncludedLabel: "Included: ",
+    kvWritesTodayPaid: "KV Writes (today, of monthly included)",
+    kvPaidMonthlyNote:
+      "Paid includes writes 1M / reads 10M per month (billed beyond, not stopped)",
     freeLimitLabel: "Free limit: ",
     managedLimitLabel: "Limit: ",
     mediaUploadFailedInline: "Upload failed: {name}",
@@ -2153,6 +2162,15 @@ const i18n = {
     updateConfirm: "KuroCMS を最新バージョンに更新しますか？",
     storageFreeUsage: "CF 無料枠使用状況",
     storageManagedUsage: "使用状況（Entamy 委託）",
+    storagePaidUsage: "CF Paid 使用状況（料金に含まれる分）",
+    planFree: "無料枠",
+    planPaid: "Paid",
+    storagePlanHint:
+      "グラフを無料枠の上限で描くか、Workers Paid の料金に含まれる量で描くかを切り替えます",
+    paidIncludedLabel: "料金に含まれる量: ",
+    kvWritesTodayPaid: "KV 書き込み（本日・月の含み分に対して）",
+    kvPaidMonthlyNote:
+      "Paid は月 書き込み 100 万回・読み出し 1,000 万回まで含む（超えた分は課金。止まらない）",
     freeLimitLabel: "無料枠上限: ",
     managedLimitLabel: "上限: ",
     mediaUploadFailedInline: "アップロード失敗: {name}",
