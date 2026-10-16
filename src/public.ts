@@ -69,6 +69,7 @@ import type { Env, JsonValue } from "./types";
 import {
   langPath,
   langScript,
+  legacyLangPath,
   localizeLinks,
   looksLikeLang,
   splitLangPath,
@@ -6050,9 +6051,9 @@ export async function handlePublicRoute(
   if (queryLang !== null) {
     const to = new URL(request.url);
     to.searchParams.delete("lang");
-    if (!split.lang && registeredLangs.includes(queryLang)) {
-      to.pathname = rootPrefix + langPath(split.path, queryLang, siteLang);
-    }
+    to.pathname =
+      rootPrefix +
+      legacyLangPath(pathname, queryLang, registeredLangs, siteLang);
     return Response.redirect(to.toString(), 301);
   }
   const lang = split.lang ?? siteLang;
