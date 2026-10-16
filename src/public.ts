@@ -87,7 +87,9 @@ import {
 // 30: 反応ウィジェットに id を足し、枠の置き方をトークンの綴り(空白可)に
 //     合わせた。**出力が変わるのに、記事の中身は変わっていない** ——
 //     塩を振り直さないと、既に焼いたページがそのまま出続ける。
-const RENDER_FORMAT_VERSION = "30";
+// 31: 言語をパスに入れた(/en/post/)。リンク・hreflang・<head> の言語の JS が
+//     変わる。古いページは ?lang= のリンクのまま残ってしまう(2026-10-16)。
+const RENDER_FORMAT_VERSION = "31";
 
 /** Cheap, synchronous string hash (FNV-1a, base36) for cache keys. Not crypto. */
 /**
@@ -4822,6 +4824,17 @@ export async function buildAllPublicPages(
     await env.DB.prepare("DELETE FROM page_build_cache").run();
   }
   const cache = force ? new Map<string, string>() : await loadBuildCache(env);
+  // Pages already in the Static Assets index. A build exists to register its
+  // pages as Static Assets, so a page missing from the index is never skipped,
+  // even when its content is unchanged — e.g. the first build after an install
+  // moves to Static Assets (its KV pages were written before the index was).
+  const indexed = new Set(
+    (
+      await env.DB.prepare("SELECT DISTINCT path FROM asset_pages")
+        .all<{ path: string }>()
+        .catch(() => ({ results: [] as { path: string }[] }))
+    ).results?.map((r) => r.path) ?? [],
+  );
 
   // Categories are no longer pre-built as pages, but the nav still lists their
   // names (counts are filled client-side), so the prefetch needs them.
@@ -5030,7 +5043,7 @@ export async function buildAllPublicPages(
       // のに、どのページの内容ハッシュにも現れない。混ぜておかないと TZ を
       // 変えた次のビルドが「変更なし」と判断して全ページを読み飛ばす。
       `|tz=${buildTz}`;
-    if (cache.get(cacheKey) === combined) {
+    if (cache.get(cacheKey) === combined && indexed.has(normPath(path))) {
       skipped++;
       onEvent?.({
         type: "page",
