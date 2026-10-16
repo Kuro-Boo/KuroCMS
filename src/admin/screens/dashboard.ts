@@ -157,7 +157,7 @@ async function dashboard() {
               (l: Dynamic) =>
                 escapeHtml(l.displayName || l.lang) +
                 " " +
-                (l.usage?.documents || 0),
+                fmtNum(l.usage?.documents || 0),
             )
             .join(" / ");
       }
@@ -236,20 +236,20 @@ async function dashboard() {
             escapeHtml(t("mediaLabel")) +
             "</div>" +
             "<div class='statNum'>" +
-            (imgCount + vidCount + audCount) +
+            fmtNum(imgCount + vidCount + audCount) +
             "</div>" +
             "<div class='storageDetail'>" +
             escapeHtml(t("imageTypeLabel")) +
             " " +
-            imgCount +
+            fmtNum(imgCount) +
             " / " +
             escapeHtml(t("videoTypeLabel")) +
             " " +
-            vidCount +
+            fmtNum(vidCount) +
             " / " +
             escapeHtml(t("audioTypeLabel")) +
             " " +
-            audCount +
+            fmtNum(audCount) +
             "<br>" +
             fmtBytes(mediaTotal) +
             "</div>" +
@@ -311,7 +311,7 @@ async function dashboard() {
             ? wpct.toFixed(1) + "<span style='font-size:10px'>%</span>"
             : "—";
           const sub = ops.available
-            ? ops.writes + " / " + maxWrites.toLocaleString()
+            ? fmtNum(ops.writes) + " / " + fmtNum(maxWrites)
             : escapeHtml(t("kvOpsUnavailable"));
           kvOpsCard =
             "<div class='storageCard" +
@@ -343,9 +343,9 @@ async function dashboard() {
             (ops.available
               ? escapeHtml(t("kvReadsLabel")) +
                 " " +
-                ops.reads +
+                fmtNum(ops.reads) +
                 " / " +
-                maxReads.toLocaleString() +
+                fmtNum(maxReads) +
                 "<br>"
               : "") +
             (paid
@@ -376,12 +376,15 @@ async function dashboard() {
           escapeHtml(t("articleCountTitle")) +
           "</div>" +
           "<div class='statNum'>" +
-          docCount +
+          fmtNum(docCount) +
           "</div>" +
           "<div class='storageDetail'>" +
           escapeHtml(t("collectionArticleCount")) +
           (publishedCount !== null
-            ? " · " + escapeHtml(t("publishedDocuments")) + " " + publishedCount
+            ? " · " +
+              escapeHtml(t("publishedDocuments")) +
+              " " +
+              fmtNum(publishedCount)
             : "") +
           langDocsHtml +
           "</div>" +
@@ -1290,7 +1293,7 @@ function renderArticleTable(documents: Dynamic) {
     const langExtra =
       otherCount > 0
         ? " <span class='artMeta2'>+" +
-          otherCount +
+          fmtNum(otherCount) +
           escapeHtml(t("langsSuffix")) +
           "</span>"
         : "";
@@ -1546,7 +1549,7 @@ function renderArticleTable(documents: Dynamic) {
       escapeHtml(baseLang) +
       (otherCount > 0
         ? "<br><span class='artMeta2'>+" +
-          otherCount +
+          fmtNum(otherCount) +
           " " +
           escapeHtml(t("langsSuffix")) +
           "</span>"

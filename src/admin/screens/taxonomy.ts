@@ -342,7 +342,11 @@ async function languages() {
           (total > 0
             ? "<label class='checkRow'><input type='checkbox' id='dialogPurgeData' /> <span>" +
               escapeHtml(
-                t("dataUsage") + ": " + total + " " + t("purgeDataSuffix"),
+                t("dataUsage") +
+                  ": " +
+                  fmtNum(total) +
+                  " " +
+                  t("purgeDataSuffix"),
               ) +
               "</span></label>"
             : ""),

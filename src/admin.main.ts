@@ -3781,11 +3781,11 @@ async function runBuildWithProgress(force = false) {
         appendLog(
           "skipped",
           t("buildLogLangs") +
-            ev.langs +
+            fmtNum(ev.langs) +
             t("buildLogLangsSep") +
-            ev.articles +
+            fmtNum(ev.articles) +
             t("buildLogArticlesSep") +
-            total +
+            fmtNum(total) +
             t("buildLogPagesSuffix"),
         );
       }
@@ -3793,7 +3793,7 @@ async function runBuildWithProgress(force = false) {
       if (ev.status === "built") {
         builtCount++;
         donePaths.add(ev.path);
-        byId("bpBuilt")!.textContent = String(builtCount);
+        byId("bpBuilt")!.textContent = fmtNum(builtCount);
         setSkipDisplay();
         appendLog("built", "✓ [" + ev.lang + "] " + ev.path);
       } else if (ev.status === "skipped") {
@@ -3812,7 +3812,7 @@ async function runBuildWithProgress(force = false) {
           );
       } else if (ev.status === "error") {
         errorCount++;
-        byId("bpErrors")!.textContent = String(errorCount);
+        byId("bpErrors")!.textContent = fmtNum(errorCount);
         appendLog(
           "error",
           "✕ [" + ev.lang + "] " + ev.path + " — " + (ev.reason || t("error")),
@@ -3851,14 +3851,14 @@ async function runBuildWithProgress(force = false) {
     appendLog(
       "built",
       t("buildDonePrefix") +
-        builtCount +
+        fmtNum(builtCount) +
         t("buildDoneSkipped") +
-        Math.max(0, donePaths.size - builtCount) +
+        fmtNum(Math.max(0, donePaths.size - builtCount)) +
         t("buildDoneErrors") +
-        errorCount,
+        fmtNum(errorCount),
     );
     if (sweptCount > 0)
-      appendLog("skipped", t("buildSweptPrefix") + sweptCount);
+      appendLog("skipped", t("buildSweptPrefix") + fmtNum(sweptCount));
     if (errorCount === 0 && !fatalError) {
       api("/api/v1/published", {
         method: "PUT",
@@ -4016,6 +4016,16 @@ function fmtBytes(b: Dynamic) {
   if (b < 1024 * 1024) return (b / 1024).toFixed(1) + " KB";
   if (b < 1024 * 1024 * 1024) return (b / (1024 * 1024)).toFixed(1) + " MB";
   return (b / (1024 * 1024 * 1024)).toFixed(2) + " GB";
+}
+
+/**
+ * 数量(件数・回数・行数・ページ数)の表示はすべてここを通す —— 桁区切りを画面全体で
+ * 揃える(2026-10-16。カンマのある所と無い所が混ざっていた)。区切りの形はブラウザの言語。
+ * ⚠ ID・版の番号・リビジョン番号のような「番号」には使わない(区切ると別物に見える)。
+ */
+function fmtNum(n: unknown): string {
+  const v = Number(n);
+  return Number.isFinite(v) ? v.toLocaleString() : String(n ?? "");
 }
 
 function makePieChart(

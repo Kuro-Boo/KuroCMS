@@ -493,7 +493,7 @@ async function siteManagement() {
       if (totalPages <= 1) {
         return (
           "<div class='tokenMeta' style='margin-bottom:10px'>" +
-          total +
+          fmtNum(total) +
           "</div>"
         );
       }
@@ -502,11 +502,11 @@ async function siteManagement() {
         "<div class='tokenMeta'>" +
         escapeHtml(t("templatePageInfo")) +
         " " +
-        page +
+        fmtNum(page) +
         " / " +
-        totalPages +
+        fmtNum(totalPages) +
         " (" +
-        total +
+        fmtNum(total) +
         ")</div>" +
         "<div style='display:flex;gap:6px'>" +
         "<button type='button' class='secondary small' data-tmpl-page='" +

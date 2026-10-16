@@ -124,7 +124,7 @@ function mediaScreen(
           : t("mediaInfoCountPre") +
             kindLabel +
             t("mediaInfoCountMid1") +
-            m.count +
+            fmtNum(m.count) +
             t("mediaInfoCountMid2") +
             fmtBytes(m.bytes) +
             t("mediaInfoCountEnd");
@@ -539,7 +539,7 @@ function uploadFiles(files: Dynamic, kind: Dynamic, apiPath: Dynamic) {
               t("mediaInfoCountPre") +
               kindLabel +
               t("mediaInfoCountMid1") +
-              m.count +
+              fmtNum(m.count) +
               t("mediaInfoCountMid2") +
               fmtBytes(m.bytes) +
               t("mediaInfoCountEnd");

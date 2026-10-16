@@ -786,15 +786,16 @@ async function settings() {
         total += Number(res.changed || 0);
         scanned = Number(res.scanned || 0);
         if (out)
-          out.textContent = t("cleanupStylesProgress") + " " + total + "…";
+          out.textContent =
+            t("cleanupStylesProgress") + " " + fmtNum(total) + "…";
         if (!res.more) break;
       }
       if (out)
         out.textContent =
           total > 0
             ? t("cleanupStylesDone")
-                .replace("{n}", String(total))
-                .replace("{s}", String(scanned))
+                .replace("{n}", fmtNum(total))
+                .replace("{s}", fmtNum(scanned))
             : t("cleanupStylesNothing");
       toast(t("cleanupStylesToast"), false, btn);
     } catch (error) {
@@ -824,11 +825,11 @@ async function settings() {
       if (out)
         out.textContent = Number(res.affected || 0)
           ? t("normalizeFormatPreview")
-              .replace("{a}", String(res.affected || 0))
-              .replace("{b}", String(res.bTags || 0))
-              .replace("{w}", String(res.boldSpans || 0))
-              .replace("{d}", String(res.divBlocks || 0))
-              .replace("{e}", String(res.emptyBlocks || 0)) +
+              .replace("{a}", fmtNum(res.affected || 0))
+              .replace("{b}", fmtNum(res.bTags || 0))
+              .replace("{w}", fmtNum(res.boldSpans || 0))
+              .replace("{d}", fmtNum(res.divBlocks || 0))
+              .replace("{e}", fmtNum(res.emptyBlocks || 0)) +
             // 守り（R0）で落ちるものは、見つかったときだけ出す
             (Number(res.unsafe || 0)
               ? " " +
@@ -842,8 +843,8 @@ async function settings() {
             (normalizeFormatQuery()
               ? " " +
                 t("normalizeFormatPreviewClipboard")
-                  .replace("{f}", String(res.blockDecor || 0))
-                  .replace("{n}", String(res.nestedBlocks || 0))
+                  .replace("{f}", fmtNum(res.blockDecor || 0))
+                  .replace("{n}", fmtNum(res.nestedBlocks || 0))
               : "")
           : t("normalizeFormatPreviewNone");
     } catch (error) {
@@ -874,15 +875,16 @@ async function settings() {
         total += Number(res.changed || 0);
         scanned = Number(res.scanned || 0);
         if (out)
-          out.textContent = t("normalizeFormatProgress") + " " + total + "…";
+          out.textContent =
+            t("normalizeFormatProgress") + " " + fmtNum(total) + "…";
         if (!res.more) break;
       }
       if (out)
         out.textContent =
           total > 0
             ? t("normalizeFormatDone")
-                .replace("{n}", String(total))
-                .replace("{s}", String(scanned))
+                .replace("{n}", fmtNum(total))
+                .replace("{s}", fmtNum(scanned))
             : t("normalizeFormatNothing");
       toast(t("normalizeFormatToast"), false, btn);
     } catch (error) {
@@ -921,7 +923,7 @@ async function settings() {
       if (out)
         out.textContent = shared
           ? t("dedupeRevisionsDone")
-              .replace("{n}", String(shared))
+              .replace("{n}", fmtNum(shared))
               .replace("{mb}", mb)
           : t("dedupeRevisionsNothing");
       toast(t("dedupeRevisionsToast"), false, btn);
@@ -1282,7 +1284,7 @@ async function settings() {
                 });
                 close();
                 toast(
-                  t("snsBulkDone").replace("{count}", String(res.changed ?? 0)),
+                  t("snsBulkDone").replace("{count}", fmtNum(res.changed ?? 0)),
                   false,
                 );
               } catch (err) {
@@ -1596,7 +1598,7 @@ async function settings() {
             if (status)
               status.textContent =
                 t("importConnectSuccessPre") +
-                strapiAllArticles.length +
+                fmtNum(strapiAllArticles.length) +
                 t("importCountSuffix");
             const rawFields: string[] = result.rawFields || [];
             const hint = byId("strapiRawFieldsHint");
@@ -1654,7 +1656,7 @@ async function settings() {
         }
         if (count)
           count.textContent =
-            "（" + sorted.length + t("importCountSuffix") + "）";
+            "（" + fmtNum(sorted.length) + t("importCountSuffix") + "）";
         if (!sorted.length) {
           list.innerHTML =
             "<p style='padding:16px;color:var(--muted);text-align:center'>" +
@@ -1882,7 +1884,10 @@ async function settings() {
               if (statusEl)
                 statusEl.innerHTML =
                   (total
-                    ? processed + " / " + total + t("importCountSuffix")
+                    ? fmtNum(processed) +
+                      " / " +
+                      fmtNum(total) +
+                      t("importCountSuffix")
                     : "") +
                   "<br>" +
                   counts();
