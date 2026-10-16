@@ -4,21 +4,7 @@ async function dashboard() {
   shell(
     t("dashboard"),
     "<div class='stack' style='gap:20px'>" +
-      // Top row: compact stats + version card
-      "<div class='split' style='align-items:start'>" +
-      // 記事数などは「概要」の枠に入れず、使用状況と同じ小さな枠にする。
-      // 見出し(storageCardTitle)と数字(statNum)の大きさ・色を全体で揃える。
-      "<div class='statGrid'>" +
-      "<div class='storageCard'><div class='storageCardTitle'>" +
-      escapeHtml(t("registeredDocuments")) +
-      "</div><div class='statNum' id='statDocs'>…</div></div>" +
-      "<div class='storageCard'><div class='storageCardTitle'>" +
-      escapeHtml(t("publishedDocuments")) +
-      "</div><div class='statNum' id='statPub'>…</div></div>" +
-      "<div class='storageCard'><div class='storageCardTitle'>" +
-      escapeHtml(t("mediaLabel")) +
-      "</div><div class='statNum' id='statMedia'>…</div></div>" +
-      "</div>" +
+      // 記事数・公開数・メディアは下の使用状況の枠に出す(上段は版の枠だけ)。
       // Version card
       "<div class='panel'>" +
       // flex-wrap: the panel's own width is a CSS grid track (minmax(0,1fr))
@@ -78,10 +64,6 @@ async function dashboard() {
       "<div id='versionNote' style='display:none;font-size:11px;line-height:1.5;color:var(--muted);border-top:1px solid var(--line);padding-top:8px;margin-top:2px'></div>" +
       "</div>" +
       "</div>" + // closes version .panel
-      "</div>" + // closes .split — was missing: the storage panel below was
-      // silently becoming .split's 3rd grid item (auto-flowing into row 2 of
-      // its 2-column track) instead of a normal sibling block. That's what
-      // made the layout misbehave differently at different widths.
       // Storage gauges
       "<div class='panel stack'>" +
       // 見出しの右端に「無料枠 / Paid」の切り替え。下のグラフをその上限で描き直す。
@@ -113,16 +95,14 @@ async function dashboard() {
       "</div>",
   );
 
-  // Article stats
+  // 公開記事数(下の「記事数」の枠の説明の行に出す)。
+  let publishedCount: number | null = null;
   try {
     const data = await api(
       "/api/documents?lang=" + encodeURIComponent(state.uiLang),
     );
     const docs = data.documents || [];
-    const published = docs.filter((d: Dynamic) => d.mode === 1);
-    if (byId("statDocs")) byId("statDocs")!.textContent = String(docs.length);
-    if (byId("statPub"))
-      byId("statPub")!.textContent = String(published.length);
+    publishedCount = docs.filter((d: Dynamic) => d.mode === 1).length;
   } catch (err) {
     toast(errorMessage(err), true);
   }
@@ -184,8 +164,6 @@ async function dashboard() {
     } catch {
       /* languages optional */
     }
-    if (byId("statMedia"))
-      byId("statMedia")!.textContent = String(imgCount + vidCount + audCount);
     // Cloudflare の文書の値(2026-10-16 に確認。d1/kv/r2 の pricing・d1 limits)。
     //   無料枠: D1 5 GB(口座全体)・KV 保存 1 GB・KV 書き込み 1,000/日・読み出し 10 万/日
     //   Paid  : D1 5 GB まで料金に含む・KV 保存 1 GB まで含む・KV 書き込み 100 万/月・
@@ -402,6 +380,9 @@ async function dashboard() {
           "</div>" +
           "<div class='storageDetail'>" +
           escapeHtml(t("collectionArticleCount")) +
+          (publishedCount !== null
+            ? " · " + escapeHtml(t("publishedDocuments")) + " " + publishedCount
+            : "") +
           langDocsHtml +
           "</div>" +
           "</div>" +
