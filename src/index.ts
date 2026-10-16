@@ -15,6 +15,7 @@ import {
   buildSitemapXml,
   handlePublicRoute,
   isPublicPath,
+  isSitePublished,
   resolveFaviconPath,
   runScheduledAutoBuild,
   searchEndpoint,
@@ -182,6 +183,22 @@ export default {
 
     // SEO / distribution endpoints — handled BEFORE isPublicPath (which doesn't
     // match `.xml`/`.txt`). Edge-cached only; never written to KV.
+    // An unpublished site serves no feed, sitemap, llms.txt or search either
+    // (robots.txt and the favicon stay).
+    const hiddenWhenUnpublished =
+      publicPath === "/sitemap.xml" ||
+      publicPath === "/rss.xml" ||
+      publicPath === "/llms.txt" ||
+      publicPath === "/_search" ||
+      (publicPath !== null &&
+        new RegExp("^/[a-zA-Z0-9_-]+-rss\\.xml$").test(publicPath));
+    if (
+      hiddenWhenUnpublished &&
+      !setupRequired &&
+      !(await isSitePublished(env))
+    ) {
+      return notFound();
+    }
     if (publicPath !== null && !setupRequired) {
       const xmlHeaders = {
         "Content-Type": "application/xml; charset=utf-8",

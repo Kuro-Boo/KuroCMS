@@ -11,6 +11,26 @@ export interface Env {
   PUBLIC_PAGES: KVNamespace;
   MEDIA_BUCKET?: R2Bucket;
   /**
+   * 番人(WorkerOps)の資産の受け口(名前付き entrypoint `WorkerOpsAssets`)。
+   * 公開ページを Workers Static Assets に置くとき、ビルドの終わりに一覧を渡す
+   * (assets-publish.ts)。無い導入では渡さず、今までどおり KV から返す。
+   */
+  WORKEROPS?: {
+    publish(
+      manifest: Record<string, { hash: string; size: number; type: string }>,
+      read: (
+        hashes: string[],
+      ) => Promise<Array<{ hash: string; base64: string }>>,
+    ): Promise<{
+      ok: boolean;
+      status: string;
+      error?: string;
+      versionId?: string;
+      files?: number;
+      uploaded?: number;
+    }>;
+  };
+  /**
    * メディア(R2)の保存上限(バイト)。Entamy 委託の導入にだけ受付が置く(1 導入 100 MB)。
    * 未設定ならお客様自身の Cloudflare なので上限を掛けない。
    */

@@ -66,6 +66,19 @@ import {
   zonedDateParts,
 } from "./timezone";
 import type { Env, JsonValue } from "./types";
+import {
+  langPath,
+  langScript,
+  localizeLinks,
+  looksLikeLang,
+  splitLangPath,
+} from "./lang-path";
+import {
+  assetsPending,
+  forgetPages,
+  publishAssets,
+  recordPages,
+} from "./assets-publish";
 
 // Bump when the page-rendering OUTPUT changes in a way the per-page source_hash
 // can't see (e.g. the <head> content-CSS <link>, template-model shape). The
@@ -593,10 +606,9 @@ function buildBlueskyWidget(handle: string): string {
 /**
  * Self-contained language switcher widget (expanded from the `[[lang]]` token).
  * Boxed 2-letter current code + dropdown of the site's registered languages.
- * Selecting a language reloads the same URL with `?lang=<code>` (the server then
- * renders both site text and articles in that language — see handlePublicRoute).
- * Client-side persistence: stores the choice in localStorage and rewrites
- * same-origin links to carry `?lang=` so the choice survives navigation.
+ * Selecting a language opens this page's URL for that language (/en/post/ —
+ * lang-path.ts) and remembers the choice in localStorage; every page's head
+ * script (langScript) follows the remembered choice from then on.
  * Inline styles only (must render on non-Tailwind templates); contains no `[[`/`]]`.
  */
 /**
@@ -662,6 +674,10 @@ function buildLanguageWidget(
   currentLang: string,
   availableLangs: Array<{ code: string; name: string }>,
   enabled?: Set<string>,
+  urls: { defaultLang: string; publicBase: string } = {
+    defaultLang: "",
+    publicBase: "",
+  },
 ): string {
   // Show even for a single language (user wants the active language always
   // visible). Only hide when no languages are registered at all.
@@ -698,19 +714,16 @@ function buildLanguageWidget(
 (function(){
   var root=document.getElementById("${uid}");if(!root)return;
   var btn=root.querySelector("[data-kl-toggle]"),menu=root.querySelector("[data-kl-menu]"),KEY="kurocms_lang";
-  function active(){try{var u=new URL(location.href);return u.searchParams.get("lang")||localStorage.getItem(KEY)||"";}catch(e){return"";}}
-  function go(code){try{localStorage.setItem(KEY,code);}catch(e){}try{var u=new URL(location.href);u.searchParams.set("lang",code);location.href=u.toString();}catch(e){location.search="?lang="+encodeURIComponent(code);}}
+  var D=${JSON.stringify(urls.defaultLang)},C=${JSON.stringify(currentLang)},B=${JSON.stringify(urls.publicBase)};
+  // The language is in the path (/en/post/). Remember the choice: every page's
+  // head script (langScript) follows it from now on.
+  function go(code){try{localStorage.setItem(KEY,code);}catch(e){}
+    var p=location.pathname.slice(B.length)||"/";if(C!==D&&p.indexOf("/"+C)===0)p=p.slice(C.length+1)||"/";
+    location.href=B+(code===D?"":"/"+code)+p+location.hash;}
   if(btn&&menu){
     btn.addEventListener("click",function(e){e.stopPropagation();menu.style.display=menu.style.display==="block"?"none":"block";});
     document.addEventListener("click",function(){menu.style.display="none";});
     menu.querySelectorAll("[data-kl-code]").forEach(function(b){b.addEventListener("click",function(e){e.preventDefault();go(b.getAttribute("data-kl-code"));});});
-  }
-  var lng=active();
-  if(lng){
-    var dec=function(a){try{var href=a.getAttribute&&a.getAttribute("href");if(!href||/^(#|mailto:|tel:|javascript:)/i.test(href))return;var u=new URL(href,location.href);if(u.origin!==location.origin)return;if(u.searchParams.get("lang"))return;u.searchParams.set("lang",lng);a.setAttribute("href",u.pathname+u.search+u.hash);}catch(e){}};
-    var decAll=function(){document.querySelectorAll("a[href]").forEach(dec);};
-    if(document.readyState!=="loading"){decAll();}else{document.addEventListener("DOMContentLoaded",decAll);}
-    document.addEventListener("click",function(e){var a=e.target&&e.target.closest?e.target.closest("a[href]"):null;if(a)dec(a);},true);
   }
 })();
 </script>`;
@@ -901,7 +914,7 @@ function buildSearchWidget(publicBase: string, lang: string): string {
   var EP=${JSON.stringify(base)}+"/_search",KEY="kurocms_lang",EMPTY=${JSON.stringify(noRes)};
   var input=root.querySelector(".kuro-search__input"),btn=root.querySelector("[data-ks-btn]"),panel=root.querySelector("[data-ks-panel]");
   var dialog=root.querySelector("[data-ks-dialog]"),dinput=root.querySelector(".kuro-search__dinput"),dres=root.querySelector("[data-ks-dresults]"),dclose=root.querySelector("[data-ks-close]");
-  function lang(){try{var u=new URL(location.href);return u.searchParams.get("lang")||localStorage.getItem(KEY)||"";}catch(e){return"";}}
+  function lang(){return ${JSON.stringify(lang)};}
   function isMobile(){return !!(window.matchMedia&&window.matchMedia("(max-width:640px)").matches);}
   function render(box,items){box.textContent="";if(!items||!items.length){var e=document.createElement("div");e.className="kuro-search__empty";e.textContent=EMPTY;box.appendChild(e);return;}
     items.forEach(function(r){var a=document.createElement("a");a.className="kuro-search__item";a.href=r.url;
@@ -1833,7 +1846,8 @@ export async function searchEndpoint(
   const results = (rows.results || []).map((r) => ({
     title: r.title,
     type: r.tid,
-    url: `${basePath}/${r.tid}/${r.slug}/`,
+    // The result opens in the searching page's language (/en/post/ — lang-path.ts).
+    url: `${basePath}${langPath(`/${r.tid}/${r.slug}/`, lang, settings.default_lang || "")}`,
     snippet: searchSnippet(r.body_text, q),
   }));
   return json({ results } as unknown as JsonValue, noStore);
@@ -2874,9 +2888,12 @@ export async function generatePage(
   }
   // `[[lang]]` → language switcher widget. Expand before the parser drops it.
   if (sourceHtml.includes("[[lang]]")) {
-    sourceHtml = sourceHtml
-      .split("[[lang]]")
-      .join(buildLanguageWidget(lang, availableLangs, new Set(pageLangs)));
+    sourceHtml = sourceHtml.split("[[lang]]").join(
+      buildLanguageWidget(lang, availableLangs, new Set(pageLangs), {
+        defaultLang: s.default_lang || "",
+        publicBase: s.base_path || "",
+      }),
+    );
   }
   // `[[search]]` → article-search widget (same source-token family as [[lang]]).
   if (sourceHtml.includes("[[search]]")) {
@@ -3009,7 +3026,6 @@ export async function generatePage(
             right,
             ctx.basePath,
             lang,
-            defLang,
           );
         }
       }
@@ -3024,6 +3040,16 @@ export async function generatePage(
   html = applyRtlDir(html, lang);
   html = applyCompiledTailwind(html, template, s.base_path || "");
   html = injectFontHead(s, html, lang);
+  // Links inside a non-default language page point at that language's pages
+  // (/en/post/…), whatever built them — cards, nav, article bodies.
+  html = localizeLinks(html, {
+    lang,
+    defaultLang: s.default_lang || "",
+    registered: availableLangs.map((l) => l.code),
+    publicBase: s.base_path || "",
+    origin: publicOrigin(s),
+    isPage: isPublicPath,
+  });
   html = injectSeoHead(html, s, ctx, pageLangs);
   html = injectGa4Head(html, s);
   html = await injectKuroLinksClient(html, env, adminBase, s.base_path || "");
@@ -3214,15 +3240,11 @@ function injectSeoHead(
       : "index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1";
 
   // ── Multilingual URLs ──
-  // Clean URL serves the default language (Accept-Language fallback); per-lang
-  // variants are addressed with ?lang=. canonical = this page's own variant.
+  // Clean URL serves the default language; other languages carry it in the
+  // path (/en/post/ — lang-path.ts). canonical = this page's own variant.
   const cleanUrl = origin ? `${origin}${basePath}${path}` : "";
   const langUrl = (l: string): string =>
-    !cleanUrl
-      ? ""
-      : l === defaultLang
-        ? cleanUrl
-        : `${cleanUrl}?lang=${encodeURIComponent(l)}`;
+    !cleanUrl ? "" : `${origin}${basePath}${langPath(path, l, defaultLang)}`;
   const canonical = langUrl(lang);
   // Other registered/translated languages, for og:locale:alternate + hreflang.
   const altLangs = pageLangs.filter((l) => l && l !== lang);
@@ -3319,6 +3341,18 @@ function injectSeoHead(
     }
     tags.push(
       `<link rel="alternate" hreflang="x-default" href="${seoAttr(cleanUrl)}">`,
+    );
+  }
+  // Chosen language → browser language, decided in the page (it is served from
+  // Static Assets without the Worker). Multilingual pages only.
+  if (pageLangs.length > 1) {
+    tags.push(
+      langScript({
+        defaultLang,
+        current: lang,
+        pageLangs,
+        publicBase: basePath,
+      }),
     );
   }
 
@@ -3811,15 +3845,9 @@ function pickCategoryNeighbours(
   return { left, right };
 }
 
-function relatedCardHtml(
-  a: RelatedPoolItem,
-  basePath: string,
-  lang: string,
-  defaultLang: string,
-): string {
-  const href =
-    `${basePath}/${a.tid}/${a.slug}/` +
-    (lang && lang !== defaultLang ? `?lang=${encodeURIComponent(lang)}` : "");
+function relatedCardHtml(a: RelatedPoolItem, basePath: string): string {
+  // Plain path: localizeLinks puts the page's language in front.
+  const href = `${basePath}/${a.tid}/${a.slug}/`;
   const cover = a.cover ? `${basePath}${a.cover}` : "";
   const img = cover
     ? `<img src="${seoAttr(cover)}" alt="" loading="lazy" style="width:100%;height:100%;object-fit:cover;display:block" />`
@@ -3837,12 +3865,11 @@ function buildRelatedHtml(
   right: RelatedPoolItem[],
   basePath: string,
   lang: string,
-  defaultLang: string,
 ): string {
   if (!left.length && !right.length) return "";
   const label = RELATED_LABELS[lang] || RELATED_LABELS.en;
   const cards = (arr: RelatedPoolItem[]) =>
-    arr.map((a) => relatedCardHtml(a, basePath, lang, defaultLang)).join("");
+    arr.map((a) => relatedCardHtml(a, basePath)).join("");
   const marker = `<span aria-hidden="true" style="flex:0 0 auto;align-self:center;color:rgba(128,128,128,.55);font-size:.8rem;white-space:nowrap;padding:0 .1rem">←・→</span>`;
   return (
     `<nav class="kuro-related" aria-label="${seoAttr(label)}" style="margin-top:1.75rem;padding-top:1rem;border-top:1px solid rgba(128,128,128,.2);display:flex;align-items:flex-start;gap:.5rem">` +
@@ -4066,11 +4093,13 @@ async function kvPutBundle(
   const bytes = new TextEncoder().encode(json).length;
   if (bytes <= KV_BUNDLE_MAX_BYTES) {
     await kv.put(kvKeyBundle(path), json);
-    return;
+  } else {
+    for (const [lang, html] of Object.entries(bundle)) {
+      await kv.put(kvKey(path, lang), html);
+    }
   }
-  for (const [lang, html] of Object.entries(bundle)) {
-    await kv.put(kvKey(path, lang), html);
-  }
+  // The same page, as Static Assets will serve it (assets-publish.ts).
+  await recordPages(env, normPath(path), bundle);
 }
 
 /** Read a page's HTML for `lang`, plus the langs actually present in KV. Tries
@@ -4094,6 +4123,34 @@ async function kvGetPage(
   }
   const perLang = await kv.get(kvKey(path, lang));
   return { html: perLang, kvLangs: perLang ? [lang] : [] };
+}
+
+/** Every language of a page: the bundle (one read), else the per-language keys. */
+async function kvGetAllLangs(
+  env: Env,
+  path: string,
+): Promise<Record<string, string>> {
+  const kv = requirePublicPages(env);
+  const raw = await kv.get(kvKeyBundle(path));
+  if (raw) {
+    try {
+      const b = JSON.parse(raw) as PageBundle;
+      if (b && b.langs) return b.langs;
+    } catch {
+      /* corrupt bundle — fall through to per-language */
+    }
+  }
+  const rows = await env.DB.prepare(
+    "SELECT lang FROM asset_pages WHERE path = ?",
+  )
+    .bind(path)
+    .all<{ lang: string }>();
+  const out: Record<string, string> = {};
+  for (const r of rows.results ?? []) {
+    const html = await kv.get(kvKey(path, r.lang));
+    if (html !== null) out[r.lang] = html;
+  }
+  return out;
 }
 
 // ─── Build progress events ────────────────────────────────────────────────────
@@ -4136,7 +4193,8 @@ const BUILD_BUDGET_REACHED = { budgetReached: true } as const;
 const WORKER_SUBREQUEST_LIMIT = 1000;
 const BUILD_SUBREQUEST_BUDGET = Math.floor(WORKER_SUBREQUEST_LIMIT * 0.8); // 800
 const SUBREQ_PER_LANG = 4;
-const SUBREQ_PER_BUILT_PAGE = 2;
+// KV put + build-cache row + the Static Assets index row (kvPutBundle → recordPages).
+const SUBREQ_PER_BUILT_PAGE = 3;
 
 // ─── Build cache helpers ──────────────────────────────────────────────────────
 
@@ -4191,6 +4249,53 @@ async function bumpPublishGen(env: Env): Promise<void> {
   ).catch(() => {
     /* non-fatal: the next build stamps it */
   });
+}
+
+/**
+ * Register the site's pages as Static Assets through the guardian
+ * (assets-publish.ts) — the point of a build. `request` records that a build
+ * just finished; `force` hands over regardless (the site was just unpublished
+ * and must come down). `done: false` = not registered: the build reports
+ * `more` and its next pass registers again. Never throws.
+ */
+export async function publishSiteAssets(
+  env: Env,
+  opts: { force?: boolean; request?: boolean; maxReads?: number } = {},
+): Promise<{ done: boolean; status: string; error?: string }> {
+  return publishAssets(
+    env,
+    {
+      site: async () => {
+        const settings = await fetchSettings(env);
+        const pub = await env.DB.prepare(
+          "SELECT site_is_published FROM site_settings WHERE id = 1",
+        ).first<{ site_is_published: number }>();
+        const template = await loadTemplate(env, settings.template_id);
+        let css: { path: string; body: string } | null = null;
+        if (compiledTwCovers(template)) {
+          const row = await env.DB.prepare(
+            "SELECT compiled_css FROM page_templates WHERE id = ?",
+          )
+            .bind(template.id)
+            .first<{ compiled_css: string | null }>();
+          if (row?.compiled_css) {
+            css = {
+              path: `${settings.base_path || ""}/_tw/${template.id}.${template.compiledHash}.css`,
+              body: row.compiled_css,
+            };
+          }
+        }
+        return {
+          published: pub?.site_is_published === 1,
+          defaultLang: settings.default_lang || "en",
+          publicBase: settings.base_path || "",
+          css,
+        };
+      },
+      readPage: (path) => kvGetAllLangs(env, path),
+    },
+    opts,
+  );
 }
 
 // ─── Build helpers ────────────────────────────────────────────────────────────
@@ -4309,7 +4414,7 @@ export async function buildDocumentPages(
   did: string,
   extraTids: string[] = [],
   opts: { promote?: boolean } = {},
-): Promise<void> {
+): Promise<{ done: boolean; status: string; error?: string } | void> {
   const row = await env.DB.prepare(
     `SELECT d.slug, d.tid, d.live, d.publish_at,
             GROUP_CONCAT(DISTINCT CASE
@@ -4408,6 +4513,9 @@ export async function buildDocumentPages(
   await writeNavCounts(env);
   // The pages above changed: retire every edge-cached object of this site.
   await bumpPublishGen(env);
+  // The single-document build (an explicit build) registers the Static Assets;
+  // a content refresh at save does not (only a build publishes).
+  if (opts.promote) return publishSiteAssets(env, { request: true });
 }
 
 /** Refresh the index pages after a document is REMOVED entirely (deleted): the
@@ -4472,6 +4580,7 @@ export async function deleteArticlePages(
     .bind(path)
     .run()
     .catch(() => {});
+  await forgetPages(env, [normPath(path)]);
   // The URL just stopped existing — the edge must not keep answering it.
   await bumpPublishGen(env);
 }
@@ -4535,6 +4644,19 @@ async function sweepOrphanPages(
       .run()
       .catch(() => {});
   }
+  // Orphans leave the Static Assets too (all of them, not only this pass's
+  // KV deletes: an orphan is a page that should no longer be served).
+  const assetRows = await env.DB.prepare(
+    "SELECT DISTINCT path FROM asset_pages",
+  )
+    .all<{ path: string }>()
+    .catch(() => ({ results: [] as { path: string }[] }));
+  await forgetPages(
+    env,
+    (assetRows.results ?? [])
+      .map((r) => r.path)
+      .filter((p) => !expected.has(p)),
+  );
   return deleted;
 }
 
@@ -5190,6 +5312,26 @@ export async function buildAllPublicPages(
   // on-demand routes (categories, /page/N/, sitemap, RSS, search) return.
   await bumpPublishGen(env);
 
+  // Registering the pages as Static Assets is the point of a build, so the
+  // build is not done until it is. A chunked build registers on its last pass;
+  // when the guardian cannot take it yet (another operation holds its lock, or
+  // not every page could be read in this invocation), report `more` and the
+  // next pass registers again — the same way an unfinished build resumes.
+  if (!more) {
+    // A clean last pass publishes the site. The admin screen also says so
+    // afterwards (PUT /api/v1/published), but that comes AFTER this
+    // registration — which would then read the site as unpublished and take
+    // every asset down. So the build marks it here first, on the same terms as
+    // the screen (no page errors). Not updated_at: see setSitePublished.
+    if (errors === 0) {
+      await env.DB.prepare(
+        "UPDATE site_settings SET site_is_published = 1 WHERE id = 1",
+      ).run();
+    }
+    const assets = await publishSiteAssets(env, { request: true });
+    if (!assets.done) more = true;
+  }
+
   onEvent?.({ type: "done", built, skipped, errors, more, swept });
   return {
     built,
@@ -5254,7 +5396,9 @@ export async function runScheduledAutoBuild(env: Env): Promise<void> {
        AND (unpublish_at IS NULL OR datetime(unpublish_at) > datetime('now'))
        THEN 1 ELSE 0 END)`,
   ).first<{ cnt: number }>();
-  if ((pending?.cnt ?? 0) === 0) return;
+  // A build that finished but is not yet registered as Static Assets is not
+  // finished: run it again (pages skip via the build cache; it registers).
+  if ((pending?.cnt ?? 0) === 0 && !(await assetsPending(env))) return;
 
   await buildAllPublicPages(
     env,
@@ -5434,27 +5578,31 @@ export async function buildSitemapXml(env: Env): Promise<string> {
       lastmod: g.lastmod,
     });
 
+  // Other languages carry the language in the path (/en/post/ — lang-path.ts).
   const langHref = (path: string, l: string): string =>
-    l === defaultLang
-      ? `${base}${path}`
-      : `${base}${path}?lang=${encodeURIComponent(l)}`;
+    `${base}${langPath(path, l, defaultLang)}`;
 
+  // Every language version is its own <url>, each listing all alternates.
   const urls = entries
-    .map((e) => {
-      const loc = `${base}${e.path}`;
-      const parts = [`    <loc>${xmlEscape(loc)}</loc>`];
-      if (e.lastmod)
-        parts.push(`    <lastmod>${xmlEscape(e.lastmod)}</lastmod>`);
-      if (origin && e.langs.length > 1) {
-        for (const l of e.langs)
+    .flatMap((e) => {
+      const multi = !!origin && e.langs.length > 1;
+      const versions = multi ? e.langs : [defaultLang];
+      return versions.map((v) => {
+        const loc = multi ? langHref(e.path, v) : `${base}${e.path}`;
+        const parts = [`    <loc>${xmlEscape(loc)}</loc>`];
+        if (e.lastmod)
+          parts.push(`    <lastmod>${xmlEscape(e.lastmod)}</lastmod>`);
+        if (multi) {
+          for (const l of e.langs)
+            parts.push(
+              `    <xhtml:link rel="alternate" hreflang="${xmlEscape(l)}" href="${xmlEscape(langHref(e.path, l))}"/>`,
+            );
           parts.push(
-            `    <xhtml:link rel="alternate" hreflang="${xmlEscape(l)}" href="${xmlEscape(langHref(e.path, l))}"/>`,
+            `    <xhtml:link rel="alternate" hreflang="x-default" href="${xmlEscape(`${base}${e.path}`)}"/>`,
           );
-        parts.push(
-          `    <xhtml:link rel="alternate" hreflang="x-default" href="${xmlEscape(loc)}"/>`,
-        );
-      }
-      return `  <url>\n${parts.join("\n")}\n  </url>`;
+        }
+        return `  <url>\n${parts.join("\n")}\n  </url>`;
+      });
     })
     .join("\n");
 
@@ -5599,7 +5747,7 @@ export async function buildLlmsTxt(env: Env): Promise<string> {
   if (registered.length > 1) {
     const others = registered.filter((l) => l && l !== lang);
     lines.push(
-      `- Default language: ${lang}. Also available: ${others.join(", ")} (append ?lang=CODE to any URL).`,
+      `- Default language: ${lang}. Also available: ${others.join(", ")} (put /CODE in front of any path, e.g. /${others[0]}/).`,
     );
     lines.push("");
   }
@@ -5687,34 +5835,6 @@ export async function resolveFaviconPath(env: Env): Promise<string | null> {
 
 // ─── Language detection ───────────────────────────────────────────────────────
 
-/**
- * Parse the Accept-Language header and return the best-matching language
- * from the given list. Falls back to defaultLang.
- * Strips region suffixes: "en-US" → "en", "zh-TW" → "zh".
- */
-function detectAcceptLang(
-  request: Request,
-  available: string[],
-  defaultLang: string,
-): string {
-  const header = request.headers.get("accept-language") || "";
-  if (!header) return defaultLang;
-  const parsed = header
-    .split(",")
-    .map((part) => {
-      const [tag, qStr] = part.trim().split(";q=");
-      const q = qStr ? parseFloat(qStr) : 1;
-      const lang = (tag.trim().split("-")[0] || "").toLowerCase();
-      return { lang, q: isNaN(q) ? 0 : q };
-    })
-    .filter((x) => x.lang.length >= 2)
-    .sort((a, b) => b.q - a.q);
-  for (const { lang } of parsed) {
-    if (available.includes(lang)) return lang;
-  }
-  return defaultLang;
-}
-
 /** The visitor's primary (highest-priority) Accept-Language base tag, e.g. "ja". */
 function browserPrimaryLang(request: Request): string {
   const header = request.headers.get("accept-language") || "";
@@ -5754,8 +5874,19 @@ const PUBLIC_RESERVED = new Set([
   "audios",
 ]);
 
-/** Returns true for paths that should be served as public pages. */
+/** Returns true for paths that should be served as public pages — with or
+ *  without a language in front (/en/post/a/). Whether that first segment really
+ *  is a registered language is decided in handlePublicRoute. */
 export function isPublicPath(pathname: string): boolean {
+  if (isPagePath(pathname)) return true;
+  const seg = pathname.split("/")[1] ?? "";
+  return (
+    looksLikeLang(seg) && isPagePath(pathname.slice(seg.length + 1) || "/")
+  );
+}
+
+/** A page path without a language in front. */
+function isPagePath(pathname: string): boolean {
   if (pathname === "/") return true;
   if (new RegExp("^/category/[^/]").test(pathname)) return true;
   // Month archives: /monthly/YYYY/MM/ and /:type/monthly/YYYY/MM/
@@ -5790,6 +5921,12 @@ interface SiteContext {
   settings: SettingsMap;
   registeredLangs: string[];
   template: StoredTemplate;
+  /**
+   * site_settings.site_is_published — the serving kill-switch ("1 のとき公開
+   * ページを訪問者に表示", cms-cms-settings). Unset in snapshots written before
+   * this field existed: read as published (keep serving rather than go dark).
+   */
+  published?: boolean;
 }
 
 /**
@@ -5853,26 +5990,60 @@ async function loadSiteContext(env: Env): Promise<SiteContext> {
       .filter(Boolean);
     if (!registeredLangs.includes(siteLang)) registeredLangs.unshift(siteLang);
     const template = await loadTemplate(env, settings.template_id);
-    return { settings, registeredLangs, template };
+    const pub = await env.DB.prepare(
+      "SELECT site_is_published FROM site_settings WHERE id = 1",
+    ).first<{ site_is_published: number }>();
+    return {
+      settings,
+      registeredLangs,
+      template,
+      published: pub?.site_is_published === 1,
+    };
   });
 }
 
+/** Is the public site switched on? Unpublished: no public page, feed or search. */
+export async function isSitePublished(env: Env): Promise<boolean> {
+  return (await loadSiteContext(env)).published !== false;
+}
+
 export async function handlePublicRoute(
-  pathname: string,
+  publicPath: string,
   request: Request,
   env: Env,
 ): Promise<Response | null> {
+  let pathname = publicPath;
   const url = new URL(request.url);
 
   const ctx = await loadSiteContext(env);
+  // The kill-switch. It was written but never read here, so an unpublished
+  // site kept being generated on demand once its KV pages were gone.
+  if (ctx.published === false) return null;
   const settings = ctx.settings;
   const siteLang = settings.default_lang || "en";
   const registeredLangs = ctx.registeredLangs;
 
-  // ?lang= overrides; otherwise use Accept-Language header matching
-  const lang =
-    url.searchParams.get("lang") ||
-    detectAcceptLang(request, registeredLangs, siteLang);
+  // The language is in the path (/en/post/), not ?lang= — Static Assets match
+  // on the path only (lang-path.ts). The browser-language / chosen-language
+  // decision is made by the page's own script (langScript), the same for pages
+  // served from assets and from here, so Accept-Language is not consulted.
+  const split = splitLangPath(pathname, registeredLangs, siteLang);
+  // The public root this request came under (e.g. "/blog"), to build URLs back.
+  const rootPrefix = url.pathname.endsWith(pathname)
+    ? url.pathname.slice(0, url.pathname.length - pathname.length)
+    : "";
+  // An old ?lang= link: move it to the path form for good.
+  const queryLang = url.searchParams.get("lang");
+  if (queryLang !== null) {
+    const to = new URL(request.url);
+    to.searchParams.delete("lang");
+    if (!split.lang && registeredLangs.includes(queryLang)) {
+      to.pathname = rootPrefix + langPath(split.path, queryLang, siteLang);
+    }
+    return Response.redirect(to.toString(), 301);
+  }
+  const lang = split.lang ?? siteLang;
+  pathname = split.path;
 
   // Fixed-page aliases are permanent redirects. Resolve these before the edge
   // cache and page KV so a previously-built article bundle can never mask a
@@ -5951,7 +6122,7 @@ export async function handlePublicRoute(
       const fallback = pickFallbackLang(request, kvLangs, siteLang);
       if (fallback && fallback !== lang) {
         const to = new URL(request.url);
-        to.searchParams.set("lang", fallback);
+        to.pathname = rootPrefix + langPath(pathname, fallback, siteLang);
         return Response.redirect(to.toString(), 302);
       }
     }

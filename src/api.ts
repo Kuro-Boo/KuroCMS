@@ -33,10 +33,12 @@ import {
   findTwCdnUrl,
   generatePage,
   getBuildMode,
+  publishSiteAssets,
   rebuildIndexPages,
   setBuildMode,
   type BuildMode,
 } from "./public";
+import { forgetPages } from "./assets-publish";
 import { cacheVersion, makeId, nowIso, randomToken, sha256Hex } from "./crypto";
 import {
   mergeBlocks,
@@ -1329,7 +1331,24 @@ async function handleApiDispatch(
       //   ok:true を返していた（他の /api/documents/:id/... は全て did/slug 両対応
       //   で、/api/help にもそう書いてある）。存在しない id は 404 で弾く。
       const buildDid = await resolveDid(env, buildDocMatch[1]);
-      await buildDocumentPages(env, buildDid, [], { promote: true });
+      const assets = await buildDocumentPages(env, buildDid, [], {
+        promote: true,
+      });
+      // The build is not done until its pages are registered as Static Assets
+      // (the point of a build). Say so, so the caller builds again.
+      if (assets && !assets.done) {
+        return json(
+          {
+            ok: false,
+            did: buildDid,
+            error: {
+              code: "assets_not_registered",
+              message: `The pages were built but not yet registered as static assets (${assets.error ?? assets.status}). Build again.`,
+            },
+          },
+          { status: 503, headers: jsonHeaders },
+        );
+      }
       return json({ ok: true, did: buildDid }, { headers: jsonHeaders });
     }
 
@@ -3273,6 +3292,10 @@ async function replaceProfileMailBindings(
     compatibility_date: state.compatibilityDate,
     compatibility_flags: state.compatibilityFlags,
     bindings,
+    // Keep the site's Static Assets: a script upload without this drops every
+    // asset and the whole public site falls back to the Worker (tried on a
+    // test Worker 2026-10-16). Accepted by a Worker with no assets too.
+    keep_assets: true,
   };
   const form = new FormData();
   form.append(
@@ -3579,6 +3602,10 @@ async function enableR2Storage(env: Env): Promise<Response> {
     compatibility_date: settingsBody.result.compatibility_date ?? "2024-11-01",
     compatibility_flags: settingsBody.result.compatibility_flags ?? [],
     bindings,
+    // Keep the site's Static Assets: a script upload without this drops every
+    // asset and the whole public site falls back to the Worker (tried on a
+    // test Worker 2026-10-16). Accepted by a Worker with no assets too.
+    keep_assets: true,
   };
   const form = new FormData();
   form.append(
@@ -4705,6 +4732,10 @@ async function systemUpdate(
     main_module: "worker.js",
     compatibility_date: compatDate,
     bindings: allBindings,
+    // Keep the site's Static Assets: a script upload without this drops every
+    // asset and the whole public site falls back to the Worker (tried on a
+    // test Worker 2026-10-16). Accepted by a Worker with no assets too.
+    keep_assets: true,
   };
   // Use FormData (same as bootstrap deployer) — avoids manual CRLF boundary encoding issues
   const form = new FormData();
@@ -6848,6 +6879,21 @@ async function types(
     const body = await readJson(request);
     const inputTid = optionalString(body, "tid");
     const tid = inputTid ? requireSlug(inputTid, "tid") : await nextTypeId(env);
+    // The type id is the first segment of its pages' paths, and so is a
+    // language (/en/post/ — lang-path.ts): a type named like a registered
+    // language would be read as that language.
+    const langClash = await env.DB.prepare(
+      "SELECT 1 AS hit FROM taxonomy_items WHERE kind = 'language' AND id = ?",
+    )
+      .bind(tid)
+      .first<{ hit: number }>();
+    if (langClash) {
+      throw new HttpError(
+        409,
+        "tid_reserved",
+        `"${tid}" is a registered language code and cannot be a type id.`,
+      );
+    }
     const name = requireString(body, "name", { min: 1, max: 120 });
     const slug = requireSlug(
       requireString(body, "slug", { min: 1, max: 120 }),
@@ -7087,6 +7133,20 @@ async function languages(
     const body = await readJson(request);
     const lang = requireString(body, "lang", { min: 2, max: 20 }).toLowerCase();
     validateLanguage(lang, "lang");
+    // A language is the first segment of its pages' paths (/en/post/), and so
+    // is a type id: the same name for both would make one of them unreachable.
+    const typeClash = await env.DB.prepare(
+      "SELECT 1 AS hit FROM taxonomy_items WHERE kind = 'type' AND id = ?",
+    )
+      .bind(lang)
+      .first<{ hit: number }>();
+    if (typeClash) {
+      throw new HttpError(
+        409,
+        "lang_reserved",
+        `"${lang}" is already a type id and cannot be a language code.`,
+      );
+    }
     const displayName = optionalString(body, "displayName") ?? "";
     const now = nowIso();
     await env.DB.prepare(
@@ -9456,7 +9516,17 @@ async function siteUnpublish(env: Env, user: AuthUser): Promise<Response> {
   )
     .bind(nowIso())
     .run();
-  return json({ ok: true, siteIsPublished: false });
+  // The pages are also Static Assets, served without this Worker: take them
+  // down now (an empty list), not at the next minute. If the guardian cannot
+  // be reached, say so — the site would otherwise stay visible.
+  await forgetPages(env, null);
+  const assets = await publishSiteAssets(env, { force: true });
+  const assetsDown = assets.done;
+  return json({
+    ok: true,
+    siteIsPublished: false,
+    ...(assetsDown ? {} : { assetsError: assets.error ?? assets.status }),
+  });
 }
 
 function parseTags(raw: string | null | undefined): string[] {
@@ -11254,6 +11324,8 @@ async function restoreWipeDb(env: Env): Promise<Response> {
   await env.DB.prepare("DELETE FROM page_build_cache")
     .run()
     .catch(() => {});
+  // So is the Static Assets index (rebuilt with the pages).
+  await forgetPages(env, null);
   return json({ ok: true });
 }
 
@@ -11313,6 +11385,8 @@ async function restoreWipePages(env: Env, url: URL): Promise<Response> {
     if (deleted >= RESTORE_KV_WIPE_PAGE) break;
   }
   const done = index >= PAGE_KV_PREFIXES.length;
+  // The pages are gone from KV, so they leave the Static Assets index too.
+  if (done) await forgetPages(env, null);
   return json({
     ok: true,
     done,
