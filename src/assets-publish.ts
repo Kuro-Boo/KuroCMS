@@ -82,6 +82,22 @@ export async function recordPages(
   path: string,
   bundle: Record<string, string>,
 ): Promise<void> {
+  await env.DB.batch(await pageRecordStatements(env, path, bundle)).catch(
+    () => {},
+  );
+}
+
+/**
+ * recordPages の文だけを作る(実行しない)。全体ビルドは、もともとページごとに
+ * 1 往復あるビルドの記録(page_build_cache)と同じ batch で送る —— D1 への往復は
+ * 1 回ごとに D1 のある地域まで行くので、別の往復にすると全ページにその待ちが乗る
+ * (2026-10-16 に測った: 1 ページあたり 100〜150ms 遅くなっていた)。
+ */
+export async function pageRecordStatements(
+  env: Env,
+  path: string,
+  bundle: Record<string, string>,
+): Promise<D1PreparedStatement[]> {
   const now = new Date().toISOString();
   const langs = Object.keys(bundle);
   const stmts: D1PreparedStatement[] = [
@@ -99,7 +115,7 @@ export async function recordPages(
       ).bind(path, lang, hash, new TextEncoder().encode(html).length, now),
     );
   }
-  await env.DB.batch(stmts).catch(() => {});
+  return stmts;
 }
 
 /** ページを消したとき(パスを渡す)・全部消したとき(null)。 */
@@ -180,6 +196,27 @@ export async function buildManifest(
   return { files, inline, pages };
 }
 
+/** 一覧の指紋(パスとハッシュの組を並べた SHA-256)。前回登録した一覧と同じかを見る。 */
+export async function manifestFingerprint(
+  files: Record<string, ManifestFile>,
+): Promise<string> {
+  const lines = Object.keys(files)
+    .sort()
+    .map((p) => `${p} ${files[p]!.hash} ${files[p]!.type}`)
+    .join("\n");
+  return assetHash(lines);
+}
+
+function lastFingerprint(result: string): string | null {
+  try {
+    return (
+      (JSON.parse(result || "{}") as { manifest?: string }).manifest ?? null
+    );
+  } catch {
+    return null;
+  }
+}
+
 /** 終わったのに番人へ渡せていないビルドがあるか(予定公開の自動ビルドが見る)。 */
 export async function assetsPending(env: Env): Promise<boolean> {
   if (!env.WORKEROPS) return false;
@@ -215,13 +252,13 @@ export async function publishAssets(
     if (!env.WORKEROPS) return { done: true, status: "no_binding" };
     const at = new Date(opts.now ?? Date.now()).toISOString();
     let st = await env.DB.prepare(
-      "SELECT requested_at, published_for FROM asset_publish WHERE id = 1",
-    ).first<{ requested_at: string; published_for: string }>();
+      "SELECT requested_at, published_for, result FROM asset_publish WHERE id = 1",
+    ).first<{ requested_at: string; published_for: string; result: string }>();
     if (!st) {
       await env.DB.prepare(
         "INSERT OR IGNORE INTO asset_publish (id) VALUES (1)",
       ).run();
-      st = { requested_at: "", published_for: "" };
+      st = { requested_at: "", published_for: "", result: "" };
     }
     if (opts.request) {
       // A mark unique to this build (not just its time): two builds in the same
@@ -239,6 +276,18 @@ export async function publishAssets(
       return { done: true, status: "current" };
 
     const manifest = await buildManifest(env, await deps.site());
+    // Nothing changed since the last registration (a rebuild with the same
+    // output): don't make a version that is the same as the one serving. It
+    // took ~5 s per build and added a version each time (measured 2026-10-16).
+    const fingerprint = await manifestFingerprint(manifest.files);
+    if (!opts.force && lastFingerprint(st.result) === fingerprint) {
+      await env.DB.prepare(
+        "UPDATE asset_publish SET published_for = ? WHERE id = 1",
+      )
+        .bind(requested)
+        .run();
+      return { done: true, status: "unchanged" };
+    }
     // One KV read per page (a bundle holds every language): remember them.
     const bundles = new Map<string, Promise<Record<string, string>>>();
     let reads = 0;
@@ -276,6 +325,8 @@ export async function publishAssets(
       files: res.files,
       uploaded: res.uploaded,
       error: res.error,
+      // Only a registered list is remembered: a failed one must be sent again.
+      ...(res.ok ? { manifest: fingerprint } : {}),
     }).slice(0, 500);
     if (res.ok) {
       await env.DB.prepare(

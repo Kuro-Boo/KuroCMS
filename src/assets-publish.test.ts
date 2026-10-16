@@ -175,6 +175,12 @@ function harness(
   eq("頼まれたファイルを全部返す(ページと CSS)", env.got[0]!.length, 4);
   eq("ページは 1 つにつき 1 回だけ読む(全言語入りのバンドル)", reads(), 2);
   eq("渡し終えたら、残りは無い", await assetsPending(env), false);
+  eq(
+    "一覧が前回と同じビルドは番人を呼ばずに済ませる(同じ版を出さない)",
+    [(await publishAssets(env, deps, { request: true })).status, env.calls],
+    ["unchanged", 1],
+  );
+  await recordPages(env, "/news/a", { ja: "<p>中身が変わった</p>" });
   await recordPages(env, "/news/a", { ja: "<p>保存で作り直した</p>" });
   eq(
     "渡したあとは、KV が作り直されても次のビルドまで渡さない",

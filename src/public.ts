@@ -77,6 +77,7 @@ import {
 import {
   assetsPending,
   forgetPages,
+  pageRecordStatements,
   publishAssets,
   recordPages,
 } from "./assets-publish";
@@ -4089,6 +4090,8 @@ async function kvPutBundle(
   env: Env,
   path: string,
   bundle: Record<string, string>,
+  /** Given: the Static Assets index rows are added here for the caller to send with its own write (no extra D1 round trip). */
+  deferred?: D1PreparedStatement[],
 ): Promise<void> {
   const kv = requirePublicPages(env);
   const payload: PageBundle = { v: 1, langs: bundle };
@@ -4102,7 +4105,9 @@ async function kvPutBundle(
     }
   }
   // The same page, as Static Assets will serve it (assets-publish.ts).
-  await recordPages(env, normPath(path), bundle);
+  if (deferred)
+    deferred.push(...(await pageRecordStatements(env, normPath(path), bundle)));
+  else await recordPages(env, normPath(path), bundle);
 }
 
 /** Read a page's HTML for `lang`, plus the langs actually present in KV. Tries
@@ -4196,8 +4201,8 @@ const BUILD_BUDGET_REACHED = { budgetReached: true } as const;
 const WORKER_SUBREQUEST_LIMIT = 1000;
 const BUILD_SUBREQUEST_BUDGET = Math.floor(WORKER_SUBREQUEST_LIMIT * 0.8); // 800
 const SUBREQ_PER_LANG = 4;
-// KV put + build-cache row + the Static Assets index row (kvPutBundle → recordPages).
-const SUBREQ_PER_BUILT_PAGE = 3;
+// KV put + one D1 batch (build-cache row and the Static Assets index rows together).
+const SUBREQ_PER_BUILT_PAGE = 2;
 
 // ─── Build cache helpers ──────────────────────────────────────────────────────
 
@@ -4221,14 +4226,21 @@ async function saveBuildCache(
   lang: string,
   hash: string,
 ): Promise<void> {
+  await buildCacheStatement(env, path, lang, hash).run();
+}
+
+function buildCacheStatement(
+  env: Env,
+  path: string,
+  lang: string,
+  hash: string,
+): D1PreparedStatement {
   const now = new Date().toISOString();
-  await env.DB.prepare(
+  return env.DB.prepare(
     `INSERT INTO page_build_cache (path, lang, source_hash, built_at)
      VALUES (?, ?, ?, ?)
      ON CONFLICT(path, lang) DO UPDATE SET source_hash=excluded.source_hash, built_at=excluded.built_at`,
-  )
-    .bind(path, lang, hash, now)
-    .run();
+  ).bind(path, lang, hash, now);
 }
 
 // ─── Publish generation ───────────────────────────────────────────────────────
@@ -5067,8 +5079,18 @@ export async function buildAllPublicPages(
       }
       const keys = Object.keys(bundle);
       if (keys.length) {
-        await kvPutBundle(env, path, bundle); // 1 write per page
-        await saveBuildCache(env, path, "*", combined);
+        const indexRows: D1PreparedStatement[] = [];
+        await kvPutBundle(env, path, bundle, indexRows); // 1 write per page
+        // The build-cache row and the Static Assets index rows in ONE round
+        // trip. If the index table is not there yet (just before its
+        // migration), keep the build-cache row alone: the page is then rebuilt
+        // by the next build (not in the index), so nothing is lost.
+        const cacheRow = buildCacheStatement(env, path, "*", combined);
+        try {
+          await env.DB.batch([cacheRow, ...indexRows]);
+        } catch {
+          await cacheRow.run();
+        }
         cache.set(cacheKey, combined);
         subreqEstimate += SUBREQ_PER_BUILT_PAGE;
         built++;
