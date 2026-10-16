@@ -2,6 +2,7 @@
 // 言語をパスに入れる形(/en/post/)と、全ページの <head> に置く言語の判断。
 import { runInNewContext } from "node:vm";
 import {
+  legacyLangPath,
   splitLangPath,
   langPath,
   localizeLinks,
@@ -44,6 +45,26 @@ eq("登録の無いものはタイプ名", splitLangPath("/de/post/", langs, "ja
 eq("言語を付ける", langPath("/post/a/", "en", "ja"), "/en/post/a/");
 eq("既定の言語は付けない", langPath("/post/a/", "ja", "ja"), "/post/a/");
 
+eq(
+  "古い ?lang=: 既定の言語のページから",
+  legacyLangPath("/post/a/", "en", langs, "ja"),
+  "/en/post/a/",
+);
+eq(
+  "古い ?lang=: 言語の付いたページからでも ?lang= の言語へ(/ko/?lang=pt → /pt/)",
+  legacyLangPath("/en/post/a/", "fr", langs, "ja"),
+  "/fr/post/a/",
+);
+eq(
+  "古い ?lang=: 既定の言語へ戻す",
+  legacyLangPath("/en/", "ja", langs, "ja"),
+  "/",
+);
+eq(
+  "古い ?lang=: 登録の無い言語は外すだけ",
+  legacyLangPath("/en/post/a/", "xx", langs, "ja"),
+  "/en/post/a/",
+);
 const isPage = (p: string) =>
   !p.startsWith("/kurocms") && !p.startsWith("/images") && !p.includes(".");
 const loc = (

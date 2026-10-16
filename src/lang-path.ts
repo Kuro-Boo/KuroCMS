@@ -46,6 +46,27 @@ export function splitLangPath(
   return { lang: null, path };
 }
 
+/**
+ * 古い `?lang=xx` の付いた公開パスを、パスの形の URL にする。`?lang=` の言語が
+ * 登録されていればそれが勝つ —— パスに既に言語が入っていても(`/ko/?lang=pt` → `/pt/`)。
+ * 古いページの言語選択は「今の URL に ?lang= を付ける」作りなので、そこで今の言語を
+ * 残すと、一度選んだ言語から二度と動けなくなる(2026-10-16 に kuro.boo で起きた)。
+ * 登録の無い言語なら、`?lang=` を外しただけのパス。
+ */
+export function legacyLangPath(
+  path: string,
+  queryLang: string,
+  registered: string[],
+  defaultLang: string,
+): string {
+  if (!registered.includes(queryLang)) return path;
+  return langPath(
+    splitLangPath(path, registered, defaultLang).path,
+    queryLang,
+    defaultLang,
+  );
+}
+
 /** ページのパスに言語を付ける(既定の言語はそのまま)。 */
 export function langPath(
   path: string,
