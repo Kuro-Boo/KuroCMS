@@ -28,6 +28,8 @@ export interface Env {
       versionId?: string;
       files?: number;
       uploaded?: number;
+      /** partial: files still to send (the next build pass sends them). */
+      remaining?: number;
     }>;
   };
   /**

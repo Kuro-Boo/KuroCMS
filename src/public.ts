@@ -76,6 +76,7 @@ import {
   splitLangPath,
 } from "./lang-path";
 import {
+  type AssetsProgress,
   assetsPending,
   forgetPages,
   pageRecordStatements,
@@ -4190,6 +4191,8 @@ export type BuildEvent =
       more?: boolean;
       /** Orphan page keys removed by the post-build sweep (final pass only). */
       swept?: number;
+      /** Static Assets registration on the last pass (absent on other passes). */
+      assets?: AssetsProgress;
     };
 
 // Thrown by the build loop when the per-invocation build budget is reached, so
@@ -4284,7 +4287,7 @@ async function bumpPublishGen(env: Env): Promise<void> {
 export async function publishSiteAssets(
   env: Env,
   opts: { force?: boolean; request?: boolean; maxReads?: number } = {},
-): Promise<{ done: boolean; status: string; error?: string }> {
+): Promise<AssetsProgress> {
   return publishAssets(
     env,
     {
@@ -5361,6 +5364,7 @@ export async function buildAllPublicPages(
   // when the guardian cannot take it yet (another operation holds its lock, or
   // not every page could be read in this invocation), report `more` and the
   // next pass registers again — the same way an unfinished build resumes.
+  let assets: AssetsProgress | undefined;
   if (!more) {
     // A clean last pass publishes the site. The admin screen also says so
     // afterwards (PUT /api/v1/published), but that comes AFTER this
@@ -5372,11 +5376,11 @@ export async function buildAllPublicPages(
         "UPDATE site_settings SET site_is_published = 1 WHERE id = 1",
       ).run();
     }
-    const assets = await publishSiteAssets(env, { request: true });
+    assets = await publishSiteAssets(env, { request: true });
     if (!assets.done) more = true;
   }
 
-  onEvent?.({ type: "done", built, skipped, errors, more, swept });
+  onEvent?.({ type: "done", built, skipped, errors, more, swept, assets });
   return {
     built,
     skipped,

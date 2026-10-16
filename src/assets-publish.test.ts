@@ -170,6 +170,8 @@ function harness(
     {
       done: true,
       status: "published",
+      uploaded: 0,
+      remaining: 0,
     },
   );
   eq("頼まれたファイルを全部返す(ページと CSS)", env.got[0]!.length, 4);
@@ -215,7 +217,13 @@ function harness(
   eq(
     "番人が受けられなければ、登録は済んでいない(ビルドは続きありで返す)",
     await publishAssets(env, deps, { request: true }),
-    { done: false, status: "busy", error: "update_in_progress" },
+    {
+      done: false,
+      status: "busy",
+      error: "update_in_progress",
+      uploaded: 0,
+      remaining: null,
+    },
   );
   eq(
     "済んでいないビルドが残る(予定公開の自動ビルドが見る)",
@@ -228,6 +236,28 @@ function harness(
     "busy",
   );
   eq("2 回とも番人に聞いた", env.calls, 2);
+}
+{
+  const { env, deps } = harness({
+    result: {
+      ok: false,
+      status: "partial",
+      error: "uploaded 3, 2 file(s) still to send",
+      uploaded: 3,
+      remaining: 2,
+    } as never,
+  });
+  eq(
+    "途中(partial)は件数を返し、登録は済んでいない(管理画面は上げた件数で進んだと見る)",
+    await publishAssets(env, deps, { request: true }),
+    {
+      done: false,
+      status: "partial",
+      error: "uploaded 3, 2 file(s) still to send",
+      uploaded: 3,
+      remaining: 2,
+    },
+  );
 }
 {
   const { env, deps } = harness();

@@ -1082,6 +1082,11 @@ const i18n = {
     buildErrorsLabel: "Errors",
     close: "Close",
     buildDone: "Done",
+    buildIncomplete: "Not finished",
+    buildIncompleteDetail:
+      "The build stopped before finishing (pages or their static assets registration). Run the build again — it continues from where it stopped.",
+    buildAssetsLine:
+      "Static assets: uploaded {uploaded}, remaining {remaining} ({status})",
     buildCancel: "Cancel",
     buildCancelled: "Build cancelled",
     buildPassRetry:
@@ -2135,6 +2140,10 @@ const i18n = {
     buildErrorsLabel: "エラー",
     close: "閉じる",
     buildDone: "完了",
+    buildIncomplete: "未完了",
+    buildIncompleteDetail:
+      "ビルドが最後まで終わる前に止まりました(ページ、または静的資産の登録)。もう一度ビルドすると、続きから進みます。",
+    buildAssetsLine: "静的資産: 上げた {uploaded}・残り {remaining}({status})",
     buildCancel: "中止",
     buildCancelled: "ビルドを中止しました",
     buildPassRetry:
@@ -3748,6 +3757,18 @@ async function runBuildWithProgress(force = false) {
     moreToCome = false,
     fatalError = false,
     sweptCount = 0;
+  // Static Assets registration reported by the last pass (null = not reached).
+  // A pass that only registers builds no page, so this — not the page count —
+  // tells whether it moved forward.
+  let lastAssets: {
+    done: boolean;
+    status: string;
+    uploaded?: number;
+    remaining?: number | null;
+  } | null = null;
+  // Read through a function: the value is set inside handleEvent, which the
+  // compiler cannot see from the loop below.
+  const currentAssets = () => lastAssets;
   const donePaths = new Set<string>();
 
   function updateCounts() {
@@ -3826,6 +3847,19 @@ async function runBuildWithProgress(force = false) {
       moreToCome = !!ev.more;
       // Orphan pages removed by the final pass's mark-and-sweep.
       if (ev.swept) sweptCount += ev.swept;
+      lastAssets = ev.assets || null;
+      if (lastAssets && lastAssets.status !== "unchanged") {
+        appendLog(
+          lastAssets.done ? "built" : "skipped",
+          t("buildAssetsLine")
+            .replace("{uploaded}", fmtNum(lastAssets.uploaded || 0))
+            .replace(
+              "{remaining}",
+              lastAssets.remaining == null ? "—" : fmtNum(lastAssets.remaining),
+            )
+            .replace("{status}", String(lastAssets.status)),
+        );
+      }
     } else if (ev.type === "error") {
       fatalError = true;
       appendLog(
@@ -3870,6 +3904,15 @@ async function runBuildWithProgress(force = false) {
     // ビルドが documents.live を実体化した直後。一覧のビルド状態バッジは古い
     // ままなので取り直す（編集中は他の再読込と同じ約束で yank しない）。
     if (activeListReload && !hasUnsavedArticleEdits()) activeListReload();
+    showCloseButton();
+  }
+
+  // Stopped while the server still said "more" (no progress, or the pass cap):
+  // never call it done — the pages or their Static Assets registration are not
+  // finished. Not marked published either.
+  function finalizeIncomplete() {
+    byId("bpPhase")!.textContent = t("buildIncomplete");
+    appendLog("error", t("buildIncompleteDetail"));
     showCloseButton();
   }
 
@@ -3966,9 +4009,19 @@ async function runBuildWithProgress(force = false) {
       }
       passRetries = 0; // 成功したら再試行カウンタを戻す
       // Guard: if a pass claims "more" but made no progress, stop to avoid a loop.
-      if (moreToCome && donePaths.size === prevDone) break;
+      // Progress = new pages, OR static assets uploaded on this pass. A guardian
+      // busy with another operation is waited for (a few seconds) — it frees up.
+      if (moreToCome && donePaths.size === prevDone) {
+        const a = currentAssets();
+        if (a && a.status === "busy") {
+          await new Promise(function (r) {
+            setTimeout(r, 5000);
+          });
+        } else if (!(a && (a.uploaded || 0) > 0)) break;
+      }
     } while (moreToCome && !fatalError && !cancelled && passIndex < MAX_PASSES);
     if (cancelled) finalizeCancelled();
+    else if (moreToCome && !fatalError) finalizeIncomplete();
     else finalizeBuild();
   } catch (err) {
     appendLog("error", t("error") + ": " + errorMessage(err));

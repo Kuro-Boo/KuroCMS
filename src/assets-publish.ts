@@ -217,6 +217,19 @@ function lastFingerprint(result: string): string | null {
   }
 }
 
+/**
+ * 登録の進み具合。ビルドの回の終わりの知らせ(done)に載せ、管理画面が「進んだか」
+ * を判断する —— 登録だけを進める回は新しいページを作らないので、ページの数では
+ * 進みが見えない。remaining: 残りのファイル数(分からなければ null)。
+ */
+export interface AssetsProgress {
+  done: boolean;
+  status: string;
+  error?: string;
+  uploaded?: number;
+  remaining?: number | null;
+}
+
 /** 終わったのに番人へ渡せていないビルドがあるか(予定公開の自動ビルドが見る)。 */
 export async function assetsPending(env: Env): Promise<boolean> {
   if (!env.WORKEROPS) return false;
@@ -247,7 +260,7 @@ export async function publishAssets(
     now?: number;
     maxReads?: number;
   } = {},
-): Promise<{ done: boolean; status: string; error?: string }> {
+): Promise<AssetsProgress> {
   try {
     if (!env.WORKEROPS) return { done: true, status: "no_binding" };
     const at = new Date(opts.now ?? Date.now()).toISOString();
@@ -339,7 +352,13 @@ export async function publishAssets(
         .bind(result)
         .run();
     }
-    return { done: res.ok, status: res.status, error: res.error };
+    return {
+      done: res.ok,
+      status: res.status,
+      error: res.error,
+      uploaded: res.uploaded ?? 0,
+      remaining: res.ok ? 0 : (res.remaining ?? null),
+    };
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e);
     await env.DB.prepare("UPDATE asset_publish SET result = ? WHERE id = 1")
