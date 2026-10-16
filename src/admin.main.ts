@@ -1115,6 +1115,9 @@ const i18n = {
     storageManagedUsage: "Usage (hosted by Entamy)",
     storagePaidUsage: "CF Paid Usage (included in the plan)",
     planFree: "Free",
+    cfAccountLabel: "Cloudflare account: ",
+    cfAccountManaged: "Cloudflare account for hosted (managed) users",
+    cfAccountUnknown: "could not be checked",
     planPaid: "Paid",
     storagePlanHint:
       "Draw the gauges against the Free limits or the Workers Paid included amounts",
@@ -2164,6 +2167,9 @@ const i18n = {
     storageManagedUsage: "使用状況（Entamy 委託）",
     storagePaidUsage: "CF Paid 使用状況（料金に含まれる分）",
     planFree: "無料枠",
+    cfAccountLabel: "Cloudflare アカウント: ",
+    cfAccountManaged: "委託利用者用の Cloudflare アカウント",
+    cfAccountUnknown: "確認できません",
     planPaid: "Paid",
     storagePlanHint:
       "グラフを無料枠の上限で描くか、Workers Paid の料金に含まれる量で描くかを切り替えます",

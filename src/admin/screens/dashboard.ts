@@ -117,6 +117,8 @@ async function dashboard() {
       "</span>" +
       "</div>" +
       "</div>" +
+      // この CMS が動いている Cloudflare の口座(委託は名前を出さない)。
+      "<div id='cfAccountLine' style='font-size:12px;color:var(--muted);margin-top:-4px'></div>" +
       "<div class='storageGrid' id='storageGrid'><div class='muted' style='font-size:12px'>" +
       escapeHtml(t("loading")) +
       "</div></div>" +
@@ -141,6 +143,17 @@ async function dashboard() {
   // Storage stats
   try {
     const s = await api("/api/system/storage");
+    const accountLine = byId("cfAccountLine");
+    if (accountLine) {
+      const acc = s.cfAccount as
+        | { managed: boolean; name: string | null }
+        | undefined;
+      accountLine.textContent =
+        t("cfAccountLabel") +
+        (acc?.managed
+          ? t("cfAccountManaged")
+          : acc?.name || t("cfAccountUnknown"));
+    }
     // どのプランの上限でグラフを描くか。閲覧者ごとの好み(localStorage)。
     // 既定は、委託(Entamy の Cloudflare は Paid)なら Paid、それ以外は無料枠。
     const PLAN_KEY = "kurocms_storage_plan";

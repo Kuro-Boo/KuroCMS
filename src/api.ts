@@ -2835,6 +2835,48 @@ async function fetchKvOpsToday(env: Env): Promise<{
   }
 }
 
+/**
+ * この CMS が動いている Cloudflare の口座の名前(ダッシュボードに出す)。
+ *
+ * app が持つ運用トークン(CF_API_TOKEN)で GET /accounts/{id} を読む。この口は
+ * "Workers Scripts Write / Read" でも受け付ける(Cloudflare の文書で確認・2026-10-16)
+ * ので、権限を足す必要は無い。名前はめったに変わらないので isolate の中に 1 時間
+ * 覚えておく(KV には書かない —— 無料枠の書き込みを使わない)。読めなければ null。
+ * 委託の導入では呼ばない(口座は Entamy のホスティング用。名前を利用者に出さない)。
+ */
+let cfAccountNameCache: { at: number; id: string; name: string | null } | null =
+  null;
+async function cfAccountName(env: Env): Promise<string | null> {
+  const id = env.CF_ACCOUNT_ID ?? "";
+  const token = env.CF_API_TOKEN ?? "";
+  if (!id || !token) return null;
+  if (
+    cfAccountNameCache &&
+    cfAccountNameCache.id === id &&
+    Date.now() - cfAccountNameCache.at < 60 * 60 * 1000
+  )
+    return cfAccountNameCache.name;
+  let name: string | null = null;
+  try {
+    const res = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(id)}`,
+      {
+        headers: { Authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(5_000),
+      },
+    );
+    const body = (await res.json().catch(() => null)) as {
+      success?: boolean;
+      result?: { name?: string };
+    } | null;
+    if (res.ok && body?.success && body.result?.name) name = body.result.name;
+  } catch {
+    /* unreachable: shown as "could not check" */
+  }
+  cfAccountNameCache = { at: Date.now(), id, name };
+  return name;
+}
+
 async function systemStorage(env: Env): Promise<Response> {
   // D1 size — estimate from total row/blob sizes across main tables
   const d1SizeRow = await env.DB.prepare(
@@ -2921,8 +2963,14 @@ async function systemStorage(env: Env): Promise<Response> {
     }
   }
 
+  const managed = r2Quota !== null;
   return json({
     r2Available,
+    // 委託は「委託利用者用の Cloudflare アカウント」とだけ出す(名前は返さない)。
+    cfAccount: {
+      managed,
+      name: managed ? null : await cfAccountName(env),
+    },
     d1: {
       usedBytes: d1Bytes,
       maxBytes: FREE_D1_BYTES,
