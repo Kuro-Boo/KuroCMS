@@ -10,8 +10,6 @@ Report privately through GitHub's **Private Vulnerability Reporting**:
 2. Click **Report a vulnerability**.
 3. Describe the issue and how to reproduce it.
 
-<!-- TODO: 公開前に確認 — メール窓口を併記する場合はここに記載（例: security@kuro.boo） -->
-
 When reporting, please include where possible:
 
 - The affected version (see the [Releases](https://github.com/Kuro-Boo/KuroCMS/releases) page).

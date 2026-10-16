@@ -10125,7 +10125,9 @@ async function siteTemplateActivate(
            VALUES (?, 'template', ?, ?, 1, ?, ?)
            ON CONFLICT(id, kind, lang) DO NOTHING`,
         )
-          .bind(ck.key, lang, ck.defaultValue, now, now)
+          // 既定値はテンプレート作者が書く（Community のテンプレートは他人）。
+          // サイト文字として公開ページへ出るので、保存と同じ守りを掛ける。
+          .bind(ck.key, lang, sanitizeContentHtml(ck.defaultValue), now, now)
           .run();
       }
     }
@@ -10974,7 +10976,10 @@ async function siteContentTranslations(
     // empty value is allowed (min: 0) so a content block can be intentionally
     // cleared/left blank. is_system is preserved: ON CONFLICT updates only the
     // value/timestamp, so a system key stays flagged.
-    const name = requireString(body, "name", { min: 0 });
+    // 本文の守り（R0）を記事と同じに掛ける。サイト文字も公開ページへそのまま
+    // 出る HTML なので、Admin の鍵を持つ AI・MCP（update_site_text）からの値でも
+    // 読者のブラウザでスクリプトを動かさない。平文は変えない。
+    const name = sanitizeContentHtml(requireString(body, "name", { min: 0 }));
     const now = nowIso();
     await env.DB.prepare(
       `INSERT INTO taxonomy_items (id, kind, lang, name, is_system, created_at, updated_at)

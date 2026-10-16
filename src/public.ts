@@ -1408,6 +1408,13 @@ async function fetchTemplateContent(
   for (const r of rows.results ?? []) {
     if (r.lang === lang && r.name) result[r.id] = r.name;
   }
+  // 本文の守り（R0）。サイト文字は `[[html:content.*]]` などで公開ページへ
+  // そのまま出るので、記事本文と同じく出口でも掛ける —— 守りより前に保存した値や
+  // 復元で入った値も動かさない。CMS が足す `_` 始まりの計算値はこの後で足すので、
+  // ここでは通らない（svg のアイコン等を消さない）。
+  for (const key of Object.keys(result)) {
+    result[key] = sanitizeContentHtml(result[key]!);
+  }
   return result;
 }
 
