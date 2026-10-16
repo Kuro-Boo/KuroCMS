@@ -95,7 +95,7 @@ async function dashboard() {
       "</div>",
   );
 
-  // 公開記事数(下の「記事数」の枠の説明の行に出す)。
+  // 公開記事数(使用状況の「公開数 / 記事数」の枠に出す)。
   let publishedCount: number | null = null;
   try {
     const data = await api(
@@ -373,19 +373,16 @@ async function dashboard() {
           ) +
           kvOpsCard +
           "<div class='storageCard'><div class='storageCardTitle'>" +
-          escapeHtml(t("articleCountTitle")) +
+          escapeHtml(t("publishedOfTotalTitle")) +
           "</div>" +
+          // 公開数 / 記事数(例 235/236)。公開数が読めなければ「—」。
           "<div class='statNum'>" +
+          (publishedCount !== null ? fmtNum(publishedCount) : "—") +
+          "/" +
           fmtNum(docCount) +
           "</div>" +
           "<div class='storageDetail'>" +
           escapeHtml(t("collectionArticleCount")) +
-          (publishedCount !== null
-            ? " · " +
-              escapeHtml(t("publishedDocuments")) +
-              " " +
-              fmtNum(publishedCount)
-            : "") +
           langDocsHtml +
           "</div>" +
           "</div>" +
