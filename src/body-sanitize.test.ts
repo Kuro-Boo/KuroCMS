@@ -1,7 +1,8 @@
 // 契約テスト (node で直接実行: `node src/body-sanitize.test.ts`)。
 //
-// 記事本文の守り（R0 = KuroEditor の sanitizeContentHtml）。書き込み側（保存・PUT の
-// マージ後・保守の掃除）と出す側（公開ページ・公開の読み取り API）の両方で通す。
+// 記事本文とサイト文字の守り（R0 = KuroEditor の sanitizeContentHtml）。書き込み側
+// （保存・PUT のマージ後・保守の掃除・サイト文字の保存・テンプレートの既定値）と
+// 出す側（公開ページ・公開の読み取り API・サイト文字の読み出し）の両方で通す。
 //
 // ① エディタが書く正規の本文は【1 文字も変えない】 —— 守りが本文を書き換えると、
 //    後でエディタで開いたときに形が化ける（＝トラブルの元）。
@@ -67,6 +68,23 @@ for (const [name, html] of canonical) {
   check(name, out === html, out === html ? "" : `→ ${out}`);
 }
 
+console.log(
+  "①' サイト文字の平文は変えない（サイト名・広告や計測の ID・参照・JSON）",
+);
+for (const v of [
+  "My Site",
+  "AT&T <3 a < b > c",
+  "ca-pub-1234567890, 1234567890",
+  "G-ABC123XYZ",
+  "[[mid-12]]",
+  '{"a":"<b>"}',
+  "&amp; &lt;b&gt;",
+  "<h2>この記事はいかがでしたか？</h2>",
+]) {
+  const out = sanitizeContentHtml(v);
+  check(JSON.stringify(v), out === v, `→ ${out}`);
+}
+
 console.log("② 危ないものは落ちる（CMS の経路で使う形）");
 for (const [name, html] of [
   ["script", "<p>a</p><script>alert(1)</script>"],
@@ -117,6 +135,25 @@ check(
   "保守: コピー由来の掃除の書き戻しも守りを通す",
   /const cleaned = sanitizeContentHtml\(\s*normalizePlainLinks\(/.test(api),
 );
+
+check(
+  "サイト文字の保存（PUT /api/v1/content/:id/translations/:lang・MCP も同じ口）",
+  /const name = sanitizeContentHtml\(\s*requireString\(body, "name"/.test(api),
+);
+check(
+  "テンプレートを有効にしたときの既定値（Community は他人が作る）",
+  /\.bind\(ck\.key, lang, sanitizeContentHtml\(ck\.defaultValue\)/.test(api),
+);
+{
+  // 出口: fetchTemplateContent の返す前に、すべての値へ掛ける。
+  const fn =
+    /async function fetchTemplateContent\([\s\S]*?\n}\n/.exec(pub)?.[0] ?? "";
+  check(
+    "公開ページ: サイト文字の読み出し（fetchTemplateContent）で全部の値に掛ける",
+    /result\[key\] = sanitizeContentHtml\(result\[key\]/.test(fn) &&
+      fn.lastIndexOf("sanitizeContentHtml") < fn.lastIndexOf("return result"),
+  );
+}
 
 if (failures) {
   console.error(`\n${failures} 件失敗`);
