@@ -3,8 +3,36 @@
 async function dashboard() {
   shell(
     t("dashboard"),
-    "<div class='stack' style='gap:20px'>" +
-      // 記事数・公開数・メディアは下の使用状況の枠に出す(上段は版の枠だけ)。
+    // 左に使用状況(縦長)、右に更新(版)の枠。狭い画面では縦に積む(.dashGrid)。
+    "<div class='dashGrid'>" +
+      // Storage gauges
+      "<div class='panel stack'>" +
+      // 見出しの右端に「無料枠 / Paid」の切り替え。下のグラフをその上限で描き直す。
+      "<div style='display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap'>" +
+      "<h3 id='storageHeading' style='margin:0'>" +
+      escapeHtml(t("storageFreeUsage")) +
+      "</h3>" +
+      "<div style='display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600;color:var(--muted)'>" +
+      "<span id='storagePlanFree'>" +
+      escapeHtml(t("planFree")) +
+      "</span>" +
+      "<label class='toggleSwitch' title='" +
+      escapeHtml(t("storagePlanHint")) +
+      "'>" +
+      "<input type='checkbox' id='storagePlanToggle' />" +
+      "<span class='toggleSlider'></span>" +
+      "</label>" +
+      "<span id='storagePlanPaid'>" +
+      escapeHtml(t("planPaid")) +
+      "</span>" +
+      "</div>" +
+      "</div>" +
+      // この CMS が動いている Cloudflare の口座(委託は名前を出さない)。
+      "<div id='cfAccountLine' style='font-size:12px;color:var(--muted);margin-top:-4px'></div>" +
+      "<div class='storageGrid' id='storageGrid'><div class='muted' style='font-size:12px'>" +
+      escapeHtml(t("loading")) +
+      "</div></div>" +
+      "</div>" +
       // Version card
       "<div class='panel'>" +
       // flex-wrap: the panel's own width is a CSS grid track (minmax(0,1fr))
@@ -64,34 +92,6 @@ async function dashboard() {
       "<div id='versionNote' style='display:none;font-size:11px;line-height:1.5;color:var(--muted);border-top:1px solid var(--line);padding-top:8px;margin-top:2px'></div>" +
       "</div>" +
       "</div>" + // closes version .panel
-      // Storage gauges
-      "<div class='panel stack'>" +
-      // 見出しの右端に「無料枠 / Paid」の切り替え。下のグラフをその上限で描き直す。
-      "<div style='display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap'>" +
-      "<h3 id='storageHeading' style='margin:0'>" +
-      escapeHtml(t("storageFreeUsage")) +
-      "</h3>" +
-      "<div style='display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600;color:var(--muted)'>" +
-      "<span id='storagePlanFree'>" +
-      escapeHtml(t("planFree")) +
-      "</span>" +
-      "<label class='toggleSwitch' title='" +
-      escapeHtml(t("storagePlanHint")) +
-      "'>" +
-      "<input type='checkbox' id='storagePlanToggle' />" +
-      "<span class='toggleSlider'></span>" +
-      "</label>" +
-      "<span id='storagePlanPaid'>" +
-      escapeHtml(t("planPaid")) +
-      "</span>" +
-      "</div>" +
-      "</div>" +
-      // この CMS が動いている Cloudflare の口座(委託は名前を出さない)。
-      "<div id='cfAccountLine' style='font-size:12px;color:var(--muted);margin-top:-4px'></div>" +
-      "<div class='storageGrid' id='storageGrid'><div class='muted' style='font-size:12px'>" +
-      escapeHtml(t("loading")) +
-      "</div></div>" +
-      "</div>" +
       "</div>",
   );
 
