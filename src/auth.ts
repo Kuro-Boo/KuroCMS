@@ -1,5 +1,6 @@
 import { makeId, nowIso, randomToken, sha256Hex } from "./crypto";
 import { HttpError } from "./http";
+import { enforceNetwork } from "./ip-gate.ts";
 import type { AuthUser, Env } from "./types";
 
 async function nextUserId(env: Env): Promise<string> {
@@ -231,11 +232,18 @@ export async function tryAuth(
   env: Env,
   request: Request,
 ): Promise<AuthUser | null> {
+  // 接続元の登録(IP 制限)。名乗れた要求だけを、その人の登録した回線か確かめる(ip-gate.ts)。
   const patUser = await tryPatUser(env, request);
-  if (patUser) return patUser;
+  if (patUser) {
+    await enforceNetwork(env, request, patUser);
+    return patUser;
+  }
 
   const sessionUser = await trySessionUser(env, request);
-  if (sessionUser) return sessionUser;
+  if (sessionUser) {
+    await enforceNetwork(env, request, sessionUser);
+    return sessionUser;
+  }
 
   return null;
 }
