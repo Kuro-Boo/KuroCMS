@@ -843,7 +843,12 @@ function setupGuardianPanel() {
         await load();
         btn.disabled = false;
         if (last && !last.hasUpdate) {
-          if (last.available && last.checkOk) toast(t("alreadyLatest"));
+          // 古い番人は「最新」ではない。上げられる版がまだ無いだけ。
+          if (last.available && last.checkOk && last.legacy)
+            toast(
+              t("guardianTargetTooOld").replace("{min}", "v" + last.minTarget),
+            );
+          else if (last.available && last.checkOk) toast(t("alreadyLatest"));
           else if (last.available) toast(t("guardianCheckFailed"), true);
           btn.textContent = t("checkForUpdate");
         }
