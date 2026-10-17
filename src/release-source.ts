@@ -12,6 +12,7 @@
  * —— 配布基盤が侵されても、確かめの通らないバイト列は入れない。
  *
  * 版に入っているもの: worker.js・migrations-manifest.json・管理画面のアセット(admin-app.*.js など)。
+ * 番人(WorkerOps)の版も同じ鍵・同じ確かめ方で取る(product = "workerops"・guardian-update.ts)。
  */
 import type { Env } from "./types";
 
@@ -144,11 +145,13 @@ async function getJson(path: string): Promise<unknown> {
 /** チャンネルの指す版(X.Y.Z)。 */
 export async function updateChannelVersion(
   channel: "stable" | "dev",
+  product: string = UPDATE_PRODUCT,
 ): Promise<string> {
-  const p = (await getJson(
-    `/v1/dist/${UPDATE_PRODUCT}/channels/${channel}.json`,
-  )) as { product_id?: string; version?: string };
-  if (p.product_id !== UPDATE_PRODUCT || !VERSION_RE.test(p.version ?? ""))
+  const p = (await getJson(`/v1/dist/${product}/channels/${channel}.json`)) as {
+    product_id?: string;
+    version?: string;
+  };
+  if (p.product_id !== product || !VERSION_RE.test(p.version ?? ""))
     throw new ReleaseError("bad_pointer", "channel pointer is invalid");
   return p.version!;
 }
@@ -156,15 +159,16 @@ export async function updateChannelVersion(
 /** 版の manifest。**署名を確かめてから**返す。 */
 export async function fetchUpdateManifest(
   version: string,
+  product: string = UPDATE_PRODUCT,
 ): Promise<UpdateManifest> {
   if (!VERSION_RE.test(version))
     throw new ReleaseError("bad_version", "version is invalid");
   const m = (await getJson(
-    `/v1/dist/${UPDATE_PRODUCT}/${version}/manifest.json`,
+    `/v1/dist/${product}/${version}/manifest.json`,
   )) as UpdateManifest;
   if (
     !m ||
-    m.product !== UPDATE_PRODUCT ||
+    m.product !== product ||
     m.version !== version ||
     !Array.isArray(m.artifacts)
   ) {
@@ -216,7 +220,7 @@ export async function fetchUpdateArtifact(
       `${name} is not in release ${manifest.version}`,
     );
   const r = await fetch(
-    `${UPDATE_ORIGIN}/v1/dist/${UPDATE_PRODUCT}/blobs/${a.sha256}`,
+    `${UPDATE_ORIGIN}/v1/dist/${manifest.product}/blobs/${a.sha256}`,
     { signal: AbortSignal.timeout(30_000) },
   );
   if (!r.ok || !r.body)

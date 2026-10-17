@@ -31,6 +31,19 @@ export interface Env {
       /** partial: files still to send (the next build pass sends them). */
       remaining?: number;
     }>;
+    /**
+     * app が番人を更新するための受け口(WorkerOps 0.1.23〜・guardian-update.ts)。
+     * それより古い番人には無く、呼ぶと例外になる。
+     */
+    status?(): Promise<{
+      service: string;
+      version: string;
+      state: string;
+      selfUpdate: boolean;
+      locked: boolean;
+    }>;
+    hold?(ttlMs?: number): Promise<{ ok: boolean; reason?: string }>;
+    release?(): Promise<void>;
   };
   /**
    * メディア(R2)の保存上限(バイト)。Entamy 委託の導入にだけ受付が置く(1 導入 100 MB)。

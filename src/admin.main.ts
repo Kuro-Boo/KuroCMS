@@ -1116,6 +1116,28 @@ const i18n = {
     updating: "Updating…",
     updateSuccessReload: "Updated. Please reload.",
     updateConfirm: "Update KuroCMS to the latest version?",
+    guardianAutoHint:
+      "ON (default): each time KuroCMS itself is updated, KuroCMS checks WorkerOps (the recovery guardian) and installs the newest version of the chosen channel. KuroCMS verifies the new WorkerOps and rolls it back if it does not answer.",
+    guardianAutoOffConfirm:
+      "Turn automatic WorkerOps updates off? New versions will be installed only when you press Update Now.",
+    guardianChannelHint:
+      "ON: targets the latest WorkerOps release (every release). OFF: targets the stable release only (promoted by the maintainer).",
+    guardianUpdateConfirm:
+      "Update WorkerOps (the recovery guardian)? KuroCMS verifies the new version and rolls it back if it does not answer. This takes up to about a minute.",
+    guardianNoBinding:
+      "This installation is not connected to WorkerOps, so it cannot be updated from here.",
+    guardianCredsMissing:
+      "The Cloudflare credentials for updates are not set, so WorkerOps cannot be updated from here.",
+    guardianLegacy:
+      "This WorkerOps is too old to report its version. Updating it once makes the version visible.",
+    guardianCheckFailed:
+      "Could not check the WorkerOps versions. This does NOT mean it is up to date.",
+    guardianResultUpdated: "Updated WorkerOps {from} → {to} ({when}).",
+    guardianResultRolledBack:
+      "WorkerOps {to} did not answer, so it was rolled back to the previous version ({when}). Reason: {error}",
+    guardianResultFailed:
+      "The WorkerOps update failed ({when}). Reason: {error}",
+    guardianBusy: "WorkerOps is busy updating KuroCMS. Try again in a minute.",
     storageFreeUsage: "CF Free Tier Usage",
     storageManagedUsage: "Usage (hosted by Entamy)",
     storagePaidUsage: "CF Paid Usage (included in the plan)",
@@ -2173,6 +2195,30 @@ const i18n = {
     updating: "更新中…",
     updateSuccessReload: "更新しました。ページをリロードしてください。",
     updateConfirm: "KuroCMS を最新バージョンに更新しますか？",
+    guardianAutoHint:
+      "ON（既定）: KuroCMS 自身が更新されるたびに、KuroCMS が WorkerOps（復旧の番人）を確かめ、選んだ版の新しいものを入れます。入れた後に新しい WorkerOps が応答しなければ、KuroCMS が元の版に戻します。",
+    guardianAutoOffConfirm:
+      "WorkerOps の自動更新を切にします。新しい版は「今すぐ更新」を押したときだけ入ります。続けますか？",
+    guardianChannelHint:
+      "ON: WorkerOps の最新版（リリースのたび）を対象にします。OFF: 安定版（管理者が昇格したリリース）のみを対象にします。",
+    guardianUpdateConfirm:
+      "WorkerOps（復旧の番人）を更新しますか？ 新しい版が応答しなければ元の版に戻します。1 分ほどかかります。",
+    guardianNoBinding:
+      "この導入は WorkerOps と繋がっていないため、ここからは更新できません。",
+    guardianCredsMissing:
+      "更新用の Cloudflare の資格情報が設定されていないため、ここからは WorkerOps を更新できません。",
+    guardianLegacy:
+      "この WorkerOps は古く、版を名乗れません。一度更新すると版が表示されるようになります。",
+    guardianCheckFailed:
+      "WorkerOps の版を確認できませんでした。「最新です」という意味ではありません。",
+    guardianResultUpdated:
+      "WorkerOps を {from} → {to} に更新しました（{when}）。",
+    guardianResultRolledBack:
+      "WorkerOps {to} が応答しなかったため、元の版に戻しました（{when}）。理由: {error}",
+    guardianResultFailed:
+      "WorkerOps の更新に失敗しました（{when}）。理由: {error}",
+    guardianBusy:
+      "WorkerOps が KuroCMS を更新している最中です。1 分ほどおいてもう一度お試しください。",
     storageFreeUsage: "CF 無料枠使用状況",
     storageManagedUsage: "使用状況（Entamy 委託）",
     storagePaidUsage: "CF Paid 使用状況（料金に含まれる分）",

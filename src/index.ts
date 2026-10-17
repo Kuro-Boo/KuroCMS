@@ -4,6 +4,8 @@ import { serveFont } from "./fonts";
 import { handleApi, unfurlEndpoint } from "./api";
 import { reportInstall } from "./entamy";
 import { entamyPort } from "./entamy-port";
+import { guardianAutoTick } from "./guardian-update";
+import { guardianDeps } from "./guardian-deps";
 import { runScheduledThreadsTokenRefresh } from "./threads-token";
 import { html, notFound, notFoundPage } from "./http";
 import { reactionEndpoint } from "./reactions";
@@ -44,6 +46,13 @@ export default {
     // UTC 00:17 and only calls Meta after 30 days. Its D1 claim also absorbs
     // duplicate Cron deliveries.
     ctx.waitUntil(runScheduledThreadsTokenRefresh(env, event.scheduledTime));
+    // 番人(WorkerOps)の更新は app が行う(cms-workerops)。app の版が変わったのを見つけたら、
+    // 自動更新が入なら番人を上げる。版が同じ間は KV を 1 回読むだけ。
+    ctx.waitUntil(
+      guardianAutoTick(env, guardianDeps(env)).catch((err) => {
+        console.error("guardian auto-update failed:", err);
+      }),
+    );
     // 導入の報告。**cron に乗せる** —— 利用者の操作に相乗りさせると、
     // 画面の応答が外部サービスの調子に引きずられる。中で1日1回に絞っている。
     // refresh token は呼ぶたびに回転するため、同じ cron で並列に使わない。

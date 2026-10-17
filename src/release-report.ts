@@ -45,3 +45,33 @@ export async function reportRelease(
     /* 報告が通らないことは、報告したかった事実より軽い */
   }
 }
+
+/**
+ * 番人(WorkerOps)を app が上げた結果(cms-workerops「番人の更新は app が行う」・guardian-update.ts)。
+ *
+ *   guardian_update_ok           上げて、新しい版が名乗った(記録 —— 不具合ではない)
+ *   guardian_update_rolled_back  新しい版が名乗らなかったので、前の版へ戻した
+ *   guardian_update_failed       上げる前に止まった(取り先・署名・設定の読み出し・上げ)
+ *   guardian_rollback_failed     戻せなかった(番人が新しい版のまま。管理画面にも出す)
+ *
+ * detail は符号と版だけ(from・to・reason)。
+ */
+export async function reportGuardian(
+  env: Env,
+  code:
+    | "guardian_update_ok"
+    | "guardian_update_rolled_back"
+    | "guardian_update_failed"
+    | "guardian_rollback_failed",
+  detail: Record<string, string>,
+): Promise<void> {
+  try {
+    const { defects } = await entamyPort(env);
+    await defects.report(code, {
+      detail: { ...detail, source: "update" },
+      record: code === "guardian_update_ok",
+    });
+  } catch {
+    /* 報告が通らないことは、報告したかった事実より軽い */
+  }
+}

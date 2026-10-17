@@ -1,5 +1,54 @@
 // KuroCMS admin screen module. Concatenated by scripts/build-admin.js.
 
+/**
+ * WorkerOps(復旧の番人)の更新枠。KuroCMS の枠と同じ形(導入・安定・最新・2 つの切り替え・ボタン)。
+ * 番人の更新は app が行う(cms-workerops・guardian-update.ts)。
+ */
+function guardianPanelHtml(): string {
+  const row = (label: string, id: string, initial: string) =>
+    "<div class='versionRow'><span class='versionLabel'>" +
+    escapeHtml(label) +
+    "</span><span class='versionVal' id='" +
+    id +
+    "'>" +
+    escapeHtml(initial) +
+    "</span></div>";
+  const toggle = (label: string, hint: string, id: string) =>
+    "<div class='versionRow'><span class='versionLabel'>" +
+    escapeHtml(label) +
+    "</span><label class='toggleSwitch' title='" +
+    escapeHtml(hint) +
+    "'><input type='checkbox' id='" +
+    id +
+    "' /><span class='toggleSlider'></span></label></div>";
+  return (
+    "<div class='panel' id='guardianPanel'>" +
+    "<div style='display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px'>" +
+    "<span style='font-weight:700;font-size:14px'>WorkerOps</span>" +
+    "<div class='updateBtnWrap' style='width:auto;flex-shrink:0'>" +
+    "<button id='btnGuardianUpdate' style='font-size:12px;padding:5px 12px'>" +
+    escapeHtml(t("checkForUpdate")) +
+    "</button>" +
+    "<span class='updateBadge' id='guardianBadge' style='display:none'></span>" +
+    "</div>" +
+    "</div>" +
+    "<div id='guardianBody' style='border-top:1px solid var(--line);padding-top:10px;display:flex;flex-direction:column;gap:6px'>" +
+    row(t("installedVersionLabel"), "guardianCurrent", "v—") +
+    row(t("stableVersionLabel"), "guardianStable", "v—") +
+    row(t("latestVersionLabel"), "guardianLatest", t("checking")) +
+    "<div style='margin-top:2px'></div>" +
+    toggle(
+      t("updateChannelLabel"),
+      t("guardianChannelHint"),
+      "guardianChannelToggle",
+    ) +
+    toggle(t("autoUpdateLabel"), t("guardianAutoHint"), "guardianAutoToggle") +
+    "<div id='guardianNote' style='display:none;font-size:11px;line-height:1.5;color:var(--muted);border-top:1px solid var(--line);padding-top:8px;margin-top:2px'></div>" +
+    "</div>" +
+    "</div>"
+  );
+}
+
 async function dashboard() {
   shell(
     t("dashboard"),
@@ -33,6 +82,8 @@ async function dashboard() {
       escapeHtml(t("loading")) +
       "</div></div>" +
       "</div>" +
+      // 右の列: KuroCMS の更新枠と、その下に対になる WorkerOps の更新枠(cms-workerops)。
+      "<div class='stack'>" +
       // Version card
       "<div class='panel'>" +
       // flex-wrap: the panel's own width is a CSS grid track (minmax(0,1fr))
@@ -92,6 +143,8 @@ async function dashboard() {
       "<div id='versionNote' style='display:none;font-size:11px;line-height:1.5;color:var(--muted);border-top:1px solid var(--line);padding-top:8px;margin-top:2px'></div>" +
       "</div>" +
       "</div>" + // closes version .panel
+      guardianPanelHtml() +
+      "</div>" + // closes .stack
       "</div>",
   );
 
@@ -650,6 +703,171 @@ async function dashboard() {
         btnUpdate.disabled = false;
         btnUpdate.textContent = t("updateNow");
       }
+    });
+  }
+
+  setupGuardianPanel();
+}
+
+/** WorkerOps の枠の動き。KuroCMS の枠と同じく「確認 → 今すぐ更新」の 2 段で押させる。 */
+function setupGuardianPanel() {
+  let last: Dynamic | null = null;
+  const show = (val: Dynamic) => (val ? "v" + val : "v—");
+  const fill = (template: string, r: Dynamic) =>
+    template
+      .replace("{from}", r.from ? "v" + r.from : "v—")
+      .replace("{to}", r.to ? "v" + r.to : "v—")
+      .replace("{error}", String(r.error ?? ""))
+      .replace("{when}", r.at ? new Date(String(r.at)).toLocaleString() : "");
+
+  function apply(g: Dynamic) {
+    last = g;
+    const btn = byId("btnGuardianUpdate") as HTMLButtonElement | null;
+    const note = byId("guardianNote");
+    const lines: string[] = [];
+    if (!g.available) {
+      if (btn) btn.style.display = "none";
+      lines.push(
+        g.reason === "no_binding"
+          ? t("guardianNoBinding")
+          : t("guardianCredsMissing"),
+      );
+    } else {
+      const cur = byId("guardianCurrent");
+      const stab = byId("guardianStable");
+      const lat = byId("guardianLatest");
+      if (cur) cur.textContent = show(g.current);
+      if (stab) {
+        stab.textContent = show(g.stable);
+        stab.className =
+          "versionVal" +
+          (g.channel === "stable" && g.hasUpdate ? " has-update" : "");
+      }
+      if (lat) {
+        lat.textContent = show(g.latest);
+        lat.className =
+          "versionVal" +
+          (g.channel === "latest" && g.hasUpdate ? " has-update" : "");
+      }
+      const badge = byId("guardianBadge");
+      if (badge) badge.style.display = g.hasUpdate ? "" : "none";
+      if (btn)
+        btn.textContent = g.hasUpdate ? t("updateNow") : t("checkForUpdate");
+      if (g.legacy) lines.push(t("guardianLegacy"));
+      if (!g.checkOk) lines.push(t("guardianCheckFailed"));
+    }
+    const ch = byId("guardianChannelToggle") as HTMLInputElement | null;
+    if (ch) {
+      ch.checked = g.channel === "latest";
+      ch.disabled = !g.available;
+    }
+    const auto = byId("guardianAutoToggle") as HTMLInputElement | null;
+    if (auto) {
+      auto.checked = g.autoUpdate !== false;
+      auto.disabled = !g.available;
+    }
+    // 最後の結果(上げた・戻した・失敗)を 1 行。黙って失敗させない。
+    const r = g.last;
+    if (r && r.outcome === "updated")
+      lines.push(fill(t("guardianResultUpdated"), r));
+    else if (r && r.outcome === "rolled_back")
+      lines.push(fill(t("guardianResultRolledBack"), r));
+    else if (r && r.outcome === "failed")
+      lines.push(fill(t("guardianResultFailed"), r));
+    if (note) {
+      note.style.display = lines.length ? "" : "none";
+      note.textContent = lines.join(" ");
+    }
+  }
+
+  async function load() {
+    try {
+      apply(await api("/api/system/guardian"));
+    } catch {
+      /* 枠は「確認中」のまま。KuroCMS の枠と同じく、ここでは騒がない */
+    }
+  }
+  load();
+
+  const ch = byId("guardianChannelToggle") as HTMLInputElement | null;
+  if (ch) {
+    ch.addEventListener("change", async () => {
+      ch.disabled = true;
+      try {
+        await api("/api/system/guardian/channel", {
+          method: "PUT",
+          body: JSON.stringify({ channel: ch.checked ? "latest" : "stable" }),
+        });
+        await load();
+      } catch (err) {
+        ch.checked = !ch.checked;
+        toast(errorMessage(err), true);
+      }
+      ch.disabled = false;
+    });
+  }
+
+  const auto = byId("guardianAutoToggle") as HTMLInputElement | null;
+  if (auto) {
+    auto.addEventListener("change", async () => {
+      const enabled = auto.checked;
+      if (!enabled && !confirm(t("guardianAutoOffConfirm"))) {
+        auto.checked = true;
+        return;
+      }
+      auto.disabled = true;
+      try {
+        await api("/api/system/guardian/auto-update", {
+          method: "PUT",
+          body: JSON.stringify({ enabled }),
+        });
+      } catch (err) {
+        auto.checked = !enabled;
+        toast(errorMessage(err), true);
+      }
+      auto.disabled = false;
+    });
+  }
+
+  const btn = byId("btnGuardianUpdate") as HTMLButtonElement | null;
+  if (btn) {
+    btn.addEventListener("click", async () => {
+      if (!last?.hasUpdate) {
+        btn.disabled = true;
+        btn.textContent = t("checking");
+        await load();
+        btn.disabled = false;
+        if (last && !last.hasUpdate) {
+          if (last.available && last.checkOk) toast(t("alreadyLatest"));
+          else if (last.available) toast(t("guardianCheckFailed"), true);
+          btn.textContent = t("checkForUpdate");
+        }
+        return;
+      }
+      if (!confirm(t("guardianUpdateConfirm"))) return;
+      btn.disabled = true;
+      btn.textContent = t("updating");
+      try {
+        const r = await api("/api/system/guardian/update", { method: "POST" });
+        if (r.outcome === "busy") toast(t("guardianBusy"), true);
+        else if (r.outcome === "updated")
+          toast(fill(t("guardianResultUpdated"), r));
+        else if (r.outcome === "up_to_date") toast(t("alreadyLatest"));
+        else
+          toast(
+            fill(
+              r.outcome === "rolled_back"
+                ? t("guardianResultRolledBack")
+                : t("guardianResultFailed"),
+              r,
+            ),
+            true,
+          );
+      } catch (err) {
+        toast(errorMessage(err), true, btn);
+      }
+      btn.disabled = false;
+      await load();
     });
   }
 }

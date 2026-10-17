@@ -25,6 +25,14 @@ import {
 } from "./release-source";
 import { reportRelease } from "./release-report";
 import {
+  getGuardianAuto,
+  guardianInfo,
+  guardianUpdate,
+  setGuardianAuto,
+  setGuardianChannel,
+} from "./guardian-update";
+import { guardianDeps } from "./guardian-deps";
+import {
   buildDocumentPages,
   buildAllPublicPages,
   cheapHash,
@@ -615,6 +623,62 @@ async function handleApiDispatch(
       }
       await env.PUBLIC_PAGES.put(AUTO_UPDATE_KEY, body.enabled ? "1" : "0");
       return json({ ok: true, autoUpdate: body.enabled });
+    }
+
+    // 番人(WorkerOps)の更新は app が行う(cms-workerops・guardian-update.ts)。
+    // ダッシュボードの WorkerOps の枠: 版・チャンネル・自動更新・今すぐ更新。
+    if (request.method === "GET" && path === "/api/system/guardian") {
+      requireAdmin(user);
+      return json((await guardianInfo(env, guardianDeps(env))) as JsonValue);
+    }
+    if (request.method === "PUT" && path === "/api/system/guardian/channel") {
+      requireAdmin(user);
+      const body = await readJson(request);
+      if (body.channel !== "stable" && body.channel !== "latest") {
+        throw new HttpError(
+          400,
+          "invalid_request",
+          "channel must be stable or latest.",
+        );
+      }
+      return json({
+        ok: true,
+        channel: await setGuardianChannel(env, body.channel),
+      });
+    }
+    if (
+      request.method === "PUT" &&
+      path === "/api/system/guardian/auto-update"
+    ) {
+      requireAdmin(user);
+      const body = await readJson(request);
+      if (typeof body.enabled !== "boolean") {
+        throw new HttpError(
+          400,
+          "invalid_request",
+          "enabled must be true or false.",
+        );
+      }
+      await setGuardianAuto(env, body.enabled);
+      return json({ ok: true, autoUpdate: await getGuardianAuto(env) });
+    }
+    if (request.method === "POST" && path === "/api/system/guardian/update") {
+      requireAdmin(user);
+      const result = await guardianUpdate(env, guardianDeps(env), "manual");
+      await logActivity(
+        env,
+        user,
+        "system.guardian_update",
+        "system",
+        "workerops",
+        {
+          outcome: result.outcome,
+          from: result.from,
+          to: result.to,
+          error: result.error,
+        },
+      );
+      return json(result as unknown as JsonValue);
     }
 
     // 版の取り先(GitHub か配布基盤か)。移行の間だけの切り替え(cms-release)。
