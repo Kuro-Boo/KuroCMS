@@ -287,6 +287,13 @@ export function classifyLink(groups, resolver = defaultResolver, supportedKinds 
  * @returns {string}
  */
 export function renderSpecialLinks(text, resolver = defaultResolver, supportedKinds = null) {
+  // ⚠ コメントの中は描き直さない（v2.43.1〜）。コメントは本文ではなく、中の `[[…]]` を
+  //   リンクにするとコメントの中に <a> が入り、コメントの終わりまで壊れる
+  //   （Google の AI の回答のコピーが `<!--TgQPHd|||[…]-->` を挟んでくる）。
+  if (text.includes('<!--')) {
+    return text.split(/(<!--[\s\S]*?(?:-->|--!>|$))/).map((part, i) =>
+      i % 2 ? part : renderSpecialLinks(part, resolver, supportedKinds)).join('')
+  }
   return text.replace(LINK_TOKEN_RE, (match, card, wikiSlug, wikiLabel, hyper) => {
     const d = classifyLink({ card, wikiSlug, wikiLabel, hyper }, resolver, supportedKinds)
     switch (d.kind) {
