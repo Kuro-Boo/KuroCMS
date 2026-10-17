@@ -1,506 +1,33 @@
 /**
- * KuroEditor — content HTML normalization (DOM-free, shared).
+ * KuroEditor — 本文 HTML の形（DOM 非依存・共有）。
  * ============================================================================
- * ONE implementation of "what canonical saved HTML looks like", used by every
- * ingest path so they cannot drift:
+ * 「保存される本文はこういう形」を 1 か所で決め、書き込むすべての経路が通す:
  *
- *   - the editor's rich-paste sanitizer  (_sanitizePastedHTML)
- *   - the host's API/save boundary       (KuroCMS worker, no DOM available)
- *   - the maintenance cleaner            (existing stored articles)
+ *   - エディタの貼り付け（_sanitizePastedHTML の最後）
+ *   - エディタの読み込み（setContent）と保存（getContent）
+ *   - ホストの API・保存の境目（KuroCMS の Worker、Admin の文書。DOM は無い）
+ *   - 保守の一括処理（保存済みの本文）
  *
- * It is deliberately written WITHOUT a DOM (same constraint as blocks.js) so
- * the browser and a Cloudflare Worker run the exact same code.
+ * DOM を使わずに書く（blocks.js と同じ制約）ので、ブラウザと Cloudflare Worker が
+ * 同じコードを動かす。⚠ import を持たない（単体で配る）。
  *
- * Why these rules exist — measured on the live corpus (1,639 translations):
+ * ## 方針（2026-10-17 利用者の決定。Admin 仕様「本文の形」）
  *
- *   bold was stored FOUR ways: <strong> 17,668 / <b> 647 /
- *   span[font-weight:700] 23 / span[font-weight:bolder] 2.
- *   <strong> comes from the API, <b> from execCommand('bold') in the editor,
- *   the spans from external paste. Same meaning, three spellings.
+ * 以前は「壊れ方」ごとに規則を足していた（R1〜R8: <b>→<strong>、段落の <div>、
+ * ブロックに付いた font-size、見出しが抱えた段落…）。壊れ方は外の道具の数だけあり
+ * 際限が無い。いまは逆に【エディタの形以外はすべてエディタの形へ写す】
+ * （conformContentHtml）。R1〜R8 はすべてこの一部になった。
  *
- *   paragraphs were stored as BOTH <p> and <div>, and empty lines as
- *   <div><br></div>. Root cause: contenteditable's defaultParagraphSeparator
- *   was never set, so Chrome's default (div) applied on every Enter. The
- *   editor now pins it to "p"; this module repairs what already exists and
- *   anything arriving from outside.
+ *   - 文字は絶対に消さない
+ *   - 選べない値は近いものを採る。無ければ初期値（書かない）
+ *   - エディタが書かない機能の記法（data-*・id・kuro-/kurocms- のコメント・[[…]]）は残す
  *
- *   copying inside the editor and pasting back destroyed the structure
- *   (2026-08-16, Entamy 管理画面の規約編集): one document went from 1 <h1> to
- *   35, gained 21 <h1><p> nestings and 46 `font-size: 15px; font-weight: 400`.
- *   Chrome's clipboard serializer is the source — it inlines computed styles
- *   and wraps a fragment in the element the selection started inside. There is
- *   no browser setting that turns this off, so R6/R7/R8 undo it here, and the
- *   editor also writes canonical HTML to the clipboard on copy so the damage
- *   never reaches other applications either.
+ * 公開済みの本文も、次に保存したときにこの形になる（見た目が変わることがある —
+ * 承知の上での決定。以前の clipboardRepair の区別は無くなった）。
  *
- * Refuses (returns the input unchanged) on malformed HTML, like blocks.js.
+ * 守り（R0: 動くもの・ページ全体に効くもの）は別に持つ。出す経路（公開ページ・
+ * エディタへの読み込み）でも、保存済みの古い本文に掛けるため。
  */
-
-/** HTML void elements — no closing tag, never affect nesting depth. */
-const VOID_TAGS = new Set([
-  'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input',
-  'link', 'meta', 'param', 'source', 'track', 'wbr',
-])
-
-/** Elements whose presence means "this container holds blocks, not a paragraph". */
-const BLOCK_TAGS = new Set([
-  'address', 'article', 'aside', 'blockquote', 'details', 'dd', 'div', 'dl', 'dt',
-  'fieldset', 'figcaption', 'figure', 'footer', 'form', 'h1', 'h2', 'h3', 'h4',
-  'h5', 'h6', 'header', 'hr', 'li', 'main', 'nav', 'ol', 'p', 'pre', 'section',
-  'table', 'tbody', 'td', 'tfoot', 'th', 'thead', 'tr', 'ul',
-])
-
-/** Subtrees whose text is significant — never rewritten. */
-const OPAQUE_TAGS = new Set(['pre', 'code', 'textarea', 'script', 'style'])
-
-/** font-weight values that mean "bold". */
-const BOLD_WEIGHTS = new Set(['bold', 'bolder', '600', '700', '800', '900'])
-
-/**
- * Blocks that must never carry a font-size / font-weight of their own (R6).
- *
- * The editor writes a size ONLY as `<span style="font-size:…">` (_applyFontSize
- * wraps the selection in a span) and bold only as `<strong>`. So a size or a
- * weight sitting on a BLOCK cannot have come from this editor — it is Chrome's
- * clipboard serializer, which inlines the element's computed style on copy.
- * That is where `font-size: 15px; font-weight: 400` comes from: a <p> that had
- * been swallowed by a heading inherits the heading's size, and Chrome writes
- * the value that cancels it back out.
- *
- * The judgement has no grey area, which is why it can be applied blindly:
- * on a span → the writer asked for it, keep it; on a block → foreign, drop it.
- */
-const BLOCK_DECOR_TAGS = new Set([
-  'p', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ol', 'ul', 'td', 'th', 'div',
-])
-
-/** Declarations removed from {@link BLOCK_DECOR_TAGS} elements. */
-const FOREIGN_BLOCK_DECOR = new Set(['font-size', 'font-weight'])
-
-/**
- * Tags whose content model is phrasing only — a block inside one is damage (R7).
- * Chrome produces this when the selection STARTS inside a heading and runs past
- * it: the whole fragment gets wrapped in that heading as a "context element",
- * so an entire article ends up inside a single <h1>.
- */
-const PHRASING_ONLY_TAGS = new Set(['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'])
-
-// ── parse ─────────────────────────────────────────────────────────────────────
-
-/**
- * Parse HTML into a shallow tree. Text nodes keep their raw source (entities
- * are never decoded, so serializing back is byte-identical when nothing
- * matched a rule).
- * @param {string} html
- * @returns {{ root: object, ok: boolean }}
- */
-function parseTree(html) {
-  const root = { type: 'root', children: [] }
-  const stack = [root]
-  let ok = true
-  const n = html.length
-  let i = 0
-  let textStart = 0
-
-  const flushText = (end) => {
-    if (end > textStart) {
-      stack[stack.length - 1].children.push({ type: 'text', raw: html.slice(textStart, end) })
-    }
-  }
-
-  while (i < n) {
-    const lt = html.indexOf('<', i)
-    if (lt === -1) break
-    flushText(lt)
-
-    if (html.startsWith('<!--', lt)) {
-      const end = html.indexOf('-->', lt + 4)
-      if (end === -1) { ok = false; break }
-      stack[stack.length - 1].children.push({ type: 'text', raw: html.slice(lt, end + 3) })
-      i = end + 3
-      textStart = i
-      continue
-    }
-
-    // end of tag, quote-aware
-    let j = lt + 1
-    let quote = ''
-    while (j < n) {
-      const ch = html[j]
-      if (quote) { if (ch === quote) quote = '' }
-      else if (ch === '"' || ch === "'") quote = ch
-      else if (ch === '>') break
-      j++
-    }
-    if (j >= n) { ok = false; break }
-    const tag = html.slice(lt, j + 1)
-    i = j + 1
-    textStart = i
-
-    const nameMatch = tag.match(/^<\/?([a-zA-Z][a-zA-Z0-9-]*)/)
-    if (!nameMatch) {
-      stack[stack.length - 1].children.push({ type: 'text', raw: tag })
-      continue
-    }
-    const name = nameMatch[1].toLowerCase()
-
-    if (tag[1] === '/') {
-      // Closing tag. It must close the element we are actually inside; anything
-      // else is mismatched nesting and the whole document is refused.
-      //
-      // This is not hypothetical: a body containing an unescaped "<A função …>"
-      // parses as an <a> that is never closed, and a lenient unwind would make
-      // the following </b> close BOTH — emitting a </a> that was never in the
-      // source. Browsers recover from that their own way; a normalizer must not
-      // guess, so it declines to touch such a document.
-      const idx = stack.map((s) => s.name).lastIndexOf(name)
-      if (idx <= 0) { ok = false; continue }
-      if (idx !== stack.length - 1) { ok = false; break }
-      stack.length = idx
-      continue
-    }
-
-    const selfClosing = VOID_TAGS.has(name) || tag.endsWith('/>')
-    const attrs = tag.slice(1 + name.length, tag.length - (tag.endsWith('/>') ? 2 : 1))
-    const el = { type: 'el', name, attrs, children: [], void: selfClosing }
-    stack[stack.length - 1].children.push(el)
-    if (!selfClosing) stack.push(el)
-  }
-  flushText(n)
-  if (stack.length !== 1) ok = false
-  return { root, ok }
-}
-
-// ── serialize ─────────────────────────────────────────────────────────────────
-
-function serialize(node) {
-  if (node.type === 'text') return node.raw
-  if (node.type === 'root') return node.children.map(serialize).join('')
-  const open = `<${node.name}${node.attrs}${node.void && node.attrs.endsWith('/') ? '' : ''}>`
-  if (node.void) return open
-  return open + node.children.map(serialize).join('') + `</${node.name}>`
-}
-
-// ── helpers ───────────────────────────────────────────────────────────────────
-
-/** Parse a raw attribute string into a lowercase-keyed map. */
-function attrMap(attrs) {
-  const out = {}
-  const re = /([a-zA-Z_:][-\w:.]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))/g
-  let m
-  while ((m = re.exec(attrs))) out[m[1].toLowerCase()] = m[2] ?? m[3] ?? m[4] ?? ''
-  return out
-}
-
-/**
- * true when this element's attributes mark it as a structural CONTAINER —
- * a callout, a table wrapper, a code-block widget. A <p> can never legitimately
- * carry these, so seeing them on one means the tag was rewritten by mistake.
- *
- * This exists because an earlier revision of R3 renamed attribute-carrying divs
- * to <p>, which converted 44 callouts and 44 code-block wrappers in the live
- * corpus. Restoring them here makes the normalizer self-healing: re-running it
- * repairs documents damaged by that version instead of needing a rollback.
- */
-function isStructuralContainer(attrs) {
-  const a = attrMap(attrs)
-  if (a['data-language'] !== undefined) return true
-  if (a['spellcheck'] !== undefined) return true
-  if (a['contenteditable'] !== undefined) return true
-  const cls = a['class'] || ''
-  return /\bkuro-(callout|table|code|roundbox|media)/.test(cls)
-}
-
-/** true when the element carries no attribute other than block identity. */
-function hasOnlyIdentityAttrs(attrs) {
-  const a = attrMap(attrs)
-  return Object.keys(a).every((k) => k === 'data-bid' || k === 'data-cbid')
-}
-
-/** Split a style attribute into [prop, value] pairs. */
-function styleDecls(style) {
-  return style.split(';')
-    .map((d) => d.trim())
-    .filter(Boolean)
-    .map((d) => {
-      const c = d.indexOf(':')
-      return c === -1 ? null : [d.slice(0, c).trim().toLowerCase(), d.slice(c + 1).trim().toLowerCase()]
-    })
-    .filter(Boolean)
-}
-
-/**
- * true when a <span> means nothing but "bold" — its ONLY styling is a bold
- * font-weight. A span that also carries a size/colour/family is left alone,
- * because collapsing it to <strong> would silently drop that styling.
- */
-function isBoldOnlySpan(node) {
-  if (node.name !== 'span') return false
-  const a = attrMap(node.attrs)
-  const keys = Object.keys(a).filter((k) => k !== 'data-bid' && k !== 'data-cbid')
-  if (keys.length !== 1 || keys[0] !== 'style') return false
-  const decls = styleDecls(a.style)
-  return decls.length === 1 && decls[0][0] === 'font-weight' && BOLD_WEIGHTS.has(decls[0][1])
-}
-
-/**
- * Classify a block's content for the empty-block rule.
- *
- * The distinction matters because the two blank shapes render DIFFERENTLY:
- *   <p><br></p>  — the <br> forces a line box → one blank line high
- *   <p>\n</p>    — whitespace collapses, no line box → zero height
- * Rewriting the second into the first would insert visible blank lines all
- * through an article, so the two are kept apart.
- *
- * @returns {'content'|'collapsed'|'break'}
- *   content   — renders something
- *   collapsed — whitespace only, occupies no line
- *   break     — one or more <br>, occupies a line
- */
-function blankKind(children) {
-  let sawBreak = false
-  for (const c of children) {
-    if (c.type === 'text') {
-      // &nbsp; is content; plain whitespace and comments are not
-      if (c.raw.trim() !== '' && !/^(?:\s|<!--[\s\S]*?-->)*$/.test(c.raw)) return 'content'
-    } else if (c.type === 'el') {
-      if (c.name === 'br') { sawBreak = true; continue }
-      return 'content'
-    }
-  }
-  return sawBreak ? 'break' : 'collapsed'
-}
-
-/** true when any direct child is a block element. */
-function hasBlockChild(node) {
-  return node.children.some((c) => c.type === 'el' && BLOCK_TAGS.has(c.name))
-}
-
-/** Match one attribute in a raw attribute string, quoted or bare. */
-const attrRe = (name) =>
-  new RegExp(`\\s${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s"'>]+))`, 'i')
-
-const STYLE_ATTR_RE = attrRe('style')
-const BID_ATTR_RE = attrRe('data-bid')
-
-/** The captured value of an attrRe match, whichever quoting was used. */
-const attrValue = (m) => m[1] ?? m[2] ?? m[3] ?? ''
-
-/**
- * Drop `props` from an element's style attribute, leaving every other
- * declaration BYTE-IDENTICAL (original casing, spacing and order).
- *
- * ⚠ Do not rebuild from {@link styleDecls} — it lowercases values, which would
- *   silently rewrite font-family names and CSS custom properties on any element
- *   this touches. Only the removed declarations may change.
- *
- * @returns {string} the new raw attribute string (the input when nothing matched)
- */
-function stripStyleProps(attrs, props) {
-  const m = attrs.match(STYLE_ATTR_RE)
-  if (!m) return attrs
-  const decls = attrValue(m).split(';').map((d) => d.trim()).filter(Boolean)
-  const kept = decls.filter((d) => {
-    const c = d.indexOf(':')
-    return c === -1 || !props.has(d.slice(0, c).trim().toLowerCase())
-  })
-  if (kept.length === decls.length) return attrs
-  const before = attrs.slice(0, m.index)
-  const after = attrs.slice(m.index + m[0].length)
-  return kept.length ? `${before} style="${kept.join('; ')}"${after}` : before + after
-}
-
-/** The element's data-bid, or null. */
-function readBid(attrs) {
-  const m = attrs.match(BID_ATTR_RE)
-  return m ? attrValue(m) : null
-}
-
-/** The raw attribute string with any data-bid removed. */
-function withoutBid(attrs) {
-  const m = attrs.match(BID_ATTR_RE)
-  return m ? attrs.slice(0, m.index) + attrs.slice(m.index + m[0].length) : attrs
-}
-
-/** The raw attribute string carrying exactly this data-bid. */
-function withBid(attrs, bid) {
-  return ` data-bid="${bid}"${withoutBid(attrs)}`
-}
-
-/** Keep only data-bid / data-cbid from a raw attribute string. */
-function identityAttrsOnly(attrs) {
-  const a = attrMap(attrs)
-  let out = ''
-  if (a['data-bid']) out += ` data-bid="${a['data-bid']}"`
-  if (a['data-cbid']) out += ` data-cbid="${a['data-cbid']}"`
-  return out
-}
-
-// ── transform ─────────────────────────────────────────────────────────────────
-
-/**
- * R7 — take the blocks back out of a heading / paragraph that swallowed them.
- *
- *   <h1 data-bid="A">見出し<p data-bid="B">本文</p></h1>
- *     → <h1 data-bid="A">見出し</h1>  <p>本文</p>
- *
- * ## The one invariant: no text is ever lost
- *
- * A tag may be discarded; the characters inside it may not. Everything between
- * the promoted blocks is therefore re-wrapped rather than dropped. The FIRST
- * such run keeps the original tag (that run is the heading's own text — it was
- * a heading before the damage and stays one); later runs became body text the
- * moment a block was opened in front of them, so they become paragraphs.
- * Runs that occupy no line — whitespace between blocks — carry nothing and go.
- *
- * ## R8 — one data-bid, on one block
- *
- * Unwrapping turns one block into several, and collaborative merge requires
- * `data-bid` to be unique per block. Exactly one output keeps an id: the outer
- * element's if it had one (so a block someone else is editing keeps its
- * identity), otherwise whatever the first promoted child already carried. Every
- * other output is stripped and gets a fresh id from `_ensureBlockIds` on load.
- * Leaving two behind is worse than leaving none: `_dedupeNestedBids` would
- * re-issue one of them, and it cannot know which one the other editor meant.
- *
- * ⚠ Attributes other than data-bid on the unwrapped tag are lost when it has no
- *   leading text run. There is no correct place to put them — the tag they
- *   described could not legally exist.
- *
- * @param {object} node  a phrasing-only element with at least one block child
- * @returns {Array} the replacement sibling list
- */
-function unwrapPhrasingBlock(node) {
-  const outerBid = readBid(node.attrs)
-  const out = []
-  let run = []
-
-  const flushRun = () => {
-    if (!run.length) return
-    if (blankKind(run) !== 'collapsed') {
-      const lead = out.length === 0
-      out.push({
-        type: 'el',
-        name: lead ? node.name : 'p',
-        attrs: lead ? node.attrs : '',
-        children: run,
-        void: false,
-      })
-    }
-    run = []
-  }
-
-  for (const child of node.children) {
-    if (child.type === 'el' && BLOCK_TAGS.has(child.name)) {
-      flushRun()
-      out.push(child)
-      continue
-    }
-    run.push(child)
-  }
-  flushRun()
-
-  for (let i = 0; i < out.length; i++) {
-    if (i > 0) { out[i].attrs = withoutBid(out[i].attrs); continue }
-    if (outerBid && readBid(out[i].attrs) !== outerBid) out[i].attrs = withBid(out[i].attrs, outerBid)
-  }
-  return out
-}
-
-/**
- * Rewrite one element list in place, returning the replacement list.
- * @param {Array} children
- * @param {boolean} topLevel  true for the document's own top-level run
- */
-function transformChildren(children, topLevel, clipboardRepair) {
-  const out = []
-  for (const node of children) {
-    if (node.type !== 'el') { out.push(node); continue }
-
-    // Opaque subtree (code / pre) — copy through untouched.
-    if (OPAQUE_TAGS.has(node.name)) { out.push(node); continue }
-
-    node.children = transformChildren(node.children, false, clipboardRepair)
-
-    // R6 — a size/weight on a BLOCK is never this editor's; it is Chrome's
-    // computed style, inlined on copy. Drop it before anything else looks at
-    // the element (clearing the style attribute can make a div bare, which is
-    // what R3 below needs to see to recognise it as a paragraph).
-    if (clipboardRepair && BLOCK_DECOR_TAGS.has(node.name)) {
-      node.attrs = stripStyleProps(node.attrs, FOREIGN_BLOCK_DECOR)
-    }
-
-    // R7 — a heading or paragraph holding blocks is Chrome's context wrapper.
-    // Undo it here, before the div/p rules below reason about the contents.
-    if (clipboardRepair && PHRASING_ONLY_TAGS.has(node.name) && hasBlockChild(node)) {
-      out.push(...unwrapPhrasingBlock(node))
-      continue
-    }
-
-    // R1 — <b> is execCommand's spelling of bold; the corpus uses <strong>.
-    if (node.name === 'b') node.name = 'strong'
-
-    // R2 — a span that only says "font-weight: bold" is a <strong> in disguise.
-    if (isBoldOnlySpan(node)) {
-      node.name = 'strong'
-      node.attrs = identityAttrsOnly(node.attrs)
-    }
-
-    // R5 — repair: a <p> wearing container attributes is a container that was
-    // wrongly renamed. Put the tag back before any other block rule looks at it.
-    if (node.name === 'p' && isStructuralContainer(node.attrs)) {
-      node.name = 'div'
-      out.push(node)
-      continue
-    }
-
-    if (node.name === 'div' || node.name === 'p') {
-      // R4 — a blank block. Only its TAG is normalized; whether it occupies a
-      // line is preserved exactly, so the rewrite never adds or removes
-      // vertical space (see blankKind).
-      const kind = blankKind(node.children)
-      if (kind === 'break') {
-        if (topLevel) {
-          // canonical blank paragraph — one <br>, however many it had
-          node.name = 'p'
-          node.children = [{ type: 'el', name: 'br', attrs: '', children: [], void: true }]
-          out.push(node)
-        } else {
-          // nested: cannot be a paragraph, but the line it occupied must stay
-          out.push({ type: 'el', name: 'br', attrs: '', children: [], void: true })
-        }
-        continue
-      }
-      if (kind === 'collapsed') {
-        // Occupies no line. A nested one contributes nothing at all → drop it;
-        // a top-level one only gets its tag unified (content left untouched, so
-        // it keeps collapsing).
-        if (!topLevel) continue
-        if (node.name === 'div') node.name = 'p'
-        out.push(node)
-        continue
-      }
-      // R3 — only a BARE <div> is treated as a paragraph.
-      //
-      // "It has no block children, so it must be a paragraph" is wrong: the
-      // corpus stores real containers as divs — kuro-callout (402), code-block
-      // wrappers carrying spellcheck / data-language (99), kuro-table (22) —
-      // and an earlier version of this rule renamed 44 callouts and 44 code
-      // blocks into <p>, which is destructive (a <p> cannot hold block content,
-      // and the editor's callout/code handling looks for the container).
-      //
-      // So the tag is only rewritten when the div carries NOTHING but block
-      // identity. Anything with a class / style / data-* is left exactly as it
-      // is: we cannot prove it is a paragraph, so we do not claim it is one.
-      if (node.name === 'div' && hasOnlyIdentityAttrs(node.attrs)) {
-        if (hasBlockChild(node)) { out.push(...node.children); continue }
-        node.name = 'p'
-      }
-    }
-    out.push(node)
-  }
-  return out
-}
 
 // ── sanitize (R0) ─────────────────────────────────────────────────────────────
 //
@@ -826,87 +353,1061 @@ export function sanitizeContentHtml(html) {
   return sanitizeWithCount(html).html
 }
 
-// ── public API ────────────────────────────────────────────────────────────────
 
-/**
- * Normalize content HTML to KuroEditor's canonical shape.
- *
- *   <b>/bold-only <span>  → <strong>
- *   <div> paragraph       → <p>
- *   <div> block wrapper   → unwrapped (only when it carries no styling)
- *   empty block           → <p><br></p> at top level, <br> when nested
- *   font-size/weight on a block → dropped (kept on <span>)
- *   heading/paragraph holding blocks → unwrapped, one data-bid kept
- *
- *   script / style / on* / javascript: など（R0）→ 落とす（壊れた HTML にも掛かる）
- *
- * Malformed input keeps its shape (only R0 is applied).
- *
- * @param {string} html
- * @param {{ clipboardRepair?: boolean }} [opts]
- *   clipboardRepair — apply R6/R7/R8, the repairs for Chrome's clipboard
- *   serializer. Default true: every path that WRITES content wants them.
- *
- *   Pass false for a bulk sweep over ALREADY PUBLISHED content. Unlike R1–R5,
- *   these three CHANGE HOW A PAGE LOOKS, and an article that went out with the
- *   damage baked in would suddenly render differently. That is not a repair the
- *   reader asked for, so a sweep must not perform it as a side effect of
- *   "normalizing formatting".
- *
- *   This is "don't do it silently", NOT "never do it". Fixing existing articles
- *   deliberately is legitimate — the caller just has to say so, having been told
- *   what will change. KuroCMS's maintenance screen exposes exactly that: an
- *   unchecked-by-default box, with a preview of the counts.
- *   (Decision recorded 2026-08-16; see "貼り付け破壊の修正仕様" at admin.entamy.com (KuroEditor))
- * @returns {string}
- */
-export function normalizeContentHtml(html, opts = {}) {
-  if (typeof html !== 'string' || html === '') return html ?? ''
-  const { root, ok } = parseTree(html)
-  // 壊れた HTML は形を推測して直さない —— が、守り（R0）は必ず掛ける。
-  if (!ok) return sanitizeContentHtml(html)
-  root.children = transformChildren(root.children, true, opts.clipboardRepair !== false)
-  // R0 は最後。上の規則が要素を外した跡で、文字とタグが繋がりうるため。
-  return sanitizeContentHtml(serialize(root))
+// ── KuroEditor の形（conform） ────────────────────────────────────────────────
+//
+// 本文は【エディタが自分で書く形】だけで持つ。外から来た HTML（貼り付け・API・
+// AI・HTML タブ・古い版の保存）は、壊れ方ごとに直すのではなく、全部をこの形へ
+// 写し直す。壊れ方は数えきれない（2026-10-17 の plaimy-rival 1 本だけで
+// colspan="undefined"・コメント・<button>・何重もの <div>・Arial・負の margin・
+// <hr> の文字サイズ・16px が出た）が、エディタの形は有限だから。
+//
+// ## 3 つの約束（2026-10-17 利用者の決定）
+//
+//   1. 文字は絶対に消さない。タグは外しても中身の文字は残す。知らないタグ
+//      （<app> など、文中に書かれた山括弧）は文字に戻す。
+//   2. 選べない値は近いものを採る（150% に無い 140% → 150%、callout--info → note、
+//      14px → 85%）。近いものも無ければ初期値（＝何も書かない）。
+//   3. エディタが書かない【機能の記法】は残す: `data-*` 属性・`id`（ページ内リンクの
+//      行き先）・`kuro-` / `kurocms-` で始まるコメント・`[[…]]`（文字なので元から残る）。
+//      `data-kuro-*` を持つ要素はエディタ自身の部品なので、中も触らない。
+//
+// ## 例外（文字でないので残らないもの）
+//
+//   script / style / svg / math など R0 が落とすもの、機能でないコメント、
+//   <input> の値。
+//
+// ## 形の一覧（要素 → 残す属性・クラス・スタイル）
+//
+//   p, h1–h6   text-align / line-height / 字下げ padding-left（2em 刻み）
+//   ul         kuro-ul-*、margin-left（2em 刻み）
+//   ol         kuro-list-*、start、--kuro-marker-color、margin-left
+//   li         data-checked、value、text-align / line-height
+//   table      class="kuro-table"、<colgroup><col style="width:N%">（列数が合うときだけ）、
+//              <tbody> 1 つ、行は長方形に揃える
+//   td, th     colspan / rowspan（2 以上の整数）、contenteditable="true"、
+//              background-color / color / border-{top,right,bottom,left} / vertical-align /
+//              text-align / line-height
+//   pre        <pre class="kuro-code" data-gutter="1\n2…"><code>文字だけ</code></pre>
+//   hr         class="kuro-hr"、border-top-color
+//   span       color / font-size（75–200% の 7 段）/ font-family（serif・sans-serif・Web フォント）
+//   strong em u s code kbd ruby rt rp a br img video audio source iframe figure(kuro-media-wrap)
+//   div        kuro-callout（note / tip / warn / danger）、kuro-roundbox（data-align・data-width）
+//
+//   b → strong、i → em、del・strike → s、ins → u、tt・samp・var → code、
+//   font[color/size/face] → span、太字・斜体・下線・取り消し線のスタイル → それぞれのタグ。
+//   意味を持たない <div>・<section> などは外す（中に段落が無ければ <p> にする）。
+
+/** 書式（文字の並び）の要素。これ以外はブロックとして扱う。 */
+const INLINE_NAMES = new Set([
+  'a', 'abbr', 'acronym', 'b', 'bdi', 'bdo', 'big', 'blink', 'br', 'button', 'cite', 'code',
+  'data', 'del', 'dfn', 'em', 'font', 'i', 'img', 'ins', 'kbd', 'label', 'mark', 'meter',
+  'nobr', 'output', 'progress', 'q', 'rp', 'rt', 'ruby', 's', 'samp', 'select', 'option',
+  'small', 'span', 'strike', 'strong', 'sub', 'sup', 'time', 'tt', 'u', 'var', 'wbr', 'audio',
+  'video', 'source', 'iframe', 'input', 'textarea', 'marquee', 'slot', 'picture', 'map', 'area',
+])
+
+/** HTML の要素名（これに無く `-` も無い名前は、文中の山括弧の書き損じとみなして文字に戻す）。 */
+const HTML_NAMES = new Set([
+  ...INLINE_NAMES,
+  'address', 'article', 'aside', 'blockquote', 'body', 'caption', 'center', 'col', 'colgroup',
+  'dd', 'details', 'dialog', 'dir', 'div', 'dl', 'dt', 'fieldset', 'figcaption', 'figure',
+  'footer', 'form', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'head', 'header', 'hgroup', 'hr', 'html',
+  'legend', 'li', 'main', 'menu', 'nav', 'ol', 'optgroup', 'p', 'pre', 'search', 'section',
+  'summary', 'table', 'tbody', 'td', 'tfoot', 'th', 'thead', 'tr', 'ul', 'listing', 'xmp',
+  'frameset', 'frame', 'noframes', 'object', 'embed', 'param', 'applet', 'canvas', 'track',
+  'datalist', 'base', 'link', 'meta', 'noscript', 'script', 'style', 'template', 'title',
+  'svg', 'math', 'plaintext', 'image', 'basefont', 'keygen', 'menuitem', 'rb', 'rtc', 'portal',
+])
+
+const VOID_NAMES = new Set([
+  'area', 'base', 'basefont', 'br', 'col', 'embed', 'hr', 'image', 'img', 'input', 'keygen',
+  'link', 'meta', 'param', 'source', 'track', 'wbr', 'frame',
+])
+
+/** 中身を文字として読む要素（閉じタグまで）。 */
+const RAW_NAMES = new Set(['script', 'style', 'textarea', 'title', 'xmp', 'iframe', 'noembed', 'noframes', 'noscript'])
+
+/** 開いていると <p> を閉じる要素（ブラウザと同じ）。 */
+const CLOSES_P = new Set([
+  'address', 'article', 'aside', 'blockquote', 'center', 'details', 'dialog', 'dir', 'div', 'dl',
+  'fieldset', 'figcaption', 'figure', 'footer', 'form', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+  'header', 'hgroup', 'hr', 'main', 'menu', 'nav', 'ol', 'p', 'pre', 'search', 'section',
+  'summary', 'table', 'ul', 'dd', 'dt', 'li', 'listing', 'xmp', 'plaintext',
+])
+
+const HEADINGS = new Set(['h1', 'h2', 'h3', 'h4', 'h5', 'h6'])
+const TABLE_SCOPE = new Set(['table', 'td', 'th', 'caption', 'html', 'template'])
+
+// ── 値の形 ────────────────────────────────────────────────────────────────────
+
+/** エディタの文字サイズ（FONT_SIZE_OPTIONS と同じ）。100 は「書かない」。 */
+const FONT_SIZES = [75, 85, 100, 120, 150, 175, 200]
+/** エディタの行間（LINE_HEIGHT_OPTIONS と同じ）。 */
+const LINE_HEIGHTS = [1.2, 1.4, 1.6, 1.8, 2.0, 2.5]
+/** 角丸ボックスの横幅（RoundboxMenu と同じ）。 */
+const BOX_WIDTHS = [30, 40, 50, 60, 70, 80, 90, 100]
+const CALLOUT_TYPES = new Set(['note', 'tip', 'warn', 'danger'])
+/** 近い種類へ寄せる（無い種類の callout）。 */
+const CALLOUT_NEAR = { info: 'note', warning: 'warn', caution: 'warn', important: 'warn', error: 'danger', success: 'tip', hint: 'tip' }
+const UL_STYLES = new Set(['disc', 'circle', 'square', 'none', 'arrow', 'asterisk', 'bullseye', 'check', 'dash', 'hash', 'star', 'star-open', 'tri', 'tri-open'])
+const OL_STYLES = new Set(['decimal', 'alpha', 'circled', 'kata', 'none', 'paren-alpha', 'paren-kata', 'paren-num'])
+const ALIGNS = new Set(['left', 'center', 'right', 'justify'])
+const VALIGNS = new Set(['top', 'middle', 'bottom'])
+const BORDER_STYLES = new Set(['solid', 'dotted', 'dashed', 'double'])
+const FONT_KEYWORDS = { 'xx-small': 60, 'x-small': 75, small: 89, medium: 100, large: 120, 'x-large': 150, 'xx-large': 200, 'xxx-large': 300 }
+const FONT_TAG_SIZES = { 1: 63, 2: 82, 3: 100, 4: 113, 5: 150, 6: 200, 7: 300 }
+
+const nearest = (list, v) => list.reduce((a, b) => (Math.abs(b - v) < Math.abs(a - v) ? b : a))
+
+/** 色として通るか。テーマの変数（var(--…)）は書き手の選んだ色ではないので採らない。 */
+export function cssColor(v) {
+  const s = String(v ?? '').trim()
+  if (/^#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(s)) return s.toLowerCase()
+  if (/^(?:rgba?|hsla?)\(\s*[-\d.%\s,/]+\)$/i.test(s)) return s.toLowerCase().replace(/\s+/g, ' ')
+  if (/^[a-z]{3,20}$/i.test(s) && !/^(?:inherit|initial|unset|revert|currentcolor|transparent|none|auto)$/i.test(s)) return s.toLowerCase()
+  return null
+}
+
+/** 長さ → em（1em = 16px）。単位の無い 0 だけ通す。 */
+function toEm(v) {
+  const m = /^(-?[\d.]+)(px|pt|em|rem)?$/i.exec(String(v ?? '').trim())
+  if (!m) return null
+  const n = parseFloat(m[1])
+  if (!Number.isFinite(n)) return null
+  const u = (m[2] || '').toLowerCase()
+  if (!u) return n === 0 ? 0 : null
+  if (u === 'px') return n / 16
+  if (u === 'pt') return n * 4 / 3 / 16
+  return n
+}
+
+/** 字下げ（2em 刻み、0 以下は無し）。 */
+function indentValue(v) {
+  const em = toEm(v)
+  if (em === null || em <= 0.5) return null
+  const steps = Math.max(1, Math.round(em / 2))
+  return `${steps * 2}em`
+}
+
+function lineHeightValue(v) {
+  const s = String(v ?? '').trim().toLowerCase()
+  let n = null
+  if (/^[\d.]+$/.test(s)) n = parseFloat(s)
+  else if (/^[\d.]+%$/.test(s)) n = parseFloat(s) / 100
+  else if (/^[\d.]+em$/.test(s)) n = parseFloat(s)
+  else if (/^[\d.]+(px|pt)$/.test(s)) n = (toEm(s) ?? 0)
+  if (!n || !Number.isFinite(n)) return null
+  return String(nearest(LINE_HEIGHTS, n).toFixed(1)).replace(/\.0$/, '.0')
+}
+
+function alignValue(v) {
+  const s = String(v ?? '').trim().toLowerCase()
+  if (s === 'start') return 'left'
+  if (s === 'end') return 'right'
+  return ALIGNS.has(s) ? s : null
 }
 
 /**
- * Report what {@link normalizeContentHtml} would change, without changing it.
- * Used by the maintenance screen to show a preview count per rule.
- * @param {string} html
- * @returns {{ bTags:number, boldSpans:number, divBlocks:number, emptyBlocks:number,
- *             blockDecor:number, nestedBlocks:number, unsafe:number, changed:boolean }}
+ * 文字サイズ → 親に対する %（null = 書かない）。
+ * @param {string} v
+ * @param {number} ctxPct  祖先が決めた大きさ（%。絶対値を相対に直すのに使う）
+ * @param {boolean} inHeading  見出しの中の絶対値は見出しの大きさに任せる
  */
-export function inspectContentHtml(html, opts = {}) {
-  const clipboardRepair = opts.clipboardRepair !== false
+function fontSizeRel(v, ctxPct, inHeading) {
+  const s = String(v ?? '').trim().toLowerCase()
+  let rel = null
+  let abs = null
+  let m
+  if ((m = /^([\d.]+)%$/.exec(s))) rel = parseFloat(m[1])
+  else if ((m = /^([\d.]+)em$/.exec(s))) rel = parseFloat(m[1]) * 100
+  else if ((m = /^([\d.]+)rem$/.exec(s))) abs = parseFloat(m[1]) * 100
+  else if ((m = /^([\d.]+)px$/.exec(s))) abs = parseFloat(m[1]) / 16 * 100
+  else if ((m = /^([\d.]+)pt$/.exec(s))) abs = parseFloat(m[1]) * 4 / 3 / 16 * 100
+  else if (s in FONT_KEYWORDS) abs = FONT_KEYWORDS[s]
+  else if (s === 'smaller') rel = 85
+  else if (s === 'larger') rel = 120
+  if (abs !== null) {
+    if (inHeading) return null
+    rel = abs / (ctxPct || 100) * 100
+  }
+  if (rel === null || !Number.isFinite(rel) || rel <= 0) return null
+  const snapped = nearest(FONT_SIZES, rel)
+  return snapped === 100 ? null : snapped
+}
+
+/** 書体 → エディタの書き方（serif / sans-serif / "Web フォント", sans-serif）。null = 書かない。 */
+function fontFamilyValue(v) {
+  const s = String(v ?? '').trim()
+  if (s === 'serif' || s === 'sans-serif') return s
+  const parts = s.split(',').map((p) => p.trim()).filter(Boolean)
+  // Web フォント（エディタは `"名前", sans-serif` と書く）
+  if (parts.length === 2 && /^"[^"]+"$/.test(parts[0]) && parts[1] === 'sans-serif') return `${parts[0]}, sans-serif`
+  const last = parts[parts.length - 1]?.toLowerCase()
+  // 明朝の指定だけは意味がある（ゴシックは既定と同じなので書かない）
+  if (last === 'serif') return 'serif'
+  return null
+}
+
+/** 罫線 `<幅> <線種> [色]` → エディタの書き方。 */
+function borderValue(v) {
+  const parts = String(v ?? '').trim().toLowerCase().replace(/\s*,\s*/g, ',').split(/\s+(?![^(]*\))/)
+  let width = null
+  let style = null
+  let color = null
+  for (const p of parts) {
+    if (BORDER_STYLES.has(p)) style = p
+    else if (p === 'none' || p === 'hidden') return null
+    else if (/^[\d.]+(px|pt|em)?$/.test(p) || p === 'thin' || p === 'medium' || p === 'thick') {
+      const px = p === 'thin' ? 1 : p === 'medium' ? 3 : p === 'thick' ? 5 : Math.round((toEm(p.match(/[a-z]/) ? p : `${p}px`) ?? 0) * 16)
+      width = Math.min(3, Math.max(1, px))
+    } else if (cssColor(p)) color = cssColor(p)
+  }
+  if (!style || !width) return null
+  if (style === 'dashed' || style === 'double') style = 'solid'
+  if (style === 'dotted') width = 1
+  return `${width}px ${style}${color ? ` ${color}` : ''}`
+}
+
+// ── 読み取り（寛容） ──────────────────────────────────────────────────────────
+
+/**
+ * 属性値の中の文字参照は【触らない】（&copy; などを解いて書き戻すと意味が変わる）。
+ * スタイルの宣言を `;` で分けるときだけ、文字参照の `;` を区切りと見ない。
+ */
+function styleMap(raw) {
+  const out = new Map()
+  if (!raw) return out
+  const s = String(raw).replace(/&quot;/gi, '"').replace(/&#0*39;|&apos;/gi, "'").replace(/&amp;/gi, '&')
+  for (const d of s.split(/;(?![^(]*\))/)) {
+    const c = d.indexOf(':')
+    if (c === -1) continue
+    const prop = d.slice(0, c).trim().toLowerCase()
+    const val = d.slice(c + 1).replace(/!important/i, '').trim()
+    if (prop && val) out.set(prop, val)
+  }
+  return out
+}
+
+const escAttr = (s) => String(s).replace(/&(?![#a-zA-Z0-9]+;)/g, '&amp;').replace(/"/g, '&quot;')
+
+/**
+ * HTML を木にする。壊れた HTML でも必ず木を返す（閉じ忘れは親で閉じる、
+ * 対応の無い閉じタグは捨てる、<p> の暗黙の閉じはブラウザと同じ）。
+ */
+function parseLoose(html) {
+  const root = { t: 'el', name: '#root', attrs: [], kids: [] }
+  const stack = [root]
+  const top = () => stack[stack.length - 1]
+  const n = html.length
+  let i = 0
+  const text = (raw) => {
+    if (!raw) return
+    const k = top().kids
+    const last = k[k.length - 1]
+    if (last?.t === 'text') last.raw += raw
+    else k.push({ t: 'text', raw })
+  }
+  const popTo = (idx) => { stack.length = idx }
+  const findOpen = (names, stopAt) => {
+    for (let j = stack.length - 1; j > 0; j--) {
+      const nm = stack[j].name
+      if (names.has(nm)) return j
+      if (stopAt?.has(nm)) return -1
+    }
+    return -1
+  }
+
+  while (i < n) {
+    const lt = html.indexOf('<', i)
+    if (lt === -1) { text(html.slice(i)); break }
+    text(html.slice(i, lt))
+    const next = html[lt + 1]
+    if (html.startsWith('<!--', lt)) {
+      const end = commentEnd(html, lt)
+      const body = html.slice(lt + 4, end).replace(/--!?>$/, '').replace(/^-?>$/, '')
+      top().kids.push({ t: 'comment', data: body })
+      i = end
+      continue
+    }
+    if (next === '!' || next === '?' || (next === '/' && !isAsciiAlpha(html[lt + 2]))) {
+      const gt = html.indexOf('>', lt + 2)
+      i = gt === -1 ? n : gt + 1
+      continue
+    }
+    if (!isAsciiAlpha(next) && next !== '/') { text('&lt;'); i = lt + 1; continue }
+    const tag = readTag(html, lt)
+    if (!tag) { text(html.slice(lt).replace(/</g, '&lt;')); break }
+    i = tag.end
+    const name = tag.name
+    const attrs = tag.attrs.map((a) => ({ name: a.name, value: a.value }))
+
+    if (next === '/') {
+      if (name === 'br') { top().kids.push({ t: 'el', name: 'br', attrs: [], kids: [] }); continue }
+      const idx = findOpen(new Set([name]), TABLE_SCOPE.has(name) ? null : (name === 'p' ? new Set(['td', 'th', 'table', 'caption', 'button']) : null))
+      if (idx > 0) { stack[idx].closed = true; popTo(idx) }
+      continue
+    }
+
+    // ── 暗黙に閉じるもの（ブラウザと同じ） ──
+    if (CLOSES_P.has(name)) {
+      const p = findOpen(new Set(['p']), new Set(['td', 'th', 'table', 'caption', 'button']))
+      if (p > 0) popTo(p)
+    }
+    if (name === 'li') { const j = findOpen(new Set(['li']), new Set(['ul', 'ol', 'td', 'th', 'table'])); if (j > 0) popTo(j) }
+    if (name === 'dt' || name === 'dd') { const j = findOpen(new Set(['dt', 'dd']), new Set(['dl', 'td', 'th', 'table'])); if (j > 0) popTo(j) }
+    if (name === 'tr') { const j = findOpen(new Set(['tr']), new Set(['table'])); if (j > 0) popTo(j) }
+    if (name === 'td' || name === 'th') { const j = findOpen(new Set(['td', 'th']), new Set(['table', 'tr'])); if (j > 0) popTo(j) }
+    if (name === 'tbody' || name === 'thead' || name === 'tfoot') { const j = findOpen(new Set(['tbody', 'thead', 'tfoot']), new Set(['table'])); if (j > 0) popTo(j) }
+    if (name === 'option') { const j = findOpen(new Set(['option']), new Set(['select'])); if (j > 0) popTo(j) }
+    if (HEADINGS.has(name) && HEADINGS.has(top().name)) popTo(stack.length - 1)
+    if (name === 'a') { const j = findOpen(new Set(['a']), TABLE_SCOPE); if (j > 0) popTo(j) }
+
+    const el = { t: 'el', name, attrs, kids: [] }
+    top().kids.push(el)
+    if (name === 'plaintext') { el.kids.push({ t: 'text', raw: html.slice(i).replace(/&/g, '&amp;').replace(/</g, '&lt;') }); break }
+    if (RAW_NAMES.has(name)) {
+      const close = rawtextClose(html, i, name)
+      const content = html.slice(i, close)
+      if (content) el.kids.push({ t: 'text', raw: name === 'textarea' || name === 'title' ? content : content.replace(/</g, '&lt;'), raw0: content })
+      const ct = close < n ? readTag(html, close) : null
+      i = ct ? ct.end : n
+      el.closed = true
+      continue
+    }
+    if (VOID_NAMES.has(name) || (tag.selfClose && !HTML_NAMES.has(name))) continue
+    stack.push(el)
+  }
+  return root
+}
+
+// ── 書き出し ──────────────────────────────────────────────────────────────────
+
+function serializeNodes(nodes) {
+  let out = ''
+  for (const nd of nodes) {
+    if (nd.t === 'text') out += nd.raw
+    else if (nd.t === 'comment') out += `<!--${nd.data}-->`
+    else if (nd.t === 'raw') out += nd.html
+    else {
+      const attrs = nd.attrs.map((a) => (a.value === null ? ` ${a.name}` : ` ${a.name}="${escAttr(a.value)}"`)).join('')
+      out += `<${nd.name}${attrs}>`
+      if (VOID_NAMES.has(nd.name)) continue
+      out += serializeNodes(nd.kids) + `</${nd.name}>`
+    }
+  }
+  return out
+}
+
+/** 手を付けない部分木（data-kuro-* の部品）。元の綴りのまま書き戻す。 */
+function serializeOriginal(nd) {
+  if (nd.t === 'text') return nd.raw0 ?? nd.raw
+  if (nd.t === 'comment') return `<!--${nd.data}-->`
+  const attrs = nd.attrs.map((a) => (a.value === null ? ` ${a.name}` : ` ${a.name}="${escAttr(a.value)}"`)).join('')
+  if (VOID_NAMES.has(nd.name)) return `<${nd.name}${attrs}>`
+  return `<${nd.name}${attrs}>${nd.kids.map(serializeOriginal).join('')}</${nd.name}>`
+}
+
+// ── 変換 ──────────────────────────────────────────────────────────────────────
+
+const el = (name, attrs = [], kids = []) => ({ t: 'el', name, attrs, kids })
+const attrOf = (nd, name) => nd.attrs?.find((a) => a.name === name)?.value ?? null
+const classesOf = (nd) => (attrOf(nd, 'class') || '').split(/\s+/).filter(Boolean)
+const isBlockNode = (nd) => (nd.t === 'el' ? !INLINE_NAMES.has(nd.name) : nd.t === 'raw' && nd.block)
+const isBlank = (nd) => (nd.t === 'text' && !/\S/.test(nd.raw)) || nd.t === 'comment'
+
+/** 文字が 1 つも無く、見えるもの（br・画像など）も無いか。 */
+function isEmptyInline(nd) {
+  if (nd.t === 'text') return !/\S/.test(nd.raw)
+  if (nd.t === 'comment') return true
+  if (nd.t === 'raw') return false
+  if (['br', 'img', 'video', 'audio', 'iframe', 'hr', 'input'].includes(nd.name)) return false
+  return nd.kids.every(isEmptyInline)
+}
+
+/**
+ * 機能の記法として残す属性（約束 3）: data-*・id・lang・dir="rtl"。
+ * 並びは元のまま。
+ */
+function functionalAttrs(nd) {
+  const out = []
+  for (const a of nd.attrs) {
+    if (a.name.startsWith('data-') || a.name === 'id' || a.name === 'lang') out.push(a)
+    else if (a.name === 'dir' && String(a.value).toLowerCase() === 'rtl') out.push({ name: 'dir', value: 'rtl' })
+  }
+  return out
+}
+
+/** 元の並びを保ったまま、属性を組み立てる（class と style は元の位置に）。 */
+function buildAttrs(nd, { cls = null, style = null, extra = [] } = {}) {
+  const out = []
+  let placedCls = false
+  let placedStyle = false
+  const extraNames = new Set(extra.map((a) => a.name))
+  for (const a of nd.attrs) {
+    if (a.name === 'class') { if (cls && !placedCls) { out.push({ name: 'class', value: cls }); placedCls = true } continue }
+    if (a.name === 'style') { if (style && !placedStyle) { out.push({ name: 'style', value: style }); placedStyle = true } continue }
+    if (extraNames.has(a.name)) {
+      const e = extra.find((x) => x.name === a.name)
+      if (!out.some((o) => o.name === e.name)) out.push(e)
+      continue
+    }
+    if (a.name.startsWith('data-') || a.name === 'id' || a.name === 'lang') out.push(a)
+    else if (a.name === 'dir' && String(a.value).toLowerCase() === 'rtl') out.push({ name: 'dir', value: 'rtl' })
+  }
+  if (cls && !placedCls) out.unshift({ name: 'class', value: cls })
+  for (const e of extra) if (!out.some((o) => o.name === e.name)) out.push(e)
+  if (style && !placedStyle) out.push({ name: 'style', value: style })
+  return out
+}
+
+const styleText = (decls) => decls.length ? decls.map(([p, v]) => `${p}: ${v}`).join('; ') : null
+
+/** 行（段落・見出し・項目・セル）に付けてよい配置のスタイル。 */
+function lineDecls(sm, { indent = true } = {}) {
+  const out = []
+  const al = alignValue(sm.get('text-align'))
+  if (al) out.push(['text-align', al])
+  const lh = lineHeightValue(sm.get('line-height'))
+  if (lh) out.push(['line-height', lh])
+  if (indent) {
+    const ind = indentValue(sm.get('padding-left') ?? sm.get('margin-left') ?? sm.get('padding-inline-start') ?? sm.get('margin-inline-start'))
+    if (ind) out.push(['padding-left', ind])
+  }
+  return out
+}
+
+/**
+ * 書式のスタイル → 包むタグ。太字・斜体・下線・取り消し線はタグに、色・大きさ・
+ * 書体は <span> に。外側から順に [strong, em, u, s, span]。
+ */
+function inlineWrappers(sm, ctx) {
+  const wraps = []
+  const w = String(sm.get('font-weight') ?? '').toLowerCase()
+  if (w === 'bold' || w === 'bolder' || (Number(w) >= 600)) wraps.push(el('strong'))
+  const fs = String(sm.get('font-style') ?? '').toLowerCase()
+  if (fs === 'italic' || fs === 'oblique') wraps.push(el('em'))
+  const td = `${sm.get('text-decoration') ?? ''} ${sm.get('text-decoration-line') ?? ''}`.toLowerCase()
+  if (/underline/.test(td)) wraps.push(el('u'))
+  if (/line-through/.test(td)) wraps.push(el('s'))
+  const span = []
+  const color = cssColor(sm.get('color'))
+  if (color) span.push(['color', color])
+  let pct = ctx.pct
+  const size = fontSizeRel(sm.get('font-size'), ctx.pct, ctx.inHeading)
+  if (size) { span.push(['font-size', `${size}%`]); pct = ctx.pct * size / 100 }
+  const fam = fontFamilyValue(sm.get('font-family'))
+  if (fam) span.push(['font-family', fam])
+  if (span.length) wraps.push(el('span', [{ name: 'style', value: styleText(span) }]))
+  return { wraps, pct }
+}
+
+/** wraps を外から順に入れ子にして、いちばん内側へ kids を入れる。 */
+function nest(wraps, kids) {
+  if (!wraps.length) return kids
+  const outer = wraps[0]
+  let cur = outer
+  for (let k = 1; k < wraps.length; k++) { cur.kids = [wraps[k]]; cur = wraps[k] }
+  cur.kids = kids
+  return [outer]
+}
+
+/**
+ * 書式の要素がブロックを抱えていたら、書式をブロックの内側へ配り直す
+ * （<span 14px><p>…</p></span> → <p><span 14px>…</span></p>）。
+ */
+function distribute(makeWrap, kids) {
+  if (!kids.some(isBlockNode)) return makeWrap(kids)
+  const out = []
+  let run = []
+  const flush = () => {
+    if (run.length && !run.every(isEmptyInline)) out.push(...makeWrap(run))
+    else out.push(...run.filter((r) => r.t === 'comment'))
+    run = []
+  }
+  for (const k of kids) {
+    if (!isBlockNode(k)) { run.push(k); continue }
+    flush()
+    if (k.name === 'p' || HEADINGS.has(k.name) || k.name === 'li' || k.name === 'td' || k.name === 'th') k.kids = distribute(makeWrap, k.kids)
+    out.push(k)
+  }
+  flush()
+  return out
+}
+
+/**
+ * 段落・見出しの並び（器の中身）を整える。
+ *   mode 'root' / 'box' — 文字の並びは必ず <p> に入れる
+ *   mode 'free'         — ブロックと混ざっているときだけ <p> に入れる（li・td・blockquote）
+ * 空白だけの並びは捨てる（見えない）。<br> だけの並びは 1 本につき空行 1 つ。
+ */
+function settleFlow(kids, mode) {
+  const hasBlock = kids.some(isBlockNode)
+  if (mode === 'free' && !hasBlock) return kids
+  const out = []
+  let run = []
+  const flush = () => {
+    if (!run.length) return
+    const visible = run.filter((r) => !isBlank(r))
+    if (!visible.length) { out.push(...run.filter((r) => r.t === 'comment')); run = []; return }
+    if (visible.every((r) => r.t === 'el' && r.name === 'br')) {
+      for (let k = 0; k < visible.length; k++) out.push(el('p', [], [el('br')]))
+    } else {
+      // 先頭・末尾の <br> は段落の境目なので要らない（1 本だけの空行は上で扱った）
+      while (run.length && (isBlank(run[0]) || (run[0].t === 'el' && run[0].name === 'br'))) {
+        const r = run.shift(); if (r.t === 'comment') out.push(r)
+      }
+      while (run.length && (isBlank(run[run.length - 1]) || (run[run.length - 1].t === 'el' && run[run.length - 1].name === 'br'))) run.pop()
+      if (run.length) out.push(el('p', [], run))
+    }
+    run = []
+  }
+  for (const k of kids) {
+    if (isBlockNode(k)) {
+      flush()
+      // 器の外の <li> は <ul> に入れる
+      if (k.name === 'li') {
+        const prev = out[out.length - 1]
+        if (prev?.t === 'el' && prev.name === 'ul' && prev.adopted) prev.kids.push(k)
+        else { const ul = el('ul', [], [k]); ul.adopted = true; out.push(ul) }
+        continue
+      }
+      out.push(k)
+    } else run.push(k)
+  }
+  flush()
+  return out
+}
+
+/** 空の段落の扱い（R4 を引き継ぐ）。null = 捨てる。 */
+function settleEmptyLine(nd, nested) {
+  if (nd.kids.some((k) => !isEmptyInline(k))) return nd
+  const brs = nd.kids.filter((k) => k.t === 'el' && k.name === 'br').length
+  if (!brs) return null
+  if (nested && nd.name === 'p') return el('br')
+  nd.kids = [el('br')]
+  return nd
+}
+
+/**
+ * 見出し・段落がブロックを抱えていたら解く（R7）。最初の文字の並びは元の
+ * タグのまま、後の並びは段落になる。data-bid は 1 つだけ残す（R8）。
+ */
+function splitLine(nd) {
+  if (!nd.kids.some(isBlockNode)) return [nd]
+  const out = []
+  let run = []
+  const flush = () => {
+    if (!run.length) return
+    if (!run.every(isEmptyInline)) {
+      const lead = out.length === 0
+      out.push(lead ? { ...nd, kids: run } : el('p', [], run))
+    }
+    run = []
+  }
+  for (const k of nd.kids) {
+    if (isBlockNode(k)) { flush(); out.push(k) } else run.push(k)
+  }
+  flush()
+  const bid = attrOf(nd, 'data-bid')
+  out.forEach((o, ix) => {
+    if (o === out[0]) {
+      if (bid && attrOf(o, 'data-bid') !== bid) o.attrs = [{ name: 'data-bid', value: bid }, ...(o.attrs || []).filter((a) => a.name !== 'data-bid')]
+    } else if (o.attrs && o !== nd) o.attrs = o.attrs.filter((a) => a.name !== 'data-bid')
+    else if (ix > 0) o.attrs = o.attrs.filter((a) => a.name !== 'data-bid')
+  })
+  return out
+}
+
+/** 外した要素の data-bid / id を、最初にできたブロックへ移す（ページ内リンクと同期を守る）。 */
+function carryIdentity(from, blocks) {
+  const first = blocks.find((b) => b.t === 'el' && isBlockNode(b))
+  if (!first) return blocks
+  for (const name of ['id', 'data-bid']) {
+    const v = attrOf(from, name)
+    if (v && attrOf(first, name) === null) first.attrs = [...first.attrs, { name, value: v }]
+  }
+  return blocks
+}
+
+/** 子を変換する。 */
+function convertKids(kids, ctx) {
+  const out = []
+  for (const k of kids) out.push(...convertNode(k, ctx))
+  return out
+}
+
+/** 生の文字をそのまま取り出す（pre の中身。<br> は改行）。 */
+function rawText(nd) {
+  if (nd.t === 'text') return nd.raw
+  if (nd.t === 'comment') return ''
+  if (nd.name === 'br') return '\n'
+  return nd.kids.map(rawText).join('')
+}
+
+/** 書式の要素（<span> など）。tag = 残すタグ（null は外す）。 */
+function convertInline(nd, ctx, tag, extraAttrs = []) {
+  const sm = styleMap(attrOf(nd, 'style'))
+  // <font color size face> は <span> の書き方へ
+  if (nd.name === 'font') {
+    if (attrOf(nd, 'color') && !sm.has('color')) sm.set('color', attrOf(nd, 'color'))
+    const sz = parseInt(attrOf(nd, 'size'), 10)
+    if (FONT_TAG_SIZES[sz] && !sm.has('font-size')) sm.set('font-size', `${FONT_TAG_SIZES[sz]}%`)
+    if (attrOf(nd, 'face') && !sm.has('font-family')) sm.set('font-family', attrOf(nd, 'face'))
+  }
+  const { wraps, pct } = inlineWrappers(sm, ctx)
+  // 同じ意味のタグを二重にしない（<strong style="font-weight:700">）
+  const own = wraps.filter((w) => w.name !== tag)
+  const kids = convertKids(nd.kids, { ...ctx, pct })
+  const keep = functionalAttrs(nd)
+  const make = (inner) => {
+    const fresh = own.map((w) => el(w.name, w.attrs.map((a) => ({ ...a }))))
+    let res = nest(fresh, inner)
+    if (tag) res = [el(tag, [...extraAttrs, ...keep.map((a) => ({ ...a }))], res)]
+    else if (keep.length && res.length === 1 && res[0].t === 'el') res[0].attrs = [...res[0].attrs, ...keep]
+    else if (keep.length) res = [el('span', keep.map((a) => ({ ...a })), res)]
+    return res
+  }
+  const res = distribute(make, kids)
+  return res.filter((r) => !(r.t === 'el' && INLINE_NAMES.has(r.name) && !['br', 'img', 'video', 'audio', 'iframe', 'input'].includes(r.name) && isEmptyInline(r) && !functionalAttrs(r).length))
+}
+
+/** 意味を持たない器（div・section…）。中にブロックが無ければ段落にする。 */
+function convertContainer(nd, ctx, lineStyle = true) {
+  const kids = convertKids(nd.kids, ctx)
+  if (!kids.some(isBlockNode)) {
+    if (kids.every(isEmptyInline)) {
+      const brs = kids.filter((k) => k.t === 'el' && k.name === 'br')
+      if (!brs.length) return carryIdentity(nd, kids.filter((k) => k.t === 'comment'))
+      return ctx.nested ? [el('br')] : [el('p', buildAttrs(nd), [el('br')])]
+    }
+    const style = lineStyle ? styleText(lineDecls(styleMap(attrOf(nd, 'style')))) : null
+    if (ctx.nested && !ctx.flowBlocks) return kids
+    return [el('p', buildAttrs(nd, { style }), kids)]
+  }
+  return carryIdentity(nd, settleFlow(kids, 'box'))
+}
+
+/** 表を組み直す。 */
+function convertTable(nd, ctx) {
+  const before = []
+  const rows = []
+  const cols = []
+  const cctx = { ...ctx, nested: true, inTable: true, pct: ctx.pct }
+  const takeRow = (tr) => {
+    const cells = []
+    for (const c of tr.kids) {
+      if (c.t === 'el' && (c.name === 'td' || c.name === 'th')) cells.push(convertCell(c, cctx))
+      else if (c.t === 'el' || (c.t === 'text' && /\S/.test(c.raw))) {
+        // セルの外の文字は直前のセルへ（文字は消さない）
+        const conv = convertNode(c, cctx)
+        if (cells.length) cells[cells.length - 1].kids.push(...conv)
+        else cells.push(el('td', [{ name: 'contenteditable', value: 'true' }], conv))
+      }
+    }
+    rows.push({ tr, cells })
+  }
+  const walk = (kids) => {
+    for (const c of kids) {
+      if (c.t !== 'el') {
+        if (c.t === 'text' && /\S/.test(c.raw)) before.push(el('p', [], [c]))
+        continue
+      }
+      if (c.name === 'tr') takeRow(c)
+      else if (c.name === 'tbody' || c.name === 'thead' || c.name === 'tfoot') walk(c.kids)
+      else if (c.name === 'colgroup') {
+        const span = parseInt(attrOf(c, 'span'), 10)
+        const own = c.kids.filter((k) => k.t === 'el' && k.name === 'col')
+        if (own.length) own.forEach((col) => cols.push(...colWidths(col)))
+        else cols.push(...colWidths(c, Number.isInteger(span) && span > 0 ? span : 1))
+      } else if (c.name === 'col') cols.push(...colWidths(c))
+      else if (c.name === 'td' || c.name === 'th') takeRow(el('tr', [], [c]))
+      else if (c.name === 'caption') before.push(...convertContainer(c, { ...ctx, nested: false }))
+      else before.push(...convertNode(c, ctx))
+    }
+  }
+  walk(nd.kids)
+  if (!rows.length) return [...before]
+
+  // 長方形にする（足りない枠は空のセルで埋める）
+  const occupied = []
+  let width = 0
+  rows.forEach(({ cells }, r) => {
+    occupied[r] = occupied[r] || []
+    let c = 0
+    for (const cell of cells) {
+      while (occupied[r][c]) c++
+      const cs = cellSpanOf(cell, 'colspan')
+      const rs = Math.min(cellSpanOf(cell, 'rowspan'), rows.length - r)
+      if (rs > 1) setSpan(cell, 'rowspan', rs)
+      else setSpan(cell, 'rowspan', 1)
+      for (let dr = 0; dr < rs; dr++) {
+        occupied[r + dr] = occupied[r + dr] || []
+        for (let dc = 0; dc < cs; dc++) occupied[r + dr][c + dc] = true
+      }
+      c += cs
+    }
+    width = Math.max(width, occupied[r].length)
+  })
+  rows.forEach(({ cells }, r) => {
+    const filled = occupied[r].filter(Boolean).length
+    for (let k = filled; k < width; k++) cells.push(el('td', [{ name: 'contenteditable', value: 'true' }], [el('br')]))
+  })
+
+  const out = []
+  if (cols.length === width && cols.every((w) => w && w.unit === cols[0].unit)) {
+    const sum = cols.reduce((a, w) => a + w.n, 0)
+    if (sum > 0) out.push(el('colgroup', [], cols.map((w) => el('col', [{ name: 'style', value: `width: ${(w.n / sum * 100).toFixed(4)}%` }]))))
+  }
+  out.push(el('tbody', [], rows.map(({ tr, cells }) => el('tr', functionalAttrs(tr), cells))))
+  return [...before, el('table', buildAttrs(nd, { cls: 'kuro-table' }), out)]
+}
+
+function colWidths(col, count = null) {
+  const span = count ?? (parseInt(attrOf(col, 'span'), 10) || 1)
+  const raw = styleMap(attrOf(col, 'style')).get('width') ?? attrOf(col, 'width')
+  let w = null
+  const m = /^([\d.]+)\s*(px|%)?$/.exec(String(raw ?? '').trim())
+  if (m && parseFloat(m[1]) > 0) w = { n: parseFloat(m[1]), unit: m[2] || 'px' }
+  return Array.from({ length: Math.max(1, Math.min(span, 1000)) }, () => w)
+}
+
+function cellSpanOf(cell, name) {
+  const v = attrOf(cell, name)
+  return /^\d+$/.test(String(v ?? '')) && Number(v) > 0 ? Math.min(Number(v), 1000) : 1
+}
+
+function setSpan(cell, name, v) {
+  cell.attrs = cell.attrs.filter((a) => a.name !== name)
+  if (v > 1) cell.attrs.push({ name, value: String(v) })
+}
+
+function convertCell(nd, ctx) {
+  const sm = styleMap(attrOf(nd, 'style'))
+  const decls = []
+  const bg = cssColor(sm.get('background-color') ?? sm.get('background') ?? attrOf(nd, 'bgcolor'))
+  if (bg) decls.push(['background-color', bg])
+  const fg = cssColor(sm.get('color'))
+  if (fg) decls.push(['color', fg])
+  const all = sm.get('border')
+  for (const side of ['top', 'right', 'bottom', 'left']) {
+    const b = borderValue(sm.get(`border-${side}`) ?? all)
+    if (b) decls.push([`border-${side}`, b])
+  }
+  const va = String(sm.get('vertical-align') ?? attrOf(nd, 'valign') ?? '').toLowerCase()
+  if (VALIGNS.has(va)) decls.push(['vertical-align', va])
+  const al = alignValue(sm.get('text-align') ?? attrOf(nd, 'align'))
+  if (al) decls.push(['text-align', al])
+  const lh = lineHeightValue(sm.get('line-height'))
+  if (lh) decls.push(['line-height', lh])
+  const extra = []
+  const cs = cellSpanOf(nd, 'colspan')
+  if (cs > 1) extra.push({ name: 'colspan', value: String(cs) })
+  const rs = cellSpanOf(nd, 'rowspan')
+  if (rs > 1) extra.push({ name: 'rowspan', value: String(rs) })
+  extra.push({ name: 'contenteditable', value: 'true' })
+  let kids = settleFlow(convertKids(nd.kids, ctx), 'free').map((k) => (k.t === 'el' && k.name === 'p' ? settleEmptyLine(k, false) ?? el('br') : k))
+  if (kids.every(isEmptyInline)) kids = [el('br')]
+  const cell = el(nd.name, buildAttrs(nd, { style: styleText(decls), extra }), kids)
+  cell.attrs = cell.attrs.filter((a) => !['colspan', 'rowspan'].includes(a.name) || extra.some((e) => e.name === a.name))
+  return cell
+}
+
+function convertList(nd, ctx) {
+  const sm = styleMap(attrOf(nd, 'style'))
+  const isOl = nd.name === 'ol'
+  const cls = classesOf(nd)
+  let kind = null
+  for (const c of cls) {
+    const m = isOl ? /^kuro-list-(.+)$/.exec(c) : /^kuro-ul-(.+)$/.exec(c)
+    if (m && (isOl ? OL_STYLES : UL_STYLES).has(m[1])) kind = m[1]
+  }
+  if (!kind) {
+    const lst = String(sm.get('list-style-type') ?? sm.get('list-style') ?? attrOf(nd, 'type') ?? '').toLowerCase().trim()
+    if (isOl) {
+      if (/alpha|latin|^a$/i.test(lst)) kind = 'alpha'
+      else if (/katakana/.test(lst)) kind = 'kata'
+      else if (lst === 'none') kind = 'none'
+    } else if (['disc', 'circle', 'square', 'none'].includes(lst)) kind = lst
+  }
+  const decls = []
+  const ml = indentValue(sm.get('margin-left'))
+  if (ml) decls.push(['margin-left', ml])
+  if (isOl) {
+    const mc = cssColor(sm.get('--kuro-marker-color'))
+    if (mc) decls.push(['--kuro-marker-color', mc])
+  }
+  const extra = []
+  if (isOl) {
+    const st = attrOf(nd, 'start')
+    if (/^-?\d+$/.test(String(st ?? '')) && Number(st) !== 1) extra.push({ name: 'start', value: String(Number(st)) })
+  }
+  const lctx = { ...ctx, nested: true }
+  const items = []
+  let loose = []
+  const flushLoose = () => {
+    if (!loose.length) return
+    if (!loose.every(isEmptyInline)) items.push(el('li', [], loose))
+    loose = []
+  }
+  for (const k of nd.kids) {
+    if (k.t === 'el' && k.name === 'li') { flushLoose(); items.push(...convertNode(k, lctx)); continue }
+    const conv = convertNode(k, lctx)
+    for (const c of conv) {
+      if (c.t === 'el' && (c.name === 'ul' || c.name === 'ol') && !loose.length && items.length) {
+        items[items.length - 1].kids.push(c)   // 項目の外の入れ子 → 直前の項目の子
+      } else if (c.t === 'el' && c.name === 'li') { flushLoose(); items.push(c) } else loose.push(c)
+    }
+  }
+  flushLoose()
+  if (!items.length) return []
+  const prefix = isOl ? 'kuro-list-' : 'kuro-ul-'
+  return [el(nd.name, buildAttrs(nd, { cls: kind ? prefix + kind : null, style: styleText(decls), extra }), items)]
+}
+
+/** 1 つの節を、エディタの形の節の並びへ。 */
+function convertNode(nd, ctx) {
+  if (nd.t === 'text') return [nd]
+  if (nd.t === 'comment') return /^\s*kuro(?:cms)?[-:]/i.test(nd.data) ? [nd] : []
+  const name = nd.name
+
+  // エディタ自身の部品（data-kuro-*）は中まで触らない
+  if (nd.attrs.some((a) => a.name.startsWith('data-kuro'))) return [{ t: 'raw', html: serializeOriginal(nd), block: !INLINE_NAMES.has(name) }]
+
+  // 知らない名前: `-` 付きは独自要素なので外す。無いものは文中の山括弧の書き損じ → 文字に戻す
+  if (!HTML_NAMES.has(name)) {
+    const kids = convertKids(nd.kids, ctx)
+    if (name.includes('-')) return kids
+    const attrs = nd.attrs.map((a) => (a.value === null ? ` ${a.name}` : ` ${a.name}="${a.value}"`)).join('')
+    const open = { t: 'text', raw: `&lt;${name}${attrs.replace(/</g, '&lt;')}&gt;` }
+    return nd.closed ? [open, ...kids, { t: 'text', raw: `&lt;/${name}&gt;` }] : [open, ...kids]
+  }
+
+  switch (name) {
+    case 'p': case 'h1': case 'h2': case 'h3': case 'h4': case 'h5': case 'h6': {
+      const heading = HEADINGS.has(name)
+      const sm = styleMap(attrOf(nd, 'style'))
+      const kids = convertKids(nd.kids, { ...ctx, inHeading: ctx.inHeading || heading })
+      const line = el(name, buildAttrs(nd, { style: styleText(lineDecls(sm)) }), kids)
+      return splitLine(line).flatMap((b) => {
+        if (b.t !== 'el' || (b.name !== 'p' && !HEADINGS.has(b.name))) return [b]
+        if (b.kids.some(isBlockNode)) return [b]
+        const s = settleEmptyLine(b, ctx.nested)
+        return s ? [s] : []
+      })
+    }
+    case 'div': {
+      const cls = classesOf(nd)
+      if (cls.includes('kuro-callout')) {
+        let type = 'note'
+        for (const c of cls) {
+          const m = /^kuro-callout--(.+)$/.exec(c)
+          if (m) type = CALLOUT_TYPES.has(m[1]) ? m[1] : (CALLOUT_NEAR[m[1]] ?? type)
+        }
+        const kids = settleFlow(convertKids(nd.kids, { ...ctx, nested: false }), 'box')
+        return [el('div', buildAttrs(nd, { cls: `kuro-callout kuro-callout--${type}` }), kids.length ? kids : [el('p', [], [el('br')])])]
+      }
+      if (cls.includes('kuro-roundbox')) {
+        const alRaw = String(attrOf(nd, 'data-align') ?? '').toLowerCase()
+        const align = ['left', 'center', 'right'].includes(alRaw) ? alRaw : 'center'
+        const wRaw = parseFloat(attrOf(nd, 'data-width') ?? styleMap(attrOf(nd, 'style')).get('width') ?? '100')
+        const w = `${nearest(BOX_WIDTHS, Number.isFinite(wRaw) ? wRaw : 100)}%`
+        const style = align === 'left' ? `width: ${w}; float: left; margin: 0 1em 1em 0`
+          : align === 'right' ? `width: ${w}; float: right; margin: 0 0 1em 1em`
+          : `width: ${w}; display: block; margin: 0 auto`
+        const attrs = buildAttrs(nd, { cls: 'kuro-roundbox', style, extra: [{ name: 'data-align', value: align }, { name: 'data-width', value: w }] })
+        const kids = settleFlow(convertKids(nd.kids, { ...ctx, nested: false }), 'box')
+        return [el('div', attrs, kids.length ? kids : [el('p', [], [el('br')])])]
+      }
+      return convertContainer(nd, ctx)
+    }
+    case 'blockquote': {
+      const kids = settleFlow(convertKids(nd.kids, { ...ctx, nested: false }), 'free')
+      return kids.every(isEmptyInline) ? kids.filter((k) => k.t === 'comment') : [el('blockquote', buildAttrs(nd), kids)]
+    }
+    case 'ul': case 'ol': case 'dir': case 'menu':
+      return convertList(name === 'ol' ? nd : { ...nd, name: 'ul' }, ctx)
+    case 'li': {
+      const sm = styleMap(attrOf(nd, 'style'))
+      const extra = []
+      const v = attrOf(nd, 'value')
+      if (/^-?\d+$/.test(String(v ?? ''))) extra.push({ name: 'value', value: String(Number(v)) })
+      const kids = settleFlow(convertKids(nd.kids, { ...ctx, nested: true }), 'free')
+        .flatMap((k) => (k.t === 'el' && k.name === 'p' && !k.kids.some(isBlockNode) ? [settleEmptyLine(k, false) ?? null].filter(Boolean) : [k]))
+      return [el('li', buildAttrs(nd, { style: styleText(lineDecls(sm, { indent: false })), extra }), kids)]
+    }
+    case 'table':
+      return convertTable(nd, ctx)
+    case 'tbody': case 'thead': case 'tfoot': case 'tr': case 'td': case 'th': case 'caption':
+      // 表の外に出てきた表の部品 → 表に入れ直す
+      return convertTable(el('table', [], [nd]), ctx)
+    case 'colgroup': case 'col':
+      return []
+    case 'pre': {
+      let text = nd.kids.map(rawText).join('')
+      if (nd.kids[0]?.t === 'text' && nd.kids[0].raw.startsWith('\n')) text = text.slice(1)
+      text = text.replace(/\r\n?/g, '\n')
+      const lines = Math.max(1, text.split('\n').length)
+      const gutter = Array.from({ length: lines }, (_, k) => k + 1).join('\n')
+      return [el('pre', buildAttrs(nd, { cls: 'kuro-code', extra: [{ name: 'data-gutter', value: gutter }] }), [el('code', [], [{ t: 'text', raw: text }])])]
+    }
+    case 'hr': {
+      const sm = styleMap(attrOf(nd, 'style'))
+      const c = cssColor(sm.get('border-top-color')) ?? cssColor(sm.get('border-color'))
+        ?? cssColor(borderColorOf(sm.get('border-top') ?? sm.get('border'))) ?? cssColor(sm.get('background-color'))
+        ?? cssColor(sm.get('color')) ?? cssColor(attrOf(nd, 'color'))
+      return [el('hr', buildAttrs(nd, { cls: 'kuro-hr', style: c ? `border-top-color: ${c}` : null }))]
+    }
+    case 'br': return [el('br')]
+    case 'wbr': return []
+    case 'img': {
+      const src = attrOf(nd, 'src')
+      if (!src) return []
+      const extra = [{ name: 'src', value: src }, { name: 'alt', value: attrOf(nd, 'alt') ?? '' }]
+      if (attrOf(nd, 'title')) extra.push({ name: 'title', value: attrOf(nd, 'title') })
+      return [el('img', buildAttrs(nd, { extra }))]
+    }
+    case 'video': case 'audio': {
+      const extra = []
+      for (const a of ['src', 'poster']) if (attrOf(nd, a)) extra.push({ name: a, value: attrOf(nd, a) })
+      extra.push({ name: 'controls', value: null })
+      const sources = nd.kids.filter((k) => k.t === 'el' && k.name === 'source' && attrOf(k, 'src'))
+        .map((k) => el('source', [{ name: 'src', value: attrOf(k, 'src') }, ...(attrOf(k, 'type') ? [{ name: 'type', value: attrOf(k, 'type') }] : [])]))
+      if (!extra.some((a) => a.name === 'src') && !sources.length) return []
+      return [el(name, buildAttrs(nd, { extra }), sources)]
+    }
+    case 'iframe': {
+      const extra = []
+      for (const a of ['src', 'width', 'height', 'allow', 'allowfullscreen', 'frameborder', 'loading', 'title', 'referrerpolicy']) {
+        const v = nd.attrs.find((x) => x.name === a)
+        if (v) extra.push({ name: a, value: v.value })
+      }
+      return [el('iframe', buildAttrs(nd, { extra }))]
+    }
+    case 'source': case 'track': case 'input': case 'param': case 'embed':
+      return []
+    case 'figure': {
+      const cls = classesOf(nd).filter((c) => /^kuro-media-wrap(--(left|right|center|video|audio|iframe))?$/.test(c))
+      if (!cls.includes('kuro-media-wrap')) return convertContainer(nd, ctx)
+      const w = String(styleMap(attrOf(nd, 'style')).get('width') ?? '')
+      const style = /^\d+(\.\d+)?%$/.test(w) && w !== '100%' ? `width: ${w}` : null
+      const kids = convertKids(nd.kids, ctx).filter((k) => !isBlank(k))
+      return [el('figure', buildAttrs(nd, { cls: cls.join(' '), style }), kids)]
+    }
+    case 'figcaption': case 'summary': case 'legend':
+      return convertContainer(nd, ctx, false)
+    case 'dl':
+      return carryIdentity(nd, settleFlow(convertKids(nd.kids, ctx), ctx.nested ? 'free' : 'box'))
+    case 'dt': {
+      const kids = convertKids(nd.kids, ctx)
+      if (kids.some(isBlockNode)) return carryIdentity(nd, settleFlow(kids, 'box'))
+      return kids.every(isEmptyInline) ? [] : [el('p', buildAttrs(nd), [el('strong', [], kids)])]
+    }
+    case 'dd': {
+      const kids = convertKids(nd.kids, ctx)
+      if (kids.some(isBlockNode)) return carryIdentity(nd, settleFlow(kids, 'box'))
+      return kids.every(isEmptyInline) ? [] : [el('p', buildAttrs(nd, { style: 'padding-left: 2em' }), kids)]
+    }
+    case 'address': case 'article': case 'aside': case 'body': case 'center': case 'details':
+    case 'dialog': case 'fieldset': case 'footer': case 'form': case 'header': case 'hgroup':
+    case 'html': case 'main': case 'nav': case 'search': case 'section': case 'listing':
+      return convertContainer(nd, ctx)
+    case 'textarea': {
+      // 書きかけの欄でも、中身は文字（約束 1）
+      const t = nd.kids.map(rawText).join('').replace(/</g, '&lt;')
+      return /\S/.test(t) ? [el('p', [], [{ t: 'text', raw: t }])] : []
+    }
+    case 'head': case 'script': case 'style': case 'template': case 'title': case 'meta': case 'link':
+    case 'base': case 'noscript': case 'svg': case 'math': case 'object': case 'applet': case 'frameset':
+    case 'frame': case 'noframes': case 'canvas': case 'datalist': case 'xmp': case 'plaintext':
+    case 'select': case 'optgroup': case 'map': case 'area': case 'keygen': case 'menuitem': case 'portal':
+      // 本文に置けないもの（R0 と同じ）。<select> の選択肢は文字ではなく欄の中身
+      if (name === 'xmp' || name === 'plaintext') return [el('p', [], [{ t: 'text', raw: nd.kids.map(rawText).join('') }])]
+      return []
+    // ── 書式 ──
+    case 'strong': case 'b': return convertInline(nd, ctx, 'strong')
+    case 'em': case 'i': return convertInline(nd, ctx, 'em')
+    case 'u': case 'ins': return convertInline(nd, ctx, 'u')
+    case 's': case 'strike': case 'del': return convertInline(nd, ctx, 's')
+    case 'code': case 'tt': case 'samp': case 'var': return convertInline(nd, ctx, 'code')
+    case 'kbd': return convertInline(nd, ctx, 'kbd')
+    case 'ruby': {
+      const size = classesOf(nd).find((c) => c === 'kuro-ruby--sm' || c === 'kuro-ruby--lg')
+      return convertInline(nd, ctx, 'ruby', size ? [{ name: 'class', value: size }] : [])
+    }
+    case 'rt': return convertInline(nd, ctx, 'rt')
+    case 'rp': return convertInline(nd, ctx, 'rp')
+    case 'rb': case 'rtc': return convertInline(nd, ctx, null)
+    case 'a': {
+      const href = attrOf(nd, 'href')
+      if (!href) return convertInline(nd, ctx, null)
+      const extra = [{ name: 'href', value: href }]
+      if (String(attrOf(nd, 'target') ?? '').toLowerCase() === '_blank') extra.push({ name: 'target', value: '_blank' })
+      const rel = String(attrOf(nd, 'rel') ?? '').toLowerCase().split(/\s+/).filter((r) => ['noopener', 'noreferrer', 'nofollow', 'ugc', 'sponsored'].includes(r))
+      if (rel.length) extra.push({ name: 'rel', value: rel.join(' ') })
+      if (attrOf(nd, 'title')) extra.push({ name: 'title', value: attrOf(nd, 'title') })
+      const keep = buildAttrs(nd, { extra })
+      return convertInline({ ...nd, attrs: nd.attrs.filter((a) => !keep.some((k) => k.name === a.name) || a.name === 'style') }, ctx, 'a', keep)
+    }
+    case 'option':
+      return []
+    default:
+      // span・font・small・mark・button・label… 意味を持たない包み → 書式だけ残して外す
+      return convertInline(nd, ctx, null)
+  }
+}
+
+function borderColorOf(v) {
+  if (!v) return null
+  for (const p of String(v).split(/\s+(?![^(]*\))/)) if (cssColor(p) && !BORDER_STYLES.has(p.toLowerCase()) && p.toLowerCase() !== 'none') return p
+  return null
+}
+
+/**
+ * 本文 HTML を KuroEditor の形にする（上の一覧）。冪等。
+ * @param {string} html
+ * @returns {string}
+ */
+export function conformContentHtml(html) {
+  if (typeof html !== 'string' || html === '') return html ?? ''
+  const root = parseLoose(html)
+  const kids = settleFlow(convertKids(root.kids, { pct: 100, inHeading: false, nested: false }), 'root')
+  // 段落の中の空白だけの段落など、最後に空になったものを落とす
+  return sanitizeContentHtml(serializeNodes(kids))
+}
+
+// ── public API ────────────────────────────────────────────────────────────────
+
+/**
+ * 本文 HTML を KuroEditor の形にする（{@link conformContentHtml}）。
+ * 以前の名前のまま残す（KuroCMS・Admin がこの名前で呼ぶ）。
+ * @param {string} html
+ * @param {object} [_opts]  以前の clipboardRepair。いまは意味を持たない（常に形へ揃える）
+ * @returns {string}
+ */
+export function normalizeContentHtml(html, _opts = {}) {
+  return conformContentHtml(html)
+}
+
+/**
+ * {@link normalizeContentHtml} が何を変えるかを、変えずに数える（保守画面の予告）。
+ * 正は `changed`。内訳は目安（文字列で数える）。
+ * @param {string} html
+ */
+export function inspectContentHtml(html, _opts = {}) {
   const stats = {
     bTags: 0, boldSpans: 0, divBlocks: 0, emptyBlocks: 0,
     blockDecor: 0, nestedBlocks: 0, unsafe: 0, changed: false,
   }
   if (typeof html !== 'string' || html === '') return stats
-  // R0 は壊れた HTML にも掛かるので、木を作る前に数える
   if (html.includes('<')) stats.unsafe = sanitizeWithCount(html).removed
-  const { root, ok } = parseTree(html)
-  if (!ok) return stats
-  const walk = (children, topLevel) => {
-    for (const node of children) {
-      if (node.type !== 'el' || OPAQUE_TAGS.has(node.name)) continue
-      // Counted independently of the chain below: an element can both carry a
-      // foreign size AND hold blocks, and each is a separate repair.
-      if (clipboardRepair && BLOCK_DECOR_TAGS.has(node.name) &&
-          stripStyleProps(node.attrs, FOREIGN_BLOCK_DECOR) !== node.attrs) stats.blockDecor++
-      if (clipboardRepair && PHRASING_ONLY_TAGS.has(node.name) && hasBlockChild(node)) stats.nestedBlocks++
-      if (node.name === 'b') stats.bTags++
-      else if (isBoldOnlySpan(node)) stats.boldSpans++
-      else if (node.name === 'div' || node.name === 'p') {
-        const kind = blankKind(node.children)
-        if (kind !== 'content') { if (node.name === 'div' || !topLevel) stats.emptyBlocks++ }
-        else if (node.name === 'div') stats.divBlocks++
-      }
-      walk(node.children, false)
-    }
-  }
-  walk(root.children, true)
-  stats.changed = normalizeContentHtml(html, opts) !== html
+  const count = (re) => (html.match(re) || []).length
+  stats.bTags = count(/<b[\s>]/gi)
+  stats.boldSpans = count(/<span\b[^>]*font-weight\s*:\s*(?:bold|bolder|[6-9]00)/gi)
+  stats.divBlocks = count(/<div(?![^>]*\bkuro-)(?![^>]*data-kuro)[\s>]/gi)
+  stats.emptyBlocks = count(/<(p|div)\b[^>]*>\s*(?:<br\s*\/?>\s*)*<\/\1>/gi)
+  stats.blockDecor = count(/<(?:p|li|h[1-6]|ol|ul|td|th|div)\b[^>]*style="[^"]*font-(?:size|weight)/gi)
+  stats.nestedBlocks = count(/<(?:p|h[1-6])\b[^>]*>(?:(?!<\/(?:p|h[1-6])>)[\s\S])*?<(?:p|div|ul|ol|table|h[1-6])[\s>]/gi)
+  stats.changed = normalizeContentHtml(html) !== html
   return stats
 }

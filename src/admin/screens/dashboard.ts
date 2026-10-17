@@ -715,7 +715,8 @@ function setupGuardianPanel() {
   const show = (val: Dynamic) => (val ? "v" + val : "v—");
   const fill = (template: string, r: Dynamic) =>
     template
-      .replace("{from}", r.from ? "v" + r.from : "v—")
+      // 版を名乗れない古い番人からの更新は "v—" ではなく「古い版」と書く
+      .replace("{from}", r.from ? "v" + r.from : t("guardianLegacyVersion"))
       .replace("{to}", r.to ? "v" + r.to : "v—")
       .replace("{error}", String(r.error ?? ""))
       .replace("{when}", r.at ? new Date(String(r.at)).toLocaleString() : "");
