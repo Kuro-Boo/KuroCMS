@@ -754,6 +754,11 @@ function setupGuardianPanel() {
       if (btn)
         btn.textContent = g.hasUpdate ? t("updateNow") : t("checkForUpdate");
       if (g.legacy) lines.push(t("guardianLegacy"));
+      // 選んだ側の版が、上げられる最初の版より前。押しても何も起きない理由を出す。
+      if (g.checkOk && !g.hasUpdate && g.legacy)
+        lines.push(
+          t("guardianTargetTooOld").replace("{min}", "v" + g.minTarget),
+        );
       if (!g.checkOk) lines.push(t("guardianCheckFailed"));
     }
     const ch = byId("guardianChannelToggle") as HTMLInputElement | null;

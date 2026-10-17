@@ -204,6 +204,8 @@ export async function guardianInfo(
     current,
     // 版を名乗れない古い番人(受け口が無い)。更新すれば名乗るようになる。
     legacy: !status,
+    // これより前の版へは上げない(canUpdate)。安定版がまだ届いていないときの案内に使う。
+    minTarget: PEER_SINCE,
     selfUpdate: status?.selfUpdate ?? null,
     stable,
     latest,

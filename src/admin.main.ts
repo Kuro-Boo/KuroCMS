@@ -1130,6 +1130,8 @@ const i18n = {
       "The Cloudflare credentials for updates are not set, so WorkerOps cannot be updated from here.",
     guardianLegacy:
       "This WorkerOps is too old to report its version. Updating it once makes the version visible.",
+    guardianTargetTooOld:
+      "The selected channel has no version it can update to yet ({min} or later). To try it now, turn on “Always update to latest”.",
     guardianCheckFailed:
       "Could not check the WorkerOps versions. This does NOT mean it is up to date.",
     guardianResultUpdated: "Updated WorkerOps {from} → {to} ({when}).",
@@ -2209,6 +2211,8 @@ const i18n = {
       "更新用の Cloudflare の資格情報が設定されていないため、ここからは WorkerOps を更新できません。",
     guardianLegacy:
       "この WorkerOps は古く、版を名乗れません。一度更新すると版が表示されるようになります。",
+    guardianTargetTooOld:
+      "選んでいる側には、まだ上げられる版（{min} 以降）がありません。今すぐ試すなら「常に最新版に更新」をオンにしてください。",
     guardianCheckFailed:
       "WorkerOps の版を確認できませんでした。「最新です」という意味ではありません。",
     guardianResultUpdated:
