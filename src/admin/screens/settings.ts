@@ -773,14 +773,14 @@ async function settings() {
       "<div class='muted' style='font-size:13px;line-height:1.7'>" +
       escapeHtml(t("ipGateHelp")) +
       "</div>" +
-      "<label style='flex-direction:row;align-items:center;gap:8px;cursor:pointer'>" +
-      "<input id='ipGateEnabled' type='checkbox' style='width:auto;margin:0' />" +
+      "<div style='display:flex;align-items:center;justify-content:space-between;gap:12px'>" +
+      "<span style='font-weight:600;font-size:13px'>" +
       escapeHtml(t("ipGateEnabled")) +
-      "</label>" +
-      "<label style='flex-direction:row;align-items:center;gap:8px;cursor:pointer'>" +
-      "<input id='ipGatePat' type='checkbox' style='width:auto;margin:0' />" +
+      "</span><label class='toggleSwitch'><input type='checkbox' id='ipGateEnabled' /><span class='toggleSlider'></span></label></div>" +
+      "<div style='display:flex;align-items:center;justify-content:space-between;gap:12px'>" +
+      "<span style='font-weight:600;font-size:13px'>" +
       escapeHtml(t("ipGatePat")) +
-      "</label>" +
+      "</span><label class='toggleSwitch'><input type='checkbox' id='ipGatePat' /><span class='toggleSlider'></span></label></div>" +
       "<div class='muted' style='font-size:12px'>" +
       escapeHtml(t("ipGatePatHelp")) +
       "</div>" +
