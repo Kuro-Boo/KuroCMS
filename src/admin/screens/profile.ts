@@ -126,6 +126,12 @@ async function profile() {
       "</p><form class='toolbar' id='addPasskeyForm'><button>" +
       escapeHtml(t("addPasskey")) +
       "</button></form><div id='passkeyList' class='tokenList'></div></div>" +
+      // ── 登録した回線(IP 制限・ip-gate.ts)。登録は全自動で、ここは見て外すだけ ──
+      "<div class='panel stack' id='networkPanel'><h3>" +
+      escapeHtml(t("myNetworks")) +
+      "</h3><p class='muted' style='margin:-4px 0 2px'>" +
+      escapeHtml(t("myNetworksLead")) +
+      "</p><div id='networkList' class='tokenList'></div></div>" +
       "</div></div>",
   );
   byId("logoutBtn")?.addEventListener("click", async () => {
@@ -638,6 +644,77 @@ async function profile() {
       toast(errorMessage(error), true, revokeButton);
     }
   });
+  // ── 登録した回線(IP 制限) ───────────────────────────────────────────────
+  async function loadNetworks() {
+    const listEl = byId("networkList");
+    if (!listEl || state.preview) return;
+    let data: Dynamic;
+    try {
+      data = await api("/api/auth/networks");
+    } catch {
+      return;
+    }
+    const panel = byId("networkPanel");
+    if (panel && data.enabled === false) {
+      listEl.innerHTML =
+        "<div class='tokenMeta'>" + escapeHtml(t("myNetworksOff")) + "</div>";
+      return;
+    }
+    const cur = data.current ? data.current.net : "";
+    listEl.innerHTML =
+      (data.networks || [])
+        .map(function (n: Dynamic) {
+          const meta =
+            escapeHtml(t("networkLastUsed")) +
+            " " +
+            escapeHtml(formatDateTime(new Date(n.last_seen_at).toISOString())) +
+            " · " +
+            escapeHtml(t("networkExpires")) +
+            " " +
+            escapeHtml(formatDateTime(new Date(n.expires_at).toISOString()));
+          return (
+            "<div class='tokenRow'><div><b>" +
+            escapeHtml(n.net) +
+            "</b>" +
+            (n.label
+              ? " <span class='tokenMeta'>" + escapeHtml(n.label) + "</span>"
+              : "") +
+            (n.net === cur
+              ? " <span class='tokenMeta' style='color:var(--brand,#157a6e);font-weight:600'>（" +
+                escapeHtml(t("networkCurrent")) +
+                "）</span>"
+              : "") +
+            "<div class='tokenMeta'>" +
+            meta +
+            "</div></div><div><button class='danger' data-remove-network='" +
+            escapeHtml(n.id) +
+            "'>&#128465; " +
+            escapeHtml(t("delete")) +
+            "</button></div></div>"
+          );
+        })
+        .join("") ||
+      "<div class='tokenMeta'>" + escapeHtml(t("noDocuments")) + "</div>";
+    listEl
+      .querySelectorAll<AdminElement>("[data-remove-network]")
+      .forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          if (!confirm(t("networkRemoveConfirm"))) return;
+          try {
+            await api(
+              "/api/auth/networks/" +
+                encodeURIComponent(btn.dataset.removeNetwork || ""),
+              { method: "DELETE" },
+            );
+            await loadNetworks();
+          } catch (err) {
+            toast(errorMessage(err), true, btn);
+          }
+        });
+      });
+  }
+  loadNetworks();
+
   // ── Passkey (device) management ────────────────────────────────────────
   async function loadPasskeys() {
     const listEl = byId("passkeyList");

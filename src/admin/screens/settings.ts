@@ -220,7 +220,7 @@ async function settings() {
         : "";
   }
 
-  const tabBar = ["basic", "sns", "mobile", "license", "import"]
+  const tabBar = ["basic", "sns", "mobile", "license", "import", "ipgate"]
     .map((id) => {
       const labels: Record<string, string> = {
         basic: t("settingsTabBasic"),
@@ -228,6 +228,7 @@ async function settings() {
         mobile: t("settingsTabMobile"),
         license: t("settingsTabLicense"),
         import: t("settingsTabImport"),
+        ipgate: t("settingsTabIpGate"),
       };
       return (
         "<button type='button' class='settingsTab" +
@@ -759,6 +760,93 @@ async function settings() {
       "</div>" +
       "</div>",
   );
+
+  // ── IP 制限(接続元の登録・ip-gate.ts) ────────────────────────────────
+  // 登録は全自動。ここで決めるのは入・切と、PAT を縛るか、期限の日数だけ。
+  byId("panel-import")?.insertAdjacentHTML(
+    "afterend",
+    "<div id='panel-ipgate' class='settingsPanel' style='display:none'>" +
+      "<form class='panel stack' id='ipGateForm'>" +
+      "<div class='panelHead'><h3>" +
+      escapeHtml(t("ipGateTitle")) +
+      "</h3></div>" +
+      "<div class='muted' style='font-size:13px;line-height:1.7'>" +
+      escapeHtml(t("ipGateHelp")) +
+      "</div>" +
+      "<label style='flex-direction:row;align-items:center;gap:8px;cursor:pointer'>" +
+      "<input id='ipGateEnabled' type='checkbox' style='width:auto;margin:0' />" +
+      escapeHtml(t("ipGateEnabled")) +
+      "</label>" +
+      "<label style='flex-direction:row;align-items:center;gap:8px;cursor:pointer'>" +
+      "<input id='ipGatePat' type='checkbox' style='width:auto;margin:0' />" +
+      escapeHtml(t("ipGatePat")) +
+      "</label>" +
+      "<div class='muted' style='font-size:12px'>" +
+      escapeHtml(t("ipGatePatHelp")) +
+      "</div>" +
+      "<div style='display:flex;gap:12px;flex-wrap:wrap'>" +
+      "<label style='flex:1;min-width:160px'>" +
+      escapeHtml(t("ipGateTtlV6")) +
+      "<input id='ipGateTtlV6' type='number' min='1' max='90' /></label>" +
+      "<label style='flex:1;min-width:160px'>" +
+      escapeHtml(t("ipGateTtlV4")) +
+      "<input id='ipGateTtlV4' type='number' min='1' max='90' /></label>" +
+      "</div>" +
+      "<div class='muted' style='font-size:12px'>" +
+      escapeHtml(t("ipGateTtlHelp")) +
+      "</div>" +
+      "<div class='muted' id='ipGateCurrent' style='font-size:12px'></div>" +
+      "<button>" +
+      escapeHtml(t("save")) +
+      "</button>" +
+      "</form></div>",
+  );
+  async function loadIpGate() {
+    try {
+      const r = await api("/api/system/ip-gate");
+      const c = r.config || {};
+      (byId("ipGateEnabled") as Dynamic).checked = c.enabled !== false;
+      (byId("ipGatePat") as Dynamic).checked = c.pat === true;
+      (byId("ipGateTtlV6") as Dynamic).value = String(c.ttl_v6_days ?? 30);
+      (byId("ipGateTtlV4") as Dynamic).value = String(c.ttl_v4_days ?? 7);
+      const cur = byId("ipGateCurrent");
+      if (cur)
+        cur.textContent = r.current
+          ? t("ipGateCurrent").replace(
+              "{net}",
+              r.current.net + (r.current.label ? " · " + r.current.label : ""),
+            )
+          : "";
+    } catch (err) {
+      toast(errorMessage(err), true);
+    }
+  }
+  byId("ipGateForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const btn = (e.target as Dynamic).querySelector("button");
+    if (state.preview) {
+      toast(t("previewReadOnly"), false, btn);
+      return;
+    }
+    const enabled = (byId("ipGateEnabled") as Dynamic).checked;
+    if (!enabled && !confirm(t("ipGateOffConfirm"))) return;
+    try {
+      await api("/api/system/ip-gate", {
+        method: "PUT",
+        body: JSON.stringify({
+          enabled,
+          pat: (byId("ipGatePat") as Dynamic).checked,
+          ttl_v6_days: Number((byId("ipGateTtlV6") as Dynamic).value),
+          ttl_v4_days: Number((byId("ipGateTtlV4") as Dynamic).value),
+        }),
+      });
+      toast(t("saved"), false, btn);
+      await loadIpGate();
+    } catch (err) {
+      toast(errorMessage(err), true, btn);
+    }
+  });
+  loadIpGate();
 
   // Tab switching
   document.querySelectorAll<AdminElement>(".settingsTab").forEach((btn) => {

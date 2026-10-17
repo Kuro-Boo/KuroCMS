@@ -221,7 +221,9 @@ export function _buildUrlCard(slug, url) {
 }
 
 /** Shared [[...]] token regex — single-pass, order card > wiki > hyper. */
-export const LINK_TOKEN_RE = /\[\[\[([^\]]+)\]\]\]|\[\[([^\]|]+)\|([^\]]*)\]\]|\[\[([^\]]+)\]\]/g
+// ⚠ `<` `>` を跨がない（v2.44.0〜）。跨ぐと、表の 2 つのセルに分かれた `[[slug\` と `表示]]` が
+//   間のタグごと 1 つのリンクになり、保存でセルの境目が消えていた。
+export const LINK_TOKEN_RE = /\[\[\[([^\]<>]+)\]\]\]|\[\[([^\]|<>]+)\|([^\]<>]*)\]\]|\[\[([^\]<>]+)\]\]/g
 
 /**
  * Classify one [[...]] token into a host-agnostic descriptor. This is the
@@ -290,8 +292,10 @@ export function renderSpecialLinks(text, resolver = defaultResolver, supportedKi
   // ⚠ コメントの中は描き直さない（v2.43.1〜）。コメントは本文ではなく、中の `[[…]]` を
   //   リンクにするとコメントの中に <a> が入り、コメントの終わりまで壊れる
   //   （Google の AI の回答のコピーが `<!--TgQPHd|||[…]-->` を挟んでくる）。
-  if (text.includes('<!--')) {
-    return text.split(/(<!--[\s\S]*?(?:-->|--!>|$))/).map((part, i) =>
+  // ⚠ コードの中も描き直さない（v2.44.0〜）。<pre> / <code> の `[[…]]` は記法の説明として
+  //   書かれた文字で、リンクにすると保存のときに文字ごと消えていた（Admin の仕様で実例）。
+  if (/<!--|<pre[\s>]|<code[\s>]/i.test(text)) {
+    return text.split(/(<!--[\s\S]*?(?:-->|--!>|$)|<pre[\s>][\s\S]*?<\/pre>|<code[\s>][\s\S]*?<\/code>)/i).map((part, i) =>
       i % 2 ? part : renderSpecialLinks(part, resolver, supportedKinds)).join('')
   }
   return text.replace(LINK_TOKEN_RE, (match, card, wikiSlug, wikiLabel, hyper) => {

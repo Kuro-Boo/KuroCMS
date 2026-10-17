@@ -909,6 +909,33 @@ const i18n = {
     mobileSavedNeedsBuild:
       "Saved. Run a build (all pages) to apply it to the public site.",
     settingsTabImport: "Import",
+    settingsTabIpGate: "IP restriction",
+    ipGateTitle: "IP restriction (registered networks)",
+    ipGateHelp:
+      "The admin panel can be used only from networks registered for each user. Registration is automatic: the network you sign in from with your passkey is registered, and it stays registered while you keep using it. If a signed-in session is used from an unregistered network, it is blocked and a confirmation link is emailed to the user — so a stolen session cookie can't be used elsewhere.",
+    ipGateEnabled: "Turn on IP restriction",
+    ipGatePat: "Also restrict personal access tokens (PAT)",
+    ipGatePatHelp:
+      "Off by default: AI agents and MCP clients call the API from cloud networks whose addresses change every time.",
+    ipGateTtlV6: "Days an IPv6 network stays registered",
+    ipGateTtlV4: "Days an IPv4 address stays registered",
+    ipGateTtlHelp:
+      "Counted from the last use. A network unused for this long is removed and registered again the next time you sign in with your passkey.",
+    ipGateCurrent: "This network: {net}",
+    ipGateOffConfirm:
+      "Turn off IP restriction? A stolen session cookie could then be used from any network.",
+    saved: "Saved",
+    networkUnregistered:
+      "This network isn't registered for your account, so access was blocked. We emailed you a confirmation link. Signing in again with your passkey also registers this network.",
+    myNetworks: "Registered networks",
+    myNetworksLead:
+      "Networks registered automatically when you signed in with your passkey. The admin panel can only be used from these. Remove any you don't recognise.",
+    myNetworksOff: "IP restriction is turned off on this site.",
+    networkLastUsed: "Last used",
+    networkExpires: "Expires",
+    networkCurrent: "this network",
+    networkRemoveConfirm:
+      "Remove this network? Using the admin panel from it will require signing in with your passkey again.",
     blueskyHandle: "Bluesky Handle",
     blueskyHandleHelp: "Your Bluesky handle (e.g. yourname.bsky.social).",
     left: "Left",
@@ -1992,6 +2019,33 @@ const i18n = {
     mobileSavedNeedsBuild:
       "保存しました。公開ページに反映するにはビルド（全ページ）を実行してください。",
     settingsTabImport: "インポート",
+    settingsTabIpGate: "IP 制限",
+    ipGateTitle: "IP 制限（登録した回線）",
+    ipGateHelp:
+      "管理画面は、利用者ごとに登録した回線からしか使えません。登録は全自動です。パスキーでログインした回線が登録され、使い続ける間は登録が延びます。ログイン済みの状態が登録していない回線から使われると止め、本人へ確認のリンクをメールします。盗まれたログインの状態（クッキー）を、ほかの場所で使わせません。",
+    ipGateEnabled: "IP 制限を入れる",
+    ipGatePat: "個人用アクセストークン（PAT）も制限する",
+    ipGatePatHelp:
+      "既定は切です。AI のエージェントや MCP は、毎回アドレスの変わるクラウドの回線から API を呼ぶためです。",
+    ipGateTtlV6: "IPv6 の回線を登録しておく日数",
+    ipGateTtlV4: "IPv4 のアドレスを登録しておく日数",
+    ipGateTtlHelp:
+      "最後に使ってからの日数です。この間使わなかった回線は外れ、次にパスキーでログインしたときにまた登録されます。",
+    ipGateCurrent: "この回線: {net}",
+    ipGateOffConfirm:
+      "IP 制限を切りますか？ 盗まれたログインの状態が、どの回線からでも使えるようになります。",
+    saved: "保存しました",
+    networkUnregistered:
+      "この回線はあなたのアカウントに登録されていないため、止めました。確認のリンクをメールで送りました。パスキーでログインし直しても、この回線が登録されます。",
+    myNetworks: "登録した回線",
+    myNetworksLead:
+      "パスキーでログインしたときに自動で登録された回線です。管理画面はここにある回線からしか使えません。心当たりのないものは外してください。",
+    myNetworksOff: "このサイトでは IP 制限が切られています。",
+    networkLastUsed: "最後に使った日時",
+    networkExpires: "期限",
+    networkCurrent: "この回線",
+    networkRemoveConfirm:
+      "この回線を外しますか？ この回線から管理画面を使うには、パスキーでログインし直す必要があります。",
     blueskyHandle: "Blueskyハンドル",
     blueskyHandleHelp:
       "Blueskyのハンドル名（例: yourname.bsky.social）。空白で非表示。",
@@ -3260,6 +3314,11 @@ async function api(path: Dynamic, options: RequestInit = {}) {
     err.code = data?.error?.code;
     err.status = response.status;
     if (snippet) err.detail = snippet;
+    // 登録していない回線から使われた(IP 制限)。確認のメールは送ってあるので、
+    // ログインの画面へ戻して理由を出す。パスキーで入り直せば、この回線が登録される。
+    if (err.code === "network_unregistered") {
+      setTimeout(() => loginScreen(t("networkUnregistered")), 0);
+    }
     throw err;
   }
   return data;

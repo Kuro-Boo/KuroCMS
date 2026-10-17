@@ -108,6 +108,21 @@ import {
 } from "./templates/font-catalog";
 import type { AuthUser, Env, JsonValue } from "./types";
 import { handleMcp } from "./mcp";
+import {
+  currentNetwork,
+  handleNetworkConfirm,
+  listMyNetworks,
+  readIpGateConfig,
+  registerLoginNetwork,
+  removeMyNetwork,
+  writeIpGateConfig,
+  ipStore,
+} from "./ip-gate.ts";
+import {
+  registerConnection,
+  requestNetwork,
+  lineDescription,
+} from "./vendor/entamy-client/index.ts";
 import { unfurlVerify, unfurlUrlAllowed, fetchUnfurl } from "./unfurl";
 
 interface DocumentRow {
@@ -478,6 +493,13 @@ async function handleApiDispatch(
     if (request.method === "POST" && path === "/api/auth/recover/request") {
       return withJsonHeaders(await recoverRequest(request, env));
     }
+    // 新しい回線の確認のリンク(IP 制限・ip-gate.ts)。メールから開く公開の口。
+    if (
+      (request.method === "GET" || request.method === "POST") &&
+      path === "/api/auth/network/confirm"
+    ) {
+      return handleNetworkConfirm(request, env);
+    }
     const recoverTokenMatch = path.match(/^\/api\/auth\/recover\/([^/]+)$/);
     if (request.method === "GET" && recoverTokenMatch) {
       return withJsonHeaders(await getRecoverInfo(env, recoverTokenMatch[1]));
@@ -623,6 +645,61 @@ async function handleApiDispatch(
       }
       await env.PUBLIC_PAGES.put(AUTO_UPDATE_KEY, body.enabled ? "1" : "0");
       return json({ ok: true, autoUpdate: body.enabled });
+    }
+
+    // 接続元の登録(IP 制限・ip-gate.ts)。自分の回線の一覧と外す口、設定(管理者)。
+    if (request.method === "GET" && path === "/api/auth/networks") {
+      requireInteractiveUser(user);
+      return json({
+        networks: (await listMyNetworks(env, user.uid)) as unknown as JsonValue,
+        current: currentNetwork(request) as unknown as JsonValue,
+        enabled: (await readIpGateConfig(env)).enabled,
+      });
+    }
+    const networkMatch = path.match(/^\/api\/auth\/networks\/([^/]+)$/);
+    if (request.method === "DELETE" && networkMatch) {
+      requireInteractiveUser(user);
+      const removed = await removeMyNetwork(
+        env,
+        user.uid,
+        decodeURIComponent(networkMatch[1]),
+      );
+      if (removed) {
+        await logActivity(env, user, "auth.network_remove", "user", user.uid, {
+          id: networkMatch[1],
+        });
+      }
+      return json({ ok: removed });
+    }
+    if (request.method === "GET" && path === "/api/system/ip-gate") {
+      requireAdmin(user);
+      return json({
+        config: (await readIpGateConfig(env)) as unknown as JsonValue,
+        current: currentNetwork(request) as unknown as JsonValue,
+      });
+    }
+    if (request.method === "PUT" && path === "/api/system/ip-gate") {
+      requireAdmin(user);
+      requireInteractiveUser(user);
+      const before = await readIpGateConfig(env);
+      const cfg = await writeIpGateConfig(env, await readJson(request));
+      // 入れたときは、押した人のいまの回線を登録しておく(自分を締め出さない)。
+      const conn = requestNetwork(request);
+      if (cfg.enabled && conn) {
+        await registerConnection(
+          ipStore(env),
+          cfg,
+          user.uid,
+          conn,
+          lineDescription(request),
+          Date.now(),
+        );
+      }
+      await logActivity(env, user, "system.ip_gate", "system", "ip_gate", {
+        before: before as unknown as JsonValue,
+        after: cfg as unknown as JsonValue,
+      });
+      return json({ ok: true, config: cfg as unknown as JsonValue });
     }
 
     // 番人(WorkerOps)の更新は app が行う(cms-workerops・guardian-update.ts)。
@@ -1793,7 +1870,7 @@ const failureText = (err: unknown): string => {
  *   直さなければ黒兎側の枠を食い続ける。結果は [`MailDeliveryStatus`] に残し、
  *   画面が理由を出せるようにする（失敗を握り潰さない）。
  */
-async function sendMail(
+export async function sendMail(
   env: Env,
   msg: {
     to: string | string[];
@@ -2364,6 +2441,8 @@ async function passkeyRegisterComplete(
     resolvedUid,
     verifyResult.credentialId,
   );
+  // パスキーで入った回線を登録する(IP 制限・ip-gate.ts)。
+  await registerLoginNetwork(env, request, resolvedUid, resolvedEmail);
   const secure = new URL(request.url).protocol === "https:";
 
   const resp = json({ ok: true, uid: resolvedUid, email: resolvedEmail });
@@ -2520,6 +2599,8 @@ async function passkeyLoginComplete(
     passkeyRow.uid,
     passkeyRow.credential_id,
   );
+  // パスキーで入った回線を登録する(IP 制限・ip-gate.ts)。
+  await registerLoginNetwork(env, request, passkeyRow.uid, userRow.email);
   const secure = new URL(request.url).protocol === "https:";
 
   const resp = json({ ok: true, uid: passkeyRow.uid, email: userRow.email });

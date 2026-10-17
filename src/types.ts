@@ -46,7 +46,7 @@ export interface Env {
     release?(): Promise<void>;
   };
   /**
-   * メディア(R2)の保存上限(バイト)。Entamy 委託の導入にだけ受付が置く(1 導入 100 MB)。
+   * メディア(R2)の保存上限(バイト)。Entamy 委託の導入にだけ受付が置く(1 導入 10 GB)。
    * 未設定ならお客様自身の Cloudflare なので上限を掛けない。
    */
   MEDIA_QUOTA_BYTES?: string;

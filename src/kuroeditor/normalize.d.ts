@@ -24,41 +24,30 @@ export interface ContentHtmlStats {
 }
 
 /**
- * 本文 HTML を KuroEditor の正規形に揃える。
+ * 本文 HTML を KuroEditor の形にする（v2.44.0〜。{@link conformContentHtml} と同じ）。
  *
- * - `<b>` / font-weight だけの `<span>` → `<strong>`
- * - 段落の `<div>` → `<p>`（属性は保持）
- * - 素の `<div>` ブロックラッパー → unwrap（スタイル付きは保持）
- * - 空ブロック → トップレベルは `<p><br></p>`、入れ子は `<br>`
- * - ブロックに付いた `font-size` / `font-weight` → 除去（`<span>` のものは保持）
- * - ブロックを内包した見出し・段落 → 解いて兄弟に並べる（文字は落とさない、
- *   `data-bid` は 1 ブロックに 1 つだけ残す）
+ * エディタの形以外は、すべてエディタの形へ写す（2026-10-17 の決定）。
+ * - 文字は絶対に消さない（知らないタグは文字に戻す）
+ * - 選べない値は近いものへ（文字サイズ 7 段・行間 6 段・字下げ 2em 刻み…）。無ければ書かない
+ * - 機能の記法（data-*・id・kuro-/kurocms- のコメント・[[…]]）は残す。data-kuro-* の部品は中まで触らない
+ * - 書き出しはブラウザの innerHTML と同じ綴り（開いて保存しても変わらない）
+ * - R0（{@link sanitizeContentHtml}）を最後に掛ける。壊れた HTML も必ず形にする。冪等
  *
- * - R0: 動くもの・ページ全体に効くものを落とす（{@link sanitizeContentHtml}。最後に掛ける）
- *
- * `<pre>` / `<code>` 配下は形を触らない。壊れた HTML は形を推測して直さないが、
- * R0 だけは掛ける。冪等（2 回適用しても同じ）。
+ * `opts` は以前の clipboardRepair。いまは意味を持たない（常に形へ揃える）。
  */
 export function normalizeContentHtml(html: string, opts?: NormalizeOptions): string;
 
-/** normalizeContentHtml が何を変えるかを、変更せずに数える。 */
+/** 本文 HTML を KuroEditor の形にする（{@link normalizeContentHtml} の本体）。 */
+export function conformContentHtml(html: string): string;
+
+/** 色として通る値なら小文字に揃えて返す（テーマの var(--…) は null）。 */
+export function cssColor(value: string): string | null;
+
+/** normalizeContentHtml が何を変えるかを、変更せずに数える。正は `changed`、内訳は文字列で数えた目安。 */
 export function inspectContentHtml(html: string, opts?: NormalizeOptions): ContentHtmlStats;
 
 export interface NormalizeOptions {
-  /**
-   * Chrome のクリップボード由来の壊れ方を直すか（R6/R7/R8）。既定 `true` ——
-   * **書き込む経路はすべて既定のまま**にする。
-   *
-   * `false` にするのは、**既に公開されている本文を一括で掃除する場合**。
-   * R1〜R5 と違い R6〜R8 は**見た目が変わる**ので、混入したまま公開された
-   * 記事の表示が突然変わる。「書式の正規化」の副作用として起こしてよい
-   * 変更ではない。
-   *
-   * ⚠ **「やってはいけない」ではなく「黙ってやらない」。** 意図して直すのは
-   * 正当なので、呼び出し側が何が変わるか分かった上で明示的に選べばよい。
-   * KuroCMS の保守画面は、既定オフのチェックと件数の予告でそれを提供する。
-   * （2026-08-16 の決定。貼り付け破壊の修正仕様。admin.entamy.com の KuroEditor）
-   */
+  /** 廃止（2026-10-17）。渡しても無視される —— 公開済みの本文も保存のたびに形へ揃う。 */
   clipboardRepair?: boolean;
 }
 

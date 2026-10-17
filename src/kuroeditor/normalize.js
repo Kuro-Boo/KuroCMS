@@ -362,6 +362,11 @@ export function sanitizeContentHtml(html) {
 // colspan="undefined"・コメント・<button>・何重もの <div>・Arial・負の margin・
 // <hr> の文字サイズ・16px が出た）が、エディタの形は有限だから。
 //
+// ⚠ 【経路ごとの決まりを作らない】（2026-10-17 利用者の決定）。貼り付けも API も
+//   読み込みも保存も、形と値はここだけが決める。貼り付けだけ・API だけの加工が
+//   あると、同じ HTML が経路で違う本文になり、後で原因の分からない違いになる。
+//   貼り付けを良くしたいときは、ここを直す（editor.js の貼り付けは【挿す】扱いだけ）。
+//
 // ## 3 つの約束（2026-10-17 利用者の決定）
 //
 //   1. 文字は絶対に消さない。タグは外しても中身の文字は残す。知らないタグ
@@ -393,6 +398,14 @@ export function sanitizeContentHtml(html) {
 //   span       color / font-size（75–200% の 7 段）/ font-family（serif・sans-serif・Web フォント）
 //   strong em u s code kbd ruby rt rp a br img video audio source iframe figure(kuro-media-wrap)
 //   div        kuro-callout（note / tip / warn / danger）、kuro-roundbox（data-align・data-width）
+//
+//   a          http(s) で中が文字だけなら記法 [[URL|文字]]（文字が URL なら [[URL]]）。
+//              記法にできないもの（mailto・相対・中に書式・] | を含む・図になる URL・
+//              id / data-* / rel の nofollow・sponsored・ugc を持つ）は <a> のまま
+//
+//   文字サイズの絶対値（px・pt・rem）は「本文の大きさ」＝文字数でいちばん多い大きさ
+//   （書かれていない文字は 16px）を 100% として読む。同じ id は最初の 1 つだけ残す。
+//   <b style="font-weight:normal">（Google ドキュメントの包み）は太字にしない。
 //
 //   b → strong、i → em、del・strike → s、ins → u、tt・samp・var → code、
 //   font[color/size/face] → span、太字・斜体・下線・取り消し線のスタイル → それぞれのタグ。
@@ -514,7 +527,7 @@ function alignValue(v) {
  * @param {number} ctxPct  祖先が決めた大きさ（%。絶対値を相対に直すのに使う）
  * @param {boolean} inHeading  見出しの中の絶対値は見出しの大きさに任せる
  */
-function fontSizeRel(v, ctxPct, inHeading) {
+function fontSizeRel(v, ctxPct, inHeading, basePx) {
   const s = String(v ?? '').trim().toLowerCase()
   let rel = null
   let abs = null
@@ -529,7 +542,8 @@ function fontSizeRel(v, ctxPct, inHeading) {
   else if (s === 'larger') rel = 120
   if (abs !== null) {
     if (inHeading) return null
-    rel = abs / (ctxPct || 100) * 100
+    // 絶対値は「本文の大きさ」（bodyFontPx）を 100% として読む
+    rel = abs * 16 / (basePx || 16) / (ctxPct || 100) * 100
   }
   if (rel === null || !Number.isFinite(rel) || rel <= 0) return null
   const snapped = nearest(FONT_SIZES, rel)
@@ -589,7 +603,64 @@ function styleMap(raw) {
   return out
 }
 
-const escAttr = (s) => String(s).replace(/&(?![#a-zA-Z0-9]+;)/g, '&amp;').replace(/"/g, '&quot;')
+// ── 文字の書き方（ブラウザの innerHTML と同じ） ─────────────────────────────────
+//
+// 文字参照は一度解いてから、ブラウザが書き出すのと同じ形で書き直す: 文字の中は
+// & < > と nbsp、属性の中はそれに " を足す（Chrome 155 で確かめた）。こうしないと、
+// エディタで開いて保存しただけで綴りが変わり（&#x20bb7; → 𠮷、Q&A → Q&amp;A）、
+// 開くたびに「変更あり」になる。
+// ⚠ 名前の文字参照は HTML4 の 252 個だけ解く（全 2,231 個は持たない）。知らない
+//   名前（&bigstar; など）は書かれたまま残す —— 意味は変えない。
+
+const ENTITIES = new Map('AElig:c6,Aacute:c1,Acirc:c2,Agrave:c0,Alpha:391,Aring:c5,Atilde:c3,Auml:c4,Beta:392,Ccedil:c7,Chi:3a7,Dagger:2021,Delta:394,ETH:d0,Eacute:c9,Ecirc:ca,Egrave:c8,Epsilon:395,Eta:397,Euml:cb,Gamma:393,Iacute:cd,Icirc:ce,Igrave:cc,Iota:399,Iuml:cf,Kappa:39a,Lambda:39b,Mu:39c,Ntilde:d1,Nu:39d,OElig:152,Oacute:d3,Ocirc:d4,Ograve:d2,Omega:3a9,Omicron:39f,Oslash:d8,Otilde:d5,Ouml:d6,Phi:3a6,Pi:3a0,Prime:2033,Psi:3a8,Rho:3a1,Scaron:160,Sigma:3a3,THORN:de,Tau:3a4,Theta:398,Uacute:da,Ucirc:db,Ugrave:d9,Upsilon:3a5,Uuml:dc,Xi:39e,Yacute:dd,Yuml:178,Zeta:396,aacute:e1,acirc:e2,acute:b4,aelig:e6,agrave:e0,alefsym:2135,alpha:3b1,amp:26,and:2227,ang:2220,aring:e5,asymp:2248,atilde:e3,auml:e4,bdquo:201e,beta:3b2,brvbar:a6,bull:2022,cap:2229,ccedil:e7,cedil:b8,cent:a2,chi:3c7,circ:2c6,clubs:2663,cong:2245,copy:a9,crarr:21b5,cup:222a,curren:a4,dArr:21d3,dagger:2020,darr:2193,deg:b0,delta:3b4,diams:2666,divide:f7,eacute:e9,ecirc:ea,egrave:e8,empty:2205,emsp:2003,ensp:2002,epsilon:3b5,equiv:2261,eta:3b7,eth:f0,euml:eb,euro:20ac,exist:2203,fnof:192,forall:2200,frac12:bd,frac14:bc,frac34:be,frasl:2044,gamma:3b3,ge:2265,gt:3e,hArr:21d4,harr:2194,hearts:2665,hellip:2026,iacute:ed,icirc:ee,iexcl:a1,igrave:ec,image:2111,infin:221e,int:222b,iota:3b9,iquest:bf,isin:2208,iuml:ef,kappa:3ba,lArr:21d0,lambda:3bb,lang:2329,laquo:ab,larr:2190,lceil:2308,ldquo:201c,le:2264,lfloor:230a,lowast:2217,loz:25ca,lrm:200e,lsaquo:2039,lsquo:2018,lt:3c,macr:af,mdash:2014,micro:b5,middot:b7,minus:2212,mu:3bc,nabla:2207,nbsp:a0,ndash:2013,ne:2260,ni:220b,not:ac,notin:2209,nsub:2284,ntilde:f1,nu:3bd,oacute:f3,ocirc:f4,oelig:153,ograve:f2,oline:203e,omega:3c9,omicron:3bf,oplus:2295,or:2228,ordf:aa,ordm:ba,oslash:f8,otilde:f5,otimes:2297,ouml:f6,para:b6,part:2202,permil:2030,perp:22a5,phi:3c6,pi:3c0,piv:3d6,plusmn:b1,pound:a3,prime:2032,prod:220f,prop:221d,psi:3c8,quot:22,rArr:21d2,radic:221a,rang:232a,raquo:bb,rarr:2192,rceil:2309,rdquo:201d,real:211c,reg:ae,rfloor:230b,rho:3c1,rlm:200f,rsaquo:203a,rsquo:2019,sbquo:201a,scaron:161,sdot:22c5,sect:a7,shy:ad,sigma:3c3,sigmaf:3c2,sim:223c,spades:2660,sub:2282,sube:2286,sum:2211,sup:2283,sup1:b9,sup2:b2,sup3:b3,supe:2287,szlig:df,tau:3c4,there4:2234,theta:3b8,thetasym:3d1,thinsp:2009,thorn:fe,tilde:2dc,times:d7,trade:2122,uArr:21d1,uacute:fa,uarr:2191,ucirc:fb,ugrave:f9,uml:a8,upsih:3d2,upsilon:3c5,uuml:fc,weierp:2118,xi:3be,yacute:fd,yen:a5,yuml:ff,zeta:3b6,zwj:200d,zwnj:200c'.split(',').map((p) => {
+  const [k, v] = p.split(':')
+  return [k, String.fromCodePoint(parseInt(v, 16))]
+}))
+for (const k of ['AMP', 'LT', 'GT', 'QUOT', 'COPY', 'REG']) ENTITIES.set(k, ENTITIES.get(k.toLowerCase()))
+ENTITIES.set('apos', "'")
+/** `;` を省いても解かれる古い名前（HTML の仕様の 106 個）。 */
+const LEGACY_ENTITIES = new Set('AElig AMP Aacute Acirc Agrave Aring Atilde Auml COPY Ccedil ETH Eacute Ecirc Egrave Euml GT Iacute Icirc Igrave Iuml LT Ntilde Oacute Ocirc Ograve Oslash Otilde Ouml QUOT REG THORN Uacute Ucirc Ugrave Uuml Yacute aacute acirc acute aelig agrave amp aring atilde auml brvbar ccedil cedil cent copy curren deg divide eacute ecirc egrave eth euml frac12 frac14 frac34 gt iacute icirc iexcl igrave iquest iuml laquo lt macr micro middot nbsp not ntilde oacute ocirc ograve ordf ordm oslash otilde ouml para plusmn pound quot raquo reg sect shy sup1 sup2 sup3 szlig thorn times uacute ucirc ugrave uml uuml yacute yen yuml'.split(' '))
+
+const escChar = (ch, inAttr) => ch === '&' ? '&amp;' : ch === '\u00a0' ? '&nbsp;' : ch === '<' ? '&lt;'
+  : ch === '>' ? '&gt;' : (inAttr && ch === '"') ? '&quot;' : ch
+const escText = (s, inAttr) => s.replace(inAttr ? /[&\u00a0<>"]/g : /[&\u00a0<>]/g, (c) => escChar(c, inAttr))
+
+/** 文字参照を解いて、ブラウザと同じ形で書き直す。冪等。 */
+function canon(raw, inAttr = false) {
+  const s = String(raw ?? '')
+  if (!/[&<>"\u00a0]/.test(s)) return s
+  let out = ''
+  let last = 0
+  const re = /&(#[xX][0-9a-fA-F]+;?|#\d+;?|[a-zA-Z][a-zA-Z0-9]*;?)/g
+  let m
+  while ((m = re.exec(s))) {
+    out += escText(s.slice(last, m.index), inAttr)
+    last = m.index + m[0].length
+    const body = m[1]
+    if (body[0] === '#') {
+      const hex = body[1] === 'x' || body[1] === 'X'
+      const n = parseInt(body.slice(hex ? 2 : 1).replace(';', ''), hex ? 16 : 10)
+      const ok = n > 0 && n <= 0x10ffff && !(n >= 0xd800 && n <= 0xdfff)
+      out += escText(ok ? String.fromCodePoint(n) : '\ufffd', inAttr)
+      continue
+    }
+    if (body.endsWith(';')) {
+      const name = body.slice(0, -1)
+      out += ENTITIES.has(name) ? escText(ENTITIES.get(name), inAttr) : `&${body}`
+      continue
+    }
+    // `;` の無い古い名前（&copy など）。属性の中では、後ろに英数字・= が続けば解かない
+    let k = body.length
+    while (k > 0 && !LEGACY_ENTITIES.has(body.slice(0, k))) k--
+    const next = s[m.index + 1 + k] ?? ''
+    if (k > 0 && !(inAttr && /[=a-zA-Z0-9]/.test(next))) {
+      out += escText(ENTITIES.get(body.slice(0, k)), inAttr) + escText(body.slice(k), inAttr)
+    } else out += '&amp;' + escText(body, inAttr)
+  }
+  return out + escText(s.slice(last), inAttr)
+}
+
+const escAttr = (s) => canon(s, true)
 
 /**
  * HTML を木にする。壊れた HTML でも必ず木を返す（閉じ忘れは親で閉じる、
@@ -645,7 +716,7 @@ function parseLoose(html) {
     if (next === '/') {
       if (name === 'br') { top().kids.push({ t: 'el', name: 'br', attrs: [], kids: [] }); continue }
       const idx = findOpen(new Set([name]), TABLE_SCOPE.has(name) ? null : (name === 'p' ? new Set(['td', 'th', 'table', 'caption', 'button']) : null))
-      if (idx > 0) { stack[idx].closed = true; popTo(idx) }
+      if (idx > 0) { stack[idx].closed = html.slice(lt, tag.end); popTo(idx) }
       continue
     }
 
@@ -663,7 +734,7 @@ function parseLoose(html) {
     if (HEADINGS.has(name) && HEADINGS.has(top().name)) popTo(stack.length - 1)
     if (name === 'a') { const j = findOpen(new Set(['a']), TABLE_SCOPE); if (j > 0) popTo(j) }
 
-    const el = { t: 'el', name, attrs, kids: [] }
+    const el = { t: 'el', name, attrs, kids: [], src: html.slice(lt, tag.end) }
     top().kids.push(el)
     if (name === 'plaintext') { el.kids.push({ t: 'text', raw: html.slice(i).replace(/&/g, '&amp;').replace(/</g, '&lt;') }); break }
     if (RAW_NAMES.has(name)) {
@@ -686,11 +757,11 @@ function parseLoose(html) {
 function serializeNodes(nodes) {
   let out = ''
   for (const nd of nodes) {
-    if (nd.t === 'text') out += nd.raw
+    if (nd.t === 'text') out += canon(nd.raw)
     else if (nd.t === 'comment') out += `<!--${nd.data}-->`
     else if (nd.t === 'raw') out += nd.html
     else {
-      const attrs = nd.attrs.map((a) => (a.value === null ? ` ${a.name}` : ` ${a.name}="${escAttr(a.value)}"`)).join('')
+      const attrs = nd.attrs.map((a) => ` ${a.name}="${escAttr(a.value ?? '')}"`).join('')
       out += `<${nd.name}${attrs}>`
       if (VOID_NAMES.has(nd.name)) continue
       out += serializeNodes(nd.kids) + `</${nd.name}>`
@@ -701,9 +772,9 @@ function serializeNodes(nodes) {
 
 /** 手を付けない部分木（data-kuro-* の部品）。元の綴りのまま書き戻す。 */
 function serializeOriginal(nd) {
-  if (nd.t === 'text') return nd.raw0 ?? nd.raw
+  if (nd.t === 'text') return nd.raw0 !== undefined ? nd.raw0 : canon(nd.raw)
   if (nd.t === 'comment') return `<!--${nd.data}-->`
-  const attrs = nd.attrs.map((a) => (a.value === null ? ` ${a.name}` : ` ${a.name}="${escAttr(a.value)}"`)).join('')
+  const attrs = nd.attrs.map((a) => ` ${a.name}="${escAttr(a.value ?? '')}"`).join('')
   if (VOID_NAMES.has(nd.name)) return `<${nd.name}${attrs}>`
   return `<${nd.name}${attrs}>${nd.kids.map(serializeOriginal).join('')}</${nd.name}>`
 }
@@ -721,6 +792,8 @@ function isEmptyInline(nd) {
   if (nd.t === 'text') return !/\S/.test(nd.raw)
   if (nd.t === 'comment') return true
   if (nd.t === 'raw') return false
+  // 機能の記法を持つ空の要素（<a data-brand-site href> など）は中身があるものとして扱う
+  if (nd.attrs.some((a) => a.name.startsWith('data-') && a.name !== 'data-bid' && a.name !== 'data-cbid')) return false
   if (['br', 'img', 'video', 'audio', 'iframe', 'hr', 'input'].includes(nd.name)) return false
   return nd.kids.every(isEmptyInline)
 }
@@ -791,10 +864,12 @@ function inlineWrappers(sm, ctx) {
   if (/underline/.test(td)) wraps.push(el('u'))
   if (/line-through/.test(td)) wraps.push(el('s'))
   const span = []
-  const color = cssColor(sm.get('color'))
+  // 背景と組で決めた文字色は、背景を落とすなら一緒に落とす（白地に白い字を残さない。
+  // ボタン風のリンク `background:#030712; color:#fff` など）
+  const color = sm.has('background') || sm.has('background-color') ? null : cssColor(sm.get('color'))
   if (color) span.push(['color', color])
   let pct = ctx.pct
-  const size = fontSizeRel(sm.get('font-size'), ctx.pct, ctx.inHeading)
+  const size = fontSizeRel(sm.get('font-size'), ctx.pct, ctx.inHeading, ctx.basePx)
   if (size) { span.push(['font-size', `${size}%`]); pct = ctx.pct * size / 100 }
   const fam = fontFamilyValue(sm.get('font-family'))
   if (fam) span.push(['font-family', fam])
@@ -836,12 +911,56 @@ function distribute(makeWrap, kids) {
 }
 
 /**
+ * 図として描かれる `[[…]]`（画像・動画・音声・埋め込み）か。kuro-links.js の
+ * classifyLink の media / iframe と同じ見分け（このファイルは import できないので写し）。
+ * 段落の中に置くと、ブラウザは図の手前で段落を閉じる —— 開いて保存すると段落の外へ出る。
+ */
+function isFigureToken(tok) {
+  const m = /^\[\[([^\]|[]+)(?:\|([^\]]*))?\]\]$/.exec(tok)
+  if (!m) return false
+  const [, slug, label] = m
+  if (label === '') return false   // [[x|]] は URL カード（段落の中に置ける）
+  if (/^(img|vid|aud|mid)-/.test(slug) || /\.(jpe?g|png|gif|webp|svg|avif|mp4|webm|ogg|mov|mp3|wav|aac|flac|m4a)(\?.*)?$/i.test(slug)) return true
+  if (/^https?:\/\/(?:www\.)?(?:youtube\.com\/(?:watch|shorts\/)|youtu\.be\/|vimeo\.com\/\d|player\.vimeo\.com\/video\/|google\.[a-z.]+\/maps|maps\.google\.)/i.test(slug)) return true
+  if (/^https?:/.test(slug) && label !== undefined) {
+    const params = (label.includes('|') ? label.slice(0, label.indexOf('|')) : label).trim()
+    return params === '' || params.split(',').every((t) => /^\d+%$/.test(t.trim()) || ['left', 'right', 'center'].includes(t.trim()))
+  }
+  return false
+}
+
+/** 段落の直下の文字から、図の `[[…]]` をブロックとして切り出す。 */
+function splitFigureTokens(kids) {
+  if (!kids.some((k) => k.t === 'text' && k.raw.includes('[['))) return kids
+  const out = []
+  for (const k of kids) {
+    if (k.t !== 'text' || !k.raw.includes('[[')) { out.push(k); continue }
+    let last = 0
+    const re = /\[\[(?!\[)[^\]]+\]\](?!\])/g
+    let m
+    while ((m = re.exec(k.raw))) {
+      if (!isFigureToken(m[0])) continue
+      if (m.index > last) out.push({ t: 'text', raw: k.raw.slice(last, m.index) })
+      out.push({ t: 'raw', html: m[0], block: true })
+      last = m.index + m[0].length
+    }
+    if (last < k.raw.length) out.push({ t: 'text', raw: k.raw.slice(last) })
+  }
+  return out
+}
+
+/** `[[…]]` だけの文字（空白は可）。 */
+const isTokenText = (raw) => /^\s*(?:\[\[(?:(?!\]\]).)+\]\]\]?\s*)+$/.test(raw)
+
+/**
  * 段落・見出しの並び（器の中身）を整える。
  *   mode 'root' / 'box' — 文字の並びは必ず <p> に入れる
  *   mode 'free'         — ブロックと混ざっているときだけ <p> に入れる（li・td・blockquote）
  * 空白だけの並びは捨てる（見えない）。<br> だけの並びは 1 本につき空行 1 つ。
  */
 function settleFlow(kids, mode) {
+  // 図の [[…]] はブロック。段落で包む前に切り出す（包むと、次に通したときに外へ出る）
+  kids = splitFigureTokens(kids)
   const hasBlock = kids.some(isBlockNode)
   if (mode === 'free' && !hasBlock) return kids
   const out = []
@@ -850,15 +969,34 @@ function settleFlow(kids, mode) {
     if (!run.length) return
     const visible = run.filter((r) => !isBlank(r))
     if (!visible.length) { out.push(...run.filter((r) => r.t === 'comment')); run = []; return }
-    if (visible.every((r) => r.t === 'el' && r.name === 'br')) {
-      for (let k = 0; k < visible.length; k++) out.push(el('p', [], [el('br')]))
+    if (mode === 'root' && visible.every((r) => (r.t === 'el' && r.name === 'br') || (r.t === 'text' && isTokenText(r.raw)))) {
+      // 本文直下の `[[…]]`（URL カード・メディア）と <br>（カードのあいだの空行）は
+      // エディタ自身の保存形（_wrapAtomicBlocks が編集中だけ囲う）。段落で包まない。
+      // <br> の data-bid も保存形のうち（1 本で 1 ブロック）
+      out.push(...run.filter((r) => !isBlank(r) || r.t === 'comment').map((r) =>
+        r.t === 'el' && r.name === 'br' ? el('br', r.attrs.filter((a) => a.name === 'data-bid')) : r))
+    } else if (visible.every((r) => r.t === 'el' && r.name === 'br')) {
+      for (const br of visible) out.push(el('p', br.attrs.filter((a) => a.name === 'data-bid'), [el('br')]))
+    } else if (run.every(isEmptyInline)) {
+      out.push(...run.filter((r) => r.t === 'comment'))
     } else {
       // 先頭・末尾の <br> は段落の境目なので要らない（1 本だけの空行は上で扱った）
       while (run.length && (isBlank(run[0]) || (run[0].t === 'el' && run[0].name === 'br'))) {
         const r = run.shift(); if (r.t === 'comment') out.push(r)
       }
       while (run.length && (isBlank(run[run.length - 1]) || (run[run.length - 1].t === 'el' && run[run.length - 1].name === 'br'))) run.pop()
-      if (run.length) out.push(el('p', [], run))
+      if (run.length) {
+        // 本文直下の書式要素が持っていた data-bid は、包んだ段落のもの
+        const p = el('p', [], run)
+        const owner = run.find((r) => r.t === 'el' && attrOf(r, 'data-bid') !== null)
+        if (owner) {
+          p.attrs.push({ name: 'data-bid', value: attrOf(owner, 'data-bid') })
+          owner.attrs = owner.attrs.filter((a) => a.name !== 'data-bid')
+          // id を運ぶためだけに残した <span> は、運び終えたら外す
+          if (owner.name === 'span' && !owner.attrs.length) p.kids.splice(p.kids.indexOf(owner), 1, ...owner.kids)
+        }
+        out.push(p)
+      }
     }
     run = []
   }
@@ -881,7 +1019,7 @@ function settleFlow(kids, mode) {
 
 /** 空の段落の扱い（R4 を引き継ぐ）。null = 捨てる。 */
 function settleEmptyLine(nd, nested) {
-  if (nd.kids.some((k) => !isEmptyInline(k))) return nd
+  if (nd.kids.some((k) => !isEmptyInline(k) && !(k.t === 'el' && k.name === 'br'))) return nd
   const brs = nd.kids.filter((k) => k.t === 'el' && k.name === 'br').length
   if (!brs) return null
   if (nested && nd.name === 'p') return el('br')
@@ -911,6 +1049,7 @@ function splitLine(nd) {
   flush()
   const bid = attrOf(nd, 'data-bid')
   out.forEach((o, ix) => {
+    if (!o.attrs) return   // 図の [[…]] など、属性を持たない節
     if (o === out[0]) {
       if (bid && attrOf(o, 'data-bid') !== bid) o.attrs = [{ name: 'data-bid', value: bid }, ...(o.attrs || []).filter((a) => a.name !== 'data-bid')]
     } else if (o.attrs && o !== nd) o.attrs = o.attrs.filter((a) => a.name !== 'data-bid')
@@ -923,9 +1062,8 @@ function splitLine(nd) {
 function carryIdentity(from, blocks) {
   const first = blocks.find((b) => b.t === 'el' && isBlockNode(b))
   if (!first) return blocks
-  for (const name of ['id', 'data-bid']) {
-    const v = attrOf(from, name)
-    if (v && attrOf(first, name) === null) first.attrs = [...first.attrs, { name, value: v }]
+  for (const a of functionalAttrs(from)) {
+    if (attrOf(first, a.name) === null) first.attrs = [...first.attrs, { ...a }]
   }
   return blocks
 }
@@ -969,7 +1107,7 @@ function convertInline(nd, ctx, tag, extraAttrs = []) {
     return res
   }
   const res = distribute(make, kids)
-  return res.filter((r) => !(r.t === 'el' && INLINE_NAMES.has(r.name) && !['br', 'img', 'video', 'audio', 'iframe', 'input'].includes(r.name) && isEmptyInline(r) && !functionalAttrs(r).length))
+  return res.filter((r) => !(r.t === 'el' && INLINE_NAMES.has(r.name) && isEmptyInline(r)))
 }
 
 /** 意味を持たない器（div・section…）。中にブロックが無ければ段落にする。 */
@@ -983,9 +1121,11 @@ function convertContainer(nd, ctx, lineStyle = true) {
     }
     const style = lineStyle ? styleText(lineDecls(styleMap(attrOf(nd, 'style')))) : null
     if (ctx.nested && !ctx.flowBlocks) return kids
-    return [el('p', buildAttrs(nd, { style }), kids)]
+    const p = settleEmptyLine(el('p', buildAttrs(nd, { style }), kids), false)
+    return p ? [p] : []
   }
-  return carryIdentity(nd, settleFlow(kids, 'box'))
+  // 外した器の中身は親の並びに入る。本文直下なら本文直下と同じ扱い（カード・<br> を包まない）
+  return carryIdentity(nd, settleFlow(kids, ctx.nested ? 'box' : 'root'))
 }
 
 /** 表を組み直す。 */
@@ -1057,7 +1197,9 @@ function convertTable(nd, ctx) {
   const out = []
   if (cols.length === width && cols.every((w) => w && w.unit === cols[0].unit)) {
     const sum = cols.reduce((a, w) => a + w.n, 0)
-    if (sum > 0) out.push(el('colgroup', [], cols.map((w) => el('col', [{ name: 'style', value: `width: ${(w.n / sum * 100).toFixed(4)}%` }]))))
+    // 既に合計 100% なら数字に触らない（割り直すと桁がずれ、保存のたびに変わる）
+    const asIs = cols[0].unit === '%' && Math.abs(sum - 100) < 0.05
+    if (sum > 0) out.push(el('colgroup', [], cols.map((w) => el('col', [{ name: 'style', value: `width: ${asIs ? w.raw : (w.n / sum * 100).toFixed(4)}%` }]))))
   }
   out.push(el('tbody', [], rows.map(({ tr, cells }) => el('tr', functionalAttrs(tr), cells))))
   return [...before, el('table', buildAttrs(nd, { cls: 'kuro-table' }), out)]
@@ -1068,7 +1210,7 @@ function colWidths(col, count = null) {
   const raw = styleMap(attrOf(col, 'style')).get('width') ?? attrOf(col, 'width')
   let w = null
   const m = /^([\d.]+)\s*(px|%)?$/.exec(String(raw ?? '').trim())
-  if (m && parseFloat(m[1]) > 0) w = { n: parseFloat(m[1]), unit: m[2] || 'px' }
+  if (m && parseFloat(m[1]) > 0) w = { n: parseFloat(m[1]), raw: m[1], unit: m[2] || 'px' }
   return Array.from({ length: Math.max(1, Math.min(span, 1000)) }, () => w)
 }
 
@@ -1174,20 +1316,29 @@ function convertNode(nd, ctx) {
   // エディタ自身の部品（data-kuro-*）は中まで触らない
   if (nd.attrs.some((a) => a.name.startsWith('data-kuro'))) return [{ t: 'raw', html: serializeOriginal(nd), block: !INLINE_NAMES.has(name) }]
 
-  // 知らない名前: `-` 付きは独自要素なので外す。無いものは文中の山括弧の書き損じ → 文字に戻す
-  if (!HTML_NAMES.has(name)) {
+  // 知らない名前: `-` 付きは独自要素なので外す。無いものは文中の山括弧の書き損じ → 文字に戻す。
+  // 名前を知っていても、属性名に英数字以外が混ざるものは書き損じ（"<A função de uso…>" は
+  // ブラウザでは <a função de uso…> と読まれて文字が消える）
+  const prose = nd.attrs.some((a) => /[^\w:.-]/.test(a.name))
+  if (!HTML_NAMES.has(name) || prose) {
     const kids = convertKids(nd.kids, ctx)
-    if (name.includes('-')) return kids
-    const attrs = nd.attrs.map((a) => (a.value === null ? ` ${a.name}` : ` ${a.name}="${a.value}"`)).join('')
-    const open = { t: 'text', raw: `&lt;${name}${attrs.replace(/</g, '&lt;')}&gt;` }
-    return nd.closed ? [open, ...kids, { t: 'text', raw: `&lt;/${name}&gt;` }] : [open, ...kids]
+    if (name.includes('-') && !prose) return kids
+    // 書かれたとおりの綴りで文字に戻す（大文字・属性の並びも元のまま）
+    const asText = (s) => ({ t: 'text', raw: s.replace(/&(?![#a-zA-Z0-9]+;)/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') })
+    return nd.closed ? [asText(nd.src), ...kids, asText(nd.closed)] : [asText(nd.src), ...kids]
+  }
+
+  // 前の版が <p> に化けさせた器を戻す（R5 を引き継ぐ）
+  if (name === 'p' && (classesOf(nd).some((c) => c === 'kuro-callout' || c === 'kuro-roundbox') || attrOf(nd, 'data-language') !== null)) {
+    if (attrOf(nd, 'data-language') !== null) return codeBlock(nd, nd.kids.map(rawText).join('').replace(/\r\n?/g, '\n'))
+    return convertNode({ ...nd, name: 'div' }, ctx)
   }
 
   switch (name) {
     case 'p': case 'h1': case 'h2': case 'h3': case 'h4': case 'h5': case 'h6': {
       const heading = HEADINGS.has(name)
       const sm = styleMap(attrOf(nd, 'style'))
-      const kids = convertKids(nd.kids, { ...ctx, inHeading: ctx.inHeading || heading })
+      const kids = splitFigureTokens(convertKids(nd.kids, { ...ctx, inHeading: ctx.inHeading || heading }))
       const line = el(name, buildAttrs(nd, { style: styleText(lineDecls(sm)) }), kids)
       return splitLine(line).flatMap((b) => {
         if (b.t !== 'el' || (b.name !== 'p' && !HEADINGS.has(b.name))) return [b]
@@ -1219,6 +1370,13 @@ function convertNode(nd, ctx) {
         const kids = settleFlow(convertKids(nd.kids, { ...ctx, nested: false }), 'box')
         return [el('div', attrs, kids.length ? kids : [el('p', [], [el('br')])])]
       }
+      // 古い形のコードブロック（行ごとの <div data-language>）→ エディタのコードブロック
+      const lines = nd.kids.filter((k) => k.t === 'el')
+      if (lines.length && lines.every((k) => k.name === 'div' && attrOf(k, 'data-language') !== null) &&
+          nd.kids.every((k) => k.t === 'el' || isBlank(k))) {
+        const text = lines.map(rawText).join('\n').replace(/\r\n?/g, '\n')
+        return codeBlock(nd, text)
+      }
       return convertContainer(nd, ctx)
     }
     case 'blockquote': {
@@ -1246,10 +1404,7 @@ function convertNode(nd, ctx) {
     case 'pre': {
       let text = nd.kids.map(rawText).join('')
       if (nd.kids[0]?.t === 'text' && nd.kids[0].raw.startsWith('\n')) text = text.slice(1)
-      text = text.replace(/\r\n?/g, '\n')
-      const lines = Math.max(1, text.split('\n').length)
-      const gutter = Array.from({ length: lines }, (_, k) => k + 1).join('\n')
-      return [el('pre', buildAttrs(nd, { cls: 'kuro-code', extra: [{ name: 'data-gutter', value: gutter }] }), [el('code', [], [{ t: 'text', raw: text }])])]
+      return codeBlock(nd, text.replace(/\r\n?/g, '\n'))
     }
     case 'hr': {
       const sm = styleMap(attrOf(nd, 'style'))
@@ -1258,11 +1413,11 @@ function convertNode(nd, ctx) {
         ?? cssColor(sm.get('color')) ?? cssColor(attrOf(nd, 'color'))
       return [el('hr', buildAttrs(nd, { cls: 'kuro-hr', style: c ? `border-top-color: ${c}` : null }))]
     }
-    case 'br': return [el('br')]
+    case 'br': return [el('br', nd.attrs.filter((a) => a.name === 'data-bid'))]
     case 'wbr': return []
     case 'img': {
       const src = attrOf(nd, 'src')
-      if (!src) return []
+      if (!src || !isSafeContentUrl(src, 'src')) return []
       const extra = [{ name: 'src', value: src }, { name: 'alt', value: attrOf(nd, 'alt') ?? '' }]
       if (attrOf(nd, 'title')) extra.push({ name: 'title', value: attrOf(nd, 'title') })
       return [el('img', buildAttrs(nd, { extra }))]
@@ -1288,13 +1443,19 @@ function convertNode(nd, ctx) {
       return []
     case 'figure': {
       const cls = classesOf(nd).filter((c) => /^kuro-media-wrap(--(left|right|center|video|audio|iframe))?$/.test(c))
-      if (!cls.includes('kuro-media-wrap')) return convertContainer(nd, ctx)
+      const MEDIA = new Set(['img', 'video', 'audio', 'iframe', 'picture'])
+      const hasMedia = (n) => n.t === 'el' && (MEDIA.has(n.name) || n.kids.some(hasMedia))
+      // 画像などを抱えた図は図のまま（エディタはこれを 1 つのブロックとして扱う）
+      if (!cls.includes('kuro-media-wrap') && !nd.kids.some(hasMedia)) return convertContainer(nd, ctx)
       const w = String(styleMap(attrOf(nd, 'style')).get('width') ?? '')
       const style = /^\d+(\.\d+)?%$/.test(w) && w !== '100%' ? `width: ${w}` : null
-      const kids = convertKids(nd.kids, ctx).filter((k) => !isBlank(k))
-      return [el('figure', buildAttrs(nd, { cls: cls.join(' '), style }), kids)]
+      const kids = convertKids(nd.kids, { ...ctx, inFigure: true }).filter((k) => !isBlank(k))
+      return [el('figure', buildAttrs(nd, { cls: cls.length ? cls.join(' ') : null, style }), kids)]
     }
-    case 'figcaption': case 'summary': case 'legend':
+    case 'figcaption':
+      if (ctx.inFigure) return [el('figcaption', buildAttrs(nd), convertKids(nd.kids, ctx))]
+      return convertContainer(nd, ctx, false)
+    case 'summary': case 'legend':
       return convertContainer(nd, ctx, false)
     case 'dl':
       return carryIdentity(nd, settleFlow(convertKids(nd.kids, ctx), ctx.nested ? 'free' : 'box'))
@@ -1325,7 +1486,11 @@ function convertNode(nd, ctx) {
       if (name === 'xmp' || name === 'plaintext') return [el('p', [], [{ t: 'text', raw: nd.kids.map(rawText).join('') }])]
       return []
     // ── 書式 ──
-    case 'strong': case 'b': return convertInline(nd, ctx, 'strong')
+    case 'strong': case 'b': {
+      // 太さを normal に戻した <b> は太字ではない（Google ドキュメントの全体の包み）
+      const w = String(styleMap(attrOf(nd, 'style')).get('font-weight') ?? '').toLowerCase()
+      return convertInline(nd, ctx, w === 'normal' || w === '400' || w === 'lighter' ? null : 'strong')
+    }
     case 'em': case 'i': return convertInline(nd, ctx, 'em')
     case 'u': case 'ins': return convertInline(nd, ctx, 'u')
     case 's': case 'strike': case 'del': return convertInline(nd, ctx, 's')
@@ -1340,7 +1505,10 @@ function convertNode(nd, ctx) {
     case 'rb': case 'rtc': return convertInline(nd, ctx, null)
     case 'a': {
       const href = attrOf(nd, 'href')
-      if (!href) return convertInline(nd, ctx, null)
+      // 危ない行き先（javascript: など）は行き先ごと持たない＝ただの文字
+      if (!href || !isSafeContentUrl(href, 'href')) return convertInline({ ...nd, attrs: nd.attrs.filter((a) => a.name !== 'href') }, ctx, null)
+      const tok = linkToken(nd, href)
+      if (tok) return convertInline({ ...nd, kids: [{ t: 'text', raw: escText(tok, false) }] }, ctx, null)
       const extra = [{ name: 'href', value: href }]
       if (String(attrOf(nd, 'target') ?? '').toLowerCase() === '_blank') extra.push({ name: 'target', value: '_blank' })
       const rel = String(attrOf(nd, 'rel') ?? '').toLowerCase().split(/\s+/).filter((r) => ['noopener', 'noreferrer', 'nofollow', 'ugc', 'sponsored'].includes(r))
@@ -1357,6 +1525,97 @@ function convertNode(nd, ctx) {
   }
 }
 
+/** 同じ id は最初の 1 つだけ（外した包みの id が中の複数のブロックへ配られることがある）。 */
+function uniqueIds(nodes, seen) {
+  const out = []
+  for (const n of nodes) {
+    if (n.t !== 'el') { out.push(n); continue }
+    const id = attrOf(n, 'id')
+    let drop = false
+    if (id !== null) {
+      if (seen.has(id)) { n.attrs = n.attrs.filter((a) => a.name !== 'id'); drop = n.name === 'span' && !n.attrs.length }
+      else seen.add(id)
+    }
+    if (n.kids) n.kids = uniqueIds(n.kids, seen)
+    // id を運ぶためだけの <span> は外す
+    if (drop) out.push(...n.kids)
+    else out.push(n)
+  }
+  return out
+}
+
+/** 文字参照を解いた素の文字。 */
+function plainText(raw) {
+  return canon(raw, true).replace(/&(amp|lt|gt|quot|nbsp);/g, (_, n) => ({ amp: '&', lt: '<', gt: '>', quot: '"', nbsp: '\u00a0' })[n])
+}
+
+/**
+ * 外の書き方のリンク `<a href="https://…">文字</a>` → エディタの記法 `[[URL|文字]]`
+ * （文字が URL そのものなら `[[URL]]`）。null = 記法にできない（<a> のまま残す）:
+ * http(s) 以外・中に文字以外がある・記法を壊す ] | を含む・図として描かれる・
+ * 機能の記法（data-*・id。ブロックの名札 data-bid は除く）や rel の nofollow / sponsored / ugc を持つ。
+ */
+function linkToken(nd, href) {
+  const url = plainText(href).trim()
+  if (!/^https?:\/\//i.test(url) || /[\]|\s]/.test(url)) return null
+  // data-bid / data-cbid はブロックの名札（段落へ移る）なので妨げない
+  if (nd.attrs.some((a) => a.name === 'id' || (a.name.startsWith('data-') && a.name !== 'data-bid' && a.name !== 'data-cbid'))) return null
+  // 検索エンジンへの申告（広告・ユーザー投稿）は記法では書けない＝<a> のまま
+  if (/\b(nofollow|sponsored|ugc)\b/i.test(attrOf(nd, 'rel') ?? '')) return null
+  if (!nd.kids.every((k) => k.t === 'text')) return null
+  const text = plainText(nd.kids.map((k) => k.raw).join('')).replace(/\s+/g, ' ').trim()
+  if (!text || /[\]\[|]/.test(text)) return null
+  const tok = text === url ? `[[${url}]]` : `[[${url}|${text}]]`
+  return isFigureToken(tok) ? null : tok
+}
+
+/**
+ * 本文の大きさ（px）＝文字数でいちばん多い文字の大きさ。大きさの書かれていない文字は
+ * 16px として数える。外の HTML は計算済みの 14px などを全部に焼き込むので、それを
+ * 100% として読む（そうしないと本文全体が「小さい文字」になる）。見出しは数えない。
+ */
+function bodyFontPx(root) {
+  const tally = new Map()
+  const walk = (nd, px) => {
+    for (const k of nd.kids ?? []) {
+      if (k.t === 'text') {
+        const len = plainText(k.raw).trim().length
+        if (len) tally.set(px, (tally.get(px) ?? 0) + len)
+        continue
+      }
+      if (k.t !== 'el' || RAW_NAMES.has(k.name) || /^h[1-6]$/.test(k.name)) continue
+      walk(k, elementFontPx(k, px))
+    }
+  }
+  walk(root, 16)
+  let best = 16
+  for (const [px, n] of tally) if (n > (tally.get(best) ?? 0)) best = px
+  return best
+}
+
+function elementFontPx(nd, px) {
+  let v = styleMap(attrOf(nd, 'style')).get('font-size')
+  if (!v && nd.name === 'font' && FONT_TAG_SIZES[parseInt(attrOf(nd, 'size'), 10)]) v = `${FONT_TAG_SIZES[parseInt(attrOf(nd, 'size'), 10)]}%`
+  const s = String(v ?? '').trim().toLowerCase()
+  let m
+  if ((m = /^([\d.]+)px$/.exec(s))) return parseFloat(m[1])
+  if ((m = /^([\d.]+)pt$/.exec(s))) return parseFloat(m[1]) * 4 / 3
+  if ((m = /^([\d.]+)rem$/.exec(s))) return parseFloat(m[1]) * 16
+  if ((m = /^([\d.]+)%$/.exec(s))) return px * parseFloat(m[1]) / 100
+  if ((m = /^([\d.]+)em$/.exec(s))) return px * parseFloat(m[1])
+  if (s in FONT_KEYWORDS) return FONT_KEYWORDS[s] * 16 / 100
+  return px
+}
+
+/** エディタのコードブロック（行番号は data-gutter に焼き込む。_serializeCodeBlocksToHtml と同じ形）。 */
+function codeBlock(nd, text) {
+  const lines = Math.max(1, text.split('\n').length)
+  const gutter = Array.from({ length: lines }, (_, k) => k + 1).join('\n')
+  const attrs = buildAttrs(nd, { cls: 'kuro-code', extra: [{ name: 'data-gutter', value: gutter }] })
+    .filter((a) => a.name !== 'data-language' && a.name !== 'spellcheck')
+  return [el('pre', attrs, [el('code', [], [{ t: 'text', raw: text }])])]
+}
+
 function borderColorOf(v) {
   if (!v) return null
   for (const p of String(v).split(/\s+(?![^(]*\))/)) if (cssColor(p) && !BORDER_STYLES.has(p.toLowerCase()) && p.toLowerCase() !== 'none') return p
@@ -1371,9 +1630,9 @@ function borderColorOf(v) {
 export function conformContentHtml(html) {
   if (typeof html !== 'string' || html === '') return html ?? ''
   const root = parseLoose(html)
-  const kids = settleFlow(convertKids(root.kids, { pct: 100, inHeading: false, nested: false }), 'root')
+  const kids = settleFlow(convertKids(root.kids, { pct: 100, inHeading: false, nested: false, basePx: bodyFontPx(root) }), 'root')
   // 段落の中の空白だけの段落など、最後に空になったものを落とす
-  return sanitizeContentHtml(serializeNodes(kids))
+  return sanitizeContentHtml(serializeNodes(uniqueIds(kids, new Set())))
 }
 
 // ── public API ────────────────────────────────────────────────────────────────

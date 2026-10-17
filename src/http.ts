@@ -1,12 +1,14 @@
 import type { ApiErrorBody, JsonValue } from "./types";
 
 export class HttpError extends Error {
-  constructor(
-    public readonly status: number,
-    public readonly code: string,
-    message: string,
-  ) {
+  // 引数での宣言(public readonly status)は使わない —— 契約テストは Node の
+  // 型を落とすだけの実行で動かすので、その書き方を読めない。
+  readonly status: number;
+  readonly code: string;
+  constructor(status: number, code: string, message: string) {
     super(message);
+    this.status = status;
+    this.code = code;
   }
 }
 

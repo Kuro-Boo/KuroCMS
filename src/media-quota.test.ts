@@ -30,7 +30,11 @@ function check(name: string, got: unknown, want: unknown): void {
 const MB = 1024 * 1024;
 
 console.log("parseMediaQuota");
-check("委託の値(100 MB)", parseMediaQuota(String(100 * MB)), 100 * MB);
+check(
+  "委託の値(10 GB)",
+  parseMediaQuota(String(10 * 1024 * MB)),
+  10 * 1024 * MB,
+);
 check("前後の空白は落とす", parseMediaQuota(` ${100 * MB} `), 100 * MB);
 check("未設定(自社の導入)は上限なし", parseMediaQuota(undefined), null);
 check("空も上限なし", parseMediaQuota(""), null);

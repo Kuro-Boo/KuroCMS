@@ -6,6 +6,7 @@ import { reportInstall } from "./entamy";
 import { entamyPort } from "./entamy-port";
 import { guardianAutoTick } from "./guardian-update";
 import { guardianDeps } from "./guardian-deps";
+import { purgeIpGate } from "./ip-gate";
 import { runScheduledThreadsTokenRefresh } from "./threads-token";
 import { html, notFound, notFoundPage } from "./http";
 import { reactionEndpoint } from "./reactions";
@@ -48,6 +49,14 @@ export default {
     ctx.waitUntil(runScheduledThreadsTokenRefresh(env, event.scheduledTime));
     // 番人(WorkerOps)の更新は app が行う(cms-workerops)。app の版が変わったのを見つけたら、
     // 自動更新が入なら番人を上げる。版が同じ間は KV を 1 回読むだけ。
+    // 接続元の登録の期限切れを片付ける(1 時間に 1 回。毎分の起動に相乗りする)。
+    if (new Date(event.scheduledTime).getUTCMinutes() === 7) {
+      ctx.waitUntil(
+        purgeIpGate(env).catch((err) => {
+          console.error("ip gate purge failed:", err);
+        }),
+      );
+    }
     ctx.waitUntil(
       guardianAutoTick(env, guardianDeps(env)).catch((err) => {
         console.error("guardian auto-update failed:", err);

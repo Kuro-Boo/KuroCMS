@@ -315,3 +315,88 @@ export class EntamyDefects {
     return Promise.resolve(null);
   }
 }
+
+// ── 接続元の登録（IP 制限）の共通部分 ─────────────────────────────────────
+// 本体は回線を判定し、登録した回線からだけ管理画面に入れる。スタブは**回線が
+// 分からない**（requestNetwork が null）として振る舞うので、KuroCMS の IP 制限は
+// 掛からない（ログインそのものは動く）。配布されている worker.js には本体が入っている。
+export type IpGateFamily = "v4" | "v6";
+export interface Network {
+  family: IpGateFamily;
+  net: string;
+  ip: string;
+}
+export interface IpGateConfig {
+  enabled: boolean;
+  ipv6: boolean;
+  ipv4: boolean;
+  ttl_v6_days: number;
+  ttl_v4_days: number;
+  pat: boolean;
+  trial_until: number | null;
+}
+export interface IpGateDb {
+  prepare(sql: string): {
+    bind(...values: unknown[]): {
+      first<T = Record<string, unknown>>(): Promise<T | null>;
+      all<T = Record<string, unknown>>(): Promise<{ results?: T[] }>;
+      run(): Promise<{ meta?: { changes?: number } }>;
+    };
+  };
+}
+export interface IpGateStore {
+  db: IpGateDb;
+  table: string;
+  scope: string;
+}
+export const IP_GATE_REQUEST_TTL_MS = 30 * 60 * 1000;
+export function requestNetwork(_request: Request): Network | null {
+  return null;
+}
+export function lineDescription(_request: Request): string {
+  return "";
+}
+export const shownNet = (
+  net: string,
+  description: string | null | undefined,
+): string => (description ? `${net} · ${description}` : net);
+export function normalizeIpGateConfig(
+  v: Partial<IpGateConfig>,
+  defaults: IpGateConfig,
+): IpGateConfig {
+  return { ...defaults, ...v };
+}
+export const familyAllowed = (cfg: IpGateConfig, f: IpGateFamily): boolean =>
+  f === "v6" ? cfg.ipv6 : cfg.ipv4;
+export async function subjectAllowed(
+  _store: IpGateStore,
+  _cfg: IpGateConfig,
+  _subject: string,
+  _conn: Network | null,
+  _now: number,
+): Promise<boolean> {
+  return true;
+}
+export async function connectionCount(
+  _store: IpGateStore,
+  _subject: string,
+  _now: number,
+): Promise<number> {
+  return 0;
+}
+export async function registerConnection(
+  _store: IpGateStore,
+  _cfg: IpGateConfig,
+  _subject: string,
+  _conn: Network,
+  _label: string,
+  _now: number,
+): Promise<boolean> {
+  return false;
+}
+export async function purgeExpiredConnections(
+  _store: IpGateStore,
+  _now: number,
+): Promise<number> {
+  return 0;
+}
