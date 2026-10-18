@@ -1,5 +1,18 @@
 // KuroCMS admin screen module. Concatenated by scripts/build-admin.js.
 
+// Media list pagination: server-side pages (GET {apiPath}?page=&per_page=) so
+// every asset is reachable — the unpaged list stops at 200. The page size is
+// shared by the image / video / audio screens and persisted.
+const MEDIA_PAGE_SIZE_KEY = "kurocms_media_page_size";
+let mediaPage = 1;
+let mediaPageSize = 50;
+try {
+  const saved = parseInt(localStorage.getItem(MEDIA_PAGE_SIZE_KEY) || "", 10);
+  if (PAGER_SIZE_OPTS.indexOf(saved) !== -1) mediaPageSize = saved;
+} catch {
+  /* localStorage unavailable */
+}
+
 async function images() {
   mediaScreen("image", "images", "/api/media/images", "image/*");
 }
@@ -68,9 +81,33 @@ function mediaScreen(
       "<div id='mediaList' class='emptyState'>" +
       escapeHtml(t("noMedia")) +
       "</div>" +
+      "<div id='mediaPager'></div>" +
       "</div>" +
       "</div>",
   );
+
+  mediaPage = 1;
+  byId("mediaPager")?.addEventListener("click", function (e: Dynamic) {
+    const btn = e.target.closest(".pagerBtn[data-page]");
+    if (!btn || btn.disabled) return;
+    const p = parseInt(btn.dataset.page, 10);
+    if (!isNaN(p)) {
+      mediaPage = p;
+      loadMediaList(apiPath);
+    }
+  });
+  byId("mediaPager")?.addEventListener("change", function (e: Dynamic) {
+    const sel = e.target.closest("#mediaPageSizeSel");
+    if (!sel) return;
+    mediaPageSize = parseInt(sel.value, 10) || 50;
+    try {
+      localStorage.setItem(MEDIA_PAGE_SIZE_KEY, String(mediaPageSize));
+    } catch {
+      /* ignore */
+    }
+    mediaPage = 1;
+    loadMediaList(apiPath);
+  });
 
   const resizeSelect = byId("imageResizeLimit");
   if (resizeSelect) {
@@ -186,11 +223,24 @@ function mediaScreen(
 function loadMediaList(apiPath: Dynamic) {
   const listEl = byId("mediaList");
   if (!listEl) return;
+  const pagerEl = byId("mediaPager");
   listEl.innerHTML =
     "<div class='emptyState'>" + escapeHtml(t("loading")) + "</div>";
-  api(apiPath)
+  api(apiPath + "?page=" + mediaPage + "&per_page=" + mediaPageSize)
     .then(function (data) {
       const items = data.items || [];
+      const total = Number(data.total) || 0;
+      const pages = Math.max(1, Math.ceil(total / mediaPageSize));
+      // The last page emptied (e.g. its only item was deleted) — step back.
+      if (items.length === 0 && mediaPage > pages) {
+        mediaPage = pages;
+        loadMediaList(apiPath);
+        return;
+      }
+      if (pagerEl)
+        pagerEl.innerHTML = total
+          ? listPagerHtml("mediaPageSizeSel", total, mediaPage, mediaPageSize)
+          : "";
       if (items.length === 0) {
         listEl.innerHTML =
           "<div class='emptyState'>" + escapeHtml(t("noMedia")) + "</div>";
@@ -522,6 +572,8 @@ function uploadFiles(files: Dynamic, kind: Dynamic, apiPath: Dynamic) {
         },
         json.reused ? 4000 : 2000,
       );
+      // 新しい順なので、登録したものは 1 ページ目に出る。
+      mediaPage = 1;
       loadMediaList(apiPath);
       // Refresh storage info
       api("/api/system/storage")
