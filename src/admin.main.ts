@@ -920,7 +920,7 @@ const i18n = {
     ipGateHow2t: "Extended while you use it",
     ipGateHow2b:
       "Each use extends the registration. A network you stop using is removed after the number of days below.",
-    ipGateHow3t: "Other networks are confirmed by email",
+    ipGateHow3t: "Other networks are confirmed by email and registered",
     ipGateHow3b:
       "If a signed-in session is used from an unregistered network, it is blocked and a confirmation link is emailed to the user. Signing in again with the passkey also registers it.",
     ipGateDetailTitle: "Advanced settings",
@@ -2045,7 +2045,7 @@ const i18n = {
     ipGateHow2t: "使うたびに延長",
     ipGateHow2b:
       "使うたびに登録が延びます。使わなくなった回線は、下の日数がたつと外れます。",
-    ipGateHow3t: "別の回線はメールで確認",
+    ipGateHow3t: "別の回線はメールで確認し再登録",
     ipGateHow3b:
       "ログイン済みの状態が登録していない回線から使われると止め、本人へ確認のリンクをメールします。パスキーでログインし直しても登録されます。",
     ipGateDetailTitle: "詳細設定",
