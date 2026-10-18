@@ -168,7 +168,6 @@ export function adminHtml(
         font-size: 12px;
         font-weight: 700;
       }
-      .licenseBox { max-height: 320px; overflow: auto; white-space: pre-wrap; border: 1px solid var(--line); border-radius: 7px; background: #231f1a; color: #f8efe2; padding: 14px; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
       .checkRow { display: flex; align-items: flex-start; gap: 9px; font-size: 14px; color: var(--ink); padding: 12px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-2); }
       .checkRow input { width: auto; margin-top: 4px; }
       .listPager { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 16px; flex-wrap: wrap; }
@@ -663,7 +662,6 @@ export function adminHtml(
         .setupAside { display: none; }
         .panel { padding: 16px; }
         .mediaGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-        .licenseBox { max-height: 260px; font-size: 11px; }
         .toolbar { flex-wrap: wrap; }
         .toolbar input { min-width: 0; }
         /* Settings tabs: scrollable on mobile */

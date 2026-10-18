@@ -2823,46 +2823,19 @@ async function setup(request: Request, env: Env): Promise<Response> {
     );
   }
   if (publicDomain) validateDomain(publicDomain, "publicDomain");
-  if (body.licenseAccepted !== true) {
-    throw new HttpError(
-      400,
-      "license_required",
-      "Kuro License acceptance is required.",
-    );
-  }
+  // ⚠ Kuro License への同意はもう求めない(2026-10-17)。公開しているソースのライセンスは
+  //   GitHub に載っていて、導入した人が同意するのは起動時の窓の利用規約・プライバシーポリシー。
 
   const result = await bootstrapAdmin(env, { email });
 
-  const acceptedAt = nowIso();
+  const completedAt = nowIso();
   await saveSettings(env, {
     public_domain: publicDomain,
     default_lang: defaultLang,
     initial_lang: initialLang,
     site_timezone: siteTimezone,
-    license_accepted_at: acceptedAt,
-    license_accepted_by: result.uid,
-    license_name: "Kuro License",
-    license_attribution_phrase: "with KuroCMS",
-    setup_completed_at: acceptedAt,
+    setup_completed_at: completedAt,
   });
-  await env.DB.prepare(
-    `INSERT INTO activity_logs
-      (id, actor_uid, action, target_type, target_id, detail_json, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)`,
-  )
-    .bind(
-      makeId("act"),
-      result.uid,
-      "license.accept",
-      "license",
-      "kuro-license",
-      JSON.stringify({
-        licenseName: "Kuro License",
-        attributionPhrase: "with KuroCMS",
-      }),
-      acceptedAt,
-    )
-    .run();
 
   return json({ ok: true, uid: result.uid });
 }
@@ -5116,15 +5089,6 @@ async function settings(
         developmentDomain: deriveInternalPreviewUrl(request, env),
         defaultLang,
         initialLang: (row?.initial_lang as string | undefined) ?? defaultLang,
-        licenseAcceptedAt:
-          (row?.license_accepted_at as string | undefined) ?? "",
-        licenseAcceptedBy:
-          (row?.license_accepted_by as string | undefined) ?? "",
-        licenseName:
-          (row?.license_name as string | undefined) ?? "Kuro License",
-        licenseAttributionPhrase:
-          (row?.license_attribution_phrase as string | undefined) ??
-          "with KuroCMS",
         themeAccent: (row?.theme_accent as string | undefined) ?? "#157a6e",
         themeSidebar: (row?.theme_sidebar as string | undefined) ?? "#ffffff",
         themeMainPane:

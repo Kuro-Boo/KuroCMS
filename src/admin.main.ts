@@ -759,12 +759,7 @@ const i18n = {
       "Create the first administrator and accept the Kuro License. Authentication uses Cloudflare Access one-time passcodes (OTP).",
     administrator: "Administrator",
     adminEmail: "Admin Email",
-    license: "License",
-    licenseAccept:
-      "I have read and accept the Kuro License, including the requirement to show",
-    attributionArea: "in an appropriate attribution area.",
     completeSetup: "Complete Setup",
-    licenseRequired: "Kuro License acceptance is required.",
     subtitle: "Cloudflare-first headless CMS",
     apiFailed: "API request failed",
     cfLimitHint:
@@ -885,7 +880,6 @@ const i18n = {
     settingsTabBasic: "Basic",
     settingsTabSns: "SNS",
     settingsTabMobile: "Mobile",
-    settingsTabLicense: "License",
     siteTimezone: "Site time zone",
     siteTimezoneHelp:
       "The clock your site keeps. It decides which calendar month an article belongs to in the archive filter, and the date shown on public pages — both for every visitor, wherever they are. Leave it on UTC only if that is really your editorial time zone. Changing it changes generated HTML, so run a build (all pages) afterwards.",
@@ -954,9 +948,6 @@ const i18n = {
     blueskyHandle: "Bluesky Handle",
     blueskyHandleHelp: "Your Bluesky handle (e.g. yourname.bsky.social).",
     left: "Left",
-    licenseAttributionPhrase: "Attribution Phrase",
-    licenseText: "License Text",
-    acceptedAt: "Accepted At",
     siteName: "Site Name",
     siteNameHelp:
       "Internal site name shown in admin and metadata. Use [[site.name]] in templates.",
@@ -1809,11 +1800,7 @@ const i18n = {
       "最初の管理者を作成し、Kuro License に同意します。認証には Cloudflare Access のワンタイムパスワード（OTP）を利用します。",
     administrator: "管理者",
     adminEmail: "管理者メール",
-    license: "ライセンス",
-    licenseAccept: "Kuro License を読み、次の表示要件に同意します:",
-    attributionArea: "適切な表示領域に表示します。",
     completeSetup: "初期設定を完了",
-    licenseRequired: "Kuro License への同意が必要です。",
     subtitle: "Cloudflare優先のヘッドレスCMS",
     apiFailed: "APIリクエストに失敗しました",
     cfLimitHint:
@@ -2010,7 +1997,6 @@ const i18n = {
     settingsTabBasic: "基本",
     settingsTabSns: "SNS連動",
     settingsTabMobile: "スマホ設定",
-    settingsTabLicense: "ライセンス表示",
     siteTimezone: "サイトのタイムゾーン",
     siteTimezoneHelp:
       "サイトが使う時計です。記事一覧の月による絞り込みでどの月に入るか、公開ページに出る日付がいつになるか——この 2 つを、どこから見ている閲覧者に対しても同じにします。日本で運用しているなら Asia/Tokyo を選んでください（UTC のままだと、日本時間 0:00〜8:59 に公開した記事が前の月のアーカイブに入り、9/1 の記事が 8 月に混ざります）。生成される HTML が変わるので、変更後はビルド（全ページ）を実行してください。",
@@ -2080,9 +2066,6 @@ const i18n = {
     blueskyHandleHelp:
       "Blueskyのハンドル名（例: yourname.bsky.social）。空白で非表示。",
     left: "左",
-    licenseAttributionPhrase: "帰属フレーズ",
-    licenseText: "ライセンス文",
-    acceptedAt: "同意日時",
     siteName: "サイト名",
     siteNameHelp:
       "管理画面やメタ情報で表示されるサイト名です。テンプレートでは [[site.name]] で表示できます。",
@@ -3479,40 +3462,6 @@ async function applyEditorFont(lang = "") {
   } catch {
     /* ignore — editor just keeps the default font */
   }
-}
-
-function kuroLicenseText() {
-  return `Kuro License
-
-Copyright (c) 2026 Kuro-Boo
-
-This license is the MIT License with one additional attribution requirement:
-when the Software is used to provide a public-facing or user-facing interface,
-the phrase "with KuroCMS" must be shown in an appropriate attribution area,
-such as the final page, About screen, footer, credits screen, documentation
-page, or an equivalent location.
-
-The attribution is intended only to identify KuroCMS. It does not imply
-endorsement by Kuro-Boo or any KuroCMS contributor.
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice, this permission notice, and the KuroCMS
-attribution requirement above shall be included in all copies or substantial
-portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.`;
 }
 
 function shell(title: Dynamic, body: Dynamic) {

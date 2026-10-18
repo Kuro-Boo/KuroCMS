@@ -286,17 +286,10 @@ async function recoverScreen(token: Dynamic) {
 
 function captureSetupState() {
   const email = byId("setupAdminEmail");
-  const licenseAccepted = byId("setupLicenseAccepted");
-  return {
-    email: email?.value || "",
-    licenseAccepted: Boolean(licenseAccepted?.checked),
-  };
+  return { email: email?.value || "" };
 }
 
-async function setupScreen(
-  status: Dynamic,
-  preserve: { email?: string; licenseAccepted?: boolean } = {},
-) {
+async function setupScreen(status: Dynamic, preserve: { email?: string } = {}) {
   setSidebarMode("setup");
   app.innerHTML =
     "<section class='setup'><div class='setupHero'><h2>" +
@@ -315,19 +308,11 @@ async function setupScreen(
     escapeHtml(t("adminUrlLabel")) +
     "</span><div class='muted' style='margin:6px 0 4px;font-size:13px'>" +
     escapeHtml(t("adminUrlDerivedFromBootstrap")) +
-    "</div><div id='setupAdminUrlDisplay' style='padding:10px 12px;background:var(--surface-2);border-radius:10px;font-size:13px;font-family:ui-monospace,monospace;color:var(--ink)'></div></div><div><span class='sectionLabel'>" +
-    escapeHtml(t("license")) +
-    "</span><h3>Kuro License</h3><pre class='licenseBox'>" +
-    escapeHtml(kuroLicenseText()) +
-    "</pre></div><label class='checkRow'><input id='setupLicenseAccepted' type='checkbox' /> <span>" +
-    escapeHtml(t("licenseAccept")) +
-    " <code>with KuroCMS</code> " +
-    escapeHtml(t("attributionArea")) +
-    "</span></label><div class='toolbar'><button id='setupSubmit' type='submit' disabled>" +
+    "</div><div id='setupAdminUrlDisplay' style='padding:10px 12px;background:var(--surface-2);border-radius:10px;font-size:13px;font-family:ui-monospace,monospace;color:var(--ink)'></div></div>" +
+    "<div class='toolbar'><button id='setupSubmit' type='submit'>" +
     escapeHtml(t("completeSetup")) +
     "</button></div></form></div></section>";
   const email = byId("setupAdminEmail")!;
-  const licenseAccepted = byId("setupLicenseAccepted")!;
   const submit = byId("setupSubmit")!;
   email.value = preserve.email || "";
   const derivedPublicDomain = (() => {
@@ -340,18 +325,9 @@ async function setupScreen(
   if (adminUrlDisplay)
     adminUrlDisplay.textContent =
       location.origin + normalizedAdminEntryPath + "/";
-  licenseAccepted.checked = Boolean(preserve.licenseAccepted);
-  submit.disabled = !licenseAccepted.checked;
   bindLocaleSelect(() => setupScreen(status, captureSetupState()));
-  licenseAccepted.addEventListener("change", () => {
-    submit.disabled = !licenseAccepted.checked;
-  });
   byId("setupForm")!.addEventListener("submit", async (event) => {
     event.preventDefault();
-    if (!licenseAccepted?.checked) {
-      fieldError("setupLicenseAccepted", t("licenseRequired"));
-      return;
-    }
     const submitBtn = byId("setupSubmit")!;
     const originalText = submitBtn.textContent;
     submitBtn.disabled = true;
@@ -362,7 +338,6 @@ async function setupScreen(
         body: JSON.stringify({
           adminEmail: email.value,
           publicDomain: derivedPublicDomain,
-          licenseAccepted: true,
           defaultLang: setupLang,
           initialLang: setupLang,
           // サイトの時計。立ち上げている本人のブラウザの TZ をそのまま採る

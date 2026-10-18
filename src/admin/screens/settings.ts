@@ -220,13 +220,12 @@ async function settings() {
         : "";
   }
 
-  const tabBar = ["basic", "sns", "mobile", "license", "import", "ipgate"]
+  const tabBar = ["basic", "sns", "mobile", "import", "ipgate"]
     .map((id) => {
       const labels: Record<string, string> = {
         basic: t("settingsTabBasic"),
         sns: t("settingsTabSns"),
         mobile: t("settingsTabMobile"),
-        license: t("settingsTabLicense"),
         import: t("settingsTabImport"),
         ipgate: t("settingsTabIpGate"),
       };
@@ -532,7 +531,6 @@ async function settings() {
       "</div>" +
       "</div>" +
       "</div>" +
-      // ── License ──────────────────────────────────────────────────────
       // ── スマホ設定 ───────────────────────────────────────────────────
       "<div id='panel-mobile' class='settingsPanel' style='display:none'>" +
       "<div class='panel stack'>" +
@@ -559,24 +557,6 @@ async function settings() {
       escapeHtml(t("save")) +
       "</button></div>" +
       "<div id='mobileStatus' class='muted' style='font-size:12px'></div>" +
-      "</div>" +
-      "</div>" +
-      "<div id='panel-license' class='settingsPanel' style='display:none'>" +
-      "<div class='panel stack'>" +
-      "<table><tbody>" +
-      "<tr><th>" +
-      escapeHtml(t("license")) +
-      "</th><td id='licenseName'>Kuro License</td></tr>" +
-      "<tr><th>" +
-      escapeHtml(t("licenseAttributionPhrase")) +
-      "</th><td id='licenseAttribution'>with KuroCMS</td></tr>" +
-      "<tr><th>" +
-      escapeHtml(t("acceptedAt")) +
-      "</th><td id='licenseAcceptedAt'>-</td></tr>" +
-      "</tbody></table>" +
-      "<div style='margin-top:12px'><span class='sectionLabel'>" +
-      escapeHtml(t("licenseText")) +
-      "</span><pre class='licenseBox' id='licenseText' style='margin-top:8px'></pre></div>" +
       "</div>" +
       "</div>" +
       // ── Import ───────────────────────────────────────────────────────
@@ -1115,9 +1095,6 @@ async function settings() {
         themeSidebar: "#ffffff",
         themeMainPane: "#ffffff",
         blueskyHandle: "kuroboo.bsky.social",
-        licenseName: "Kuro License",
-        licenseAttributionPhrase: "with KuroCMS",
-        licenseAcceptedAt: new Date().toISOString(),
       };
       languageOptions = ["en", "ja", "de", "fr"];
     } else {
@@ -1592,15 +1569,6 @@ async function settings() {
         },
       );
     });
-    // License
-    byId("licenseName")!.textContent = s.licenseName || "Kuro License";
-    byId("licenseAttribution")!.textContent =
-      s.licenseAttributionPhrase || "with KuroCMS";
-    byId("licenseAcceptedAt")!.textContent = formatDateTime(
-      s.licenseAcceptedAt,
-    );
-    byId("licenseText")!.textContent = kuroLicenseText();
-
     // ── Import tab ─────────────────────────────────────────────────────
     (async function initImportTab() {
       // Store fetched articles for filtering
