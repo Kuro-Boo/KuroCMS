@@ -931,7 +931,7 @@ const i18n = {
     ipGateEnabled: "Turn on IP restriction",
     ipGatePat: "Also restrict personal access tokens (PAT)",
     ipGatePatHelp:
-      "Off by default: AI agents and MCP clients call the API from cloud networks whose addresses change every time.",
+      "Off by default. AI agents and MCP clients call the API from cloud networks and servers whose addresses change every time, so their IP often switches — that is why this can be turned off.",
     ipGateTtlV6: "Days an IPv6 network stays registered",
     ipGateTtlV4: "Days an IPv4 address stays registered",
     ipGateTtlHelp:
@@ -2056,7 +2056,7 @@ const i18n = {
     ipGateEnabled: "IP 制限を入れる",
     ipGatePat: "個人用アクセストークン（PAT）も制限する",
     ipGatePatHelp:
-      "既定は切です。AI のエージェントや MCP は、毎回アドレスの変わるクラウドの回線から API を呼ぶためです。",
+      "既定は切です。AI のエージェントや MCP は、毎回アドレスの変わるクラウドの回線やサーバーから API を呼ぶため、IP が切り替わることが多く、切にできるようになっています。",
     ipGateTtlV6: "IPv6 の回線を登録しておく日数",
     ipGateTtlV4: "IPv4 のアドレスを登録しておく日数",
     ipGateTtlHelp:
