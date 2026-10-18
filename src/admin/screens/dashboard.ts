@@ -1066,11 +1066,10 @@ async function articles() {
   // Strapi-style pagination: configurable "entries per page" (persisted) + page
   // navigation. Pure client-side over the loaded set (server returns up to 1000).
   const PAGE_SIZE_KEY = "kurocms_list_page_size";
-  const PAGE_SIZE_OPTS = [10, 20, 50, 100];
   let pageSize = 50;
   try {
     const saved = parseInt(localStorage.getItem(PAGE_SIZE_KEY) || "", 10);
-    if (PAGE_SIZE_OPTS.indexOf(saved) !== -1) pageSize = saved;
+    if (PAGER_SIZE_OPTS.indexOf(saved) !== -1) pageSize = saved;
   } catch {
     /* localStorage unavailable */
   }
@@ -1095,71 +1094,6 @@ async function articles() {
       toast(errorMessage(err), true);
     });
   };
-  function renderPager(total: Dynamic, page: Dynamic, size: Dynamic) {
-    const pages = Math.max(1, Math.ceil(total / size));
-    const sizeOpts = PAGE_SIZE_OPTS.map(function (n) {
-      return (
-        "<option value='" +
-        n +
-        "'" +
-        (n === size ? " selected" : "") +
-        ">" +
-        n +
-        "</option>"
-      );
-    }).join("");
-    function pagerPages(totalPages: number, current: number): number[] {
-      const count = Math.min(4, totalPages);
-      let start = Math.max(1, current - Math.floor((count - 1) / 2));
-      let end = start + count - 1;
-      if (end > totalPages) {
-        end = totalPages;
-        start = Math.max(1, end - count + 1);
-      }
-      const out: number[] = [];
-      for (let n = start; n <= end; n++) out.push(n);
-      return out;
-    }
-    let nums = "";
-    let last = 0;
-    pagerPages(pages, page).forEach(function (n) {
-      if (n - last > 1) nums += "<span class='pagerEllipsis'>…</span>";
-      nums +=
-        "<button type='button' class='pagerBtn" +
-        (n === page ? " active" : "") +
-        "' data-page='" +
-        n +
-        "'" +
-        (n === page ? " disabled" : "") +
-        ">" +
-        n +
-        "</button>";
-      last = n;
-    });
-    return (
-      "<div class='listPager'>" +
-      "<label class='pageSizeWrap'>" +
-      "<select id='pageSizeSel'>" +
-      sizeOpts +
-      "</select>" +
-      escapeHtml(t("entriesPerPage")) +
-      "</label>" +
-      "<div class='pagerNav'>" +
-      "<button type='button' class='pagerBtn' data-page='" +
-      (page - 1) +
-      "'" +
-      (page <= 1 ? " disabled" : "") +
-      ">&#8249;</button>" +
-      nums +
-      "<button type='button' class='pagerBtn' data-page='" +
-      (page + 1) +
-      "'" +
-      (page >= pages ? " disabled" : "") +
-      ">&#8250;</button>" +
-      "</div>" +
-      "</div>"
-    );
-  }
   function renderList() {
     const order = byId("sortOrder")?.value || "publish_desc";
     const cat = (byId("catFilter") as Dynamic)?.value || "";
@@ -1183,7 +1117,7 @@ async function articles() {
     const pager = byId("listPager");
     if (pager)
       pager.innerHTML = sorted.length
-        ? renderPager(sorted.length, currentPage, pageSize)
+        ? listPagerHtml("pageSizeSel", sorted.length, currentPage, pageSize)
         : "";
   }
   byId("searchBtn")?.addEventListener("click", () =>

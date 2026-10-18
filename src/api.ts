@@ -108,6 +108,7 @@ import {
 } from "./templates/font-catalog";
 import type { AuthUser, Env, JsonValue } from "./types";
 import { handleMcp } from "./mcp";
+import { listMediaPage } from "./media-list";
 import {
   currentNetwork,
   handleNetworkConfirm,
@@ -1190,7 +1191,9 @@ async function handleApiDispatch(
       );
     }
     if (request.method === "GET" && path === "/api/media/images") {
-      return withJsonHeaders(await listMediaAssets(env, user, "image"));
+      return withJsonHeaders(
+        await listMediaAssets(env, user, "image", url.searchParams),
+      );
     }
     if (request.method === "POST" && path === "/api/media/images/upload") {
       return withJsonHeaders(
@@ -1203,7 +1206,9 @@ async function handleApiDispatch(
       );
     }
     if (request.method === "GET" && path === "/api/media/videos") {
-      return withJsonHeaders(await listMediaAssets(env, user, "video"));
+      return withJsonHeaders(
+        await listMediaAssets(env, user, "video", url.searchParams),
+      );
     }
     if (request.method === "POST" && path === "/api/media/videos/upload") {
       return withJsonHeaders(
@@ -1216,7 +1221,9 @@ async function handleApiDispatch(
       );
     }
     if (request.method === "GET" && path === "/api/media/audios") {
-      return withJsonHeaders(await listMediaAssets(env, user, "audio"));
+      return withJsonHeaders(
+        await listMediaAssets(env, user, "audio", url.searchParams),
+      );
     }
     if (request.method === "POST" && path === "/api/media/audios/upload") {
       return withJsonHeaders(
@@ -9536,14 +9543,10 @@ async function listMediaAssets(
   env: Env,
   user: AuthUser,
   kind: "image" | "video" | "audio",
+  params: URLSearchParams,
 ): Promise<Response> {
   requireAuthor(user);
-  const rows = await env.DB.prepare(
-    "SELECT mid AS id, kind, filename, mime, width, height, size_bytes AS sizeBytes, public_path AS publicPath, cache_version AS cacheVersion, created_at AS createdAt FROM media_assets WHERE kind = ? ORDER BY created_at DESC LIMIT 200",
-  )
-    .bind(kind)
-    .all();
-  return json({ items: rows.results as JsonValue }, { status: 200 });
+  return json(await listMediaPage(env, kind, params), { status: 200 });
 }
 
 /** Resolve a single media asset by its mid (e.g. to display [[img-xxx]] as a cover). */

@@ -53,73 +53,10 @@ async function settings() {
   // Import list pagination (shared default; the article management list uses 50,
   // but the import list defaults to 20). Page state is per-list.
   let importPageSize = 20;
-  // Strapi-style pager HTML (entries-per-page select + windowed page nav).
-  // `pfx` namespaces the control ids (e.g. "strapi" → #strapi-size). Reuses the
-  // .listPager / .pagerBtn CSS already defined for the article-management list.
-  function importPagerHtml(pfx: Dynamic, total: Dynamic, page: Dynamic) {
-    const pages = Math.max(1, Math.ceil(total / importPageSize));
-    const sizeOpts = [10, 20, 50, 100]
-      .map(function (n) {
-        return (
-          "<option value='" +
-          n +
-          "'" +
-          (n === importPageSize ? " selected" : "") +
-          ">" +
-          n +
-          "</option>"
-        );
-      })
-      .join("");
-    function pagerPages(totalPages: number, current: number): number[] {
-      const count = Math.min(4, totalPages);
-      let start = Math.max(1, current - Math.floor((count - 1) / 2));
-      let end = start + count - 1;
-      if (end > totalPages) {
-        end = totalPages;
-        start = Math.max(1, end - count + 1);
-      }
-      const out: number[] = [];
-      for (let n = start; n <= end; n++) out.push(n);
-      return out;
-    }
-    let nums = "";
-    let last = 0;
-    pagerPages(pages, page).forEach(function (n) {
-      if (n - last > 1) nums += "<span class='pagerEllipsis'>…</span>";
-      nums +=
-        "<button type='button' class='pagerBtn" +
-        (n === page ? " active" : "") +
-        "' data-page='" +
-        n +
-        "'>" +
-        n +
-        "</button>";
-      last = n;
-    });
-    return (
-      "<div class='listPager' style='margin-top:10px'>" +
-      "<label class='pageSizeWrap'><select id='" +
-      pfx +
-      "-size'>" +
-      sizeOpts +
-      "</select>" +
-      escapeHtml(t("entriesPerPage")) +
-      "</label>" +
-      "<div class='pagerNav'>" +
-      "<button type='button' class='pagerBtn' data-page='" +
-      (page - 1) +
-      "'" +
-      (page <= 1 ? " disabled" : "") +
-      ">&#8249;</button>" +
-      nums +
-      "<button type='button' class='pagerBtn' data-page='" +
-      (page + 1) +
-      "'" +
-      (page >= pages ? " disabled" : "") +
-      ">&#8250;</button>" +
-      "</div></div>"
-    );
+  // Pager HTML for an import list. `pfx` namespaces the page-size select id
+  // (e.g. "strapi" → #strapi-size).
+  function importPagerHtml(pfx: string, total: number, page: number) {
+    return listPagerHtml(pfx + "-size", total, page, importPageSize);
   }
 
   // ── Tab helpers ───────────────────────────────────────────────────────
