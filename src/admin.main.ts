@@ -2048,7 +2048,7 @@ const i18n = {
     ipGateHow3t: "別の回線はメールで確認",
     ipGateHow3b:
       "ログイン済みの状態が登録していない回線から使われると止め、本人へ確認のリンクをメールします。パスキーでログインし直しても登録されます。",
-    ipGateDetailTitle: "詳しい設定",
+    ipGateDetailTitle: "詳細設定",
     ipGateDays: "日",
     ipGateTitle: "IP 制限",
     ipGateHelp:
