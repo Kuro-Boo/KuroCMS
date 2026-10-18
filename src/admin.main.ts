@@ -756,7 +756,7 @@ const i18n = {
     help: "Help",
     setupTitle: "Set up your KuroCMS workspace",
     setupLead:
-      "Create the first administrator and accept the Kuro License. Authentication uses Cloudflare Access one-time passcodes (OTP).",
+      "Create the first administrator. You sign in with a passkey (fingerprint or face recognition) — there is no password.",
     administrator: "Administrator",
     adminEmail: "Admin Email",
     completeSetup: "Complete Setup",
@@ -1797,7 +1797,7 @@ const i18n = {
     help: "ヘルプ",
     setupTitle: "KuroCMS ワークスペースを設定",
     setupLead:
-      "最初の管理者を作成し、Kuro License に同意します。認証には Cloudflare Access のワンタイムパスワード（OTP）を利用します。",
+      "最初の管理者を作成します。ログインはパスキー（指紋や顔認証）で行い、パスワードはありません。",
     administrator: "管理者",
     adminEmail: "管理者メール",
     completeSetup: "初期設定を完了",

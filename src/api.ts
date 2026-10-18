@@ -2823,8 +2823,6 @@ async function setup(request: Request, env: Env): Promise<Response> {
     );
   }
   if (publicDomain) validateDomain(publicDomain, "publicDomain");
-  // ⚠ Kuro License への同意はもう求めない(2026-10-17)。公開しているソースのライセンスは
-  //   GitHub に載っていて、導入した人が同意するのは起動時の窓の利用規約・プライバシーポリシー。
 
   const result = await bootstrapAdmin(env, { email });
 
@@ -12554,10 +12552,6 @@ const SETTINGS_COLS = new Set([
   "threads_user_id",
   "threads_token_updated_at",
   "threads_token_refresh_attempted_at",
-  "license_accepted_at",
-  "license_accepted_by",
-  "license_name",
-  "license_attribution_phrase",
   "setup_completed_at",
   "strapi_url",
   "strapi_token",

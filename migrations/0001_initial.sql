@@ -245,6 +245,7 @@ CREATE TABLE IF NOT EXISTS site_settings (
   bluesky_feed_position      TEXT NOT NULL DEFAULT 'left',
   threads_handle             TEXT NOT NULL DEFAULT '',
   threads_show_feed          INTEGER NOT NULL DEFAULT 0,
+  -- Kept here so a fresh migration chain can apply 0075_remove_license_acceptance.sql.
   license_accepted_at        TEXT NOT NULL DEFAULT '',
   license_accepted_by        TEXT NOT NULL DEFAULT '',
   license_name               TEXT NOT NULL DEFAULT 'Kuro License',

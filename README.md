@@ -93,3 +93,11 @@ attribution requirement).
 > **“with KuroCMS”** must be shown in an appropriate attribution area.
 
 See [LICENSE.txt](./LICENSE.txt) for the full text.
+
+The Kuro License covers the source code in this repository. The release builds
+(`worker.js` on GitHub Releases) also contain components of the Entamy platform
+(the `entamy-connect` library), which are not part of this repository and are not
+covered by the Kuro License — in this repository they are replaced by a stub
+(`src/vendor/entamy-client/`). Using Entamy services such as Entamy ID or hosting
+by Entamy is governed by the Entamy Terms of Service and Privacy Policy, which you
+agree to inside the app.
