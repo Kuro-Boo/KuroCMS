@@ -910,9 +910,24 @@ const i18n = {
       "Saved. Run a build (all pages) to apply it to the public site.",
     settingsTabImport: "Import",
     settingsTabIpGate: "IP restriction",
-    ipGateTitle: "IP restriction (registered networks)",
+    ipGateOn: "On",
+    ipGateOff: "Off",
+    ipGateCurrentLabel: "This network",
+    ipGateHowTitle: "How it works",
+    ipGateHow1t: "Registered automatically",
+    ipGateHow1b:
+      "When you sign in with your passkey, the network you used is registered. Nobody has to do anything.",
+    ipGateHow2t: "Extended while you use it",
+    ipGateHow2b:
+      "Each use extends the registration. A network you stop using is removed after the number of days below.",
+    ipGateHow3t: "Other networks are confirmed by email",
+    ipGateHow3b:
+      "If a signed-in session is used from an unregistered network, it is blocked and a confirmation link is emailed to the user. Signing in again with the passkey also registers it.",
+    ipGateDetailTitle: "Advanced settings",
+    ipGateDays: "days",
+    ipGateTitle: "IP restriction",
     ipGateHelp:
-      "The admin panel can be used only from networks registered for each user. Registration is automatic: the network you sign in from with your passkey is registered, and it stays registered while you keep using it. If a signed-in session is used from an unregistered network, it is blocked and a confirmation link is emailed to the user — so a stolen session cookie can't be used elsewhere.",
+      "The admin panel can be used only from networks registered for each user, so a stolen session cookie can't be used anywhere else. Registration is fully automatic.",
     ipGateEnabled: "Turn on IP restriction",
     ipGatePat: "Also restrict personal access tokens (PAT)",
     ipGatePatHelp:
@@ -2020,9 +2035,24 @@ const i18n = {
       "保存しました。公開ページに反映するにはビルド（全ページ）を実行してください。",
     settingsTabImport: "インポート",
     settingsTabIpGate: "IP 制限",
-    ipGateTitle: "IP 制限（登録した回線）",
+    ipGateOn: "入",
+    ipGateOff: "切",
+    ipGateCurrentLabel: "この回線",
+    ipGateHowTitle: "仕組み",
+    ipGateHow1t: "自動で登録",
+    ipGateHow1b:
+      "パスキーでログインすると、その回線が登録されます。利用者が操作することはありません。",
+    ipGateHow2t: "使うたびに延長",
+    ipGateHow2b:
+      "使うたびに登録が延びます。使わなくなった回線は、下の日数がたつと外れます。",
+    ipGateHow3t: "別の回線はメールで確認",
+    ipGateHow3b:
+      "ログイン済みの状態が登録していない回線から使われると止め、本人へ確認のリンクをメールします。パスキーでログインし直しても登録されます。",
+    ipGateDetailTitle: "詳しい設定",
+    ipGateDays: "日",
+    ipGateTitle: "IP 制限",
     ipGateHelp:
-      "管理画面は、利用者ごとに登録した回線からしか使えません。登録は全自動です。パスキーでログインした回線が登録され、使い続ける間は登録が延びます。ログイン済みの状態が登録していない回線から使われると止め、本人へ確認のリンクをメールします。盗まれたログインの状態（クッキー）を、ほかの場所で使わせません。",
+      "管理画面は、利用者ごとに登録した回線からしか使えません。盗まれたログインの状態（クッキー）を、ほかの場所で使わせません。登録は全自動です。",
     ipGateEnabled: "IP 制限を入れる",
     ipGatePat: "個人用アクセストークン（PAT）も制限する",
     ipGatePatHelp:

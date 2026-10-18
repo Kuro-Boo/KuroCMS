@@ -765,42 +765,109 @@ async function settings() {
   // 登録は全自動。ここで決めるのは入・切と、PAT を縛るか、期限の日数だけ。
   byId("panel-import")?.insertAdjacentHTML(
     "afterend",
-    "<div id='panel-ipgate' class='settingsPanel' style='display:none'>" +
-      "<form class='panel stack' id='ipGateForm'>" +
-      "<div class='panelHead'><h3>" +
-      escapeHtml(t("ipGateTitle")) +
-      "</h3></div>" +
-      "<div class='muted' style='font-size:13px;line-height:1.7'>" +
-      escapeHtml(t("ipGateHelp")) +
-      "</div>" +
-      "<div style='display:flex;align-items:center;justify-content:space-between;gap:12px'>" +
-      "<span style='font-weight:600;font-size:13px'>" +
-      escapeHtml(t("ipGateEnabled")) +
-      "</span><label class='toggleSwitch'><input type='checkbox' id='ipGateEnabled' /><span class='toggleSlider'></span></label></div>" +
-      "<div style='display:flex;align-items:center;justify-content:space-between;gap:12px'>" +
-      "<span style='font-weight:600;font-size:13px'>" +
-      escapeHtml(t("ipGatePat")) +
-      "</span><label class='toggleSwitch'><input type='checkbox' id='ipGatePat' /><span class='toggleSlider'></span></label></div>" +
-      "<div class='muted' style='font-size:12px'>" +
-      escapeHtml(t("ipGatePatHelp")) +
-      "</div>" +
-      "<div style='display:flex;gap:12px;flex-wrap:wrap'>" +
-      "<label style='flex:1;min-width:160px'>" +
-      escapeHtml(t("ipGateTtlV6")) +
-      "<input id='ipGateTtlV6' type='number' min='1' max='90' /></label>" +
-      "<label style='flex:1;min-width:160px'>" +
-      escapeHtml(t("ipGateTtlV4")) +
-      "<input id='ipGateTtlV4' type='number' min='1' max='90' /></label>" +
-      "</div>" +
-      "<div class='muted' style='font-size:12px'>" +
-      escapeHtml(t("ipGateTtlHelp")) +
-      "</div>" +
-      "<div class='muted' id='ipGateCurrent' style='font-size:12px'></div>" +
-      "<button>" +
-      escapeHtml(t("save")) +
-      "</button>" +
-      "</form></div>",
+    (() => {
+      const box =
+        "border:1px solid var(--line);border-radius:10px;background:var(--surface-2);padding:12px 14px";
+      const toggle = (id: string) =>
+        "<label class='toggleSwitch'><input type='checkbox' id='" +
+        id +
+        "' /><span class='toggleSlider'></span></label>";
+      const step = (n: string, title: string, body: string) =>
+        "<div style='" +
+        box +
+        "'><div style='display:flex;align-items:center;gap:8px;margin-bottom:6px'>" +
+        "<span style='display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:var(--theme-accent,#0f766e);color:#fff;font-size:12px;font-weight:700'>" +
+        n +
+        "</span><b style='font-size:13px'>" +
+        escapeHtml(title) +
+        "</b></div><div class='muted' style='font-size:12px;line-height:1.7'>" +
+        escapeHtml(body) +
+        "</div></div>";
+      const ttl = (id: string, label: string) =>
+        "<div style='" +
+        box +
+        "'><span class='fieldLabel'>" +
+        escapeHtml(label) +
+        "</span><div style='display:flex;align-items:center;gap:8px'>" +
+        "<input id='" +
+        id +
+        "' type='number' min='1' max='90' style='width:110px' />" +
+        "<span class='muted' style='font-size:13px'>" +
+        escapeHtml(t("ipGateDays")) +
+        "</span></div></div>";
+      return (
+        "<div id='panel-ipgate' class='settingsPanel' style='display:none'>" +
+        "<form class='stack' id='ipGateForm' style='gap:16px'>" +
+        // ① 状態
+        "<div class='panel stack' style='gap:12px'>" +
+        "<div class='panelHead'><h3>" +
+        escapeHtml(t("ipGateTitle")) +
+        "</h3>" +
+        "<div style='display:flex;align-items:center;gap:10px'><span id='ipGateState' style='font-size:13px;font-weight:700'></span>" +
+        toggle("ipGateEnabled") +
+        "</div></div>" +
+        "<div class='muted' style='font-size:13px;line-height:1.7'>" +
+        escapeHtml(t("ipGateHelp")) +
+        "</div>" +
+        "<div style='" +
+        box +
+        ";display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px'>" +
+        "<span class='fieldLabel' style='margin:0'>" +
+        escapeHtml(t("ipGateCurrentLabel")) +
+        "</span><code id='ipGateCurrentNet' style='font-size:13px'></code>" +
+        "<span id='ipGateCurrentLine' class='muted' style='font-size:12px'></span></div>" +
+        "</div>" +
+        // ② 仕組み
+        "<div class='panel stack' style='gap:12px'>" +
+        "<div class='panelHead'><h3>" +
+        escapeHtml(t("ipGateHowTitle")) +
+        "</h3></div>" +
+        "<div style='display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px'>" +
+        step("1", t("ipGateHow1t"), t("ipGateHow1b")) +
+        step("2", t("ipGateHow2t"), t("ipGateHow2b")) +
+        step("3", t("ipGateHow3t"), t("ipGateHow3b")) +
+        "</div></div>" +
+        // ③ 詳しい設定
+        "<div class='panel stack' style='gap:12px'>" +
+        "<div class='panelHead'><h3>" +
+        escapeHtml(t("ipGateDetailTitle")) +
+        "</h3></div>" +
+        "<div style='" +
+        box +
+        ";display:flex;align-items:center;justify-content:space-between;gap:14px'>" +
+        "<div><b style='font-size:13px'>" +
+        escapeHtml(t("ipGatePat")) +
+        "</b><div class='muted' style='font-size:12px;margin-top:2px'>" +
+        escapeHtml(t("ipGatePatHelp")) +
+        "</div></div>" +
+        toggle("ipGatePat") +
+        "</div>" +
+        "<div style='display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px'>" +
+        ttl("ipGateTtlV6", t("ipGateTtlV6")) +
+        ttl("ipGateTtlV4", t("ipGateTtlV4")) +
+        "</div>" +
+        "<div class='muted' style='font-size:12px'>" +
+        escapeHtml(t("ipGateTtlHelp")) +
+        "</div>" +
+        // 保存は SNS 連動のカードと同じく、カードの右下に普通の大きさで置く。
+        "<div style='margin-top:16px;display:flex;justify-content:flex-end;align-items:center;gap:8px;flex-wrap:wrap'>" +
+        "<button type='submit'>" +
+        escapeHtml(t("save")) +
+        "</button></div>" +
+        "</div>" +
+        "</form></div>"
+      );
+    })(),
   );
+  function renderIpGateState() {
+    const on = (byId("ipGateEnabled") as Dynamic)?.checked;
+    const el = byId("ipGateState");
+    if (el) {
+      el.textContent = on ? t("ipGateOn") : t("ipGateOff");
+      el.style.color = on ? "var(--theme-accent,#0f766e)" : "var(--muted)";
+    }
+  }
+  byId("ipGateEnabled")?.addEventListener("change", renderIpGateState);
   async function loadIpGate() {
     try {
       const r = await api("/api/system/ip-gate");
@@ -809,14 +876,12 @@ async function settings() {
       (byId("ipGatePat") as Dynamic).checked = c.pat === true;
       (byId("ipGateTtlV6") as Dynamic).value = String(c.ttl_v6_days ?? 30);
       (byId("ipGateTtlV4") as Dynamic).value = String(c.ttl_v4_days ?? 7);
-      const cur = byId("ipGateCurrent");
-      if (cur)
-        cur.textContent = r.current
-          ? t("ipGateCurrent").replace(
-              "{net}",
-              r.current.net + (r.current.label ? " · " + r.current.label : ""),
-            )
-          : "";
+      const net = byId("ipGateCurrentNet");
+      const line = byId("ipGateCurrentLine");
+      if (net) net.textContent = r.current ? r.current.net : "—";
+      if (line)
+        line.textContent = r.current && r.current.label ? r.current.label : "";
+      renderIpGateState();
     } catch (err) {
       toast(errorMessage(err), true);
     }
