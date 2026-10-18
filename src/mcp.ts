@@ -55,7 +55,7 @@ const TOOLS: ToolDef[] = [
     name: "list_articles",
     description:
       "Enumerate articles, most recently updated first. Each entry carries the article's slug (the id you pass to every other tool), tid, title, initial_lang, languages (CSV of the langs that have a translation) and timestamps — no bodies. " +
-      "FILTER instead of listing everything: the unfiltered call returns up to 1000 rows. Use slug for exact article(s), q for a substring search, tid/mode/live to scope, updatedSince/updatedUntil to ask 'what changed since X', limit to cap the answer, and fields to keep only the keys you need. " +
+      "FILTER instead of listing everything: one call returns at most 1000 rows; the answer carries total (rows matching the filters) and next_offset (pass it as offset for the next page; null on the last page). Use slug for exact article(s), q for a substring search, tid/mode/live to scope, updatedSince/updatedUntil to ask 'what changed since X', limit to cap the answer, and fields to keep only the keys you need. " +
       "If you already know the slug and want the article itself, skip this tool and call get_article.",
     inputSchema: {
       type: "object",
