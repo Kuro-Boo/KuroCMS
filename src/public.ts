@@ -68,6 +68,18 @@ import {
 } from "./timezone";
 import type { Env, JsonValue } from "./types";
 import {
+  ARTICLE_TR_JOINS,
+  publishedSql,
+  type PubFilter,
+} from "./published-sql.ts";
+import {
+  fetchCategoryPool,
+  pickCategoryNeighbours,
+  RELATED_MAX,
+  type RelatedPoolItem,
+} from "./related.ts";
+export type { PubFilter } from "./published-sql.ts";
+import {
   langPath,
   langScript,
   legacyLangPath,
@@ -115,31 +127,6 @@ export function cheapHash(s: string): string {
     h = Math.imul(h, 0x01000193);
   }
   return (h >>> 0).toString(36);
-}
-
-/**
- * Which notion of "published" a query runs under. The publish flag (documents.
- * mode) is pure STATE — it only takes effect when a build materializes it into
- * documents.live. Serving must never read mode directly, or a flagged-but-not-
- * yet-built article would leak out through the on-demand pages (categories,
- * KV-miss fallback, sitemap/RSS) before any build ran.
- *   "live"   — serve-time: what the last completed build published (live = 1)
- *   "window" — build-time: mode = 1 within the publish window
- *   "future" — build-time in "always" mode: the upper publish_at bound is
- *              dropped so future-dated posts are built/listed immediately; the
- *              unpublish_at (expiry) bound is always enforced
- */
-export type PubFilter = "live" | "window" | "future";
-
-/** SQL predicate selecting published documents under `filter`.
- *  `alias` is the column prefix ("d." or ""). */
-function publishedSql(alias: string, filter: PubFilter): string {
-  if (filter === "live") return `${alias}live = 1`;
-  const upper =
-    filter === "future"
-      ? ""
-      : `AND datetime(${alias}publish_at) <= datetime('now') `;
-  return `${alias}mode = 1 ${upper}AND (${alias}unpublish_at IS NULL OR datetime(${alias}unpublish_at) > datetime('now'))`;
 }
 
 /** SQL CASE computing a document's materialized `live` value from its flag
@@ -876,6 +863,8 @@ function buildSearchWidget(publicBase: string, lang: string): string {
   const isJa = (lang || "").toLowerCase().startsWith("ja");
   const ph = isJa ? "記事を検索" : "Search";
   const noRes = isJa ? "該当する記事がありません" : "No matching articles";
+  // 続きがあるときの末尾のボタン。{n} に残りの件数が入る。
+  const moreLabel = isJa ? "さらに表示（残り {n} 件）" : "Show more ({n} left)";
   const uid = "ks_" + (lang || "x").replace(/[^a-z0-9]/gi, "_");
   const icon =
     '<svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="9" cy="9" r="6"/><line x1="13.5" y1="13.5" x2="18" y2="18"/></svg>';
@@ -890,6 +879,8 @@ function buildSearchWidget(publicBase: string, lang: string): string {
   #${uid} .kuro-search__title{display:block;font-size:13px;font-weight:600}
   #${uid} .kuro-search__snip{display:block;font-size:11px;color:#64748b;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   #${uid} .kuro-search__empty{padding:10px;font-size:12px;color:#94a3b8;text-align:center}
+  #${uid} .kuro-search__more{display:block;width:100%;border:0;background:transparent;color:#2563eb;font-size:12px;padding:8px 10px;cursor:pointer;text-align:center;border-radius:7px}
+  #${uid} .kuro-search__more:hover{background:#f1f5f9}
   #${uid} .kuro-search__dialog{display:none;position:fixed;inset:0;z-index:2000;background:rgba(15,23,42,.45)}
   #${uid} .kuro-search__sheet{position:absolute;left:0;right:0;top:0;background:#fff;padding:12px;box-shadow:0 6px 24px rgba(0,0,0,.2)}
   #${uid} .kuro-search__dhead{display:flex;align-items:center;gap:8px}
@@ -917,20 +908,23 @@ function buildSearchWidget(publicBase: string, lang: string): string {
 <script>
 (function(){
   var root=document.getElementById("${uid}");if(!root)return;
-  var EP=${JSON.stringify(base)}+"/_search",KEY="kurocms_lang",EMPTY=${JSON.stringify(noRes)};
+  var EP=${JSON.stringify(base)}+"/_search",KEY="kurocms_lang",EMPTY=${JSON.stringify(noRes)},MORE=${JSON.stringify(moreLabel)};
   var input=root.querySelector(".kuro-search__input"),btn=root.querySelector("[data-ks-btn]"),panel=root.querySelector("[data-ks-panel]");
   var dialog=root.querySelector("[data-ks-dialog]"),dinput=root.querySelector(".kuro-search__dinput"),dres=root.querySelector("[data-ks-dresults]"),dclose=root.querySelector("[data-ks-close]");
   function lang(){return ${JSON.stringify(lang)};}
   function isMobile(){return !!(window.matchMedia&&window.matchMedia("(max-width:640px)").matches);}
-  function render(box,items){box.textContent="";if(!items||!items.length){var e=document.createElement("div");e.className="kuro-search__empty";e.textContent=EMPTY;box.appendChild(e);return;}
+  function render(box,items,append){var old=box.querySelector(".kuro-search__more");if(old)old.remove();if(!append)box.textContent="";if(!append&&(!items||!items.length)){var e=document.createElement("div");e.className="kuro-search__empty";e.textContent=EMPTY;box.appendChild(e);return;}
     items.forEach(function(r){var a=document.createElement("a");a.className="kuro-search__item";a.href=r.url;
       var t=document.createElement("span");t.className="kuro-search__title";t.textContent=r.title||r.url;a.appendChild(t);
       if(r.snippet){var s=document.createElement("span");s.className="kuro-search__snip";s.textContent=r.snippet;a.appendChild(s);}
       box.appendChild(a);});}
   var seq=0;
-  function run(q,box,show){q=(q||"").trim();if(!q){box.textContent="";if(show)show(false);return;}
-    var my=++seq;
-    fetch(EP+"?q="+encodeURIComponent(q)+"&lang="+encodeURIComponent(lang())).then(function(r){return r.ok?r.json():{results:[]};}).then(function(d){if(my!==seq)return;render(box,d&&d.results);if(show)show(true);}).catch(function(){if(my!==seq)return;render(box,[]);if(show)show(true);});}
+  function run(q,box,show,offset){q=(q||"").trim();if(!q){box.textContent="";if(show)show(false);return;}
+    var my=offset?seq:++seq;
+    fetch(EP+"?q="+encodeURIComponent(q)+"&lang="+encodeURIComponent(lang())+(offset?"&offset="+offset:"")).then(function(r){return r.ok?r.json():{results:[]};}).then(function(d){if(my!==seq)return;render(box,d&&d.results,!!offset);
+      if(d&&typeof d.next_offset==="number"){var m=document.createElement("button");m.type="button";m.className="kuro-search__more";m.textContent=MORE.split("{n}").join(String((d.total||0)-d.next_offset));
+        m.addEventListener("click",function(e){e.preventDefault();e.stopPropagation();run(q,box,null,d.next_offset);});box.appendChild(m);}
+      if(show)show(true);}).catch(function(){if(my!==seq)return;if(!offset)render(box,[]);if(show)show(true);});}
   function debounce(fn){var t;return function(){var a=arguments,c=this;clearTimeout(t);t=setTimeout(function(){fn.apply(c,a);},220);};}
   if(input){var showPanel=function(on){panel.style.display=on?"block":"none";};
     input.addEventListener("input",debounce(function(){run(input.value,panel,showPanel);}));
@@ -1563,16 +1557,6 @@ const ARTICLE_COLS = `d.did, d.slug, d.tid, d.publish_at, d.updated_at,
    FROM document_categories dcx JOIN categories tix ON tix.id=dcx.cid
    WHERE dcx.did=d.did ORDER BY tix.name) AS categories_json`;
 
-// Two binds, in order: (1) requested lang, (2) site/default lang.
-const ARTICLE_TR_JOINS = `LEFT JOIN document_translations dt_req ON dt_req.did = d.did AND dt_req.lang = ?
-  LEFT JOIN document_translations dt_fb ON dt_fb.did = d.did AND dt_fb.lang = d.fallback_lang
-  LEFT JOIN document_translations dt_init ON dt_init.did = d.did AND dt_init.lang = d.initial_lang
-  LEFT JOIN document_translations dt_site ON dt_site.did = d.did AND dt_site.lang = ?
-  LEFT JOIN document_translations dt_en ON dt_en.did = d.did AND dt_en.lang = 'en'
-  LEFT JOIN document_translations dt_any ON dt_any.did = d.did AND dt_any.lang = (
-    SELECT dt2.lang FROM document_translations dt2 WHERE dt2.did = d.did ORDER BY dt2.updated_at DESC LIMIT 1
-  )`;
-
 export type ArticleScope =
   | { kind: "home" }
   | { kind: "type"; slug: string }
@@ -1829,9 +1813,13 @@ export async function searchEndpoint(
   const url = new URL(request.url);
   const q = (url.searchParams.get("q") || "").trim().slice(0, 80);
   const lang = (url.searchParams.get("lang") || "").trim().slice(0, 20);
+  // 1 回に返すのは件数の上限: 候補の窓に並べる分(既定 10・最大 20)。続きは offset で読む
+  // (total と next_offset を返す)。⚠ 以前は続きを読む道が無く、21 件目からの記事が検索で見つからなかった。
   let limit = Number(url.searchParams.get("limit") || 10);
   if (!Number.isFinite(limit) || limit < 1) limit = 10;
   if (limit > 20) limit = 20;
+  let offset = Math.floor(Number(url.searchParams.get("offset") || 0));
+  if (!Number.isFinite(offset) || offset < 0) offset = 0;
   const noStore = { headers: { "Cache-Control": "public, max-age=30" } };
   if (!q) return json({ results: [] } as unknown as JsonValue, noStore);
 
@@ -1839,25 +1827,32 @@ export async function searchEndpoint(
   const settings = await fetchSettings(env);
   const basePath = settings.base_path || "";
   const langCond = lang ? "AND se.lang = ?" : "";
-  const bindings: (string | number)[] = [like, like, like, like];
-  if (lang) bindings.push(lang);
-  bindings.push(like, limit); // ORDER BY title-priority, then LIMIT
-
-  const rows = await env.DB.prepare(
-    `SELECT se.title AS title, se.body_text AS body_text, se.tid AS tid,
-            d.slug AS slug
-       FROM search_entries se
-       JOIN documents d ON d.did = se.did
-      WHERE ${publishedSql("d.", "live")}
+  const filterBinds: (string | number)[] = [like, like, like, like];
+  if (lang) filterBinds.push(lang);
+  const where = `WHERE ${publishedSql("d.", "live")}
         AND (se.title LIKE ? ESCAPE '\\' OR se.body_text LIKE ? ESCAPE '\\'
              OR se.category_text LIKE ? ESCAPE '\\'
              OR se.hashtag_text LIKE ? ESCAPE '\\')
-        ${langCond}
-      ORDER BY (se.title LIKE ? ESCAPE '\\') DESC, d.updated_at DESC
-      LIMIT ?`,
-  )
-    .bind(...bindings)
-    .all<{ title: string; body_text: string; tid: string; slug: string }>();
+        ${langCond}`;
+
+  const [rows, counted] = await Promise.all([
+    env.DB.prepare(
+      `SELECT se.title AS title, se.body_text AS body_text, se.tid AS tid,
+              d.slug AS slug
+         FROM search_entries se
+         JOIN documents d ON d.did = se.did
+        ${where}
+        ORDER BY (se.title LIKE ? ESCAPE '\\') DESC, d.updated_at DESC, se.rowid DESC
+        LIMIT ? OFFSET ?`,
+    )
+      .bind(...filterBinds, like, limit, offset) // ORDER BY title-priority, then LIMIT/OFFSET
+      .all<{ title: string; body_text: string; tid: string; slug: string }>(),
+    env.DB.prepare(
+      `SELECT COUNT(*) AS n FROM search_entries se JOIN documents d ON d.did = se.did ${where}`,
+    )
+      .bind(...filterBinds)
+      .first<{ n: number }>(),
+  ]);
 
   const results = (rows.results || []).map((r) => ({
     title: r.title,
@@ -1866,7 +1861,15 @@ export async function searchEndpoint(
     url: `${basePath}${langPath(`/${r.tid}/${r.slug}/`, lang, settings.default_lang || "")}`,
     snippet: searchSnippet(r.body_text, q),
   }));
-  return json({ results } as unknown as JsonValue, noStore);
+  const total = counted?.n ?? 0;
+  const nextOffset =
+    results.length > 0 && offset + results.length < total
+      ? offset + results.length
+      : null;
+  return json(
+    { results, total, next_offset: nextOffset } as unknown as JsonValue,
+    noStore,
+  );
 }
 
 // ─── Archives dropdown widget (replaces the page/N pagination) ────────────────
@@ -3016,7 +3019,7 @@ export async function generatePage(
     const wantN = new Set<number>();
     for (const m of sourceHtml.matchAll(/content\.related-(\d+)/g)) {
       const n = parseInt(m[1], 10);
-      if (n >= 1 && n <= 20) wantN.add(n);
+      if (n >= 1 && n <= RELATED_MAX) wantN.add(n);
     }
     if (wantN.size) {
       let cats: Array<{ slug?: string; id?: string }> = [];
@@ -3031,6 +3034,7 @@ export async function generatePage(
         const pool = await fetchCategoryPool(
           env,
           catSlug,
+          ctx.article.slug,
           lang,
           defLang,
           filter,
@@ -3762,108 +3766,6 @@ const RELATED_LABELS: Record<string, string> = {
   ar: "مقالات ذات صلة",
   uk: "Схожі статті",
 };
-
-interface RelatedPoolItem {
-  did: string;
-  slug: string;
-  tid: string;
-  title: string;
-  cover: string | null;
-}
-
-// All published articles in one category, newest first (publish_at DESC). Light
-// projection — title + cover only, no bodies. Capped defensively; a strip only
-// ever needs the current article's immediate neighbours plus wrap-around fill.
-async function fetchCategoryPool(
-  env: Env,
-  categorySlug: string,
-  lang: string,
-  defaultLang: string,
-  filter: PubFilter,
-): Promise<RelatedPoolItem[]> {
-  const rows = await env.DB.prepare(
-    `SELECT d.did, d.slug, d.tid,
-       COALESCE(NULLIF(NULLIF(dt_req.title, ''), d.slug), NULLIF(NULLIF(dt_en.title, ''), d.slug), NULLIF(NULLIF(dt_fb.title, ''), d.slug), NULLIF(NULLIF(dt_init.title, ''), d.slug), NULLIF(NULLIF(dt_site.title, ''), d.slug), NULLIF(NULLIF(dt_any.title, ''), d.slug)) AS title,
-       COALESCE(NULLIF(NULLIF(dt_req.seo_json, ''), '{}'), NULLIF(NULLIF(dt_en.seo_json, ''), '{}'), NULLIF(NULLIF(dt_fb.seo_json, ''), '{}'), NULLIF(NULLIF(dt_init.seo_json, ''), '{}'), NULLIF(NULLIF(dt_site.seo_json, ''), '{}'), NULLIF(NULLIF(dt_any.seo_json, ''), '{}')) AS seo_json
-     FROM documents d
-     JOIN document_categories dc ON dc.did = d.did
-     JOIN categories ti ON ti.id = dc.cid AND (ti.slug = ? OR ti.id = ?)
-     ${ARTICLE_TR_JOINS}
-     WHERE ${publishedSql("d.", filter)}
-     ORDER BY d.publish_at DESC, d.did DESC
-     LIMIT 500`,
-  )
-    .bind(categorySlug, categorySlug, lang, defaultLang || lang)
-    .all<{
-      did: string;
-      slug: string;
-      tid: string;
-      title: string;
-      seo_json: string;
-    }>();
-  return (rows.results ?? []).map((r) => {
-    let cover: string | null = null;
-    if (r.seo_json) {
-      try {
-        const seo = JSON.parse(r.seo_json) as { coverPath?: string };
-        if (seo.coverPath) cover = seo.coverPath;
-      } catch {
-        /* ignore */
-      }
-    }
-    return {
-      did: r.did,
-      slug: r.slug,
-      tid: r.tid,
-      title: r.title || r.slug,
-      cover,
-    };
-  });
-}
-
-// Split N cards around the current article: older on the left, newer on the
-// right. When a side runs out (the article is the newest/oldest in its
-// category), fill from the far end — no newer → oldest; no older → newest — so
-// the strip keeps N cards. Never repeats the current article. `pool` is DESC
-// (index 0 = newest). Returned `left` reads farthest→closest-older toward the
-// centre; `right` reads closest→farthest-newer.
-function pickCategoryNeighbours(
-  pool: RelatedPoolItem[],
-  currentSlug: string,
-  n: number,
-): { left: RelatedPoolItem[]; right: RelatedPoolItem[] } {
-  const idx = pool.findIndex((a) => a.slug === currentSlug);
-  if (idx < 0) return { left: [], right: [] };
-  const olderCount = Math.floor(n / 2);
-  const newerCount = n - olderCount;
-  const used = new Set<string>([pool[idx].did]);
-  const take = (src: RelatedPoolItem[], count: number): RelatedPoolItem[] => {
-    const out: RelatedPoolItem[] = [];
-    for (const a of src) {
-      if (out.length >= count) break;
-      if (used.has(a.did)) continue;
-      used.add(a.did);
-      out.push(a);
-    }
-    return out;
-  };
-  const newerClosestFirst: RelatedPoolItem[] = [];
-  for (let i = idx - 1; i >= 0; i--) newerClosestFirst.push(pool[i]);
-  const oldestFirst: RelatedPoolItem[] = [];
-  for (let i = pool.length - 1; i > idx; i--) oldestFirst.push(pool[i]);
-  let right = take(newerClosestFirst, newerCount);
-  if (right.length < newerCount)
-    right = right.concat(take(oldestFirst, newerCount - right.length));
-  const olderClosestFirst: RelatedPoolItem[] = [];
-  for (let i = idx + 1; i < pool.length; i++) olderClosestFirst.push(pool[i]);
-  const newestFirst: RelatedPoolItem[] = [];
-  for (let i = 0; i < idx; i++) newestFirst.push(pool[i]);
-  let left = take(olderClosestFirst, olderCount);
-  if (left.length < olderCount)
-    left = left.concat(take(newestFirst, olderCount - left.length));
-  left.reverse(); // closest-older ends adjacent to the centre marker
-  return { left, right };
-}
 
 function relatedCardHtml(a: RelatedPoolItem, basePath: string): string {
   // Plain path: localizeLinks puts the page's language in front.

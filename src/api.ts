@@ -6860,21 +6860,15 @@ async function meTokens(
   user: AuthUser,
 ): Promise<Response> {
   if (request.method === "GET") {
-    const limit = Math.min(
-      Math.max(
-        Number(new URL(request.url).searchParams.get("limit") ?? 500),
-        1,
-      ),
-      500,
-    );
+    // 本人の鍵を全部返す(止めた鍵は本人が消せるので数は限られる)。
+    // 以前は 500 件で切り、それより古い鍵が一覧に出ず止められなかった(2026-10-18)。
     const result = await env.DB.prepare(
       `SELECT token_id, name, scopes_json, last_used_at, expires_at, revoked_at, created_at
        FROM personal_access_tokens
        WHERE uid = ?
-       ORDER BY created_at DESC
-       LIMIT ?`,
+       ORDER BY created_at DESC`,
     )
-      .bind(user.uid, limit)
+      .bind(user.uid)
       .all<TokenListRow>();
     return json({
       tokens: (result.results ?? []).map((row) => ({
@@ -7559,8 +7553,12 @@ async function documents(
     // another translation sorts earlier alphabetically).
     const displayLang = url.searchParams.get("lang")?.trim() ?? "";
     // ── Server-side filters ───────────────────────────────────────────────
-    // The unfiltered list is the admin article table's data source, so it stays
-    // (newest-updated first, capped at 1000). Everything below exists so a REST
+    // One page is at most 1000 rows (newest-updated first). The response carries
+    // `total` (rows matching the filters) and `next_offset` (null on the last
+    // page) so every caller can reach the rest — the admin article table reads
+    // pages until next_offset is null. ⚠ Before 2026-10-18 the list stopped at
+    // 1000 with no way to tell, so the 1001st article never reached the admin
+    // list. Everything below exists so a REST
     // / MCP client can ask for the few rows it actually wants instead of pulling
     // the whole catalogue and filtering client-side:
     //   ?slug=a,b   exact slug(s) — ?q= is a LIKE substring match, not this
@@ -7672,11 +7670,25 @@ async function documents(
       LEFT JOIN document_translations dt ON dt.did = d.did
       ${where}
       GROUP BY d.did
-      ORDER BY d.updated_at DESC
+      ORDER BY d.updated_at DESC, d.did DESC
       LIMIT ? OFFSET ?`,
     )
       .bind(...bindings)
       .all<DocumentRow>();
+    const total =
+      (
+        await env.DB.prepare(
+          `SELECT COUNT(DISTINCT d.did) AS n
+             FROM documents d
+             LEFT JOIN document_translations dt ON dt.did = d.did
+             ${where}`,
+        )
+          .bind(...filterBinds)
+          .first<{ n: number }>()
+      )?.n ?? 0;
+    const pageRows = (result.results ?? []).length;
+    const nextOffset =
+      offset + pageRows < total && pageRows > 0 ? offset + pageRows : null;
     // ?fields= trims each row to the requested keys (unknown names ignored; an
     // all-unknown list is treated as "no trimming" rather than empty objects).
     const wanted = new Set(
@@ -7696,7 +7708,11 @@ async function documents(
       );
       if (trimmed.some((row) => Object.keys(row).length)) rows = trimmed;
     }
-    return json({ documents: rows as unknown as JsonValue });
+    return json({
+      documents: rows as unknown as JsonValue,
+      total,
+      next_offset: nextOffset,
+    });
   }
 
   if (request.method === "POST") {

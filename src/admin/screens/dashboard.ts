@@ -151,11 +151,9 @@ async function dashboard() {
   // 公開記事数(使用状況の「公開数 / 記事数」の枠に出す)。
   let publishedCount: number | null = null;
   try {
-    const data = await api(
-      "/api/documents?lang=" + encodeURIComponent(state.uiLang),
-    );
-    const docs = data.documents || [];
-    publishedCount = docs.filter((d: Dynamic) => d.mode === 1).length;
+    // 数えるだけなので 1 行だけ取り、件数は total で受ける(全件を読まない)。
+    const data = await api("/api/documents?mode=1&fields=did&limit=1");
+    publishedCount = Number(data.total) || 0;
   } catch (err) {
     toast(errorMessage(err), true);
   }
@@ -1064,7 +1062,8 @@ async function articles() {
   }
   let allDocs: Dynamic[] = [];
   // Strapi-style pagination: configurable "entries per page" (persisted) + page
-  // navigation. Pure client-side over the loaded set (server returns up to 1000).
+  // navigation. Pure client-side over the loaded set (fetchAllDocuments reads
+  // every page of the server's list).
   const PAGE_SIZE_KEY = "kurocms_list_page_size";
   let pageSize = 50;
   try {
@@ -1077,12 +1076,11 @@ async function articles() {
 
   async function load() {
     const q = byId("q")?.value.trim();
-    const data = await api(
-      "/api/documents?lang=" +
+    allDocs = await fetchAllDocuments(
+      "lang=" +
         encodeURIComponent(state.uiLang) +
         (q ? "&q=" + encodeURIComponent(q) : ""),
     );
-    allDocs = data.documents || [];
     currentPage = 1;
     renderList();
   }

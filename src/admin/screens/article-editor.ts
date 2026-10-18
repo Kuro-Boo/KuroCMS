@@ -1806,9 +1806,9 @@ async function newArticle(editDid: Dynamic) {
           return { items: [] };
         }),
         // 記事 slug → URL の対応表。本文は返さない軽い問い合わせ。
-        api("/api/documents?fields=slug,tid&limit=1000")
-          .then(function (d: Dynamic) {
-            (d.documents || []).forEach(function (doc: Dynamic) {
+        fetchAllDocuments("fields=slug,tid")
+          .then(function (docs: Dynamic[]) {
+            docs.forEach(function (doc: Dynamic) {
               if (doc.slug && doc.tid)
                 bodyDocUrlCache[doc.slug] =
                   publicBase + "/" + doc.tid + "/" + doc.slug + "/";
