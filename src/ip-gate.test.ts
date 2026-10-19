@@ -5,7 +5,9 @@
 import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import {
+  addMyNetwork,
   enforceNetwork,
+  listMyNetworks,
   handleNetworkConfirm,
   registerLoginNetwork,
   writeIpGateConfig,
@@ -245,6 +247,69 @@ console.log("ip-gate");
       ),
     ),
     "passed",
+  );
+}
+
+console.log("ip-gate: 登録 IPv6(手で足す固定の prefix)");
+{
+  const w = world();
+  const now = 1_800_000_000_000;
+  // 自動で登録された /64(HOME)がある人が、プロバイダーの /48 を固定で足す。
+  await code(enforceNetwork(w.env, req(HOME), alice, w.deps));
+  const NEXT64 = "2400:4051:abcd:5600::1"; // 同じ /48・別の /64(配り直された)
+  eq(
+    "足す前は、/64 が変わると止まる",
+    await code(enforceNetwork(w.env, req(NEXT64), alice, w.deps)),
+    "network_unregistered",
+  );
+  eq(
+    "/48 を固定で足せる",
+    (await addMyNetwork(w.env, "u1", "2400:4051:abcd::/48", " 自宅 ", now)).net,
+    "2400:4051:abcd:0::/48",
+  );
+  eq(
+    "足した後は、その中の別の /64 も通る",
+    await code(enforceNetwork(w.env, req(NEXT64), alice, w.deps)),
+    "passed",
+  );
+  const rows = await listMyNetworks(w.env, "u1", now);
+  const fixed = rows.find((r) => r.net === "2400:4051:abcd:0::/48");
+  eq(
+    "固定の行は一覧の先頭・期限なし・メモつき",
+    [rows[0]?.net, fixed?.pinned, fixed?.note],
+    ["2400:4051:abcd:0::/48", true, "自宅"],
+  );
+  w.tick(400 * 24 * 60 * 60 * 1000);
+  eq(
+    "期限の日数がたっても、固定の行は残って通る",
+    await code(enforceNetwork(w.env, req(NEXT64), alice, w.deps)),
+    "passed",
+  );
+  eq(
+    "自動で入っていた同じ /64 を足すと、固定に格上げ(行は 1 つ)",
+    await (async () => {
+      await addMyNetwork(w.env, "u1", "2400:4051:abcd:1200::/64", "", now);
+      const r = (await listMyNetworks(w.env, "u1", now)).filter(
+        (x) => x.net === "2400:4051:abcd:1200::/64",
+      );
+      return [r.length, r[0]?.pinned];
+    })(),
+    [1, true],
+  );
+  eq(
+    "IPv4 は受けない(共有の出口で他人まで通す)",
+    await code(addMyNetwork(w.env, "u1", "203.0.113.7", "", now)),
+    "ipv6_only",
+  );
+  eq(
+    "短すぎる prefix は受けない",
+    await code(addMyNetwork(w.env, "u1", "2400::/16", "", now)),
+    "invalid_network",
+  );
+  eq(
+    "形の崩れた値は受けない",
+    await code(addMyNetwork(w.env, "u1", "not-an-ip", "", now)),
+    "invalid_network",
   );
 }
 
