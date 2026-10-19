@@ -97,16 +97,20 @@ function noticeActionLabel(n: NoticeItemView) {
 function noticePanelHtml(): string {
   return (
     "<div class='panel' id='noticePanel' style='margin-bottom:16px'>" +
-    "<div style='font-weight:700;font-size:14px;margin-bottom:8px'>" +
+    "<div style='display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;margin-bottom:8px'>" +
+    "<div style='font-weight:700;font-size:14px'>" +
     escapeHtml(t("noticeHeading")) +
-    "</div><div id='noticeBody'></div></div>"
+    "</div><div id='noticePrefs' style='margin-left:auto'></div></div>" +
+    "<div id='noticeBody'></div></div>"
   );
 }
 
 function renderNoticePanel() {
   const body = document.getElementById("noticeBody");
+  const prefs = document.getElementById("noticePrefs");
   if (!body) return;
   body.textContent = "";
+  if (prefs) prefs.textContent = "";
   const v = noticeCurrent;
   const el = (tag: string, text?: string, css?: string) => {
     const x = document.createElement(tag);
@@ -177,13 +181,18 @@ function renderNoticePanel() {
       ),
     );
   // 「ほかの製品のお知らせを受け取る」は導入ごと(管理者全員で共通)なので、管理者だけが変えられる。
-  if (state.isAdmin && v) {
+  // 見出しの行の右端に小さく置く(共通の label は grid・input は幅いっぱいなので、ここで打ち消す)。
+  if (state.isAdmin && v && prefs) {
     const label = el(
       "label",
       undefined,
-      "display:flex;gap:8px;align-items:center;margin-top:10px;font-size:13px;color:var(--muted)",
+      "display:inline-flex;gap:6px;align-items:center;margin:0;font-size:12px;font-weight:400;color:var(--muted);white-space:nowrap;cursor:pointer",
     );
-    const box = el("input") as HTMLInputElement;
+    const box = el(
+      "input",
+      undefined,
+      "width:14px;height:14px;margin:0;flex:none",
+    ) as HTMLInputElement;
     box.type = "checkbox";
     box.checked = v.otherEnabled;
     box.onchange = async () => {
@@ -203,7 +212,7 @@ function renderNoticePanel() {
     };
     label.appendChild(box);
     label.appendChild(document.createTextNode(t("noticeOther")));
-    body.appendChild(label);
+    prefs.appendChild(label);
   }
 }
 
