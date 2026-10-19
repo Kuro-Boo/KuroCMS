@@ -664,20 +664,28 @@ async function profile() {
     listEl.innerHTML =
       (data.networks || [])
         .map(function (n: Dynamic) {
-          const meta =
-            escapeHtml(t("networkLastUsed")) +
-            " " +
-            escapeHtml(formatDateTime(new Date(n.last_seen_at).toISOString())) +
-            " · " +
-            escapeHtml(t("networkExpires")) +
-            " " +
-            escapeHtml(formatDateTime(new Date(n.expires_at).toISOString()));
+          // 固定の行(設定の「登録 IPv6」で手で足したもの)は期限が無い。
+          const meta = n.pinned
+            ? escapeHtml(t("ipV6Pinned")) +
+              " · " +
+              escapeHtml(t("ipV6NoExpiry"))
+            : escapeHtml(t("networkLastUsed")) +
+              " " +
+              escapeHtml(
+                formatDateTime(new Date(n.last_seen_at).toISOString()),
+              ) +
+              " · " +
+              escapeHtml(t("networkExpires")) +
+              " " +
+              escapeHtml(formatDateTime(new Date(n.expires_at).toISOString()));
           return (
             "<div class='tokenRow'><div><b>" +
             escapeHtml(n.net) +
             "</b>" +
-            (n.label
-              ? " <span class='tokenMeta'>" + escapeHtml(n.label) + "</span>"
+            (n.note || n.label
+              ? " <span class='tokenMeta'>" +
+                escapeHtml(n.note || n.label) +
+                "</span>"
               : "") +
             (n.net === cur
               ? " <span class='tokenMeta' style='color:var(--brand,#157a6e);font-weight:600'>（" +

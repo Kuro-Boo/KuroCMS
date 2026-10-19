@@ -415,6 +415,25 @@ export interface IpGateStore {
   scope: string;
 }
 export const IP_GATE_REQUEST_TTL_MS = 30 * 60 * 1000;
+export const IP_GATE_MAX_PER_SUBJECT = 20;
+export const IP_GATE_PINNED_UNTIL = 253402300799000;
+export class NetInputError extends Error {
+  readonly code: string;
+  constructor(code: string, message: string) {
+    super(message);
+    this.code = code;
+  }
+}
+// 手で足す回線も、スタブでは受けない（制限そのものが掛からない）。
+export function parseManualNet(_raw: string): {
+  family: IpGateFamily;
+  net: string;
+} {
+  throw new NetInputError(
+    "unavailable",
+    "IP restriction is not available in this build.",
+  );
+}
 export function requestNetwork(_request: Request): Network | null {
   return null;
 }

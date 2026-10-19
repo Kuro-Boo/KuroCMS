@@ -957,6 +957,18 @@ const i18n = {
     networkCurrent: "this network",
     networkRemoveConfirm:
       "Remove this network? Using the admin panel from it will require signing in with your passkey again.",
+    ipV6Title: "Registered IPv6",
+    ipV6Lead:
+      "Your IPv6 networks. Besides the /64 registered automatically at sign-in, you can add the prefix your provider gives you (/48, /56, …) as a fixed entry. Fixed entries never expire, so you aren't stopped when the /64 inside them changes.",
+    ipV6Placeholder: "e.g. 2400:4050:7e40::/48",
+    ipV6NotePlaceholder: "Note (optional, e.g. Home)",
+    ipV6Add: "Add",
+    ipV6Added: "Added",
+    ipV6UseCurrent: "Use this network's /64",
+    ipV6Pinned: "Fixed",
+    ipV6Auto: "Automatic",
+    ipV6NoExpiry: "No expiry",
+    ipV6Empty: "No IPv6 network is registered yet.",
     blueskyHandle: "Bluesky Handle",
     blueskyHandleHelp: "Your Bluesky handle (e.g. yourname.bsky.social).",
     left: "Left",
@@ -2086,6 +2098,18 @@ const i18n = {
     networkCurrent: "この回線",
     networkRemoveConfirm:
       "この回線を外しますか？ この回線から管理画面を使うには、パスキーでログインし直す必要があります。",
+    ipV6Title: "登録 IPv6",
+    ipV6Lead:
+      "あなたの IPv6 の回線です。パスキーでログインしたときに自動で登録される /64 のほか、プロバイダーから受けている prefix（/48・/56 など）を固定で足せます。固定の回線は期限がなく、その中の /64 が変わっても止まりません。",
+    ipV6Placeholder: "例: 2400:4050:7e40::/48",
+    ipV6NotePlaceholder: "メモ（任意・例: 自宅）",
+    ipV6Add: "追加",
+    ipV6Added: "追加しました",
+    ipV6UseCurrent: "この回線の /64 を入れる",
+    ipV6Pinned: "固定",
+    ipV6Auto: "自動",
+    ipV6NoExpiry: "期限なし",
+    ipV6Empty: "IPv6 の回線はまだ登録されていません。",
     blueskyHandle: "Blueskyハンドル",
     blueskyHandleHelp:
       "Blueskyのハンドル名（例: yourname.bsky.social）。空白で非表示。",

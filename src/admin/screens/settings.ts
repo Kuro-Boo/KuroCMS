@@ -734,6 +734,33 @@ async function settings() {
         "</span><code id='ipGateCurrentNet' style='font-size:13px'></code>" +
         "<span id='ipGateCurrentLine' class='muted' style='font-size:12px'></span></div>" +
         "</div>" +
+        // ①' 登録 IPv6(自分の回線)。手で足す prefix は固定(期限なし)。
+        //     ipGateForm の中にあるので、追加は submit ではなくボタンの click で送る。
+        "<div class='panel stack' style='gap:12px'>" +
+        "<div class='panelHead'><h3>" +
+        escapeHtml(t("ipV6Title")) +
+        "</h3></div>" +
+        "<div class='muted' style='font-size:13px;line-height:1.7'>" +
+        escapeHtml(t("ipV6Lead")) +
+        "</div>" +
+        "<div id='ipV6List' class='stack' style='gap:8px'></div>" +
+        "<div style='" +
+        box +
+        ";display:flex;flex-wrap:wrap;align-items:center;gap:8px'>" +
+        "<input id='ipV6Net' placeholder='" +
+        escapeHtml(t("ipV6Placeholder")) +
+        "' style='flex:2;min-width:220px;font-family:ui-monospace,Menlo,monospace' />" +
+        "<input id='ipV6Note' maxlength='100' placeholder='" +
+        escapeHtml(t("ipV6NotePlaceholder")) +
+        "' style='flex:1;min-width:140px' />" +
+        "<button type='button' id='ipV6AddBtn'>" +
+        escapeHtml(t("ipV6Add")) +
+        "</button>" +
+        "<button type='button' id='ipV6UseCurrentBtn' class='secondary' style='display:none'>" +
+        escapeHtml(t("ipV6UseCurrent")) +
+        "</button>" +
+        "</div>" +
+        "</div>" +
         // ② 仕組み
         "<div class='panel stack' style='gap:12px'>" +
         "<div class='panelHead'><h3>" +
@@ -803,6 +830,132 @@ async function settings() {
       toast(errorMessage(err), true);
     }
   }
+  // ── 登録 IPv6(自分の回線の一覧・固定の prefix を足す・外す) ──
+  async function loadIpV6() {
+    const listEl = byId("ipV6List");
+    if (!listEl) return;
+    let data: Dynamic;
+    try {
+      data = await api("/api/auth/networks");
+    } catch (err) {
+      toast(errorMessage(err), true);
+      return;
+    }
+    const cur = data.current ? String(data.current.net) : "";
+    const useCur = byId("ipV6UseCurrentBtn");
+    if (useCur) {
+      useCur.style.display = cur.includes(":") ? "" : "none";
+      useCur.dataset.net = cur;
+    }
+    const rows = (data.networks || []).filter(
+      (n: Dynamic) => n.family === "v6",
+    );
+    listEl.innerHTML =
+      rows
+        .map(function (n: Dynamic) {
+          const badge =
+            "<span class='tokenMeta' style='font-weight:700;" +
+            (n.pinned ? "color:var(--theme-accent,#0f766e)" : "") +
+            "'>" +
+            escapeHtml(n.pinned ? t("ipV6Pinned") : t("ipV6Auto")) +
+            "</span>";
+          const meta = n.pinned
+            ? escapeHtml(t("ipV6NoExpiry"))
+            : escapeHtml(t("networkLastUsed")) +
+              " " +
+              escapeHtml(
+                formatDateTime(new Date(n.last_seen_at).toISOString()),
+              ) +
+              " · " +
+              escapeHtml(t("networkExpires")) +
+              " " +
+              escapeHtml(formatDateTime(new Date(n.expires_at).toISOString()));
+          const desc = n.note || n.label;
+          return (
+            "<div class='tokenRow'><div><code style='font-size:13px'>" +
+            escapeHtml(n.net) +
+            "</code> " +
+            badge +
+            (desc
+              ? " <span class='tokenMeta'>" + escapeHtml(desc) + "</span>"
+              : "") +
+            (n.net === cur
+              ? " <span class='tokenMeta' style='color:var(--theme-accent,#0f766e);font-weight:600'>（" +
+                escapeHtml(t("networkCurrent")) +
+                "）</span>"
+              : "") +
+            "<div class='tokenMeta'>" +
+            meta +
+            "</div></div><div><button type='button' class='danger' data-remove-v6='" +
+            escapeHtml(n.id) +
+            "'>&#128465; " +
+            escapeHtml(t("delete")) +
+            "</button></div></div>"
+          );
+        })
+        .join("") ||
+      "<div class='tokenMeta'>" + escapeHtml(t("ipV6Empty")) + "</div>";
+    listEl.querySelectorAll<AdminElement>("[data-remove-v6]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        if (!confirm(t("networkRemoveConfirm"))) return;
+        try {
+          await api(
+            "/api/auth/networks/" +
+              encodeURIComponent(btn.dataset.removeV6 || ""),
+            { method: "DELETE" },
+          );
+          await loadIpV6();
+        } catch (err) {
+          toast(errorMessage(err), true, btn);
+        }
+      });
+    });
+  }
+  async function addIpV6() {
+    const btn = byId("ipV6AddBtn") as Dynamic;
+    const netEl = byId("ipV6Net") as Dynamic;
+    const noteEl = byId("ipV6Note") as Dynamic;
+    if (state.preview) {
+      toast(t("previewReadOnly"), false, btn);
+      return;
+    }
+    const net = String(netEl?.value || "").trim();
+    if (!net) {
+      netEl?.focus();
+      return;
+    }
+    btn.disabled = true;
+    try {
+      await api("/api/auth/networks", {
+        method: "POST",
+        body: JSON.stringify({ net, note: String(noteEl?.value || "") }),
+      });
+      netEl.value = "";
+      noteEl.value = "";
+      toast(t("ipV6Added"), false, btn);
+      await loadIpV6();
+    } catch (err) {
+      toast(errorMessage(err), true, btn);
+    }
+    btn.disabled = false;
+  }
+  byId("ipV6AddBtn")?.addEventListener("click", addIpV6);
+  // ipGateForm の中の入力なので、Enter で設定の保存が走らないよう、ここで受ける。
+  ["ipV6Net", "ipV6Note"].forEach((id) =>
+    byId(id)?.addEventListener("keydown", (e: Dynamic) => {
+      if (e.key !== "Enter") return;
+      e.preventDefault();
+      void addIpV6();
+    }),
+  );
+  byId("ipV6UseCurrentBtn")?.addEventListener("click", () => {
+    const netEl = byId("ipV6Net") as Dynamic;
+    const cur = byId("ipV6UseCurrentBtn")?.dataset.net || "";
+    if (netEl && cur) {
+      netEl.value = cur;
+      netEl.focus();
+    }
+  });
   byId("ipGateForm")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const btn = (e.target as Dynamic).querySelector("button");
@@ -829,6 +982,7 @@ async function settings() {
     }
   });
   loadIpGate();
+  loadIpV6();
 
   // Tab switching
   document.querySelectorAll<AdminElement>(".settingsTab").forEach((btn) => {

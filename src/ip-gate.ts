@@ -404,10 +404,13 @@ export async function handleNetworkConfirm(
   );
 }
 
-/** 自分の登録した回線の一覧（プロフィールの画面）。 */
+/**
+ * 自分の登録した回線の一覧（プロフィールの「登録した回線」・設定の「登録 IPv6」）。
+ * pinned は手で足した固定の行（期限なし）。
+ */
 export async function listMyNetworks(env: Env, uid: string, now = Date.now()) {
   const { results } = await env.DB.prepare(
-    "SELECT id, net, family, label, created_at, last_seen_at, expires_at FROM ip_allow WHERE scope = 'admin' AND subject = ? AND expires_at > ? ORDER BY last_seen_at DESC",
+    "SELECT id, net, family, label, note, pinned, created_at, last_seen_at, expires_at FROM ip_allow WHERE scope = 'admin' AND subject = ? AND expires_at > ? ORDER BY pinned DESC, last_seen_at DESC",
   )
     .bind(uid, now)
     .all<{
@@ -415,11 +418,68 @@ export async function listMyNetworks(env: Env, uid: string, now = Date.now()) {
       net: string;
       family: string;
       label: string;
+      note: string | null;
+      pinned: number;
       created_at: number;
       last_seen_at: number;
       expires_at: number;
     }>();
-  return results ?? [];
+  return (results ?? []).map((r) => ({ ...r, pinned: r.pinned === 1 }));
+}
+
+/**
+ * 自分の IPv6 の回線を手で足す（設定の「IP 制限」→「登録 IPv6」）。**固定（期限なし）**。
+ *
+ * 自動の登録は /64 なので、プロバイダーが /64 を配り直すと、同じ家の回線でも別の回線として
+ * 止まる。/48・/56 のように、プロバイダーから受けている prefix を固定で持てば、その中の /64 が
+ * 変わっても通る。照合は entamy-connect の candidateNets（/32〜/64）がそのまま拾う。
+ * IPv4 は受けない —— 家庭の IPv4 はプロバイダーの共有の出口で、固定すると他人まで通す。
+ */
+export async function addMyNetwork(
+  env: Env,
+  uid: string,
+  raw: unknown,
+  noteRaw: unknown,
+  now = Date.now(),
+): Promise<{ id: string; net: string }> {
+  let parsed: { family: "v4" | "v6"; net: string };
+  try {
+    parsed = gate.parseManualNet(typeof raw === "string" ? raw : "");
+  } catch (e) {
+    if (e instanceof gate.NetInputError)
+      throw new HttpError(400, "invalid_network", e.message);
+    throw e;
+  }
+  if (parsed.family !== "v6")
+    throw new HttpError(
+      400,
+      "ipv6_only",
+      "Only IPv6 prefixes can be added (e.g. 2400:4050:7e40::/48).",
+    );
+  const note =
+    typeof noteRaw === "string" ? noteRaw.trim().slice(0, 100) || null : null;
+  const pinnedCount = await env.DB.prepare(
+    "SELECT COUNT(*) AS n FROM ip_allow WHERE scope = 'admin' AND subject = ? AND pinned = 1",
+  )
+    .bind(uid)
+    .first<{ n: number }>();
+  if ((pinnedCount?.n ?? 0) >= gate.IP_GATE_MAX_PER_SUBJECT)
+    throw new HttpError(
+      400,
+      "too_many_networks",
+      `Up to ${gate.IP_GATE_MAX_PER_SUBJECT} fixed networks can be added.`,
+    );
+  const id = crypto.randomUUID();
+  // 自動で入っていた同じ prefix の行は、固定に格上げする（行は 1 つのまま）。
+  await env.DB.prepare(
+    `INSERT INTO ip_allow (id, scope, subject, net, family, label, note, pinned, added_by, created_at, last_seen_at, expires_at)
+     VALUES (?1, 'admin', ?2, ?3, 'v6', '', ?4, 1, ?2, ?5, ?5, ?6)
+     ON CONFLICT(scope, subject, net) DO UPDATE
+       SET pinned = 1, added_by = excluded.added_by, note = excluded.note, expires_at = excluded.expires_at`,
+  )
+    .bind(id, uid, parsed.net, note, now, gate.IP_GATE_PINNED_UNTIL)
+    .run();
+  return { id, net: parsed.net };
 }
 
 /** 自分の回線を外す。 */

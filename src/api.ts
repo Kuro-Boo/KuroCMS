@@ -113,6 +113,7 @@ import {
   currentNetwork,
   handleNetworkConfirm,
   listMyNetworks,
+  addMyNetwork,
   readIpGateConfig,
   registerLoginNetwork,
   removeMyNetwork,
@@ -694,6 +695,16 @@ async function handleApiDispatch(
         current: currentNetwork(request) as unknown as JsonValue,
         enabled: (await readIpGateConfig(env)).enabled,
       });
+    }
+    // 自分の IPv6 の prefix を手で足す(固定・期限なし)。設定の「IP 制限」→「登録 IPv6」。
+    if (request.method === "POST" && path === "/api/auth/networks") {
+      requireInteractiveUser(user);
+      const body = await readJson(request);
+      const added = await addMyNetwork(env, user.uid, body.net, body.note);
+      await logActivity(env, user, "auth.network_add", "user", user.uid, {
+        net: added.net,
+      });
+      return json({ ok: true, ...added });
     }
     const networkMatch = path.match(/^\/api\/auth\/networks\/([^/]+)$/);
     if (request.method === "DELETE" && networkMatch) {
