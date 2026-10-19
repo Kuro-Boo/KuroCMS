@@ -1396,6 +1396,11 @@ async function newArticle(editDid: Dynamic) {
       "</button>" +
       "</span>" +
       "</div>";
+    trackBottomBarHeight(
+      document.querySelector<AdminElement>(
+        ".articleBottomBar",
+      ) as HTMLElement | null,
+    );
     bindLocaleSelect();
   }
 
