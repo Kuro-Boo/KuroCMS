@@ -295,6 +295,71 @@ export class EntamyMailer {
   }
 }
 
+// ── お知らせ ────────────────────────────────────────────────────────────
+/** 何も引かない。お知らせが無いのと同じに見える(画面は「お知らせはありません」)。 */
+export type EntamyNoticeKind =
+  | "critical"
+  | "important"
+  | "info_product"
+  | "info_other";
+export interface EntamyNoticeItem {
+  id: string;
+  kind: EntamyNoticeKind;
+  section: "product" | "other";
+  lang: string;
+  title: string;
+  body: string;
+  action: { kind: "ack" | "open"; label?: string | null; url?: string };
+  publishedAt: string | null;
+}
+export interface EntamyNoticeState {
+  notices: EntamyNoticeItem[];
+  acked: string[];
+  otherEnabled: boolean;
+  signedIn: boolean;
+  fetchedAt: string | null;
+}
+const EMPTY_NOTICES: EntamyNoticeState = {
+  notices: [],
+  acked: [],
+  otherEnabled: true,
+  signedIn: false,
+  fetchedAt: null,
+};
+export class EntamyNotice {
+  constructor(
+    readonly config: EntamyConfig,
+    readonly session: EntamySession,
+    readonly store: EntamyStore,
+    readonly options: {
+      version?: string;
+      platform?: "ios" | "android" | "web";
+      lang?: string;
+    } = {},
+  ) {}
+  load(): Promise<EntamyNoticeState> {
+    return Promise.resolve(EMPTY_NOTICES);
+  }
+  state(): EntamyNoticeState {
+    return EMPTY_NOTICES;
+  }
+  refresh(): Promise<EntamyResult<EntamyNoticeState>> {
+    return refuse<EntamyNoticeState>();
+  }
+  dialogs(): EntamyNoticeItem[] {
+    return [];
+  }
+  unreadCount(): number {
+    return 0;
+  }
+  ack(_id: string): Promise<EntamyResult<boolean>> {
+    return refuse<boolean>();
+  }
+  setOtherEnabled(_enabled: boolean): Promise<EntamyResult<boolean>> {
+    return refuse<boolean>();
+  }
+}
+
 // ── 不具合の報告 ────────────────────────────────────────────────────────
 /** 何も送らない。報告は本体でも「失敗しても黙って戻る」ので、呼ぶ側の挙動は変わらない。 */
 export class EntamyDefects {

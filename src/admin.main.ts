@@ -666,6 +666,18 @@ const i18n = {
     brandSub: "Headless publishing",
     initialize: "Initialize",
     dashboard: "Dashboard",
+    noticeHeading: "Notices",
+    noticeEmpty: "No notices",
+    noticeSectionProduct: "From KuroCMS",
+    noticeSectionOther: "From Entamy apps",
+    noticeAck: "Got it",
+    noticeLater: "Read later",
+    noticeOpen: "Open",
+    noticeCritical: "Urgent notice",
+    noticeImportant: "Important notice",
+    noticeOther: "Receive notices about other apps",
+    noticeStale:
+      "Could not check for new notices. Showing the last ones received.",
     articles: "Article Manager",
     articlesNav: "Articles & Build",
     newArticleNav: "New Article",
@@ -1781,6 +1793,18 @@ const i18n = {
     brandSub: "記事管理システム",
     initialize: "初期化",
     dashboard: "ダッシュボード",
+    noticeHeading: "お知らせ",
+    noticeEmpty: "お知らせはありません",
+    noticeSectionProduct: "KuroCMS から",
+    noticeSectionOther: "Entamy の製品から",
+    noticeAck: "確認した",
+    noticeLater: "あとで読む",
+    noticeOpen: "開く",
+    noticeCritical: "緊急のお知らせ",
+    noticeImportant: "重要なお知らせ",
+    noticeOther: "ほかの製品のお知らせを受け取る",
+    noticeStale:
+      "新しいお知らせを確かめられませんでした。前に受け取ったものを出しています。",
     articles: "記事管理",
     articlesNav: "記事管理＆ビルド",
     newArticleNav: "新規記事作成",
@@ -2923,6 +2947,8 @@ type AdminState = {
   articleEditor: KuroEditorInstance | null;
   isAdmin: boolean;
   storageAlert: boolean;
+  /** お知らせ(Entamy Notice)の未読(「この製品から」だけ)。ダッシュボードの項目に数で出す。 */
+  noticeUnread: number;
   /** アクティブテンプレートの body 配色（/api/fonts の editorCanvas）。
       KuroEditor の canvasColors に渡し、通常モードのキャンバスを実サイトの
       配色に一致させる（ダーク系テンプレートでも WYSIWYG になる）。 */
@@ -2943,6 +2969,7 @@ const state: AdminState = {
   articleEditor: null,
   isAdmin: false,
   storageAlert: false,
+  noticeUnread: 0,
   editorCanvasColors: null,
 };
 
@@ -3144,15 +3171,20 @@ function menuHtml(mode: Dynamic) {
     .map((item) => {
       const active = mode === "setup" ? true : routePath() === item.nav;
       const dot =
-        state.storageAlert && item.key === "dashboard"
-          ? "<span class='navAlertDot'></span>"
-          : item.key === "backup" && backupJobLive()
-            ? "<span class='navBusyDot' title='" +
-              escapeHtml(t("backupRunningBadge")) +
-              "'></span>"
-            : item.key === "backup" && backupJobInterrupted()
-              ? "<span class='navAlertDot'></span>"
-              : "";
+        // お知らせの未読はダッシュボードの項目に数で出す(枠がダッシュボードの最上部にあるため)。
+        state.noticeUnread > 0 && item.key === "dashboard"
+          ? "<span class='navNoticeCount'>" +
+            String(state.noticeUnread) +
+            "</span>"
+          : state.storageAlert && item.key === "dashboard"
+            ? "<span class='navAlertDot'></span>"
+            : item.key === "backup" && backupJobLive()
+              ? "<span class='navBusyDot' title='" +
+                escapeHtml(t("backupRunningBadge")) +
+                "'></span>"
+              : item.key === "backup" && backupJobInterrupted()
+                ? "<span class='navAlertDot'></span>"
+                : "";
       return (
         "<a href='" +
         item.href +
@@ -4760,6 +4792,8 @@ async function render() {
     // 規約の再同意。**画面の描画は止めない** —— 同意が要るかどうかは
     // 外部への問い合わせで決まるので、待たせると管理画面が開かなくなる。
     setTimeout(checkLegalConsentOnce, 0);
+    // お知らせ(Entamy Notice)。**描画は止めない**。緊急・重要の未読は規約の窓が済んでから出す。
+    setTimeout(noticeGateOnce, 0);
     // Screens that expose a live list register a reloader (activeListReload);
     // clear it here so it only points at the screen currently on view.
     activeListReload = null;

@@ -26,7 +26,7 @@
  */
 
 import type { Env } from "./types";
-import { entamyPort } from "./entamy-port";
+import { entamyNoticeFor, entamyPort } from "./entamy-port";
 import { needsAgreement } from "./vendor/entamy-client/index.ts";
 import { KUROCMS_VERSION } from "./version.ts";
 
@@ -248,4 +248,67 @@ export async function recordConsent(env: Env, version: string): Promise<void> {
   // 報告は口座の取得・トークンの更新・送信で外部へ3往復する。同意の記録に
   // 巻き込むと、利用者は数秒待たされ、押せていないと思って何度も押す（実際起きた）。
   // 報告は毎分の cron が拾うので、遅れても最大1分。
+}
+
+// ── お知らせ(Entamy Notice・notice-api) ──────────────────────────────────
+
+/** 管理画面へ返すお知らせ。**判断はライブラリーが済ませた結果**(窓の順・未読の数)を渡す。 */
+export interface NoticeView {
+  notices: Array<Record<string, unknown>>;
+  acked: string[];
+  otherEnabled: boolean;
+  /** 窓で出すもの(緊急が先・未読だけ)。 */
+  dialogs: string[];
+  /** バッジの数(「この製品から」の未読だけ)。 */
+  unread: number;
+  /** 引けなかったとき true(前に引いたものを返している)。 */
+  stale: boolean;
+}
+
+function noticeView(
+  n: Awaited<ReturnType<typeof entamyNoticeFor>>,
+  stale: boolean,
+): NoticeView {
+  const st = n.state();
+  return {
+    notices: st.notices as unknown as Array<Record<string, unknown>>,
+    acked: st.acked,
+    otherEnabled: st.otherEnabled,
+    dialogs: n.dialogs().map((x) => x.id),
+    unread: n.unreadCount(),
+    stale,
+  };
+}
+
+/** 引く。**引けなくても前に引いたものを返す**(管理画面を止めない)。 */
+export async function noticeState(env: Env, lang: string): Promise<NoticeView> {
+  const n = await entamyNoticeFor(env, lang);
+  await n.load();
+  const r = await n.refresh();
+  return noticeView(n, !r.ok);
+}
+
+/** 既読にする。届かなければライブラリーが次に引く時に送り直す。 */
+export async function noticeAck(
+  env: Env,
+  lang: string,
+  id: string,
+): Promise<NoticeView> {
+  const n = await entamyNoticeFor(env, lang);
+  await n.load();
+  await n.ack(id);
+  return noticeView(n, false);
+}
+
+/** 「ほかの製品のお知らせを受け取る」(導入ごと)。 */
+export async function noticeSetOther(
+  env: Env,
+  lang: string,
+  enabled: boolean,
+): Promise<NoticeView> {
+  const n = await entamyNoticeFor(env, lang);
+  await n.load();
+  await n.setOtherEnabled(enabled);
+  await n.refresh();
+  return noticeView(n, false);
 }

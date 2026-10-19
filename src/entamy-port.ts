@@ -13,6 +13,7 @@ import {
   EntamyDefects,
   EntamyLegal,
   EntamyMailer,
+  EntamyNotice,
   EntamySat,
   EntamySession,
   EntamyStore,
@@ -220,4 +221,34 @@ export async function legacyAccountPresent(env: Env): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/**
+ * お知らせ(Entamy Notice・notice-api)。**この導入の口座で引く** —— 管理画面のブラウザは基盤と
+ * 直接つながらない(公開ミラーで差し替えるのは `src/` 直下からの参照だけなので、画面から
+ * entamy-connect を取り込めない)。既読と「ほかの製品」の設定は、導入ごと(管理者全員で共通)になる。
+ *
+ * 言語ごとに1つ作って控える。何を窓で出すか・未読の数・既読の送り直しはライブラリーが決める。
+ */
+const notices = new Map<string, EntamyNotice>();
+export async function entamyNoticeFor(
+  env: Env,
+  lang: string,
+): Promise<EntamyNotice> {
+  const key = /^[a-z]{2,3}(-[A-Za-z0-9]{2,8})?$/.test(lang) ? lang : "ja";
+  const hit = notices.get(key);
+  if (hit) return hit;
+  const port = await entamyPort(env);
+  const n = new EntamyNotice(
+    port.session.config,
+    port.session,
+    new EntamyStore(NAMESPACE, kvSecrets(env)),
+    {
+      version: KUROCMS_VERSION,
+      platform: "web",
+      lang: key,
+    },
+  );
+  notices.set(key, n);
+  return n;
 }

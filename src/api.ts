@@ -204,6 +204,9 @@ interface ManagedLanguageRow {
 import {
   installIdentity,
   legalState,
+  noticeAck,
+  noticeSetOther,
+  noticeState,
   recordConsent,
   reportInstall,
 } from "./entamy";
@@ -578,6 +581,41 @@ async function handleApiDispatch(
     if (request.method === "POST" && path === "/api/system/r2/enable") {
       requireAdmin(user);
       return withJsonHeaders(await enableR2Storage(env));
+    }
+
+    // お知らせ(Entamy Notice)。見る・既読は誰でも(投稿者にも出す)、「ほかの製品」の設定は管理者だけ。
+    // 基盤へは Worker がこの導入の口座でつなぐ(管理画面は描くだけ・entamy-port の entamyNoticeFor)。
+    if (path === "/api/system/notices" && request.method === "GET") {
+      const lang = new URL(request.url).searchParams.get("lang") ?? "ja";
+      return json((await noticeState(env, lang)) as unknown as JsonValue);
+    }
+    {
+      const m = /^\/api\/system\/notices\/([0-9a-f-]{36})\/ack$/.exec(path);
+      if (m && request.method === "POST") {
+        const lang = new URL(request.url).searchParams.get("lang") ?? "ja";
+        return json(
+          (await noticeAck(env, lang, m[1]!)) as unknown as JsonValue,
+        );
+      }
+    }
+    if (path === "/api/system/notices/prefs" && request.method === "PUT") {
+      requireAdmin(user);
+      const body = await readJson(request);
+      if (typeof body.otherEnabled !== "boolean") {
+        throw new HttpError(
+          400,
+          "invalid_request",
+          "otherEnabled must be a boolean.",
+        );
+      }
+      const lang = new URL(request.url).searchParams.get("lang") ?? "ja";
+      return json(
+        (await noticeSetOther(
+          env,
+          lang,
+          body.otherEnabled,
+        )) as unknown as JsonValue,
+      );
     }
 
     // 規約の同意状態。**認証必須**（誰が同意したかを問う画面で使う）。

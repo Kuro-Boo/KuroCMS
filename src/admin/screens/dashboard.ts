@@ -52,8 +52,10 @@ function guardianPanelHtml(): string {
 async function dashboard() {
   shell(
     t("dashboard"),
-    // 左に使用状況(縦長)、右に更新(版)の枠。狭い画面では縦に積む(.dashGrid)。
-    "<div class='dashGrid'>" +
+    // お知らせ(Entamy Notice・notice-placement 1節)は**ダッシュボードの最上部**(notice.ts)。
+    noticePanelHtml() +
+      // 左に使用状況(縦長)、右に更新(版)の枠。狭い画面では縦に積む(.dashGrid)。
+      "<div class='dashGrid'>" +
       // Storage gauges
       "<div class='panel stack'>" +
       // 見出しの右端に「無料枠 / Paid」の切り替え。下のグラフをその上限で描き直す。
@@ -147,6 +149,9 @@ async function dashboard() {
       "</div>" + // closes .stack
       "</div>",
   );
+  // お知らせの枠を、前に受け取った中身ですぐ描き、引き直したら描き直す(描画は止めない)。
+  renderNoticePanel();
+  void loadNotices();
 
   // 公開記事数(使用状況の「公開数 / 記事数」の枠に出す)。
   let publishedCount: number | null = null;
@@ -881,6 +886,25 @@ function setupGuardianPanel() {
   }
 }
 
+// .articleBottomBar is position:fixed, so it takes no room and would cover the
+// end of the page (the list pager, the editor's last lines). Its height grows
+// when it wraps, so hand the live height to CSS (--bottom-bar-h); admin-shell
+// reserves that much below main while a bar is on screen.
+function trackBottomBarHeight(bar: HTMLElement | null) {
+  if (!bar) return;
+  const ro = new ResizeObserver(function () {
+    if (!bar.isConnected) {
+      ro.disconnect();
+      return;
+    }
+    document.documentElement.style.setProperty(
+      "--bottom-bar-h",
+      bar.offsetHeight + "px",
+    );
+  });
+  ro.observe(bar);
+}
+
 async function articles() {
   shell(
     t("articles"),
@@ -961,6 +985,7 @@ async function articles() {
     "</a>" +
     "</div>";
   document.body.appendChild(buildBar);
+  trackBottomBarHeight(buildBar);
   byId("artsBuildBtn")?.addEventListener("click", function () {
     // "forceAll" is not a persisted scheduling mode — it is a one-shot directive
     // to rebuild every page (ignore the build cache). Any other selection builds

@@ -218,7 +218,10 @@ export function adminHtml(
       .importSwitcher .importSwitch.active { background:var(--accent); color:#fff; box-shadow:0 1px 4px rgba(0,0,0,.25); }
       .settingsPanel > .panel, .settingsPanel > .panel.stack { border-radius: 0 !important; border-top: none !important; }
       .settingsPanel > .stack > .panel:first-child { border-radius: 0 !important; border-top: none !important; }
-      .articleEditorPage { padding-bottom: 80px; }
+      /* 下に固定の .articleBottomBar（記事一覧のビルド、記事編集の保存）は場所を取らないので、
+         そのままでは一覧のページ送りや本文の最後を覆って押せなくする。帯は折り返すと高くなるため、
+         高さは trackBottomBarHeight() が --bottom-bar-h に入れ、main はその分だけ下を空ける。 */
+      body:has(.articleBottomBar) main { padding-bottom: calc(var(--bottom-bar-h, 72px) + 24px); }
       .strapiRow { overflow: hidden !important; }
       .strapiRow:hover { background: var(--surface-2); }
       .articleBottomBar { position: fixed; bottom: 0; left: calc(264px + 5%); right: 5%; min-height: 72px; background: var(--surface); border: 1.5px solid var(--line-strong); border-bottom: none; border-radius: 12px 12px 0 0; display: flex; align-items: center; justify-content: space-between; padding: 12px 20px; z-index: 500; box-shadow: 0 -4px 20px rgba(0,0,0,.10); gap: 16px; flex-wrap: wrap; }
@@ -237,7 +240,7 @@ export function adminHtml(
           box-shadow: 0 6px 24px rgba(0,0,0,.16);
         }
         /* バー + メニューの両方を避けるだけの余白を本文に確保する */
-        .articleEditorPage { padding-bottom: calc(var(--mobile-nav-h, 82px) + 110px); }
+        body:has(.articleBottomBar) main { padding-bottom: calc(var(--bottom-bar-h, 72px) + var(--mobile-nav-h, 82px) + 40px); }
       }
       /* Build-mode dropdown: opt out of the global "select{width:100%}" and the
          native arrow so the box auto-sizes to its widest option in any language
@@ -530,6 +533,7 @@ export function adminHtml(
       @media(max-width:600px){ .dashGrid .storageGrid { grid-template-columns: minmax(0, 1fr); } }
       .statNum { font-size: 32px; font-weight: 800; color: var(--accent); line-height: 1; }
       .navAlertDot { position: absolute; top: 7px; right: 8px; width: 8px; height: 8px; border-radius: 50%; background: var(--danger); pointer-events: none; }
+      .navNoticeCount { position: absolute; top: 4px; right: 6px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 9999px; background: var(--danger); color: #fff; font-size: 10px; line-height: 16px; text-align: center; pointer-events: none; }
       /* 実行中マーク。バックアップ/復元はページ内ループなので、動いていることが
          一目で分かるよう脈打たせる（赤い navAlertDot＝中断/警告 とは色で区別）。 */
       .navBusyDot { position: absolute; top: 7px; right: 8px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent-3); pointer-events: none; animation: kuroBusyPulse 1.1s ease-in-out infinite; }
