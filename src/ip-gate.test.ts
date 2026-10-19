@@ -10,6 +10,7 @@ import {
   listMyNetworks,
   handleNetworkConfirm,
   registerLoginNetwork,
+  registerSiblingNetwork,
   writeIpGateConfig,
   type IpGateDeps,
 } from "./ip-gate.ts";
@@ -310,6 +311,122 @@ console.log("ip-gate: 登録 IPv6(手で足す固定の prefix)");
     "形の崩れた値は受けない",
     await code(addMyNetwork(w.env, "u1", "not-an-ip", "", now)),
     "invalid_network",
+  );
+}
+
+console.log("ip-gate: もう片方の族(ログイン直後に IPv4 ⇔ IPv6 を一緒に登録)");
+{
+  const w = world();
+  w.raw.exec(
+    "CREATE TABLE sessions (session_id TEXT PRIMARY KEY, uid TEXT, created_at TEXT, credential_id TEXT)",
+  );
+  const now = 1_800_000_000_000;
+  const at = (ms: number) => new Date(ms).toISOString();
+  w.raw
+    .prepare("INSERT INTO sessions VALUES (?, ?, ?, ?)")
+    .run("s1", "u1", at(now), "cred1");
+  w.raw
+    .prepare("INSERT INTO sessions VALUES (?, ?, ?, ?)")
+    .run("s2", "u1", at(now), null);
+  const V4 = "198.51.100.23";
+  await registerLoginNetwork(
+    w.env,
+    req(HOME),
+    "u1",
+    "alice@example.com",
+    w.deps,
+  );
+  eq(
+    "足す前は、同じ家の IPv4 に切り替わると止まる",
+    await code(enforceNetwork(w.env, req(V4), alice, w.deps)),
+    "network_unregistered",
+  );
+  const mailsBefore = w.mails.length; // 止めたときの確認のメール 1 通
+  eq(
+    "セッションがパスキーで作ったものでなければ受けない",
+    await code(
+      registerSiblingNetwork(
+        w.env,
+        req(HOME),
+        { ...alice, sessionId: "s2" },
+        [V4],
+        w.deps,
+      ),
+    ),
+    "sibling_window_closed",
+  );
+  eq(
+    "同じ族のアドレスは足さない(他人の /64 を混ぜない)",
+    await registerSiblingNetwork(w.env, req(HOME), alice, [AWAY], w.deps),
+    null,
+  );
+  eq(
+    "ログイン直後なら、もう片方の族を登録する",
+    await registerSiblingNetwork(w.env, req(HOME), alice, [HOME2, V4], w.deps),
+    { net: `${V4}/32` },
+  );
+  eq(
+    "登録した後は、IPv4 に切り替わっても通る",
+    await code(enforceNetwork(w.env, req(V4), alice, w.deps)),
+    "passed",
+  );
+  eq("知らせのメールは増やさない", w.mails.length, mailsBefore);
+  w.tick(3 * 60 * 1000);
+  eq(
+    "ログインから 2 分を過ぎたら受けない",
+    await code(
+      registerSiblingNetwork(
+        w.env,
+        req(HOME),
+        alice,
+        ["198.51.100.99"],
+        w.deps,
+      ),
+    ),
+    "sibling_window_closed",
+  );
+}
+{
+  const w = world();
+  w.raw.exec(
+    "CREATE TABLE sessions (session_id TEXT PRIMARY KEY, uid TEXT, created_at TEXT, credential_id TEXT)",
+  );
+  w.raw
+    .prepare("INSERT INTO sessions VALUES (?, ?, ?, ?)")
+    .run("s1", "u1", new Date(1_800_000_000_000).toISOString(), "cred1");
+  await registerLoginNetwork(
+    w.env,
+    req("198.51.100.23"),
+    "u1",
+    "alice@example.com",
+    w.deps,
+  );
+  eq(
+    "IPv4 で入ったときは、IPv6 の /64 を登録する",
+    await registerSiblingNetwork(
+      w.env,
+      req("198.51.100.23"),
+      alice,
+      ["198.51.100.23", HOME],
+      w.deps,
+    ),
+    { net: "2400:4051:abcd:1200::/64" },
+  );
+  eq(
+    "その /64 の別アドレスも通る",
+    await code(enforceNetwork(w.env, req(HOME2), alice, w.deps)),
+    "passed",
+  );
+  eq(
+    "範囲(/48 など)は受けない(固定の追加は設定の画面から)",
+    await registerSiblingNetwork(
+      w.env,
+      req("198.51.100.23"),
+      alice,
+      ["2001:db8::/32"],
+      w.deps,
+    ),
+    null,
   );
 }
 

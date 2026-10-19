@@ -116,6 +116,7 @@ import {
   addMyNetwork,
   readIpGateConfig,
   registerLoginNetwork,
+  registerSiblingNetwork,
   removeMyNetwork,
   writeIpGateConfig,
   ipStore,
@@ -705,6 +706,18 @@ async function handleApiDispatch(
         net: added.net,
       });
       return json({ ok: true, ...added });
+    }
+    // パスキーで入った直後に、もう片方の族(IPv4 ⇔ IPv6)の回線も登録する(ip-gate.ts)。
+    if (request.method === "POST" && path === "/api/auth/networks/sibling") {
+      requireInteractiveUser(user);
+      const body = await readJson(request);
+      const added = await registerSiblingNetwork(env, request, user, body.ips);
+      if (added) {
+        await logActivity(env, user, "auth.network_sibling", "user", user.uid, {
+          net: added.net,
+        });
+      }
+      return json({ ok: true, net: added?.net ?? null });
     }
     const networkMatch = path.match(/^\/api\/auth\/networks\/([^/]+)$/);
     if (request.method === "DELETE" && networkMatch) {

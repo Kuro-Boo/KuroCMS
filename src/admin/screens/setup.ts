@@ -1,5 +1,39 @@
 // KuroCMS admin screen module. Concatenated by scripts/build-admin.js.
 
+// パスキーで入った直後に、もう片方の族(IPv4 ⇔ IPv6)の回線も登録する(IP 制限・ip-gate.ts)。
+// 登録はその要求が通った族だけなので、ブラウザが後で族を切り替えると止まり、パスキーを
+// 求め直していた。Cloudflare の 1.1.1.1 の族ごとの宛先から自分のアドレスを読んで送る。
+// 読めなければ(IPv6 の無い回線など)何もしない。ログインは待たせない(3 秒で諦める)。
+const SIBLING_TRACE_URLS = [
+  "https://1.1.1.1/cdn-cgi/trace",
+  "https://[2606:4700:4700::1111]/cdn-cgi/trace",
+];
+async function registerSiblingNetwork(): Promise<void> {
+  const reads = await Promise.allSettled(
+    SIBLING_TRACE_URLS.map(async (u) => {
+      const r = await fetch(u, {
+        cache: "no-store",
+        credentials: "omit",
+        signal: AbortSignal.timeout(3000),
+      });
+      const m = new RegExp("^ip=(.+)$", "m").exec(await r.text());
+      return m ? m[1]!.trim() : "";
+    }),
+  );
+  const ips = reads.flatMap((x) =>
+    x.status === "fulfilled" && x.value ? [x.value] : [],
+  );
+  if (!ips.length) return;
+  try {
+    await api("/api/auth/networks/sibling", {
+      method: "POST",
+      body: JSON.stringify({ ips }),
+    });
+  } catch {
+    /* 登録できなくても、族が切り替わったときにパスキーを求めるだけ */
+  }
+}
+
 async function loginScreen(errorMsg = "") {
   setSidebarMode("setup");
   app.innerHTML =
@@ -117,6 +151,7 @@ async function loginScreen(errorMsg = "") {
           ),
         }),
       });
+      await registerSiblingNetwork();
       render();
     } catch (err) {
       loginScreen(errorMessage(err) || t("apiFailed"));
@@ -179,6 +214,7 @@ async function inviteScreen(token: Dynamic) {
         });
         const url = new URL(location.href);
         url.searchParams.delete("invite");
+        await registerSiblingNetwork();
         history.replaceState(null, "", url.toString());
         render();
       } catch (err) {
@@ -261,6 +297,7 @@ async function recoverScreen(token: Dynamic) {
         });
         const url = new URL(location.href);
         url.searchParams.delete("recover");
+        await registerSiblingNetwork();
         history.replaceState(null, "", url.toString());
         render();
       } catch (err) {
@@ -375,6 +412,7 @@ async function setupScreen(status: Dynamic, preserve: { email?: string } = {}) {
           ),
         }),
       });
+      await registerSiblingNetwork();
       history.pushState(null, "", adminHref("") + "/");
       render();
     } catch (err) {

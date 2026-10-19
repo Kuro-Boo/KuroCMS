@@ -240,6 +240,78 @@ export async function registerLoginNetwork(
   }
 }
 
+/** パスキーでログインしてから、もう片方の族を一緒に登録できる間。 */
+export const SIBLING_WINDOW_MS = 2 * 60 * 1000;
+
+/**
+ * パスキーでログインした直後に、**もう片方の族（IPv4 ⇔ IPv6）の回線も登録する**。
+ *
+ * IPv4 と IPv6 は別の回線として登録され、ログインで登録されるのはその要求が通った族だけ。
+ * ブラウザは後で勝手にもう片方へ切り替える（Happy Eyeballs）ので、同じ家の回線でも止まり、
+ * パスキーを求め直していた（2026-10-19 の調べ・cms-cms-security）。画面は、Cloudflare の
+ * 1.1.1.1 の族ごとの宛先（`https://1.1.1.1/cdn-cgi/trace`・`https://[2606:4700:4700::1111]/cdn-cgi/trace`）
+ * から自分のアドレスを読み、ここへ送る。workers.dev は族ごとの宛先を持たないため。
+ *
+ * 送られたアドレスはサーバーが見たものではないので、受けるのは次をすべて満たすときだけ。
+ *   - この要求そのものが回線の照合を通っている（tryAuth の enforceNetwork）—— 盗まれたクッキーは
+ *     登録の無い回線から来るので、ここまで届かない
+ *   - パスキーで作ったセッションで、作ってから SIBLING_WINDOW_MS 以内
+ *   - この要求と違う族のアドレス（同じ族は、この要求が通った時点で登録済み）
+ * 足すのは自動の行（期限つき）。登録できたら回線を返す。
+ */
+export async function registerSiblingNetwork(
+  env: Env,
+  request: Request,
+  user: AuthUser,
+  ips: unknown,
+  deps: Pick<IpGateDeps, "now"> = defaultDeps,
+): Promise<{ net: string } | null> {
+  const cfg = await readIpGateConfig(env);
+  if (!cfg.enabled) return null;
+  const conn = gate.requestNetwork(request);
+  if (!conn || !user.sessionId) return null;
+  const now = deps.now();
+  const session = await env.DB.prepare(
+    "SELECT created_at, credential_id FROM sessions WHERE session_id = ? AND uid = ?",
+  )
+    .bind(user.sessionId, user.uid)
+    .first<{ created_at: string; credential_id: string | null }>();
+  if (
+    !session?.credential_id ||
+    !(Date.parse(session.created_at) > now - SIBLING_WINDOW_MS)
+  )
+    throw new HttpError(
+      403,
+      "sibling_window_closed",
+      "The other network can only be registered right after signing in with a passkey.",
+    );
+  for (const raw of Array.isArray(ips) ? ips.slice(0, 2) : []) {
+    if (typeof raw !== "string" || raw.includes("/")) continue;
+    let parsed: { family: "v4" | "v6"; net: string };
+    try {
+      parsed = gate.parseManualNet(raw);
+    } catch {
+      continue;
+    }
+    if (
+      parsed.family === conn.family ||
+      !gate.familyAllowed(cfg, parsed.family)
+    )
+      continue;
+    const sibling: Network = { ...parsed, ip: raw.trim().toLowerCase() };
+    await gate.registerConnection(
+      ipStore(env),
+      cfg,
+      user.uid,
+      sibling,
+      gate.lineDescription(request),
+      now,
+    );
+    return { net: sibling.net };
+  }
+  return null;
+}
+
 async function sendConfirmation(
   env: Env,
   request: Request,
