@@ -131,10 +131,6 @@ check(
     api,
   ),
 );
-check(
-  "保守: コピー由来の掃除の書き戻しも守りを通す",
-  /const cleaned = sanitizeContentHtml\(\s*normalizePlainLinks\(/.test(api),
-);
 
 check(
   "サイト文字の保存（PUT /api/v1/content/:id/translations/:lang・MCP も同じ口）",

@@ -996,12 +996,11 @@ const i18n = {
       "Custom domain attached. DNS and SSL are being provisioned by Cloudflare (a few minutes). Then set it as the Public Domain above.",
     r2SetupTitle: "R2 media storage",
     r2SetupHelp:
-      'Only needed if you want images, video, or audio. Nothing is charged within the 10 GB free tier. Once R2 is started in the Cloudflare dashboard, press "Start using R2" below — KuroCMS creates the bucket and connects it for you.',
+      "Only needed if you want images, video, or audio. Nothing is charged up to the free 10 GB. Set it up in your own Cloudflare (KuroCMS does not create it): 1) start R2 and create a bucket; 2) Workers & Pages → {worker} → Settings → Bindings → Add → R2 bucket, name the variable MEDIA_BUCKET and pick the bucket from step 1. Once saved, this box shows it as enabled.",
+    publicDomainManagedHelp:
+      "Your site's address on Entamy hosting. It cannot be changed. To use your own domain, move to your own Cloudflare account first.",
     r2SetupDashboard: "Open R2 in Cloudflare",
-    r2SetupButton: "Start using R2",
     r2SetupReady: "R2 media storage is enabled.",
-    r2SetupWorking: "Creating and connecting the R2 bucket...",
-    r2SetupDone: "R2 is ready. Reloading KuroCMS...",
     cfManualSteps:
       "Add it from the Cloudflare dashboard: Workers & Pages → your KuroCMS Worker → Settings → Domains & Routes → Add → Custom Domain → enter the domain. Cloudflare creates the DNS record and SSL automatically. After a few minutes, set it as the Public Domain above and save.",
     defaultLanguage: "Default Language",
@@ -1010,44 +1009,6 @@ const i18n = {
     saveSiteSettings: "Save Site Settings",
     saveSnsSettings: "Save SNS Settings",
     openSnsConsole: "Open SNS console",
-    maintenanceTitle: "Maintenance",
-    cleanupStylesHelp:
-      "Removes style noise that Chrome's rich copy baked into article bodies pasted with an older editor (huge revert-layer property dumps and hard-coded theme colors), and normalizes plain external links into the KuroEditor link notation ([[url|text]]). Only style attributes carrying the copy-noise signature are touched; decorations you applied on purpose stay, and links that the notation cannot represent (non-http, formatted content inside the link, etc.) are left as-is. The previous body of every changed article is saved to revision history. Run a build afterwards to regenerate the cleaned pages.",
-    cleanupStylesButton: "Clean up copied-style noise & normalize links",
-    cleanupStylesProgress: "Cleaning… changed so far:",
-    cleanupStylesDone:
-      "Done: cleaned {n} translation(s) (scan matched {s}). Run a build to publish the cleaned pages.",
-    cleanupStylesNothing: "No copy-noise styles found. Nothing to clean.",
-    cleanupStylesToast: "Style cleanup finished",
-    normalizeFormatHelp:
-      "Unifies how body formatting is SPELLED, without changing how anything looks. Bold written as <b> or as a font-weight-only <span> becomes <strong>; paragraphs written as <div> become <p>; bare <div> wrappers around blocks are unwrapped; empty blocks become a single blank paragraph. These variants accumulated because the editor left the browser's contenteditable defaults unset, so Chrome produced <div> and <b> while the API wrote <p> and <strong>. New edits are normalized automatically — this button is for articles saved before that. Deliberate styling (alignment, size, colour) is preserved, code blocks are never touched, and the previous body of every changed article is saved to revision history. Run a build afterwards to regenerate the pages.",
-    normalizeFormatButton: "Normalize body formatting",
-    normalizeFormatCheck: "Check what would change",
-    normalizeFormatProgress: "Normalizing… changed so far:",
-    normalizeFormatDone:
-      "Done: normalized {n} translation(s) (scan matched {s}). Run a build to publish them.",
-    normalizeFormatNothing:
-      "Body formatting is already consistent. Nothing to do.",
-    normalizeFormatToast: "Formatting normalization finished",
-    normalizeFormatPreview:
-      "{a} translation(s) would change — <b>: {b}, bold spans: {w}, <div> paragraphs: {d}, empty blocks: {e}",
-    normalizeFormatPreviewClipboard:
-      "Also repairing clipboard damage — block font sizes: {f}, headings holding blocks: {n}",
-    normalizeFormatPreviewUnsafe:
-      "Unsafe markup removed (script / style / on* handlers / javascript: links, etc.): {u}",
-    normalizeFormatPreviewNone:
-      "Nothing to change — all bodies are already canonical.",
-    normalizeFormatClipboardLabel:
-      "Also repair damage from Chrome's clipboard (font sizes baked onto blocks, headings that swallowed the text below them). Off by default because, unlike the rewrites above, this CHANGES HOW PAGES LOOK — articles published with the damage will render differently afterwards. Check what would change first. Every rewritten body is saved to revision history, so this is reversible.",
-    dedupeRevisionsHelp:
-      "Reclaims storage in the revision history. Revisions are full-text snapshots, and one is written whenever a save changes ANYTHING — so editing only the summary, the hashtags or the cover stored another complete copy of an unchanged body. New snapshots now reuse an identical body instead of copying it; this button applies the same sharing to history written earlier. The oldest revision keeps the text and the rest point at it, so every revision still reads back as a complete body — nothing is lost and nothing published changes.",
-    dedupeRevisionsButton: "Reclaim duplicated revision bodies",
-    dedupeRevisionsProgress: "Reclaiming… shared so far:",
-    dedupeRevisionsDone:
-      "Done: {n} revision(s) now share a body — about {mb} MB reclaimed.",
-    dedupeRevisionsNothing:
-      "No duplicated revision bodies. Nothing to reclaim.",
-    dedupeRevisionsToast: "Revision history dedupe finished",
     siteSettingsSaved: "Site settings saved.",
     name: "Name",
     newType: "New Type",
@@ -1204,6 +1165,12 @@ const i18n = {
     planFree: "Free",
     cfAccountLabel: "Cloudflare account: ",
     cfAccountManaged: "Cloudflare account for hosted (managed) users",
+    managedUpdateNote: "Updates are delivered automatically by Entamy.",
+    profileTabAccount: "Account",
+    profileTabDisplay: "Display",
+    profileTabPat: "PAT",
+    profileTabPasskey: "Passkeys",
+    profileTabNetwork: "IP restriction",
     cfAccountUnknown: "could not be checked",
     planPaid: "Paid",
     storagePlanHint:
@@ -2138,12 +2105,11 @@ const i18n = {
       "カスタムドメインを割り当てました。Cloudflare が DNS と SSL を自動構成中です（数分）。完了後、上の「公開ドメイン」に設定して保存してください。",
     r2SetupTitle: "R2 メディアストレージ",
     r2SetupHelp:
-      "画像・動画・音楽を扱う場合だけ必要です。無料枠の 10GB までは課金されません。Cloudflare ダッシュボードで R2 の利用を開始したあと、下の「R2 利用開始」ボタンを押してください。バケットの作成と KuroCMS への接続を自動で行います。",
+      "画像・動画・音楽を扱う場合だけ必要です。無料枠の 10GB までは課金されません。設定はご自身の Cloudflare で行います（KuroCMS からは作りません）。① R2 の利用を開始し、バケットを作る ② Workers & Pages → {worker} → 設定 → バインディング → 追加 → R2 バケット で、変数名を MEDIA_BUCKET にして ① のバケットを選ぶ。保存すると、この枠に「利用可能です」と出ます。",
+    publicDomainManagedHelp:
+      "委託のサイトのアドレスです。変更はできません。独自ドメインを使う場合は、自社の Cloudflare へ引っ越してから設定します。",
     r2SetupDashboard: "Cloudflare で R2 を確認",
-    r2SetupButton: "R2 利用開始",
     r2SetupReady: "R2 メディアストレージは利用可能です。",
-    r2SetupWorking: "R2 バケットを作成して接続しています...",
-    r2SetupDone: "R2 の準備が完了しました。KuroCMS を再読み込みします...",
     cfManualSteps:
       "Cloudflare ダッシュボードから追加します：Workers & Pages → お使いの KuroCMS Worker → 設定 → ドメインとルート → 追加 → カスタムドメイン → ドメインを入力。DNS と SSL は Cloudflare が自動作成します。数分後、上の「公開ドメイン」に設定して保存してください。",
     defaultLanguage: "基本言語",
@@ -2152,41 +2118,6 @@ const i18n = {
     saveSiteSettings: "サイト設定を保存",
     saveSnsSettings: "SNS情報を保存",
     openSnsConsole: "SNS管理画面を開く",
-    maintenanceTitle: "メンテナンス",
-    cleanupStylesHelp:
-      "旧バージョンのエディタで貼り付けた本文に Chrome のリッチコピーが焼き込んだスタイルノイズ（revert-layer の大量羅列やテーマ色の固定値）を除去し、あわせてプレーンな外部リンクを KuroEditor のリンク記法（[[url|表示テキスト]]）に正規化します。コピー由来の署名がある style 属性だけが対象で、意図的に付けた装飾には触れません。記法で表現できないリンク（http以外・装飾入りリンク等）はそのまま維持されます。変更された記事の元本文はリビジョン履歴に保存されます。実行後はビルドを実行して掃除後のページを再生成してください。",
-    cleanupStylesButton: "スタイルノイズ掃除＆リンク記法の正規化",
-    cleanupStylesProgress: "掃除中… ここまでの変更:",
-    cleanupStylesDone:
-      "完了: {n} 件の翻訳を掃除しました（対象候補 {s} 件）。ビルドを実行すると掃除後のページが公開されます。",
-    cleanupStylesNothing: "コピー由来のスタイルノイズは見つかりませんでした。",
-    cleanupStylesToast: "スタイル掃除が完了しました",
-    normalizeFormatHelp:
-      "本文の装飾の「書き方」を統一します。見た目は一切変わりません。<b> や font-weight だけの <span> で書かれた太字は <strong> に、<div> で書かれた段落は <p> に、ブロックを包んだだけの素の <div> は展開、空ブロックは空段落 1 つに揃えます。これらが混在したのは、エディタが contenteditable の既定値を設定していなかったため Chrome が <div>・<b> を作る一方、API は <p>・<strong> を書いていたからです。今後の編集は自動で正規化されるので、このボタンはそれ以前に保存された記事のためのものです。意図的な装飾（配置・サイズ・色）は保持し、コードブロックには触れません。変更された記事の元本文はリビジョン履歴に保存されます。実行後はビルドを実行してページを再生成してください。",
-    normalizeFormatButton: "本文フォーマットの正規化",
-    normalizeFormatCheck: "変更対象を確認",
-    normalizeFormatProgress: "正規化中… ここまでの変更:",
-    normalizeFormatDone:
-      "完了: {n} 件の翻訳を正規化しました（対象候補 {s} 件）。ビルドを実行すると反映されます。",
-    normalizeFormatNothing: "本文フォーマットは既に統一されています。",
-    normalizeFormatToast: "フォーマット正規化が完了しました",
-    normalizeFormatPreview:
-      "{a} 件の翻訳が変更されます — <b>: {b} 個、太字span: {w} 個、<div>段落: {d} 個、空ブロック: {e} 個",
-    normalizeFormatPreviewClipboard:
-      "コピー由来の修復も含みます — ブロックの文字サイズ: {f} 個、ブロックを飲み込んだ見出し: {n} 個",
-    normalizeFormatPreviewUnsafe:
-      "危ない記述を落とします（script・style・on* 属性・javascript: のリンクなど）: {u} 個",
-    normalizeFormatPreviewNone: "変更対象はありません。すべて正規形です。",
-    normalizeFormatClipboardLabel:
-      "Chrome のコピーによる破壊も直す（ブロックに焼き込まれた文字サイズ、下の本文を飲み込んだ見出し）。既定では外しています。上の書き換えと違い、これは見た目が変わります — 破壊されたまま公開されている記事は、実行後に表示が変わります。先に「変更対象を確認」で件数を見てください。変更された本文はリビジョン履歴に残るので、元に戻せます。",
-    dedupeRevisionsHelp:
-      "リビジョン履歴の容量を回収します。履歴は差分ではなく全文スナップショットで、保存内容が何か 1 つでも変われば 1 版が作られます。そのため要約・ハッシュタグ・カバー画像だけを直した保存でも、変わっていない本文の完全なコピーがもう 1 部保存されていました。今後のスナップショットは同一本文を使い回すようになりましたが、このボタンはそれ以前に溜まった履歴に同じ使い回しを適用します。最古の版が本文を保持し、残りはそれを指すだけになります。取得時はどの版も完全な本文として読めるので、履歴が失われることはなく、公開中のページにも影響しません。",
-    dedupeRevisionsButton: "リビジョン履歴の重複本文を回収",
-    dedupeRevisionsProgress: "回収中… ここまでの共有:",
-    dedupeRevisionsDone:
-      "完了: {n} 版が本文を共有するようになりました（約 {mb} MB 回収）。",
-    dedupeRevisionsNothing: "重複した本文はありません。回収対象なしです。",
-    dedupeRevisionsToast: "リビジョン履歴の重複回収が完了しました",
     siteSettingsSaved: "サイト設定を保存しました。",
     name: "名前",
     newType: "新規タイプ",
@@ -2346,6 +2277,12 @@ const i18n = {
     planFree: "無料枠",
     cfAccountLabel: "Cloudflare アカウント: ",
     cfAccountManaged: "委託利用者用の Cloudflare アカウント",
+    managedUpdateNote: "委託では、更新は Entamy が自動で届けます。",
+    profileTabAccount: "アカウント",
+    profileTabDisplay: "表示",
+    profileTabPat: "PAT",
+    profileTabPasskey: "パスキー",
+    profileTabNetwork: "IP制限",
     cfAccountUnknown: "確認できません",
     planPaid: "Paid",
     storagePlanHint:

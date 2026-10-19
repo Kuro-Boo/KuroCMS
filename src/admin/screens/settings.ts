@@ -249,49 +249,6 @@ async function settings() {
       escapeHtml(t("saveSiteSettings")) +
       "</button>" +
       "</form>" +
-      // ── Maintenance: copy-noise style cleanup ─────────────────────────
-      "<div class='panel stack' style='margin-top:16px'>" +
-      "<div class='panelHead'><h3>" +
-      escapeHtml(t("maintenanceTitle")) +
-      "</h3></div>" +
-      "<div class='muted' style='font-size:12px'>" +
-      escapeHtml(t("cleanupStylesHelp")) +
-      "</div>" +
-      "<div><button type='button' id='cleanupStylesBtn' class='secondary'>" +
-      escapeHtml(t("cleanupStylesButton")) +
-      "</button></div>" +
-      "<div id='cleanupStylesResult' class='muted' style='font-size:12px'></div>" +
-      // ── Body formatting normalization (<b>→<strong>, <div>→<p>, empty blocks)
-      "<hr style='border:0;border-top:1px solid var(--line);margin:4px 0'>" +
-      "<div class='muted' style='font-size:12px'>" +
-      escapeHtml(t("normalizeFormatHelp")) +
-      "</div>" +
-      // 見た目が変わる規則は【明示的に選んだときだけ】。既定は外したまま。
-      "<label style='display:flex;gap:6px;align-items:flex-start;font-size:12px'>" +
-      "<input type='checkbox' id='normalizeFormatClipboard' style='margin-top:2px'>" +
-      "<span>" +
-      escapeHtml(t("normalizeFormatClipboardLabel")) +
-      "</span>" +
-      "</label>" +
-      "<div class='toolbar' style='gap:8px'>" +
-      "<button type='button' id='normalizeFormatCheckBtn' class='secondary'>" +
-      escapeHtml(t("normalizeFormatCheck")) +
-      "</button>" +
-      "<button type='button' id='normalizeFormatBtn' class='secondary'>" +
-      escapeHtml(t("normalizeFormatButton")) +
-      "</button>" +
-      "</div>" +
-      "<div id='normalizeFormatResult' class='muted' style='font-size:12px'></div>" +
-      // ── Revision history: reclaim duplicated bodies ───────────────────
-      "<hr style='border:0;border-top:1px solid var(--line);margin:4px 0'>" +
-      "<div class='muted' style='font-size:12px'>" +
-      escapeHtml(t("dedupeRevisionsHelp")) +
-      "</div>" +
-      "<div><button type='button' id='dedupeRevisionsBtn' class='secondary'>" +
-      escapeHtml(t("dedupeRevisionsButton")) +
-      "</button></div>" +
-      "<div id='dedupeRevisionsResult' class='muted' style='font-size:12px'></div>" +
-      "</div>" +
       "</div>" +
       // ── SNS ──────────────────────────────────────────────────────────
       "<div id='panel-sns' class='settingsPanel' style='display:none'>" +
@@ -989,175 +946,6 @@ async function settings() {
     btn.addEventListener("click", () => switchTab(btn.dataset.tab));
   });
 
-  // Maintenance: copy-noise style cleanup. Loops while the server reports
-  // more (it processes at most 50 changed rows per call), then reminds the
-  // user to build so the cleaned pages get regenerated.
-  byId("cleanupStylesBtn")?.addEventListener("click", async () => {
-    const btn = byId("cleanupStylesBtn") as Dynamic;
-    const out = byId("cleanupStylesResult");
-    if (state.preview) {
-      toast(t("previewReadOnly"), false, btn);
-      return;
-    }
-    btn.disabled = true;
-    try {
-      let total = 0;
-      let scanned = 0;
-      for (let pass = 0; pass < 40; pass++) {
-        const res = await api("/api/documents/cleanup-styles", {
-          method: "POST",
-        });
-        total += Number(res.changed || 0);
-        scanned = Number(res.scanned || 0);
-        if (out)
-          out.textContent =
-            t("cleanupStylesProgress") + " " + fmtNum(total) + "…";
-        if (!res.more) break;
-      }
-      if (out)
-        out.textContent =
-          total > 0
-            ? t("cleanupStylesDone")
-                .replace("{n}", fmtNum(total))
-                .replace("{s}", fmtNum(scanned))
-            : t("cleanupStylesNothing");
-      toast(t("cleanupStylesToast"), false, btn);
-    } catch (error) {
-      toast(errorMessage(error), true, btn);
-    } finally {
-      btn.disabled = false;
-    }
-  });
-
-  // 見た目が変わる規則（R6〜R8）を掛けるかどうかは、画面のチェック次第。
-  // 予告と実行で【同じ値】を使う —— ずれると「確認した内容と違うものが走る」。
-  const normalizeFormatQuery = () =>
-    (byId("normalizeFormatClipboard") as HTMLInputElement | null)?.checked
-      ? "?clipboard=1"
-      : "";
-
-  // Maintenance: body formatting normalization. Dry-run first so the admin can
-  // see the scale before any body is rewritten.
-  byId("normalizeFormatCheckBtn")?.addEventListener("click", async () => {
-    const btn = byId("normalizeFormatCheckBtn") as Dynamic;
-    const out = byId("normalizeFormatResult");
-    btn.disabled = true;
-    try {
-      const res = await api(
-        "/api/documents/normalize-format" + normalizeFormatQuery(),
-      );
-      if (out)
-        out.textContent = Number(res.affected || 0)
-          ? t("normalizeFormatPreview")
-              .replace("{a}", fmtNum(res.affected || 0))
-              .replace("{b}", fmtNum(res.bTags || 0))
-              .replace("{w}", fmtNum(res.boldSpans || 0))
-              .replace("{d}", fmtNum(res.divBlocks || 0))
-              .replace("{e}", fmtNum(res.emptyBlocks || 0)) +
-            // 守り（R0）で落ちるものは、見つかったときだけ出す
-            (Number(res.unsafe || 0)
-              ? " " +
-                t("normalizeFormatPreviewUnsafe").replace(
-                  "{u}",
-                  String(res.unsafe),
-                )
-              : "") +
-            // コピー由来の修復を選んだときだけ、その内訳も足す（既定では
-            // 常に 0 なので、出しても意味の無い数字が並ぶだけ）。
-            (normalizeFormatQuery()
-              ? " " +
-                t("normalizeFormatPreviewClipboard")
-                  .replace("{f}", fmtNum(res.blockDecor || 0))
-                  .replace("{n}", fmtNum(res.nestedBlocks || 0))
-              : "")
-          : t("normalizeFormatPreviewNone");
-    } catch (error) {
-      toast(errorMessage(error), true, btn);
-    } finally {
-      btn.disabled = false;
-    }
-  });
-
-  // Same loop shape as the copy-noise sweep: the server changes at most 50 rows
-  // per call and reports `more` until the corpus is converged.
-  byId("normalizeFormatBtn")?.addEventListener("click", async () => {
-    const btn = byId("normalizeFormatBtn") as Dynamic;
-    const out = byId("normalizeFormatResult");
-    if (state.preview) {
-      toast(t("previewReadOnly"), false, btn);
-      return;
-    }
-    btn.disabled = true;
-    try {
-      let total = 0;
-      let scanned = 0;
-      for (let pass = 0; pass < 40; pass++) {
-        const res = await api(
-          "/api/documents/normalize-format" + normalizeFormatQuery(),
-          { method: "POST" },
-        );
-        total += Number(res.changed || 0);
-        scanned = Number(res.scanned || 0);
-        if (out)
-          out.textContent =
-            t("normalizeFormatProgress") + " " + fmtNum(total) + "…";
-        if (!res.more) break;
-      }
-      if (out)
-        out.textContent =
-          total > 0
-            ? t("normalizeFormatDone")
-                .replace("{n}", fmtNum(total))
-                .replace("{s}", fmtNum(scanned))
-            : t("normalizeFormatNothing");
-      toast(t("normalizeFormatToast"), false, btn);
-    } catch (error) {
-      toast(errorMessage(error), true, btn);
-    } finally {
-      btn.disabled = false;
-    }
-  });
-
-  // Maintenance: reclaim duplicated revision bodies. Same chunked loop as the
-  // sweeps above (25 groups per call). Nothing published changes — this only
-  // rewrites history rows — so no "rebuild the site" reminder is needed.
-  byId("dedupeRevisionsBtn")?.addEventListener("click", async () => {
-    const btn = byId("dedupeRevisionsBtn") as Dynamic;
-    const out = byId("dedupeRevisionsResult");
-    if (state.preview) {
-      toast(t("previewReadOnly"), false, btn);
-      return;
-    }
-    btn.disabled = true;
-    try {
-      let shared = 0;
-      let bytes = 0;
-      for (let pass = 0; pass < 200; pass++) {
-        const res = await api("/api/documents/revisions/dedupe", {
-          method: "POST",
-        });
-        shared += Number(res.shared || 0);
-        bytes += Number(res.bytesReclaimed || 0);
-        if (out)
-          out.textContent =
-            t("dedupeRevisionsProgress") + " " + shared + "… (" + pass + ")";
-        if (!res.more) break;
-      }
-      const mb = (bytes / 1048576).toFixed(2);
-      if (out)
-        out.textContent = shared
-          ? t("dedupeRevisionsDone")
-              .replace("{n}", fmtNum(shared))
-              .replace("{mb}", mb)
-          : t("dedupeRevisionsNothing");
-      toast(t("dedupeRevisionsToast"), false, btn);
-    } catch (error) {
-      toast(errorMessage(error), true, btn);
-    } finally {
-      btn.disabled = false;
-    }
-  });
-
   // Import section switcher
   document.querySelectorAll<AdminElement>(".importSwitch").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -1222,8 +1010,19 @@ async function settings() {
     syncPublicDomainOpenButton();
     publicDomainInput.addEventListener("input", syncPublicDomainOpenButton);
 
+    // 委託: アドレスは受付が決めたもの({導入ID}.kurocms.site)。表示だけにし、
+    // workers.dev・独自ドメイン・R2 の枠は出さない(鍵も持たない・重複する表示も出さない)。
+    if (s.managedHosting) {
+      (publicDomainInput as unknown as HTMLInputElement).readOnly = true;
+      const help = publicDomainInput
+        .closest("label")
+        ?.querySelector<HTMLElement>(".muted");
+      if (help) help.textContent = t("publicDomainManagedHelp");
+    }
+
     // Worker origin URL + CNAME guide
     (function () {
+      if (s.managedHosting) return;
       const devDomain = (s.developmentDomain || "").trim();
       const pubDomain = (s.publicDomain || "").trim();
       if (!devDomain) return;
@@ -1277,34 +1076,18 @@ async function settings() {
           "</p></div>";
         return;
       }
+      // R2 はお客様が自分の Cloudflare で始めて繋ぐ(KuroCMS は作らない・鍵に R2 の権限を持たせない)。
       section.innerHTML =
         "<div style='" +
         box +
         "'><div style='font-weight:700;font-size:13px;margin-bottom:6px'>🪣 " +
         esc(t("r2SetupTitle")) +
         "</div><p style='font-size:12px;color:var(--muted);line-height:1.7;margin:0 0 10px'>" +
-        esc(t("r2SetupHelp")) +
+        esc(t("r2SetupHelp").replace("{worker}", s.workerName || "KuroCMS")) +
         "</p><div style='display:flex;gap:8px;flex-wrap:wrap'>" +
         "<a class='secondary' target='_blank' rel='noopener' href='https://dash.cloudflare.com/?to=/:account/r2/overview' style='font-size:12px;padding:6px 14px;text-decoration:none'>" +
         esc(t("r2SetupDashboard")) +
-        "</a><button type='button' id='enableR2Btn' style='font-size:12px;padding:6px 14px'>" +
-        esc(t("r2SetupButton")) +
-        "</button></div><div id='r2SetupResult' style='font-size:12px;margin-top:8px'></div></div>";
-      const button = byId("enableR2Btn");
-      const result = byId("r2SetupResult");
-      if (!button) return;
-      button.addEventListener("click", async function () {
-        button.disabled = true;
-        if (result) result.textContent = t("r2SetupWorking");
-        try {
-          await api("/api/system/r2/enable", { method: "POST" });
-          if (result) result.textContent = "✅ " + t("r2SetupDone");
-          setTimeout(() => location.reload(), 1200);
-        } catch (err) {
-          button.disabled = false;
-          if (result) result.textContent = "⚠️ " + errorMessage(err);
-        }
-      });
+        "</a></div></div>";
     }
 
     // Cloudflare-native custom domain manager. Reads /api/system/custom-domains:

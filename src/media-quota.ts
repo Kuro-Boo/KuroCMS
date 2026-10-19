@@ -15,6 +15,15 @@ export function parseMediaQuota(value: string | undefined): number | null {
   return Number.isSafeInteger(n) && n > 0 ? n : null;
 }
 
+/**
+ * Entamy の委託(当社の口座)で動いている導入か。受付は委託にだけ MEDIA_QUOTA_BYTES を置くので、
+ * それで見分ける(判定はここだけ)。委託では公開アドレス({導入ID}.kurocms.site)を変えられず、
+ * Cloudflare の鍵も持たない(独自ドメイン・番人の更新・アカウント名の画面は出さない)。
+ */
+export function isManagedHosting(env: { MEDIA_QUOTA_BYTES?: string }): boolean {
+  return parseMediaQuota(env.MEDIA_QUOTA_BYTES) !== null;
+}
+
 /** 書き足すと上限を超えるか。上限なし(null)なら決して超えない。 */
 export function exceedsMediaQuota(
   usedBytes: number,

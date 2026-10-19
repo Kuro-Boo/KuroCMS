@@ -177,6 +177,9 @@ async function dashboard() {
           ? t("cfAccountManaged")
           : acc?.name || t("cfAccountUnknown"));
     }
+    // 委託は CMS が Cloudflare の鍵を持たない。版は番人が自動で入れるので、更新の操作は出さない。
+    if ((s.cfAccount as { managed?: boolean } | undefined)?.managed)
+      applyManagedUpdates();
     // どのプランの上限でグラフを描くか。閲覧者ごとの好み(localStorage)。
     // 既定は、委託(Entamy の Cloudflare は Paid)なら Paid、それ以外は無料枠。
     const PLAN_KEY = "kurocms_storage_plan";
@@ -554,7 +557,8 @@ async function dashboard() {
     if (btn)
       btn.textContent = v.hasUpdate ? t("updateNow") : t("checkForUpdate");
 
-    if (note) {
+    // 委託の一文(applyManagedUpdates)は版の結果で書き換えない。
+    if (note && !note.dataset.managed) {
       // 確認できたなら黙っている。出すのは「確認できていない」ときだけ。
       if (v.checkOk || v.viaBrowser) {
         note.style.display = "none";
@@ -713,6 +717,25 @@ async function dashboard() {
 }
 
 /** WorkerOps の枠の動き。KuroCMS の枠と同じく「確認 → 今すぐ更新」の 2 段で押させる。 */
+/** 委託: 更新のボタン・チャンネル・自動更新と WorkerOps の枠を隠し、自動で届く旨だけ出す。 */
+function applyManagedUpdates() {
+  byId("guardianPanel")?.remove();
+  const wrap = byId("btnUpdate")?.closest(
+    ".updateBtnWrap",
+  ) as HTMLElement | null;
+  if (wrap) wrap.style.display = "none";
+  for (const id of ["updateChannelToggle", "autoUpdateToggle"]) {
+    const row = byId(id)?.closest(".versionRow") as HTMLElement | null;
+    if (row) row.style.display = "none";
+  }
+  const note = byId("versionNote");
+  if (note) {
+    note.dataset.managed = "1";
+    note.textContent = t("managedUpdateNote");
+    note.style.display = "";
+  }
+}
+
 function setupGuardianPanel() {
   let last: Dynamic | null = null;
   const show = (val: Dynamic) => (val ? "v" + val : "v—");

@@ -8,9 +8,31 @@ async function profile() {
     "claude mcp add --transport http kurocms " +
     mcpUrl +
     ' --header "Authorization: Bearer kuro_<PAT>"';
+  // タブで分ける(アカウント・表示・PAT・パスキー・IP 制限)。部品は設定画面のタブと同じ。
+  const profileTabs: Array<[string, string]> = [
+    ["account", t("profileTabAccount")],
+    ["display", t("profileTabDisplay")],
+    ["pat", t("profileTabPat")],
+    ["passkey", t("profileTabPasskey")],
+    ["network", t("profileTabNetwork")],
+  ];
   shell(
     t("profile"),
-    "<div class='grid two profileGrid'><div class='stack'><div class='panel stack'><h3 style='display:flex;align-items:baseline;gap:10px;flex-wrap:wrap'>" +
+    "<div class='settingsTabBar'>" +
+      profileTabs
+        .map(
+          ([id, label]) =>
+            "<button type='button' class='settingsTab" +
+            (id === "account" ? " active" : "") +
+            "' data-tab='" +
+            id +
+            "'>" +
+            escapeHtml(label) +
+            "</button>",
+        )
+        .join("") +
+      "</div>" +
+      "<div id='panel-account' class='settingsPanel stack'><div class='panel stack'><h3 style='display:flex;align-items:baseline;gap:10px;flex-wrap:wrap'>" +
       escapeHtml(t("profileIdentity")) +
       // 匿名アカウント。問い合わせのときに「どの導入か」を伝える唯一の手がかり。
       // **install_id は出さない**（あれはなりすましに使える鍵）。
@@ -32,7 +54,7 @@ async function profile() {
       "</button></div></label><label>" +
       escapeHtml(t("email")) +
       "<input id='profileEmail' type='email' /></label>" +
-      "<div class='stack' style='gap:8px;padding:12px;border:1px solid var(--border,#2a2f3a);border-radius:8px'>" +
+      "<div class='stack' id='mailDeliveryBox' style='gap:8px;padding:12px;border:1px solid var(--border,#2a2f3a);border-radius:8px'>" +
       "<div><b>" +
       escapeHtml(t("mailDeliveryTitle")) +
       "</b></div><div class='tokenHelp'>" +
@@ -59,7 +81,11 @@ async function profile() {
       "</b></div><div id='mailDeliveryManageHelp' class='tokenMeta'></div></div>" +
       "<input id='mailRoutingToggle' type='checkbox' class='toggle' disabled /></div></div><button>" +
       escapeHtml(t("updateAccount")) +
-      "</button></form></div><div class='panel stack'><h3>" +
+      "</button></form></div>" +
+      "<div class='panel' style='padding:12px 16px'><button class='danger' id='logoutBtn' style='width:100%'>" +
+      escapeHtml(t("logout")) +
+      "</button></div></div>" +
+      "<div id='panel-display' class='settingsPanel stack' style='display:none'><div class='panel stack'><h3>" +
       escapeHtml(t("profilePreferences")) +
       "</h3><label>" +
       escapeHtml(t("interfaceLanguage")) +
@@ -82,9 +108,8 @@ async function profile() {
       escapeHtml(t("darkModeHelp")) +
       "</div></div><input id='darkModeToggle' type='checkbox' class='toggle'" +
       (state.colorMode === "dark" ? " checked" : "") +
-      " /></div></div><div class='panel' style='padding:12px 16px'><button class='danger' id='logoutBtn' style='width:100%'>" +
-      escapeHtml(t("logout")) +
-      "</button></div></div><div class='stack'><div class='panel stack'><h3>" +
+      " /></div></div></div>" +
+      "<div id='panel-pat' class='settingsPanel stack' style='display:none'><div class='panel stack'><h3>" +
       escapeHtml(t("profileApiAccess")) +
       "</h3><p class='muted' style='margin:-4px 0 2px'>" +
       escapeHtml(t("profileApiAccessLead")) +
@@ -117,23 +142,35 @@ async function profile() {
       escapeHtml(t("copy")) +
       "</button></div></div><div class='stack' style='gap:8px'><div class='tokenMeta'>" +
       escapeHtml(t("tokenHistory")) +
-      "</div><div id='tokenHistory' class='tokenList'></div></div></div>" +
+      "</div><div id='tokenHistory' class='tokenList'></div></div></div></div>" +
       // ── Passkey (device) management ──────────────────────────────────
-      "<div class='panel stack'><h3>" +
+      "<div id='panel-passkey' class='settingsPanel stack' style='display:none'><div class='panel stack'><h3>" +
       escapeHtml(t("passkeyDevices")) +
       "</h3><p class='muted' style='margin:-4px 0 2px'>" +
       escapeHtml(t("passkeyDevicesLead")) +
       "</p><form class='toolbar' id='addPasskeyForm'><button>" +
       escapeHtml(t("addPasskey")) +
-      "</button></form><div id='passkeyList' class='tokenList'></div></div>" +
+      "</button></form><div id='passkeyList' class='tokenList'></div></div></div>" +
       // ── 登録した回線(IP 制限・ip-gate.ts)。登録は全自動で、ここは見て外すだけ ──
-      "<div class='panel stack' id='networkPanel'><h3>" +
+      "<div id='panel-network' class='settingsPanel stack' style='display:none'><div class='panel stack' id='networkPanel'><h3>" +
       escapeHtml(t("myNetworks")) +
       "</h3><p class='muted' style='margin:-4px 0 2px'>" +
       escapeHtml(t("myNetworksLead")) +
-      "</p><div id='networkList' class='tokenList'></div></div>" +
-      "</div></div>",
+      "</p><div id='networkList' class='tokenList'></div></div></div>",
   );
+  document.querySelectorAll<AdminElement>(".settingsTab").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.tab;
+      document
+        .querySelectorAll<AdminElement>(".settingsTab")
+        .forEach((el) => el.classList.toggle("active", el === btn));
+      document
+        .querySelectorAll<AdminElement>(".settingsPanel")
+        .forEach((el) => {
+          el.style.display = el.id === "panel-" + id ? "" : "none";
+        });
+    });
+  });
   byId("logoutBtn")?.addEventListener("click", async () => {
     try {
       await api("/api/auth/logout", { method: "POST", body: "{}" });
@@ -311,6 +348,11 @@ async function profile() {
     try {
       renderProfileMailSettings(await api("/api/me/mail-settings"));
     } catch (error) {
+      // 委託: 自分のドメインから送る設定は無いので、枠ごと出さない。
+      if ((error as { code?: string })?.code === "managed_hosting") {
+        byId("mailDeliveryBox")?.remove();
+        return;
+      }
       renderProfileMailSettings({
         available: false,
         enabled: false,

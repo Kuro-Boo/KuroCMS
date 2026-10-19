@@ -57,7 +57,6 @@ import {
 import {
   normalizeContentHtml,
   sanitizeContentHtml,
-  inspectContentHtml,
 } from "./kuroeditor/normalize.js";
 import { checkRecipeCards } from "./recipe-guard.js";
 import { entamyPort } from "./entamy-port";
@@ -67,6 +66,7 @@ import {
   exceedsMediaQuota,
   MEDIA_QUOTA_ERROR,
   parseMediaQuota,
+  isManagedHosting,
 } from "./media-quota";
 import { nextThreadsTokenRefreshAt } from "./threads-token";
 import { COMMUNITY_SHARED_PAT } from "./community-secret";
@@ -388,7 +388,6 @@ async function handleApiDispatch(
               "GET|POST /api/documents (GET=list: slug/tid/title/languages, no bodies, newest-updated first; filters ?slug= ?tid= ?mode= ?live= ?updatedSince= ?updatedUntil= ?q= ?lang= ?limit= ?offset= ?fields=; POST=create, 409 if slug exists)",
               "GET|PUT|DELETE /api/documents/:id (:id = did or globally-unique slug)",
               "GET /api/documents/:id/revisions (revision history, metadata only; ?lang= ?since= ?until= ?limit= ?offset=)",
-              "POST /api/documents/revisions/dedupe (Admin; maintenance — reclaim duplicated revision bodies, chunked, `more` until done)",
               "GET /api/documents/:id/revisions/:revisionNo (one revision WITH bodyHtml; ?lang=, default = the article's base language)",
               "GET|PUT|DELETE /api/documents/:id/translations/:lang (PUT upserts)",
               "GET|PUT /api/documents/:id/categories",
@@ -578,11 +577,6 @@ async function handleApiDispatch(
     if (request.method === "GET" && path === "/api/system/storage") {
       requireAdmin(user);
       return withJsonHeaders(await systemStorage(env));
-    }
-
-    if (request.method === "POST" && path === "/api/system/r2/enable") {
-      requireAdmin(user);
-      return withJsonHeaders(await enableR2Storage(env));
     }
 
     // お知らせ(Entamy Notice)。見る・既読は誰でも(投稿者にも出す)、「ほかの製品」の設定は管理者だけ。
@@ -846,11 +840,23 @@ async function handleApiDispatch(
 
     if (request.method === "GET" && path === "/api/system/custom-domains") {
       requireAdmin(user);
+      if (isManagedHosting(env))
+        throw new HttpError(
+          403,
+          "managed_hosting",
+          "Not available on Entamy hosting.",
+        );
       return withJsonHeaders(await listCustomDomains(env));
     }
 
     if (request.method === "POST" && path === "/api/system/custom-domains") {
       requireAdmin(user);
+      if (isManagedHosting(env))
+        throw new HttpError(
+          403,
+          "managed_hosting",
+          "Not available on Entamy hosting.",
+        );
       return withJsonHeaders(await addCustomDomain(request, env));
     }
 
@@ -1131,47 +1137,6 @@ async function handleApiDispatch(
           user,
           await resolveDid(env, documentTimestampsMatch[1]),
         ),
-      );
-    }
-
-    // Maintenance: strip Chrome-copy style noise (`revert-layer` dumps) and
-    // normalize plain links in every stored translation body. MUST be routed
-    // before the generic /api/documents/:id matcher below, which would
-    // otherwise swallow "cleanup-styles" as a slug.
-    if (request.method === "POST" && path === "/api/documents/cleanup-styles") {
-      return withJsonHeaders(await cleanupCopyNoise(env, user));
-    }
-
-    // Maintenance: reclaim duplicated revision bodies written before body
-    // sharing existed. Routed with the other maintenance sweeps, ahead of the
-    // generic /api/documents/:id matcher.
-    if (
-      request.method === "POST" &&
-      path === "/api/documents/revisions/dedupe"
-    ) {
-      return withJsonHeaders(await dedupeRevisionBodies(env, user));
-    }
-
-    // Maintenance: canonicalize body formatting (<b>/bold spans → <strong>,
-    // <div> paragraphs → <p>, empty blocks). Same must-be-before-:id rule as
-    // cleanup-styles above.
-    // `?clipboard=1` は、見た目が変わる規則（R6〜R8、Chrome のコピー由来の
-    // 壊れ方の修復）も掛ける明示的な選択。**既定は off** —— 黙って既存記事の
-    // 表示を変えないため。禁止ではなく、意図して選んだときだけ掛ける。
-    if (
-      request.method === "GET" &&
-      path === "/api/documents/normalize-format"
-    ) {
-      return withJsonHeaders(
-        await normalizeBodyFormatPreview(env, user, wantsClipboardRepair(url)),
-      );
-    }
-    if (
-      request.method === "POST" &&
-      path === "/api/documents/normalize-format"
-    ) {
-      return withJsonHeaders(
-        await normalizeBodyFormat(env, user, wantsClipboardRepair(url)),
       );
     }
 
@@ -3577,6 +3542,13 @@ async function profileMailSettings(
     .bind(user.uid)
     .first<{ email: string }>();
   if (!row) throw new HttpError(404, "user_not_found", "User was not found.");
+  // 委託のメールは Entamy が送る。自分のドメインから送る設定(Cloudflare の鍵が要る)は無い。
+  if (isManagedHosting(env))
+    throw new HttpError(
+      403,
+      "managed_hosting",
+      "Not available on Entamy hosting.",
+    );
 
   if (request.method === "GET") {
     try {
@@ -3678,204 +3650,6 @@ async function profileMailSettings(
     senderAddress: body.enabled ? state.senderAddress : "",
     reloadRequired: true,
   });
-}
-
-/**
- * Create KuroCMS's media bucket and attach it to this Worker. The installer
- * deliberately defers R2 creation until the owner opts in from Site Settings.
- * Repeated calls are safe: an existing bucket is reused and the binding PATCH
- * is idempotent.
- */
-async function enableR2Storage(env: Env): Promise<Response> {
-  const token = env.CF_API_TOKEN;
-  const accountId = env.CF_ACCOUNT_ID;
-  const workerName = env.CF_WORKER_NAME;
-  if (!token || !accountId || !workerName) {
-    throw new HttpError(
-      400,
-      "cf_creds_missing",
-      "Cloudflare credentials are not configured.",
-    );
-  }
-
-  const suffix = workerName.startsWith("kurocms-app-")
-    ? workerName.slice("kurocms-app-".length)
-    : workerName.replace(/^kurocms-/, "");
-  const bucketName = `kurocms-media-${suffix}`.slice(0, 63).replace(/-+$/, "");
-  const auth = { Authorization: `Bearer ${token}` };
-
-  const existing = await fetch(
-    `https://api.cloudflare.com/client/v4/accounts/${accountId}/r2/buckets/${encodeURIComponent(bucketName)}`,
-    { headers: auth },
-  );
-  if (existing.status === 404) {
-    const create = await fetch(
-      `https://api.cloudflare.com/client/v4/accounts/${accountId}/r2/buckets`,
-      {
-        method: "POST",
-        headers: { ...auth, "Content-Type": "application/json" },
-        body: JSON.stringify({ name: bucketName }),
-      },
-    );
-    const body = (await create.json()) as {
-      success?: boolean;
-      errors?: Array<{ message: string }>;
-    };
-    if (!create.ok || !body.success) {
-      throw new HttpError(
-        400,
-        "r2_create_failed",
-        body.errors?.[0]?.message ||
-          `Cloudflare returned HTTP ${create.status}`,
-      );
-    }
-  } else if (!existing.ok) {
-    const body = (await existing.json().catch(() => null)) as {
-      errors?: Array<{ message: string }>;
-    } | null;
-    throw new HttpError(
-      400,
-      "r2_check_failed",
-      body?.errors?.[0]?.message ||
-        `Cloudflare returned HTTP ${existing.status}`,
-    );
-  }
-
-  // The settings PATCH endpoint replaces the entire bindings array. Supplying
-  // only MEDIA_BUCKET therefore removes DB/PUBLIC_PAGES and breaks the Worker.
-  // Read the current settings and perform a normal script upload with the full
-  // non-secret binding set plus R2. Existing Worker secrets persist across the
-  // upload, as they do in the regular KuroCMS system-update path.
-  const cfBase = `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/scripts/${encodeURIComponent(workerName)}`;
-  const settingsRes = await fetch(`${cfBase}/settings`, { headers: auth });
-  const settingsBody = (await settingsRes.json().catch(() => null)) as {
-    success?: boolean;
-    result?: {
-      bindings?: Array<
-        Record<string, unknown> & { type?: string; name?: string }
-      >;
-      compatibility_date?: string;
-      compatibility_flags?: string[];
-    };
-    errors?: Array<{ message: string }>;
-  } | null;
-  if (!settingsRes.ok || !settingsBody?.success || !settingsBody.result) {
-    throw new HttpError(
-      400,
-      "worker_settings_failed",
-      settingsBody?.errors?.[0]?.message ||
-        `Cloudflare returned HTTP ${settingsRes.status}`,
-    );
-  }
-
-  const supportedBindingTypes = new Set([
-    "d1",
-    "kv_namespace",
-    "r2_bucket",
-    "images",
-    "plain_text",
-    "json",
-    "service",
-    "send_email",
-  ]);
-  const existingBindings = settingsBody.result.bindings ?? [];
-  const hasRequiredBindings =
-    existingBindings.some(
-      (binding) => binding.type === "d1" && binding.name === "DB",
-    ) &&
-    existingBindings.some(
-      (binding) =>
-        binding.type === "kv_namespace" && binding.name === "PUBLIC_PAGES",
-    );
-  if (!hasRequiredBindings) {
-    throw new HttpError(
-      409,
-      "required_worker_binding_missing",
-      "R2 setup was stopped because the required DB or PUBLIC_PAGES binding is missing. Reinstall KuroCMS before trying again.",
-    );
-  }
-  const unsupported = existingBindings.filter(
-    (binding) =>
-      binding.type !== "secret_text" &&
-      binding.type !== "secret_key" &&
-      !supportedBindingTypes.has(binding.type ?? ""),
-  );
-  if (unsupported.length > 0) {
-    throw new HttpError(
-      409,
-      "unsupported_worker_binding",
-      `R2 could not be enabled safely because this Worker has unsupported bindings: ${unsupported
-        .map((binding) => `${binding.type}:${binding.name}`)
-        .join(", ")}`,
-    );
-  }
-
-  const bindings = existingBindings.filter(
-    (binding) =>
-      supportedBindingTypes.has(binding.type ?? "") &&
-      binding.name !== "MEDIA_BUCKET",
-  );
-  bindings.push({
-    type: "r2_bucket",
-    name: "MEDIA_BUCKET",
-    bucket_name: bucketName,
-  });
-
-  const scriptRes = await fetch(
-    `https://github.com/${KUROCMS_GITHUB_REPO}/releases/download/v${KUROCMS_VERSION}/worker.js`,
-    { redirect: "follow", signal: AbortSignal.timeout(30_000) },
-  );
-  if (!scriptRes.ok) {
-    throw new HttpError(
-      502,
-      "worker_download_failed",
-      `Failed to download KuroCMS worker.js (HTTP ${scriptRes.status}).`,
-    );
-  }
-
-  const metadata = {
-    main_module: "worker.js",
-    compatibility_date: settingsBody.result.compatibility_date ?? "2024-11-01",
-    compatibility_flags: settingsBody.result.compatibility_flags ?? [],
-    bindings,
-    // Keep the site's Static Assets: a script upload without this drops every
-    // asset and the whole public site falls back to the Worker (tried on a
-    // test Worker 2026-10-16). Accepted by a Worker with no assets too.
-    keep_assets: true,
-  };
-  const form = new FormData();
-  form.append(
-    "metadata",
-    new Blob([JSON.stringify(metadata)], { type: "application/json" }),
-    "metadata.json",
-  );
-  form.append(
-    "worker.js",
-    new Blob([await scriptRes.text()], {
-      type: "application/javascript+module",
-    }),
-    "worker.js",
-  );
-  const bind = await fetch(cfBase, {
-    method: "PUT",
-    headers: auth,
-    body: form,
-    signal: AbortSignal.timeout(30_000),
-  });
-  const bindBody = (await bind.json().catch(() => null)) as {
-    success?: boolean;
-    errors?: Array<{ message: string }>;
-  } | null;
-  if (!bind.ok || !bindBody?.success) {
-    throw new HttpError(
-      400,
-      "r2_binding_failed",
-      bindBody?.errors?.[0]?.message ||
-        `Cloudflare returned HTTP ${bind.status}`,
-    );
-  }
-
-  return json({ ok: true, bucketName, reloadRequired: true });
 }
 
 /** Registrable domain ≈ last two labels (zone_name for Workers Custom Domains). */
@@ -5154,6 +4928,9 @@ async function settings(
         ga4MeasurementId: (row?.ga4_measurement_id as string | undefined) ?? "",
         publicDomain: (row?.public_domain as string | undefined) ?? "",
         developmentDomain: deriveInternalPreviewUrl(request, env),
+        managedHosting: isManagedHosting(env),
+        // R2 を手で繋ぐ案内に出す Worker の名前(自社運用だけ)。
+        workerName: isManagedHosting(env) ? "" : (env.CF_WORKER_NAME ?? ""),
         defaultLang,
         initialLang: (row?.initial_lang as string | undefined) ?? defaultLang,
         themeAccent: (row?.theme_accent as string | undefined) ?? "#157a6e",
@@ -5289,6 +5066,8 @@ async function settings(
       settingsToSave.mobile_media_full_width = mobileMediaFullWidth ? 1 : 0;
     if (hasSiteTimezone) settingsToSave.site_timezone = siteTimezone;
     if (hasShowByline) settingsToSave.show_byline = showByline ? 1 : 0;
+    // 委託の公開アドレスは受付が決めたもの({導入ID}.kurocms.site)で、変えると公開が壊れる。
+    if (isManagedHosting(env)) delete settingsToSave.public_domain;
     await saveSettings(env, settingsToSave);
 
     // 公開フラグは本来 PUT /api/v1/published の担当（テンプレート系の一族に
@@ -8457,82 +8236,7 @@ async function writeTranslationContent(
   return { bodyHtml };
 }
 
-// ─── Copy-noise style cleanup (maintenance) ───────────────────────────────────
-// Chrome のリッチコピーは、要素に効いているスタイル宣言をインライン style として
-// クリップボードに焼き込む。管理画面のエディタ保護 CSS（.kuro-editor * の
-// all: revert-layer 系）はこのとき数百個のロングハンド `<prop>: revert-layer` に
-// 展開され、テンプレートのリンク色等も `color: oklch(…)` として焼き込まれる。
-// KuroEditor 2.0.10+ はペースト時に除去する（_pasteSanitizedHTML）が、それ以前に
-// 貼り付け保存された本文にはこのノイズが残っている。この掃除はその救済。
-
-const NOISE_STYLE_VALUES = new Set([
-  "revert-layer",
-  "revert",
-  "initial",
-  "unset",
-  "inherit",
-]);
-// ノイズ署名を持つ要素からは色系も剥がす（KuroEditor のペーストサニタイザと
-// 同じ方針: コピー時に焼き込まれたテーマ色はダーク/ライト切替を壊す）。
-const NOISE_COLOR_PROPS = new Set([
-  "color",
-  "background",
-  "background-color",
-  "background-image",
-]);
-
-/** `;` で宣言を分割する（url(data:…;base64,…) 等の括弧・引用符内は無視）。 */
-function splitDeclarations(css: string): string[] {
-  const out: string[] = [];
-  let depth = 0;
-  let quote = "";
-  let start = 0;
-  for (let i = 0; i < css.length; i++) {
-    const c = css[i];
-    if (quote) {
-      if (c === quote) quote = "";
-      continue;
-    }
-    if (c === '"' || c === "'") quote = c;
-    else if (c === "(") depth++;
-    else if (c === ")") depth = Math.max(0, depth - 1);
-    else if (c === ";" && depth === 0) {
-      out.push(css.slice(start, i));
-      start = i + 1;
-    }
-  }
-  out.push(css.slice(start));
-  return out;
-}
-
-/**
- * 1 本文からコピー由来のスタイルノイズを除去する。CSS-wide キーワード宣言を
- * 含む style 属性（＝Chrome コピーの署名）だけを対象に、①ノイズ宣言と
- * ②同じ属性内の色系宣言を落とす。署名の無い style 属性（ユーザーが装飾で
- * 意図的に付けた色・サイズ等）には一切触れない。
- */
-function stripCopyNoiseStyles(html: string): string {
-  if (!/revert-layer|:\s*revert\b/i.test(html)) return html;
-  return html.replace(/\sstyle="([^"]*)"/gi, (whole, css: string) => {
-    if (!/revert-layer|:\s*revert\b/i.test(css)) return whole;
-    const kept = splitDeclarations(css)
-      .map((d) => d.trim())
-      .filter(Boolean)
-      .filter((decl) => {
-        const idx = decl.indexOf(":");
-        if (idx < 0) return false;
-        const prop = decl.slice(0, idx).trim().toLowerCase();
-        const value = decl
-          .slice(idx + 1)
-          .trim()
-          .toLowerCase();
-        return !NOISE_STYLE_VALUES.has(value) && !NOISE_COLOR_PROPS.has(prop);
-      });
-    return kept.length ? ` style="${kept.join("; ")}"` : "";
-  });
-}
-
-/** ごく基本的な HTML エンティティのデコード（リンク正規化のラベル/URL 用）。 */
+/** ごく基本的な HTML エンティティのデコード。 */
 function decodeBasicEntities(s: string): string {
   return s
     .replace(/&#(\d+);/g, (_, n: string) =>
@@ -8547,426 +8251,6 @@ function decodeBasicEntities(s: string): string {
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
     .replace(/&amp;/g, "&");
-}
-
-/**
- * 保存済み本文のプレーンな外部リンク `<a href>テキスト</a>` を KuroEditor の
- * リンク記法トークン（[[url|text]] / text==url は [[url]]）へ正規化する。
- * KuroEditor 2.6.1 のペースト時正規化（normalizePastedLinks）の保存データ版で、
- * 変換対象の判定も同じ:
- *   - href が http(s) であること（mailto:/tel:/#・相対パスはプレーン維持）
- *   - リンク内がプレーンテキストのみ（子要素があると装飾が失われるため維持）
- *   - テキストが空でない・] を含まない、URL が ] / | を含まない
- *   - 属性が href/target/rel/style のみ（class/id 等を持つリンクは
- *     kuro-media-open-link のような機能マークアップの可能性があるため維持）
- */
-function normalizePlainLinks(html: string): string {
-  if (!/<a[\s>]/i.test(html)) return html;
-  return html.replace(
-    /<a\b([^>]*)>([^<]*)<\/a>/gi,
-    (whole, attrs: string, inner: string) => {
-      if (/data-kuro/i.test(attrs)) return whole;
-      // 属性名の列挙は引用符付きの値を消費するパターンで行う（href の
-      // クエリ文字列内の a=1 等を属性名と誤認しないため）。
-      const attrNames = [
-        ...attrs.matchAll(
-          /([a-zA-Z][a-zA-Z0-9:_-]*)\s*(?:=\s*("[^"]*"|'[^']*'|[^\s"'=<>`]+))?/g,
-        ),
-      ].map((m) => m[1].toLowerCase());
-      if (
-        attrNames.some((n) => !["href", "target", "rel", "style"].includes(n))
-      ) {
-        return whole;
-      }
-      const hrefM =
-        attrs.match(/href\s*=\s*"([^"]*)"/i) ||
-        attrs.match(/href\s*=\s*'([^']*)'/i);
-      if (!hrefM) return whole;
-      const url = decodeBasicEntities(hrefM[1]).trim();
-      if (!/^https?:\/\//i.test(url)) return whole;
-      if (/[\]|<>"]/.test(url)) return whole;
-      const text = decodeBasicEntities(inner).replace(/\s+/g, " ").trim();
-      if (!text || /[\]<>]/.test(text)) return whole;
-      return text === url ? `[[${url}]]` : `[[${url}|${text}]]`;
-    },
-  );
-}
-
-/**
- * Maintenance sweep: reclaim the duplicated bodies that revisions written
- * BEFORE body sharing left behind (see SHARED_BODY). For every group of
- * revisions of the same translation holding byte-identical text, the oldest one
- * keeps the body and the rest are turned into sharers (`body_html = ''` + the
- * group's body_hash). The same pass backfills body_hash where it is NULL
- * (rows predating the column), which is what lets FUTURE snapshots recognise an
- * unchanged body and share it instead of storing another copy.
- *
- * Chunked like the other maintenance sweeps: at most MAX_GROUPS_PER_RUN groups
- * per invocation, `more: true` while work remains. Idempotent — a processed
- * group stops matching (its duplicates no longer have a body, its hashes are
- * set), so re-running is a no-op.
- */
-async function dedupeRevisionBodies(
-  env: Env,
-  user: AuthUser,
-): Promise<Response> {
-  requireAdmin(user);
-  const MAX_GROUPS_PER_RUN = 25;
-  // Groups needing work: more than one copy of the body, or a missing hash.
-  // Sharers (body_html = '') are excluded — they hold no text to reclaim.
-  const groups = await env.DB.prepare(
-    `SELECT did, lang, body_html, COUNT(*) AS n, MIN(revision_no) AS keep_no
-       FROM document_translation_revisions
-      WHERE body_html <> ''
-      GROUP BY did, lang, body_html
-     HAVING COUNT(*) > 1 OR SUM(CASE WHEN body_hash IS NULL THEN 1 ELSE 0 END) > 0
-      LIMIT ?`,
-  )
-    .bind(MAX_GROUPS_PER_RUN + 1)
-    .all<{
-      did: string;
-      lang: string;
-      body_html: string;
-      n: number;
-      keep_no: number;
-    }>();
-  const list = (groups.results ?? []).slice(0, MAX_GROUPS_PER_RUN);
-  const more = (groups.results ?? []).length > MAX_GROUPS_PER_RUN;
-
-  const statements: D1PreparedStatement[] = [];
-  let shared = 0;
-  let bytesReclaimed = 0;
-  for (const g of list) {
-    const hash = await sha256Hex(g.body_html);
-    // 所有者（最古の版）は本文を保持し、ハッシュだけ埋める。
-    statements.push(
-      env.DB.prepare(
-        `UPDATE document_translation_revisions SET body_hash = ?
-          WHERE did = ? AND lang = ? AND revision_no = ?`,
-      ).bind(hash, g.did, g.lang, g.keep_no),
-    );
-    if (g.n > 1) {
-      // 残りは本文を捨てて所有者を指す。body_html の一致で絞るので、同一
-      // 翻訳の「別の本文」を巻き込むことはない。
-      statements.push(
-        env.DB.prepare(
-          `UPDATE document_translation_revisions
-              SET body_html = '', body_hash = ?
-            WHERE did = ? AND lang = ? AND revision_no <> ? AND body_html = ?`,
-        ).bind(hash, g.did, g.lang, g.keep_no, g.body_html),
-      );
-      shared += g.n - 1;
-      bytesReclaimed += g.body_html.length * (g.n - 1);
-    }
-  }
-  if (statements.length) await env.DB.batch(statements);
-  await logActivity(env, user, "revisions.dedupe", "system", "revisions", {
-    groups: list.length,
-    shared,
-    bytesReclaimed,
-  });
-  return json({
-    ok: true,
-    groups: list.length,
-    shared,
-    bytesReclaimed,
-    more,
-  } as unknown as JsonValue);
-}
-
-/**
- * Maintenance sweep: run stripCopyNoiseStyles + normalizePlainLinks over every
- * stored translation body. Changed rows are revision-snapshotted first
- * (recoverable), then updated with a fresh updated_at so the next build
- * regenerates their pages; search_entries.body_text is re-synced too.
- * Processes at most 50 changed rows per invocation (subrequest budget); the
- * response carries `more: true` when another pass is needed.
- */
-async function cleanupCopyNoise(env: Env, user: AuthUser): Promise<Response> {
-  requireAdmin(user);
-  const MAX_CHANGED_PER_RUN = 50;
-  const rows = await env.DB.prepare(
-    `SELECT did, lang, body_html FROM document_translations
-     WHERE body_html LIKE '%revert-layer%' OR body_html LIKE '%<a %'`,
-  ).all<{ did: string; lang: string; body_html: string | null }>();
-  const candidates = rows.results ?? [];
-
-  let changed = 0;
-  const touchedDids = new Set<string>();
-  const now = nowIso();
-  for (const row of candidates) {
-    if (changed >= MAX_CHANGED_PER_RUN) break;
-    // スタイルノイズ除去 → リンク記法正規化の順（ノイズ style が消えた
-    // プレーンリンクは属性ホワイトリストを通過して変換対象になる）。
-    // 書き戻す本文はどの経路でも R0 を通す（保守の掃除で危ないものを残さない）
-    const cleaned = sanitizeContentHtml(
-      normalizePlainLinks(stripCopyNoiseStyles(row.body_html || "")),
-    );
-    if (cleaned === (row.body_html || "")) continue;
-    const statements: D1PreparedStatement[] = [];
-    const snapshot = await snapshotTranslationStatement(
-      env,
-      row.did,
-      row.lang,
-      user.uid,
-      "maintenance",
-    );
-    if (snapshot) statements.push(snapshot);
-    statements.push(
-      env.DB.prepare(
-        `UPDATE document_translations SET body_html = ?, updated_at = ?
-         WHERE did = ? AND lang = ?`,
-      ).bind(cleaned, now, row.did, row.lang),
-      // 本文テキストが変わる（リンクがトークン化される）ため検索索引も同期。
-      env.DB.prepare(
-        `UPDATE search_entries SET body_text = ?, updated_at = ?
-         WHERE did = ? AND lang = ?`,
-      ).bind(stripHtml(cleaned), now, row.did, row.lang),
-    );
-    await env.DB.batch(statements);
-    touchedDids.add(row.did);
-    changed++;
-  }
-  // Dirty the affected documents so the article/listing build hashes change
-  // and the next build regenerates their pages with the cleaned HTML.
-  if (touchedDids.size) {
-    await env.DB.batch(
-      Array.from(touchedDids).map((did) =>
-        env.DB.prepare(
-          "UPDATE documents SET updated_at = ? WHERE did = ?",
-        ).bind(now, did),
-      ),
-    );
-  }
-  const more = changed >= MAX_CHANGED_PER_RUN;
-  await logActivity(env, user, "document.cleanup_styles", "system", "content", {
-    scanned: candidates.length,
-    changed,
-    more,
-  });
-  return json({ ok: true, scanned: candidates.length, changed, more });
-}
-
-/**
- * Maintenance sweep: apply normalizeContentHtml — the SAME normalization the
- * editor runs on paste and on save — to every stored translation body, so
- * articles written before the rule existed get the canonical spelling too.
- *
- *   <b> / font-weight-only <span> → <strong>
- *   <div> paragraph               → <p>   (attributes preserved)
- *   bare <div> block wrapper      → unwrapped
- *   empty block                   → <p><br></p>, or <br> when nested
- *
- * Rendering is unchanged by every one of those rewrites — this is a spelling
- * fix, not a restyle. Changed rows are revision-snapshotted first (recoverable
- * from the article's history), then written with a fresh updated_at so the next
- * build regenerates their pages. Same 50-changed-rows-per-invocation budget as
- * cleanupCopyNoise; `more: true` asks the client for another pass.
- *
- * ## clipboardRepair は【既定 off・明示的に選んだときだけ on】
- *
- * 正規化には Chrome のコピー由来の壊れ方を直す規則もある（R6 ブロックの
- * font-size / font-weight 除去、R7 ブロックを内包した見出しの解体、R8 bid の
- * 畳み込み）。これらは上の4つと違って**見た目が変わる** —— 「綴りの統一」では
- * ないので、黙って掛けると**既に公開されている記事の表示が突然変わる**。
- *
- * だから既定では掛けない。**禁止するのではなく、勝手にやらない。** 直したい
- * ときは画面のチェックを入れて明示的に選ぶ（何が変わるかは先に「変更内容を
- * 確認」で件数が出る）。手で直せば直る形は残しつつ、意図しない一括変更だけを
- * 防ぐ。（2026-08-16 の決定。貼り付け破壊の修正仕様。admin.entamy.com の KuroEditor）
- *
- * @param clipboardRepair 呼び出し側が明示的に true を渡したときだけ R6〜R8 を掛ける
- */
-/**
- * Cheap pre-filter for the format sweep — only bodies that can possibly contain
- * a target. The authoritative decision is normalizeContentHtml's own output
- * comparison; this just keeps the scan off rows that cannot match.
- *
- * ⚠ 掃除の本体と予告で**同じものを使うこと**。片方だけ条件が違うと
- *   「0 件と出たのに変わる」「予告に出たのに直らない」になる。
- *
- * @param clipboardRepair R6〜R8 も掛けるとき true。font-size と、見出しが
- *   ブロックを飲み込んだ形（`<h1><p` 等）も拾う必要がある。
- */
-/**
- * 見た目が変わる規則（R6〜R8）まで掛けるかどうかを、要求から読む。
- *
- * **既定は false。** 付いていない・読めない・値が違う、のいずれでも掛けない ——
- * 既存記事の表示を黙って変えないことが目的なので、迷ったら掛けない側に倒す。
- */
-function wantsClipboardRepair(url: URL): boolean {
-  return url.searchParams.get("clipboard") === "1";
-}
-
-const UNSAFE_SWEEP_PATTERNS = [
-  "<script",
-  "<style",
-  "<iframe",
-  "<object",
-  "<embed",
-  "<link",
-  "<meta",
-  "<base",
-  "<svg",
-  "<math",
-  "<form",
-  "<template",
-  "<noscript",
-  "<plaintext",
-  "javascript:",
-  "vbscript:",
-  "data:text",
-  "srcdoc",
-  "expression(",
-  "onerror",
-  "onload",
-  "onclick",
-  "onmouse",
-  "onfocus",
-  "ontoggle",
-  "onbegin",
-  "onanimation",
-];
-
-function normalizeSweepFilter(clipboardRepair: boolean): string {
-  const base =
-    `body_html LIKE '%<b>%' OR body_html LIKE '%<b %'` +
-    ` OR body_html LIKE '%<div%' OR body_html LIKE '%font-weight%'` +
-    // 復旧対象: 旧版が段落化してしまった構造コンテナ（callout / code block）。
-    // これらは <div> が残っていない行もあるため、上の条件では拾えない。
-    ` OR body_html LIKE '%<p class="kuro-%' OR body_html LIKE '%<p data-%'` +
-    ` OR body_html LIKE '%<p spellcheck%'` +
-    // R0（守り）の候補。公開ページ・読み取り API・エディタへの読み込みは出口で
-    // 同じ守りを通すので、ここが拾い漏らしても動きはしない —— 保存されたまま
-    // 残っているものを片付けるための条件（LIKE は ASCII の大文字小文字を区別しない）。
-    ` OR ${UNSAFE_SWEEP_PATTERNS.map((p) => `body_html LIKE '%${p}%'`).join(" OR ")}`;
-  if (!clipboardRepair) return base;
-  const nested = ["h1", "h2", "h3", "h4", "h5", "h6", "p"]
-    .flatMap((tag) => [
-      `body_html LIKE '%<${tag}><p%'`,
-      `body_html LIKE '%<${tag} %><p%'`,
-    ])
-    .join(" OR ");
-  return `${base} OR body_html LIKE '%font-size%' OR ${nested}`;
-}
-
-async function normalizeBodyFormat(
-  env: Env,
-  user: AuthUser,
-  clipboardRepair: boolean,
-): Promise<Response> {
-  requireAdmin(user);
-  const MAX_CHANGED_PER_RUN = 50;
-  const rows = await env.DB.prepare(
-    `SELECT did, lang, body_html FROM document_translations
-     WHERE ${normalizeSweepFilter(clipboardRepair)}`,
-  ).all<{ did: string; lang: string; body_html: string | null }>();
-  const candidates = rows.results ?? [];
-
-  let changed = 0;
-  const touchedDids = new Set<string>();
-  const now = nowIso();
-  for (const row of candidates) {
-    if (changed >= MAX_CHANGED_PER_RUN) break;
-    const original = row.body_html || "";
-    const cleaned = normalizeContentHtml(original, { clipboardRepair });
-    if (cleaned === original) continue;
-    const statements: D1PreparedStatement[] = [];
-    const snapshot = await snapshotTranslationStatement(
-      env,
-      row.did,
-      row.lang,
-      user.uid,
-      "maintenance",
-    );
-    if (snapshot) statements.push(snapshot);
-    statements.push(
-      env.DB.prepare(
-        `UPDATE document_translations SET body_html = ?, updated_at = ?
-         WHERE did = ? AND lang = ?`,
-      ).bind(cleaned, now, row.did, row.lang),
-      // 可視テキストは変わらない設計だが、索引は本文から機械的に作るので
-      // 念のため同じ変換後の HTML から張り直しておく。
-      env.DB.prepare(
-        `UPDATE search_entries SET body_text = ?, updated_at = ?
-         WHERE did = ? AND lang = ?`,
-      ).bind(stripHtml(cleaned), now, row.did, row.lang),
-    );
-    await env.DB.batch(statements);
-    touchedDids.add(row.did);
-    changed++;
-  }
-  if (touchedDids.size) {
-    await env.DB.batch(
-      Array.from(touchedDids).map((did) =>
-        env.DB.prepare(
-          "UPDATE documents SET updated_at = ? WHERE did = ?",
-        ).bind(now, did),
-      ),
-    );
-  }
-  const more = changed >= MAX_CHANGED_PER_RUN;
-  await logActivity(
-    env,
-    user,
-    "document.normalize_format",
-    "system",
-    "content",
-    {
-      scanned: candidates.length,
-      changed,
-      more,
-    },
-  );
-  return json({ ok: true, scanned: candidates.length, changed, more });
-}
-
-/**
- * Report — without writing anything — how many stored translations the format
- * normalization would change, and the per-rule totals. Backs the maintenance
- * screen's "check first" affordance so an admin can see the scale before
- * rewriting bodies.
- */
-async function normalizeBodyFormatPreview(
-  env: Env,
-  user: AuthUser,
-  clipboardRepair: boolean,
-): Promise<Response> {
-  requireAdmin(user);
-  const rows = await env.DB.prepare(
-    `SELECT body_html FROM document_translations
-     WHERE ${normalizeSweepFilter(clipboardRepair)}`,
-  ).all<{ body_html: string | null }>();
-  const totals = {
-    bTags: 0,
-    boldSpans: 0,
-    divBlocks: 0,
-    emptyBlocks: 0,
-    blockDecor: 0,
-    nestedBlocks: 0,
-    unsafe: 0,
-  };
-  let affected = 0;
-  for (const row of rows.results ?? []) {
-    // 予告の件数は掃除の実体と同じ条件で数える（normalizeBodyFormat と対で
-    // 直すこと。片方だけ変えると「0 件と出たのに変わる」になる）。
-    const s = inspectContentHtml(row.body_html || "", { clipboardRepair });
-    if (!s.changed) continue;
-    affected++;
-    totals.bTags += s.bTags;
-    totals.boldSpans += s.boldSpans;
-    totals.divBlocks += s.divBlocks;
-    totals.emptyBlocks += s.emptyBlocks;
-    totals.blockDecor += s.blockDecor;
-    totals.nestedBlocks += s.nestedBlocks;
-    totals.unsafe += s.unsafe;
-  }
-  return json({
-    ok: true,
-    scanned: (rows.results ?? []).length,
-    affected,
-    ...totals,
-  });
 }
 
 /**
@@ -12030,7 +11314,7 @@ async function coverFallbackSweep(env: Env, apply: boolean): Promise<Response> {
 // 一時的に壊れる。
 //
 // ⚠ 本文の綴りを直すだけなので、著者（document_translations.source）は
-//   触らない。cleanup-styles / normalize-format と同じ「保守系の一括 UPDATE」
+//   触らない。「保守系の一括 UPDATE」
 //   として document_translations を直接更新する（writeTranslationContent は
 //   通さない＝リビジョンも積まない）。
 //
