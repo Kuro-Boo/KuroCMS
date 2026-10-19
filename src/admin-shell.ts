@@ -113,7 +113,6 @@ export function adminHtml(
       .grid.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
       .stack { display: grid; gap: 18px; }
       .stack > * { min-width: 0; }
-      .profileGrid { align-items: start; }
       label { display: grid; gap: 7px; font-size: 12px; color: var(--muted); font-weight: 700; min-width: 0; }
       input, select, textarea { width: 100%; min-width: 0; border: 1px solid var(--line); border-radius: 8px; padding: 11px 12px; font: inherit; background: var(--field-bg); color: var(--field-ink); outline: none; box-sizing: border-box; }
       input[readonly], input:disabled {
