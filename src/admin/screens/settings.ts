@@ -1016,7 +1016,16 @@ async function settings() {
       const help = publicDomainInput
         .closest("label")
         ?.querySelector<HTMLElement>(".muted");
-      if (help) help.textContent = t("publicDomainManagedHelp");
+      if (help) {
+        help.textContent = t("publicDomainManagedHelp") + " ";
+        // 自社への引っ越し(仕様 cms-move-to-self)。受付の引っ越しの頁(kuro.boo の導入の節)へ。
+        const move = document.createElement("a");
+        move.href = "https://kuro.boo/kurocms/?pick=move#install";
+        move.target = "_blank";
+        move.rel = "noopener";
+        move.textContent = t("moveToSelfLink");
+        help.appendChild(move);
+      }
       // 空の枠を残すと、枠の間(stack の gap)だけが空く。
       for (const id of [
         "workerOriginSection",

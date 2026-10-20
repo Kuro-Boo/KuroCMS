@@ -110,6 +110,18 @@ import type { AuthUser, Env, JsonValue } from "./types";
 import { handleMcp } from "./mcp";
 import { listMediaPage } from "./media-list";
 import {
+  authorizeMove,
+  deleteByKeys,
+  hasMoveToken,
+  mediaKey,
+  moveFrozen,
+  moveTargetPending,
+  readRows,
+  readRowsByKey,
+  rowsByKeys,
+  tableShape,
+} from "./move";
+import {
   currentNetwork,
   handleNetworkConfirm,
   listMyNetworks,
@@ -474,6 +486,29 @@ async function handleApiDispatch(
           },
         },
         { headers: jsonHeaders },
+      );
+    }
+
+    // 引っ越しの口(src/move.ts)。受付が kmove_ の鍵で叩く。ログインの仕組みを通さない。
+    if (path.startsWith("/api/system/move/") && hasMoveToken(request)) {
+      // メディアの中身はそのまま返す(JSON の見出しを被せると content-type が変わる)。
+      const moved = await handleMove(request, env, path, url);
+      return moved.headers.get("content-type")?.startsWith("application/json")
+        ? withJsonHeaders(moved)
+        : moved;
+    }
+    // 引っ越しの最後の突き合わせの間(数分)は、移す元への書き込みを止める。読むのとログインは通す。
+    if (
+      request.method !== "GET" &&
+      request.method !== "HEAD" &&
+      !path.startsWith("/api/auth/") &&
+      path !== "/api/mcp" &&
+      (await moveFrozen(env))
+    ) {
+      throw new HttpError(
+        423,
+        "moving",
+        "引っ越しの最後の確認中です。数分で終わります。終わると新しいアドレスへ移ります。",
       );
     }
 
@@ -2818,13 +2853,23 @@ async function deleteUser(
 // ---------------------------------------------------------------------------
 
 async function setupStatus(env: Env): Promise<Response> {
+  // 引っ越しの先で写している間は、初期化を出さない(誰かが先に管理者を作るのを防ぐ)。
+  const moving = await moveTargetPending(env);
   const userCount = await countUsers(env);
   return json({
-    needsSetup: userCount === 0,
+    needsSetup: userCount === 0 && !moving,
+    moving,
   });
 }
 
 async function setup(request: Request, env: Env): Promise<Response> {
+  if (await moveTargetPending(env)) {
+    throw new HttpError(
+      409,
+      "move_in_progress",
+      "This site is receiving a move. Setup opens when the move finishes.",
+    );
+  }
   if ((await countUsers(env)) > 0) {
     throw new HttpError(
       409,
@@ -10810,6 +10855,359 @@ const RESTORE_KV_WIPE_PAGE = 500; // each KV delete is a subrequest — stay < 1
 const PAGE_KV_PREFIXES = ["pageb:", "page:"] as const;
 const RESTORE_R2_WIPE_PAGE = 1000; // R2 delete takes an array (one subrequest)
 
+// ── 委託から自社への引っ越し（src/move.ts・仕様 cms-move-to-self） ─────────────
+//
+// 受付が kmove_ の鍵で叩く口。移す元（source）は読むだけ、移す先（target）は書くだけ。
+// 写す表は、バックアップの表に「利用者（メールと権限）」と「メディアの番号の続き」を足したもの。
+// パスキー・ログインの状態・登録した回線・PAT は持っていかない（ドメインに結び付く・
+// 委託の鍵が自社でそのまま使えるのは危ない）。SNS の連携の鍵は、仕上げで空にする。
+const MOVE_TABLES = ["users", ...BACKUP_TABLES_INSERT_ORDER, "media_id_seq"];
+const MOVE_TABLE_SET = new Set(MOVE_TABLES);
+/** 移す先の鍵で作るパスキーの登録のリンクの有効期間（引っ越しの後の最初のログインに使う）。 */
+const MOVE_RECOVERY_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+function moveTable(name: string | undefined): string {
+  if (!name || !MOVE_TABLE_SET.has(name))
+    throw new HttpError(400, "bad_table", `Unknown table: ${name}`);
+  return name;
+}
+
+async function handleMove(
+  request: Request,
+  env: Env,
+  path: string,
+  url: URL,
+): Promise<Response> {
+  const sub = path.slice("/api/system/move/".length);
+  const [head, arg] = sub.split("/", 2) as [string, string | undefined];
+  const method = request.method;
+
+  if (method === "GET" && head === "manifest") {
+    const state = await authorizeMove(request, env, ["source", "target"]);
+    const tables: JsonValue[] = [];
+    for (const name of MOVE_TABLES) {
+      const shape = await tableShape(env, name);
+      const row = await env.DB.prepare(
+        `SELECT COUNT(*) AS c FROM ${name}`,
+      ).first<{ c: number }>();
+      tables.push({ name, count: Number(row?.c ?? 0), ...shape });
+    }
+    const m = await env.DB.prepare(
+      "SELECT COUNT(*) AS c, COALESCE(SUM(size_bytes),0) AS b FROM media_assets",
+    ).first<{ c: number; b: number }>();
+    return json({
+      role: state.role,
+      version: KUROCMS_VERSION,
+      frozen: state.frozen === 1,
+      finished: !!state.finished_at,
+      r2: !!env.MEDIA_BUCKET,
+      buildMode: await getBuildMode(env),
+      tables,
+      media: { count: Number(m?.c ?? 0), totalBytes: Number(m?.b ?? 0) },
+    });
+  }
+
+  if (method === "GET" && head === "table") {
+    await authorizeMove(request, env, ["source", "target"]);
+    const name = moveTable(arg);
+    const limit = Math.min(
+      1000,
+      Math.max(1, Number(url.searchParams.get("limit")) || 200),
+    );
+    // 主キーの順(最後の突き合わせ)か、rowid の順(写すとき)か。
+    if (url.searchParams.get("order") === "key") {
+      const { pk } = await tableShape(env, name);
+      const raw = url.searchParams.get("afterKey");
+      let afterKey: unknown[] | null = null;
+      if (raw) {
+        try {
+          afterKey = JSON.parse(raw) as unknown[];
+        } catch {
+          throw new HttpError(400, "bad_keys", "afterKey must be JSON.");
+        }
+      }
+      return json(
+        (await readRowsByKey(
+          env,
+          name,
+          pk,
+          afterKey,
+          limit,
+        )) as unknown as JsonValue,
+      );
+    }
+    const after = Math.max(0, Number(url.searchParams.get("after")) || 0);
+    return json(
+      (await readRows(env, name, after, limit)) as unknown as JsonValue,
+    );
+  }
+
+  // ── 移す元 ──
+  if (method === "POST" && head === "rows") {
+    await authorizeMove(request, env, ["source"]);
+    const name = moveTable(arg);
+    const body = await readJson(request);
+    const { pk } = await tableShape(env, name);
+    return json({
+      rows: (await rowsByKeys(
+        env,
+        name,
+        pk,
+        body.keys,
+      )) as unknown as JsonValue,
+    });
+  }
+  if (method === "GET" && (head === "media" || head === "media-hash")) {
+    await authorizeMove(request, env, ["source"]);
+    if (!env.MEDIA_BUCKET || !arg)
+      throw new HttpError(404, "not_found", "Media not found.");
+    const row = await env.DB.prepare(
+      "SELECT public_path, mime FROM media_assets WHERE mid = ?",
+    )
+      .bind(decodeURIComponent(arg))
+      .first<{ public_path: string; mime: string }>();
+    if (!row) throw new HttpError(404, "not_found", "Media row not found.");
+    const obj = await (env.MEDIA_BUCKET as R2Bucket).get(
+      row.public_path.replace(/^\//, ""),
+    );
+    if (!obj) throw new HttpError(404, "not_found", "Media object missing.");
+    if (head === "media") {
+      return new Response(obj.body, {
+        headers: {
+          "content-type": row.mime || "application/octet-stream",
+          "content-length": String(obj.size),
+        },
+      });
+    }
+    // 中身の SHA-256。移す先は R2 にこの値を渡して書き、R2 が照合する。
+    // 移す元は Entamy の口座（CPU の上限が大きい）なので、ここで読み通してよい。
+    const digest = new crypto.DigestStream("SHA-256");
+    await obj.body.pipeTo(digest);
+    const sha256 = [...new Uint8Array(await digest.digest)]
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+    return json({ sha256, size: obj.size });
+  }
+  if (method === "POST" && head === "freeze") {
+    await authorizeMove(request, env, ["source"]);
+    const body = await readJson(request);
+    const frozen = body.frozen === true ? 1 : 0;
+    await env.DB.prepare("UPDATE move_state SET frozen = ? WHERE id = 1")
+      .bind(frozen)
+      .run();
+    return json({ ok: true, frozen: frozen === 1 });
+  }
+
+  // ── 移す先 ──
+  const target = await authorizeMove(request, env, ["target"]);
+  if (target.finished_at)
+    throw new HttpError(409, "move_finished", "The move is already finished.");
+
+  if (method === "POST" && head === "wipe") {
+    // 導入したての中身（初期のカテゴリ・テンプレート等）を消してから写す。
+    // 誰かがもうログインしていたら消さない（引っ越しの先として使われ始めている）。
+    const used = await env.DB.prepare(
+      "SELECT COUNT(*) AS c FROM passkey_credentials",
+    ).first<{ c: number }>();
+    if (Number(used?.c ?? 0) > 0)
+      throw new HttpError(409, "move_target_in_use", "Target already in use.");
+    await env.DB.batch(
+      [...MOVE_TABLES].reverse().map((n) => env.DB.prepare(`DELETE FROM ${n}`)),
+    );
+    await env.DB.prepare("DELETE FROM page_build_cache")
+      .run()
+      .catch(() => {});
+    return json({ ok: true });
+  }
+  if (method === "POST" && head === "put") {
+    const name = moveTable(arg);
+    const body = (await request.json()) as { rows?: Record<string, unknown>[] };
+    return json(await restoreRows(env, name, body.rows ?? []));
+  }
+  if (method === "POST" && head === "delete") {
+    const name = moveTable(arg);
+    const body = await readJson(request);
+    const { pk } = await tableShape(env, name);
+    return json({ deleted: await deleteByKeys(env, name, pk, body.keys) });
+  }
+  if ((method === "PUT" || method === "GET") && head === "media") {
+    if (!env.MEDIA_BUCKET)
+      throw new HttpError(503, "r2_not_configured", "R2 is not bound.");
+    if (!arg) throw new HttpError(404, "not_found", "Media not found.");
+    const row = await env.DB.prepare(
+      "SELECT public_path FROM media_assets WHERE mid = ?",
+    )
+      .bind(decodeURIComponent(arg))
+      .first<{ public_path: string }>();
+    if (!row)
+      throw new HttpError(404, "not_found", "Copy the media row first.");
+    const key = mediaKey(row.public_path);
+    const bucket = env.MEDIA_BUCKET as R2Bucket;
+    if (method === "GET") {
+      // 写し終えたかを、中身を読まずに確かめる（R2 が持つ大きさと SHA-256）。
+      const head = await bucket.head(key);
+      const sha = head?.checksums.sha256;
+      return json({
+        size: head ? head.size : null,
+        sha256: sha
+          ? [...new Uint8Array(sha)]
+              .map((b) => b.toString(16).padStart(2, "0"))
+              .join("")
+          : null,
+      });
+    }
+    const sha256 = (request.headers.get("x-move-sha256") ?? "").toLowerCase();
+    const size = Number(request.headers.get("content-length"));
+    if (!/^[0-9a-f]{64}$/.test(sha256) || !Number.isSafeInteger(size))
+      throw new HttpError(400, "bad_media", "sha256 and length are required.");
+    if (!request.body) throw new HttpError(400, "missing_body", "No body.");
+    // R2 は sha256 を照合し、違えば書かずに断る。移す先で読み直して計算しない（CPU を使わない）。
+    const fixed = new FixedLengthStream(size);
+    const [written] = await Promise.all([
+      bucket.put(key, fixed.readable, {
+        sha256,
+        httpMetadata: {
+          contentType:
+            request.headers.get("content-type") || "application/octet-stream",
+        },
+      }),
+      request.body.pipeTo(fixed.writable),
+    ]);
+    return json({ ok: true, size: written?.size ?? null });
+  }
+  if (method === "POST" && head === "build") {
+    // 公開ページを少しずつ作る。受付が more が false になるまで呼ぶ。
+    const settings = await env.DB.prepare(
+      "SELECT default_lang FROM site_settings WHERE id = 1",
+    ).first<{ default_lang: string }>();
+    const r = await buildAllPublicPages(
+      env,
+      settings?.default_lang || env.SITE_DEFAULT_LANG || "en",
+      undefined,
+      50,
+    );
+    return json({ more: r.more, built: r.built, errors: r.errors });
+  }
+  if (method === "POST" && head === "settle") {
+    return json(await settleMoveTarget(request, env));
+  }
+  if (method === "POST" && head === "finish") {
+    return json(await finishMoveTarget(request, env));
+  }
+  throw new HttpError(404, "not_found", "Unknown move endpoint.");
+}
+
+/**
+ * 移す先の整え。写した行のうち、移す先のものに替える値を替える(写すたび・突き合わせのたびに呼ぶ)。
+ * 受付はこれらの列を突き合わせから外している(move-runner.ts の MOVE_EXCLUDE と同じ一覧)。
+ *   アドレス: 委託のアドレスを、この導入のアドレスに戻す(公開ページの canonical・sitemap に入る)
+ *   SNS・取り込みの鍵: 持っていかない(入れ直してもらう)
+ * あわせて、復元と同じ整え直し(migration のデータ整備・スキーマの突き合わせ)をする。
+ */
+async function settleMoveTarget(
+  request: Request,
+  env: Env,
+): Promise<JsonValue> {
+  const origin = new URL(request.url).origin;
+  await env.DB.batch([
+    env.DB.prepare(
+      `UPDATE site_settings SET public_domain = ?, development_domain = ?,
+         strapi_token = '', kurocms_import_pat = '', bluesky_token = NULL,
+         x_api_key = NULL, x_api_secret = NULL, x_access_token = NULL, x_access_secret = NULL,
+         threads_token = NULL, threads_token_updated_at = NULL, threads_token_refresh_attempted_at = NULL
+       WHERE id = 1`,
+    ).bind(`${origin}/`, `${origin}/`),
+    env.DB.prepare(
+      "UPDATE external_connections SET access_token = NULL, token_secret = NULL, token_expires_at = NULL, is_active = 0",
+    ),
+  ]);
+  const bootstraps = await reapplyRestoreBootstraps(env);
+  const schema = await reconcileSchema(env, true);
+  return { ok: true, bootstraps, schema: schema as unknown as JsonValue };
+}
+
+/**
+ * 移す先の仕上げ。ビルドの方式を移す元に合わせ、利用者全員へパスキーを登録するリンクを送り、
+ * 引っ越しを終える(鍵を消す・初期化を開ける)。
+ */
+async function finishMoveTarget(
+  request: Request,
+  env: Env,
+): Promise<JsonValue> {
+  const body = await readJson(request).catch(
+    () => ({}) as Record<string, unknown>,
+  );
+  const origin = new URL(request.url).origin;
+  const buildMode = body.buildMode;
+  if (buildMode === "manual" || buildMode === "auto" || buildMode === "always")
+    await setBuildMode(env, buildMode);
+
+  // パスキーはドメインに結び付くので持っていけない。全員に登録のリンクを送る。
+  const users = await env.DB.prepare(
+    "SELECT uid, email FROM users WHERE disabled_at IS NULL",
+  ).all<{ uid: string; email: string }>();
+  const settings = await env.DB.prepare(
+    "SELECT site_name, default_lang FROM site_settings WHERE id = 1",
+  ).first<{ site_name: string | null; default_lang: string | null }>();
+  const siteName = (settings?.site_name ?? "KuroCMS").trim() || "KuroCMS";
+  const ja = settings?.default_lang === "ja";
+  const expiresAt = new Date(Date.now() + MOVE_RECOVERY_TTL_MS).toISOString();
+  let mailed = 0;
+  const failed: string[] = [];
+  for (const u of users.results ?? []) {
+    const token = randomToken();
+    await env.DB.prepare(
+      `INSERT INTO recovery_tokens (token_hash, uid, email, expires_at, created_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    )
+      .bind(await sha256Hex(token), u.uid, u.email, expiresAt, nowIso())
+      .run();
+    const link = `${origin}${adminBasePath(env)}/?recover=${encodeURIComponent(token)}`;
+    const mail = ja
+      ? {
+          subject: `[${siteName}] 引っ越しが終わりました —— パスキーを登録してください`,
+          text:
+            `${siteName} は、お客様の Cloudflare へ引っ越しました。新しい管理画面のアドレスは ${origin}${adminBasePath(env)}/ です。\n` +
+            `パスキーはアドレスに結び付くため、新しいアドレスで登録し直す必要があります。次のリンクを開いてください（7 日間有効・1 回のみ）:\n${link}\n`,
+          html:
+            `<p>${htmlEscape(siteName)} は、お客様の Cloudflare へ引っ越しました。新しい管理画面のアドレスは <a href="${origin}${adminBasePath(env)}/">${htmlEscape(origin)}${htmlEscape(adminBasePath(env))}/</a> です。</p>` +
+            `<p>パスキーはアドレスに結び付くため、新しいアドレスで登録し直す必要があります。</p>` +
+            `<p><a href="${link}">パスキーを登録する</a></p>` +
+            `<p style="color:#666;font-size:13px">このリンクは 7 日間有効で、1 回だけ使えます。期限が切れたら、管理画面の「パスキーを再設定」からメールを送り直せます。</p>`,
+        }
+      : {
+          subject: `[${siteName}] Your site has moved — register a passkey`,
+          text:
+            `${siteName} has moved to your own Cloudflare account. The new admin address is ${origin}${adminBasePath(env)}/.\n` +
+            `Passkeys are tied to the address, so please register one again at the new address (valid for 7 days, single use):\n${link}\n`,
+          html:
+            `<p>${htmlEscape(siteName)} has moved to your own Cloudflare account. The new admin address is <a href="${origin}${adminBasePath(env)}/">${htmlEscape(origin)}${htmlEscape(adminBasePath(env))}/</a>.</p>` +
+            `<p>Passkeys are tied to the address, so please register one again at the new address.</p>` +
+            `<p><a href="${link}">Register a passkey</a></p>` +
+            `<p style="color:#666;font-size:13px">This link is valid for 7 days and can be used once. If it expires, request a new one from “Recover passkey” on the admin sign-in screen.</p>`,
+        };
+    const status = await sendMail(env, {
+      to: u.email,
+      ...mail,
+      fromName: siteName,
+      idempotencyKey: `move-${u.uid}`,
+    }).catch(() => null);
+    if (status?.path) mailed++;
+    else failed.push(u.email);
+  }
+  await env.DB.prepare(
+    "UPDATE move_state SET finished_at = ?, token_hash = '' WHERE id = 1",
+  )
+    .bind(Date.now())
+    .run();
+  return {
+    ok: true,
+    users: (users.results ?? []).length,
+    mailed,
+    failed,
+  };
+}
+
 async function backupManifest(env: Env): Promise<Response> {
   const tables: { name: string; count: number }[] = [];
   for (const name of BACKUP_TABLES_INSERT_ORDER) {
@@ -11055,8 +11453,19 @@ async function restoreTable(
     throw new HttpError(400, "bad_table", `Unknown table: ${name}`);
   }
   const body = (await request.json()) as { rows?: Record<string, unknown>[] };
-  const rows = body.rows ?? [];
-  if (!rows.length) return json({ ok: true, inserted: 0 });
+  return json(await restoreRows(env, name, body.rows ?? []));
+}
+
+/**
+ * 行を入れる（INSERT OR REPLACE）。復元と引っ越し（移す先）の両方が使う。
+ * 表の名前は呼び手が許した一覧で確かめてから渡す。
+ */
+async function restoreRows(
+  env: Env,
+  name: string,
+  rows: Record<string, unknown>[],
+): Promise<JsonValue> {
+  if (!rows.length) return { ok: true, inserted: 0 };
 
   // 復元元と復元先でスキーマがずれていることがある。実例（2026-08 の本番移行）:
   // 0035 が page_templates に template_api_version を足し、0037 がそれを
@@ -11127,14 +11536,14 @@ async function restoreTable(
       `${name}: ${msg.slice(0, 400)}`,
     );
   }
-  return json({
+  return {
     ok: true,
     inserted: rows.length,
     skippedColumns: [...skipped],
     // 退避した行は必ず報告する。**黙って直さない** —— slug が変わると URL が
     // 変わるので、運用者が知らないまま公開されるのは事故と変わらない。
     renamed: renamed as unknown as JsonValue,
-  });
+  };
 }
 
 // D1 bind accepts string | number | null | ArrayBuffer. Backup JSON only carries

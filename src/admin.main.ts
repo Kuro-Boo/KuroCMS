@@ -806,6 +806,10 @@ const i18n = {
     legalAgreed: "Agreed version",
     legalTitle: "Terms have been updated",
     legalFirstTitle: "Before you start",
+    moveToSelfLink: "Move to your own Cloudflare →",
+    moveReceivingTitle: "This site is moving in",
+    moveReceivingLead:
+      "Your articles and media are being copied from Entamy hosting. When it finishes, everyone on the site gets an email with a link to register a passkey for this address.",
     legalTerms: "Terms of Service",
     legalPrivacy: "Privacy Policy",
     legalAgreeButton: "Agree and continue",
@@ -1842,6 +1846,10 @@ const i18n = {
     legalAgreed: "同意した版",
     legalTitle: "規約が更新されました",
     legalFirstTitle: "はじめに",
+    moveToSelfLink: "自社の Cloudflare へ引っ越す →",
+    moveReceivingTitle: "引っ越しを受けています",
+    moveReceivingLead:
+      "Entamy の委託から、記事とメディアを写しています。終わると、このサイトの利用者全員に、このアドレスでパスキーを登録するリンクがメールで届きます。",
     legalTerms: "利用規約",
     legalPrivacy: "プライバシーポリシー",
     legalAgreeButton: "同意して続ける",
@@ -4724,6 +4732,7 @@ async function render() {
       const setupStatusResponse = await fetch(withBase("/api/setup/status"));
       if (setupStatusResponse.ok) {
         const setupStatus = await setupStatusResponse.json();
+        if (setupStatus.moving) return movingScreen();
         if (setupStatus.needsSetup) {
           return setupScreen(setupStatus);
         }

@@ -34,6 +34,18 @@ async function registerSiblingNetwork(): Promise<void> {
   }
 }
 
+// 引っ越しの先で、受付が写している間(仕様 cms-move-to-self)。初期化もログインも出さない ——
+// 終わると、利用者全員へパスキーを登録するリンクがメールで届く。
+function movingScreen() {
+  setSidebarMode("setup");
+  app.innerHTML =
+    "<section class='setup'><div class='setupHero'><h2>" +
+    escapeHtml(t("moveReceivingTitle")) +
+    "</h2><p>" +
+    escapeHtml(t("moveReceivingLead")) +
+    "</p></div></section>";
+}
+
 async function loginScreen(errorMsg = "") {
   setSidebarMode("setup");
   app.innerHTML =

@@ -24,6 +24,7 @@ import {
   searchEndpoint,
   serveTemplateCss,
 } from "./public";
+import { moveFrozen } from "./move";
 import type { Env } from "./types";
 
 export default {
@@ -37,8 +38,12 @@ export default {
     ctx: ExecutionContext,
   ): Promise<void> {
     if (!env.PUBLIC_PAGES || !env.DB) return;
+    // 引っ越しの最後の突き合わせの間は作らない(documents.live が動くと、突き合わせが終わらない)。
     ctx.waitUntil(
-      runScheduledAutoBuild(env).catch((err) => {
+      (async () => {
+        if (await moveFrozen(env)) return;
+        await runScheduledAutoBuild(env);
+      })().catch((err) => {
         console.error("scheduled auto-build failed:", err);
       }),
     );
