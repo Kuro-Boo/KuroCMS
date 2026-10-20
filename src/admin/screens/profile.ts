@@ -81,10 +81,11 @@ async function profile() {
       "</b></div><div id='mailDeliveryManageHelp' class='tokenMeta'></div></div>" +
       "<input id='mailRoutingToggle' type='checkbox' class='toggle' disabled /></div></div><button>" +
       escapeHtml(t("updateAccount")) +
-      "</button></form></div>" +
-      "<div class='panel' style='padding:12px 16px'><button class='danger' id='logoutBtn' style='width:100%'>" +
+      "</button></form>" +
+      // ログアウトはアカウントの枠の中、区切り線の下に置く(別の枠にすると、枠どうしが寄って幅もずれる)。
+      "<div style='border-top:1px solid var(--line);padding-top:14px'><button class='danger' id='logoutBtn' style='width:100%'>" +
       escapeHtml(t("logout")) +
-      "</button></div></div>" +
+      "</button></div></div></div>" +
       "<div id='panel-display' class='settingsPanel stack' style='display:none'><div class='panel stack'><h3>" +
       escapeHtml(t("profilePreferences")) +
       "</h3><label>" +
@@ -526,7 +527,7 @@ async function profile() {
           );
         })
         .join("") ||
-      "<div class='tokenMeta'>" + escapeHtml(t("noDocuments")) + "</div>";
+      "<div class='tokenMeta'>" + escapeHtml(t("listEmpty")) + "</div>";
   }
   bindLocaleSelect(() => profile());
   byId("darkModeToggle")!.addEventListener("change", (event: Dynamic) => {
@@ -744,7 +745,7 @@ async function profile() {
           );
         })
         .join("") ||
-      "<div class='tokenMeta'>" + escapeHtml(t("noDocuments")) + "</div>";
+      "<div class='tokenMeta'>" + escapeHtml(t("listEmpty")) + "</div>";
     listEl
       .querySelectorAll<AdminElement>("[data-remove-network]")
       .forEach((btn) => {
@@ -817,7 +818,7 @@ async function profile() {
           );
         })
         .join("") ||
-      "<div class='tokenMeta'>" + escapeHtml(t("noDocuments")) + "</div>";
+      "<div class='tokenMeta'>" + escapeHtml(t("listEmpty")) + "</div>";
   }
 
   // Register a passkey for THIS device on the already-signed-in account.

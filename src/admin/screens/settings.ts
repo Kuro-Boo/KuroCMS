@@ -238,13 +238,12 @@ async function settings() {
       "</div><select id='siteTimezone'></select></label>" +
       "<div class='muted' id='siteTimezoneNote' style='font-size:12px'></div>" +
       // 記事末尾の「筆者: 表示名」。会社・製品紹介のサイトなど不要なら外す。
-      "<label style='flex-direction:row;align-items:center;gap:8px;cursor:pointer'>" +
-      "<input id='showByline' type='checkbox' style='width:auto;margin:0' />" +
+      // 切り替えの行は部品(.toggleRow)を使う。label は display:grid なので、チェックが文字の上に載る。
+      "<div class='toggleRow'><div><div><b>" +
       escapeHtml(t("showByline")) +
-      "</label>" +
-      "<div class='muted' style='font-size:12px'>" +
+      "</b></div><div class='tokenMeta'>" +
       escapeHtml(t("showBylineHelp")) +
-      "</div>" +
+      "</div></div><input id='showByline' type='checkbox' class='toggle' /></div>" +
       "<button>" +
       escapeHtml(t("saveSiteSettings")) +
       "</button>" +
@@ -1018,6 +1017,13 @@ async function settings() {
         .closest("label")
         ?.querySelector<HTMLElement>(".muted");
       if (help) help.textContent = t("publicDomainManagedHelp");
+      // 空の枠を残すと、枠の間(stack の gap)だけが空く。
+      for (const id of [
+        "workerOriginSection",
+        "customDomainSection",
+        "r2SetupSection",
+      ])
+        byId(id)?.remove();
     }
 
     // Worker origin URL + CNAME guide

@@ -63,7 +63,7 @@ async function dashboard() {
       "<h3 id='storageHeading' style='margin:0'>" +
       escapeHtml(t("storageFreeUsage")) +
       "</h3>" +
-      "<div style='display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600;color:var(--muted)'>" +
+      "<div id='storagePlanSwitch' style='display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600;color:var(--muted)'>" +
       "<span id='storagePlanFree'>" +
       escapeHtml(t("planFree")) +
       "</span>" +
@@ -166,8 +166,15 @@ async function dashboard() {
   // Storage stats
   try {
     const s = await api("/api/system/storage");
+    // 委託は Entamy の Cloudflare で動く。お客様の Cloudflare のプラン(無料枠 / Paid)・口座の名前・
+    // KV の書き込みの回数は、お客様の料金とも上限とも関係しないので出さない。
+    const managed = !!(s.cfAccount as { managed?: boolean } | undefined)
+      ?.managed;
     const accountLine = byId("cfAccountLine");
-    if (accountLine) {
+    if (managed) {
+      accountLine?.remove();
+      byId("storagePlanSwitch")?.remove();
+    } else if (accountLine) {
       const acc = s.cfAccount as
         | { managed: boolean; name: string | null }
         | undefined;
@@ -178,8 +185,7 @@ async function dashboard() {
           : acc?.name || t("cfAccountUnknown"));
     }
     // 委託は CMS が Cloudflare の鍵を持たない。版は番人が自動で入れるので、更新の操作は出さない。
-    if ((s.cfAccount as { managed?: boolean } | undefined)?.managed)
-      applyManagedUpdates();
+    if (managed) applyManagedUpdates();
     // どのプランの上限でグラフを描くか。閲覧者ごとの好み(localStorage)。
     // 既定は、委託(Entamy の Cloudflare は Paid)なら Paid、それ以外は無料枠。
     const PLAN_KEY = "kurocms_storage_plan";
@@ -348,7 +354,7 @@ async function dashboard() {
           }
         };
         let kvOpsCard = "";
-        if (ops) {
+        if (ops && !managed) {
           // Paid は月の含み分しか無い。今日の回数を、その月の含み分に対する割合で出す。
           const maxWrites = paid ? PAID_KV_WRITES_MONTH : ops.maxWrites;
           const maxReads = paid ? PAID_KV_READS_MONTH : ops.maxReads;
@@ -414,22 +420,33 @@ async function dashboard() {
                 escapeHtml(fmtReset(ops.resetUtc))) +
             "</div></div>";
         }
+        // 委託の D1・KV は Entamy の Cloudflare の量で、お客様の上限ではない。大きさだけ出す。
+        const sizeCard = (title: string, bytes: number) =>
+          "<div class='storageCard'><div class='storageCardTitle'>" +
+          escapeHtml(title) +
+          "</div><div class='statNum'>" +
+          fmtBytes(bytes) +
+          "</div></div>";
         grid.innerHTML =
-          makePieChart(
-            s.d1.pct,
-            t("d1Database"),
-            fmtBytes(s.d1.usedBytes),
-            "5 GB",
-            included,
-          ) +
+          (managed
+            ? sizeCard(t("d1Database"), s.d1.usedBytes)
+            : makePieChart(
+                s.d1.pct,
+                t("d1Database"),
+                fmtBytes(s.d1.usedBytes),
+                "5 GB",
+                included,
+              )) +
           r2Card +
-          makePieChart(
-            s.kv.pct,
-            t("kvPages"),
-            fmtBytes(s.kv.usedBytes),
-            "1 GB",
-            included,
-          ) +
+          (managed
+            ? sizeCard(t("kvPages"), s.kv.usedBytes)
+            : makePieChart(
+                s.kv.pct,
+                t("kvPages"),
+                fmtBytes(s.kv.usedBytes),
+                "1 GB",
+                included,
+              )) +
           kvOpsCard +
           "<div class='storageCard'><div class='storageCardTitle'>" +
           escapeHtml(t("publishedOfTotalTitle")) +
@@ -458,8 +475,10 @@ async function dashboard() {
       }
       renderStorage();
     });
+    // 委託で上限があるのは R2(メディア)だけ。
     setStorageAlertBadge(
-      s.d1.pct >= 50 || (s.r2Available && s.r2.pct >= 50) || s.kv.pct >= 50,
+      (!managed && (s.d1.pct >= 50 || s.kv.pct >= 50)) ||
+        (s.r2Available && s.r2.pct >= 50),
     );
   } catch {
     /* storage API optional */

@@ -798,13 +798,14 @@ const i18n = {
     languageManagerLead: "Register languages to be used for data entry.",
     typesLead: "Manage article types such as news, blog, and research.",
     settingsLead:
-      "Configure domains, language defaults, theme colors, and license information.",
+      "Set the public domain, base language, social links, mobile, imports, and IP restriction.",
     profileLead:
-      "Manage personal admin preferences, UI language, and Personal Access Token storage.",
+      "Your own account, display, PATs, passkeys, and IP restriction.",
     noLanguages: "No languages registered",
     profileIdentity: "Account Information",
     legalAgreed: "Agreed version",
     legalTitle: "Terms have been updated",
+    legalFirstTitle: "Before you start",
     legalTerms: "Terms of Service",
     legalPrivacy: "Privacy Policy",
     legalAgreeButton: "Agree and continue",
@@ -879,6 +880,7 @@ const i18n = {
     entriesPerPage: "Entries per page",
     search: "Search",
     noDocuments: "No documents yet.",
+    listEmpty: "None yet.",
     untitled: "(untitled)",
     title: "Title",
     slug: "Slug",
@@ -977,7 +979,7 @@ const i18n = {
       "Internal site name shown in admin and metadata. Use [[site.name]] in templates.",
     adminUrlLabel: "KuroCMS Admin URL",
     adminUrlDerivedFromBootstrap:
-      "Determined by the domain setting in env.bootstrap.",
+      "The address of this admin screen. It follows the public domain.",
     publicDomain: "Public Domain",
     publicDomainHelp:
       "Public base URL of this site. Register a domain with Cloudflare to use a custom domain. Otherwise, your workers.dev URL works out of the box (e.g. https://yoursite.workers.dev/).",
@@ -1833,13 +1835,13 @@ const i18n = {
     languageManagerLead: "データ登録で利用する言語を登録します。",
     typesLead: "news、blog、research などの記事タイプを管理します。",
     settingsLead:
-      "ドメイン、言語初期値、テーマカラー、ライセンス情報を設定します。",
-    profileLead:
-      "管理画面の個人設定、表示言語、Personal Access Token のブラウザ保存を管理します。",
+      "公開ドメイン、基本言語、SNS 連動、スマホ、インポート、IP 制限を設定します。",
+    profileLead: "自分のアカウント、表示、PAT、パスキー、IP 制限を設定します。",
     noLanguages: "言語が登録されていません",
     profileIdentity: "アカウント情報",
     legalAgreed: "同意した版",
     legalTitle: "規約が更新されました",
+    legalFirstTitle: "はじめに",
     legalTerms: "利用規約",
     legalPrivacy: "プライバシーポリシー",
     legalAgreeButton: "同意して続ける",
@@ -1912,6 +1914,7 @@ const i18n = {
     entriesPerPage: "件 / ページ",
     search: "検索",
     noDocuments: "記事はまだありません。",
+    listEmpty: "まだありません。",
     untitled: "（無題）",
     title: "タイトル",
     slug: "スラッグ",
@@ -2086,7 +2089,7 @@ const i18n = {
       "管理画面やメタ情報で表示されるサイト名です。テンプレートでは [[site.name]] で表示できます。",
     adminUrlLabel: "KuroCMS管理画面URL",
     adminUrlDerivedFromBootstrap:
-      "env.bootstrapのドメイン設定によって決定されます。",
+      "この管理画面のアドレスです。公開ドメインに合わせて決まります。",
     publicDomain: "公開ドメイン",
     publicDomainHelp:
       "サイトの公開 URL です。Cloudflare でドメインを契約すると独自ドメインを設定できます。未設定の場合は workers.dev の URL をそのまま使用できます（例: https://yoursite.workers.dev/）。",
@@ -4582,6 +4585,7 @@ async function checkLegalConsentOnce() {
   let info: {
     needsConsent?: boolean;
     currentVersion?: string | null;
+    acceptedVersion?: string | null;
     termsUrl?: string;
     privacyUrl?: string;
     summary?: string | null;
@@ -4612,12 +4616,14 @@ async function checkLegalConsentOnce() {
     "border:1px solid var(--line,#293b5d);border-radius:14px;padding:22px;" +
     "font-size:14px;line-height:1.8;box-shadow:0 18px 50px rgba(0,0,0,.5)";
 
+  // 初めての同意(記録が無い)は「更新」ではない。改定の要約(差分)も、前の版を知らない人には意味が無い。
+  const first = !info.acceptedVersion;
   const h = document.createElement("h3");
-  h.textContent = t("legalTitle");
+  h.textContent = t(first ? "legalFirstTitle" : "legalTitle");
   h.style.cssText = "margin:0 0 10px;font-size:18px";
   card.appendChild(h);
 
-  if (info.summary) {
+  if (info.summary && !first) {
     const sum = document.createElement("p");
     sum.textContent = info.summary;
     sum.style.cssText =
