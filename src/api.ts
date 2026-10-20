@@ -5769,6 +5769,8 @@ const X_READMORE_LABELS: Record<string, string> = {
   it: "Scopri di più",
   es: "Más información",
   uk: "Детальніше",
+  pt: "Saiba mais",
+  ar: "اقرأ المزيد",
 };
 
 function xReplyText(lang: string, url: string): string {

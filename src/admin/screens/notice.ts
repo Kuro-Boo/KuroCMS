@@ -156,18 +156,25 @@ function renderNoticePanel() {
             "white-space:pre-wrap;color:var(--muted);font-size:13px;margin:4px 0 8px",
           ),
         );
-        const b = el(
-          "button",
-          noticeActionLabel(n),
-          "font-size:12px;padding:4px 12px",
-        ) as HTMLButtonElement;
-        b.type = "button";
-        b.onclick = () => {
-          if (n.action.kind === "open" && n.action.url)
-            noticeOpenUrl(n.action.url);
-          void noticeAckOne(n.id);
-        };
-        row.appendChild(b);
+        // 読んだものはボタンを出さない(押せたことが見て分かるように)。
+        // 「開く」のお知らせは、読んだ後も行き先を開けるよう残す。
+        if (!acked.has(n.id) || n.action.kind === "open") {
+          const b = el(
+            "button",
+            noticeActionLabel(n),
+            "font-size:12px;padding:4px 12px",
+          ) as HTMLButtonElement;
+          b.type = "button";
+          b.onclick = async () => {
+            if (n.action.kind === "open" && n.action.url)
+              noticeOpenUrl(n.action.url);
+            if (acked.has(n.id)) return;
+            b.disabled = true;
+            await noticeAckOne(n.id);
+            b.disabled = false;
+          };
+          row.appendChild(b);
+        }
         body.appendChild(row);
       }
     }

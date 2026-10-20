@@ -3618,6 +3618,8 @@ const TOC_LABELS: Record<string, string> = {
   it: "Indice",
   es: "Índice",
   uk: "Зміст",
+  pt: "Índice",
+  ar: "المحتويات",
 };
 
 /** 見出しアンカー（`#`）のスクリーンリーダー向けラベル。 */
@@ -3631,6 +3633,8 @@ const ANCHOR_LABELS: Record<string, string> = {
   it: "Link a questa sezione",
   es: "Enlace a esta sección",
   uk: "Посилання на цей розділ",
+  pt: "Link para esta seção",
+  ar: "رابط إلى هذا القسم",
 };
 
 function tocLabel(lang: string): string {
@@ -3688,7 +3692,7 @@ const BYLINE_LABELS: Record<string, string> = {
 };
 
 // Localized names of the dedicated legal pages. Used as the [[privacy]]/
-// [[terms]] link text and as the page <title> (same 9-language set as the
+// [[terms]] link text and as the page <title> (same 11-language set as the
 // byline; unknown languages fall back to English).
 const LEGAL_PAGE_LABELS: Record<"privacy" | "terms", Record<string, string>> = {
   privacy: {
