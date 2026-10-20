@@ -133,6 +133,7 @@ import {
   writeIpGateConfig,
   ipStore,
 } from "./ip-gate.ts";
+import { regionReport } from "./vendor/entamy-client/index.ts";
 import {
   registerConnection,
   requestNetwork,
@@ -777,6 +778,28 @@ async function handleApiDispatch(
         });
       }
       return json({ ok: removed });
+    }
+    // 稼働地域: Worker と D1 がいまどこで動いているか(設定の「稼働地域」・entamy-connect の region.ts)。
+    // 地名は管理画面の言語で返す。測るのに D1 へ 3 回と trace を 1 回引くので、画面はタブを開いたときに呼ぶ。
+    if (request.method === "GET" && path === "/api/system/region") {
+      requireAdmin(user);
+      const lang = url.searchParams.get("lang") ?? "en";
+      return json(
+        (await regionReport(env.DB, request, lang)) as unknown as JsonValue,
+      );
+    }
+    // 契約情報(委託だけ・cms-pricing「契約情報」)。受付が毎時書く contract_info の 1 行をそのまま返す。
+    // 表が無い(古い版から上げたて)・行が無い(受付がまだ書いていない)ときは contract: null。
+    if (request.method === "GET" && path === "/api/system/contract") {
+      requireAdmin(user);
+      if (!isManagedHosting(env))
+        return json({ managed: false, contract: null });
+      const row = await env.DB.prepare(
+        "SELECT * FROM contract_info WHERE id = 1",
+      )
+        .first<Record<string, JsonValue>>()
+        .catch(() => null);
+      return json({ managed: true, contract: row ?? null, now: Date.now() });
     }
     if (request.method === "GET" && path === "/api/system/ip-gate") {
       requireAdmin(user);

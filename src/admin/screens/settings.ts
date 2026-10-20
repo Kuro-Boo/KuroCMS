@@ -157,7 +157,15 @@ async function settings() {
         : "";
   }
 
-  const tabBar = ["basic", "sns", "mobile", "import", "ipgate"]
+  const tabBar = [
+    "basic",
+    "sns",
+    "mobile",
+    "import",
+    "ipgate",
+    "region",
+    "contract",
+  ]
     .map((id) => {
       const labels: Record<string, string> = {
         basic: t("settingsTabBasic"),
@@ -165,13 +173,18 @@ async function settings() {
         mobile: t("settingsTabMobile"),
         import: t("settingsTabImport"),
         ipgate: t("settingsTabIpGate"),
+        region: t("settingsTabRegion"),
+        contract: t("settingsTabContract"),
       };
       return (
         "<button type='button' class='settingsTab" +
         (id === "basic" ? " active" : "") +
         "' data-tab='" +
         id +
-        "'>" +
+        "'" +
+        // 契約情報は委託だけ(設定を読んでから出す)。
+        (id === "contract" ? " id='contractTabBtn' style='display:none'" : "") +
+        ">" +
         escapeHtml(labels[id] || id) +
         "</button>"
       );
@@ -759,6 +772,190 @@ async function settings() {
       );
     })(),
   );
+
+  // ── 稼働地域(Worker と D1 がいまどこで動いているか・/api/system/region) ──
+  // 地名はサーバーが管理画面の言語で付ける。表に無い拠点は名前が無く、コードを添え書きにする。
+  byId("panel-ipgate")?.insertAdjacentHTML(
+    "afterend",
+    "<div id='panel-region' class='settingsPanel' style='display:none'>" +
+      "<div class='panel stack' style='gap:12px'>" +
+      "<div class='panelHead'><h3>" +
+      escapeHtml(t("regionTitle")) +
+      "</h3><button type='button' id='regionMeasureBtn' class='secondary'>" +
+      escapeHtml(t("regionMeasure")) +
+      "</button></div>" +
+      "<div class='muted' style='font-size:13px;line-height:1.7'>" +
+      escapeHtml(t("regionHelp")) +
+      "</div>" +
+      "<div id='regionRows' style='display:grid;grid-template-columns:max-content 1fr;gap:6px 16px;font-size:14px'></div>" +
+      "</div></div>",
+  );
+  let regionMeasured = false;
+  async function loadRegion() {
+    const rows = byId("regionRows");
+    if (!rows) return;
+    rows.innerHTML = "<span class='muted'>…</span>";
+    try {
+      const r: Dynamic = await api(
+        "/api/system/region?lang=" + encodeURIComponent(state.uiLang),
+      );
+      const place = (code: string | null, name: string | null) =>
+        name ||
+        (code
+          ? t("regionOtherPlace").replace("{code}", code)
+          : t("regionUnknown"));
+      const line = (label: string, value: string) =>
+        "<span class='fieldLabel' style='margin:0'>" +
+        escapeHtml(label) +
+        "</span><span>" +
+        escapeHtml(value) +
+        "</span>";
+      const db =
+        r.d1_region || r.d1_colo
+          ? (r.names.d1_region || r.d1_region || t("regionUnknown")) +
+            " · " +
+            place(r.d1_colo, r.names.d1_colo)
+          : t("regionUnknown");
+      let html =
+        line(t("regionDb"), db) +
+        line(t("regionWorker"), place(r.worker_colo, r.names.worker));
+      // 入口(要求が入った拠点)は Worker の場所と違うときだけ出す。
+      if (r.entry_colo && r.entry_colo !== r.worker_colo)
+        html += line(t("regionEntry"), place(r.entry_colo, r.names.entry));
+      if (r.rtt_ms !== null)
+        html += line(
+          t("regionRtt"),
+          r.rtt_ms + " ms · " + (r.same ? t("regionSame") : t("regionApart")),
+        );
+      rows.innerHTML = html;
+      regionMeasured = true;
+    } catch (err) {
+      rows.innerHTML = "";
+      toast(errorMessage(err), true);
+    }
+  }
+  byId("regionMeasureBtn")?.addEventListener("click", () => void loadRegion());
+
+  // ── 契約情報(委託だけ・/api/system/contract・cms-pricing「契約情報」) ──
+  // 受付が毎時 Entamy(Admin の導入の記録・Entamy ID)から引いて書いた 1 行を出す。
+  // 無料期間が終わった後(契約なし)は、データを消すまでの待機期間・最終日・消す日を足す。
+  byId("panel-region")?.insertAdjacentHTML(
+    "afterend",
+    "<div id='panel-contract' class='settingsPanel' style='display:none'>" +
+      "<div class='panel stack' style='gap:12px'>" +
+      "<div class='panelHead'><h3>" +
+      escapeHtml(t("contractTitle")) +
+      "</h3></div>" +
+      "<div class='muted' style='font-size:13px;line-height:1.7'>" +
+      escapeHtml(t("contractHelp")) +
+      "</div>" +
+      "<div id='contractRows' style='display:grid;grid-template-columns:max-content 1fr;gap:6px 16px;font-size:14px'></div>" +
+      "<div id='contractNote' class='muted' style='font-size:13px;line-height:1.7'></div>" +
+      "</div></div>",
+  );
+  let contractLoaded = false;
+  async function loadContract() {
+    const rows = byId("contractRows");
+    const note = byId("contractNote");
+    if (!rows || !note) return;
+    rows.innerHTML = "<span class='muted'>…</span>";
+    note.textContent = "";
+    try {
+      const r: Dynamic = await api("/api/system/contract");
+      const c: Dynamic = r.contract;
+      if (!c) {
+        rows.innerHTML = "";
+        note.textContent = t("contractPending");
+        return;
+      }
+      const DAY = 86_400_000;
+      const date = (ms: number | null) =>
+        ms == null
+          ? "—"
+          : new Date(ms).toLocaleDateString(state.uiLang, {
+              year: "numeric",
+              month: "long",
+              day: "numeric",
+            });
+      const line = (label: string, value: string, strong = false) =>
+        "<span class='fieldLabel' style='margin:0'>" +
+        escapeHtml(label) +
+        "</span><span" +
+        (strong ? " style='font-weight:700'" : "") +
+        ">" +
+        escapeHtml(value) +
+        "</span>";
+      const sub =
+        c.subscription === "active"
+          ? t("contractSubActive").replace("{date}", date(c.subscription_until))
+          : c.subscription === "cancelled"
+            ? t("contractSubCancelled").replace(
+                "{date}",
+                date(c.subscription_until),
+              )
+            : t("contractSubNone");
+      let html =
+        line(t("contractAt"), date(c.contract_at)) +
+        line(t("contractTrialEnds"), date(c.trial_ends_at)) +
+        line(
+          t("contractTrialExtended"),
+          c.trial_extended_until
+            ? date(c.trial_extended_until) +
+                (c.trial_extension_note
+                  ? "(" + c.trial_extension_note + ")"
+                  : "")
+            : t("contractTrialExtendedNone"),
+        ) +
+        line(t("contractTrialFinal"), date(c.trial_final_at), true) +
+        line(t("contractSubscription"), sub);
+      // 無料期間が終わり、契約が無い: データを消すまでの日付を足す。
+      const ended =
+        c.delete_at != null &&
+        c.trial_final_at != null &&
+        r.now > c.trial_final_at;
+      if (ended) {
+        const left = Math.max(0, Math.ceil((c.delete_at - r.now) / DAY));
+        html +=
+          line(
+            t("contractGrace"),
+            date(c.trial_final_at) +
+              " – " +
+              date(c.delete_at) +
+              "(" +
+              t("contractDays").replace("{n}", String(c.delete_after_days)) +
+              ")",
+          ) +
+          line(t("contractLastDay"), date(c.delete_at - DAY), true) +
+          line(t("contractDeleteAt"), date(c.delete_at)) +
+          line(
+            t("contractDaysLeft"),
+            t("contractDays").replace("{n}", String(left)),
+            true,
+          );
+        note.textContent = t("contractEndedNote") + " ";
+        const move = document.createElement("a");
+        move.href = "https://kuro.boo/kurocms/?pick=move#install";
+        move.target = "_blank";
+        move.rel = "noopener";
+        move.textContent = t("moveToSelfLink");
+        note.appendChild(move);
+      }
+      rows.innerHTML = html;
+      if (c.synced_at)
+        note.insertAdjacentText(
+          "beforeend",
+          (note.textContent ? " " : "") +
+            t("contractSynced").replace(
+              "{date}",
+              new Date(c.synced_at).toLocaleString(state.uiLang),
+            ),
+        );
+      contractLoaded = true;
+    } catch (err) {
+      rows.innerHTML = "";
+      toast(errorMessage(err), true);
+    }
+  }
   function renderIpGateState() {
     const on = (byId("ipGateEnabled") as Dynamic)?.checked;
     const el = byId("ipGateState");
@@ -942,7 +1139,12 @@ async function settings() {
 
   // Tab switching
   document.querySelectorAll<AdminElement>(".settingsTab").forEach((btn) => {
-    btn.addEventListener("click", () => switchTab(btn.dataset.tab));
+    btn.addEventListener("click", () => {
+      switchTab(btn.dataset.tab);
+      if (btn.dataset.tab === "region" && !regionMeasured) void loadRegion();
+      if (btn.dataset.tab === "contract" && !contractLoaded)
+        void loadContract();
+    });
   });
 
   // Import section switcher
@@ -1012,6 +1214,8 @@ async function settings() {
     // 委託: アドレスは受付が決めたもの({導入ID}.kurocms.site)。表示だけにし、
     // workers.dev・独自ドメイン・R2 の枠は出さない(鍵も持たない・重複する表示も出さない)。
     if (s.managedHosting) {
+      const contractTab = byId("contractTabBtn");
+      if (contractTab) contractTab.style.display = "";
       (publicDomainInput as unknown as HTMLInputElement).readOnly = true;
       const help = publicDomainInput
         .closest("label")

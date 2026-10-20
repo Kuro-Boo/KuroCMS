@@ -484,3 +484,27 @@ export async function purgeExpiredConnections(
 ): Promise<number> {
   return 0;
 }
+
+/**
+ * 稼働地域(本体は entamy-connect の worker/src/region.ts)。公開ミラーでは測らず、
+ * すべて「分からない」(null)を返す。設定の「稼働地域」は「不明」と出す。
+ */
+export async function regionReport(
+  _db: unknown,
+  _request: Request,
+  _lang: string,
+): Promise<{
+  worker_colo: string | null;
+  entry_colo: string | null;
+  d1_region: string | null;
+  d1_colo: string | null;
+  d1_primary: boolean | null;
+  rtt_ms: number | null;
+  same: boolean | null;
+  names: { worker: string | null; entry: string | null; d1_region: string | null; d1_colo: string | null };
+}> {
+  return {
+    worker_colo: null, entry_colo: null, d1_region: null, d1_colo: null, d1_primary: null, rtt_ms: null, same: null,
+    names: { worker: null, entry: null, d1_region: null, d1_colo: null },
+  };
+}
