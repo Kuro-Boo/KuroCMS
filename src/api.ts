@@ -11093,8 +11093,16 @@ async function handleMove(
   if (method === "POST" && head === "build") {
     // 公開ページを少しずつ作る。受付が more が false になるまで呼ぶ。
     const settings = await env.DB.prepare(
-      "SELECT default_lang FROM site_settings WHERE id = 1",
-    ).first<{ default_lang: string }>();
+      "SELECT default_lang, template_id FROM site_settings WHERE id = 1",
+    ).first<{ default_lang: string; template_id: string | null }>();
+    // テンプレートをまだ 1 つも入れていないサイト(移す元でも一度も作っていない)は、作る公開ページが無い。
+    const template = settings?.template_id
+      ? await env.DB.prepare("SELECT 1 AS ok FROM page_templates WHERE id = ?")
+          .bind(settings.template_id)
+          .first<{ ok: number }>()
+      : null;
+    if (!template)
+      return json({ more: false, built: 0, errors: 0, noTemplate: true });
     const r = await buildAllPublicPages(
       env,
       settings?.default_lang || env.SITE_DEFAULT_LANG || "en",
