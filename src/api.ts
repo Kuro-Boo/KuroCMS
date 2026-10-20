@@ -492,7 +492,22 @@ async function handleApiDispatch(
     // 引っ越しの口(src/move.ts)。受付が kmove_ の鍵で叩く。ログインの仕組みを通さない。
     if (path.startsWith("/api/system/move/") && hasMoveToken(request)) {
       // メディアの中身はそのまま返す(JSON の見出しを被せると content-type が変わる)。
-      const moved = await handleMove(request, env, path, url);
+      // 失敗の理由はそのまま返す(叩くのは受付だけ。移す先にはエラーの記録の表が無いことがあり、
+      // 汎用の 500 では受付の画面にも記録にも何が起きたかが残らない)。
+      const moved = await handleMove(request, env, path, url).catch(
+        (error: unknown) => {
+          if (error instanceof HttpError) throw error;
+          const e = error instanceof Error ? error : new Error(String(error));
+          throw new HttpError(
+            500,
+            "move_failed",
+            `${e.message} | ${(e.stack ?? "").split("\n").slice(1, 4).join(" / ")}`.slice(
+              0,
+              900,
+            ),
+          );
+        },
+      );
       return moved.headers.get("content-type")?.startsWith("application/json")
         ? withJsonHeaders(moved)
         : moved;
