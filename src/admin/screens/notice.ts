@@ -39,11 +39,11 @@ function noticeApplied(v: NoticeStateView | null) {
   if (state.noticeUnread !== v.unread) {
     state.noticeUnread = v.unread;
     // 左の項目の数を描き直す(枠が見えていなくても、数は変わる)。
-    document
-      .querySelectorAll("a[data-nav='dashboard'] .navNoticeCount")
-      .forEach((el) => el.remove());
+    // 数はダッシュボードの項目にだけ付く(menuHtml)。項目の data-nav は道("/")で、
+    // 鍵("dashboard")ではない —— 鍵で探していたので、既読にしても印が消えなかった(2026-10-21)。
+    document.querySelectorAll(".navNoticeCount").forEach((el) => el.remove());
     if (v.unread > 0) {
-      const link = document.querySelector("a[data-nav='dashboard']");
+      const link = document.querySelector("a[data-nav='/']");
       if (link) {
         const b = document.createElement("span");
         b.className = "navNoticeCount";
