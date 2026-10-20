@@ -873,6 +873,8 @@ async function settings() {
         return;
       }
       const DAY = 86_400_000;
+      // 期限は Entamy ID が「その日の終わり(UTC)」で持つ。手元の時刻帯で出すと、日本では
+      // 3 月 31 日までの延長が「4 月 1 日」に見える(23:59 UTC = 翌朝 8:59 JST)。日は UTC で出す。
       const date = (ms: number | null) =>
         ms == null
           ? "—"
@@ -880,6 +882,7 @@ async function settings() {
               year: "numeric",
               month: "long",
               day: "numeric",
+              timeZone: "UTC",
             });
       const line = (label: string, value: string, strong = false) =>
         "<span class='fieldLabel' style='margin:0'>" +
