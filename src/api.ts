@@ -228,7 +228,14 @@ import {
 
 export { KUROCMS_VERSION } from "./version";
 const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
-const KUROCMS_COMMUNITY_BASE_URL = "https://kuro.boo/kurocms";
+// Community(テンプレートの共有)は LP の Worker が持つ。正の置き場は kurocms.entamy.com の根
+// (cms-20260730-overview)。内側の道 /kurocms/api/... もそのまま通る。
+const KUROCMS_COMMUNITY_BASE_URL = "https://kurocms.entamy.com";
+/** 取り込んだテンプレートの source_url に残る、移る前の置き場。そこの API も答え続ける。 */
+const KUROCMS_COMMUNITY_ORIGINS = new Set([
+  new URL(KUROCMS_COMMUNITY_BASE_URL).origin,
+  "https://kuro.boo",
+]);
 
 // Throttle for the unauthenticated POST /api/migrate (see handler). KV-backed so
 // it is shared across the isolate fleet; TTL just above the window bounds growth.
@@ -9577,7 +9584,7 @@ function assertCommunitySourceUrl(sourceUrl: string): URL {
     );
   }
   if (
-    url.origin !== "https://kuro.boo" ||
+    !KUROCMS_COMMUNITY_ORIGINS.has(url.origin) ||
     !/^\/kurocms\/api\/v1\/get\/[^/]+\/src\.html$/.test(url.pathname)
   ) {
     throw new HttpError(

@@ -207,7 +207,7 @@ export async function fetchUnfurl(rawUrl: string): Promise<UnfurlResult> {
     resp = await fetch(u.toString(), {
       method: "GET",
       headers: {
-        "User-Agent": "KuroCMS-unfurl/1.0 (+https://kuro.boo/kurocms)",
+        "User-Agent": "KuroCMS-unfurl/1.0 (+https://kurocms.entamy.com)",
         Accept: "text/html,application/xhtml+xml",
       },
       redirect: "follow",

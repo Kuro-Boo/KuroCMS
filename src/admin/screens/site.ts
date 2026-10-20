@@ -462,7 +462,7 @@ async function siteManagement() {
   function loadTemplateSelectPanel(panel: Dynamic) {
     panel.innerHTML =
       "<div id='tmplSelectList'>" + escapeHtml(t("loading")) + "</div>";
-    const communityBase = "https://kuro.boo/kurocms";
+    const communityBase = "https://kurocms.entamy.com";
     let templatePage = 1;
     let lastRenderArgs: Dynamic = null;
 
