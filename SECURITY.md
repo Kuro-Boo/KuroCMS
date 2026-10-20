@@ -30,5 +30,5 @@ current version.
 
 This repository publishes the **core source of KuroCMS for transparency and
 review**. Installation and hosting are performed through the web installer at
-<https://kuro.boo/kurocms>; this repository is not intended to be built or
+<https://kurocms.entamy.com/>; this repository is not intended to be built or
 deployed directly.

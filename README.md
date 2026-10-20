@@ -7,7 +7,7 @@
 [![Latest release](https://img.shields.io/github/v/release/Kuro-Boo/KuroCMS?label=release&color=157a6e)](https://github.com/Kuro-Boo/KuroCMS/releases)
 [![License: Kuro License](https://img.shields.io/badge/license-Kuro%20License-blue)](./LICENSE.txt)
 
-[**🚀 Install**](https://kuro.boo/kurocms) ・ [**📖 Read the story (EN)**](https://kuro.boo/blog/kurocms-003/?lang=en) ・ [**🏷️ Releases**](https://github.com/Kuro-Boo/KuroCMS/releases) ・ [**🔒 Security**](./SECURITY.md)
+[**🚀 Install**](https://kurocms.entamy.com/) ・ [**📖 Read the story (EN)**](https://kuro.boo/blog/kurocms-003/?lang=en) ・ [**🏷️ Releases**](https://github.com/Kuro-Boo/KuroCMS/releases) ・ [**🔒 Security**](./SECURITY.md)
 
 </div>
 
@@ -35,7 +35,7 @@ Cloudflare's free tier**.
 
 KuroCMS installs into **your own** Cloudflare account from the browser — no PC setup, no CLI, no build:
 
-### → [Open the web installer at kuro.boo/kurocms](https://kuro.boo/kurocms)
+### → [Open the web installer at kurocms.entamy.com](https://kurocms.entamy.com/)
 
 Want the backstory and a feature tour? Read
 **[“Finally Released! Development of a New Headless CMS Vol. 3” (English)](https://kuro.boo/blog/kurocms-003/?lang=en)**.
