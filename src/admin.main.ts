@@ -798,7 +798,7 @@ const i18n = {
     languageManagerLead: "Register languages to be used for data entry.",
     typesLead: "Manage article types such as news, blog, and research.",
     settingsLead:
-      "Set the public domain, base language, social links, mobile, imports, and IP restriction.",
+      "Set the public domain, base language, social links, mobile, imports, and IP restriction, and check the region and contract.",
     profileLead:
       "Your own account, display, PATs, passkeys, and IP restriction.",
     noLanguages: "No languages registered",
@@ -941,6 +941,7 @@ const i18n = {
     contractDeleteAt: "Data deletion date",
     contractDaysLeft: "Days left",
     contractDays: "{n} days",
+    contractRange: "{from} – {to} ({n} days)",
     contractEndedNote:
       "The free period has ended. Without a subscription, your data will be deleted on the date above.",
     contractPending:
@@ -1875,7 +1876,7 @@ const i18n = {
     languageManagerLead: "データ登録で利用する言語を登録します。",
     typesLead: "news、blog、research などの記事タイプを管理します。",
     settingsLead:
-      "公開ドメイン、基本言語、SNS 連動、スマホ、インポート、IP 制限を設定します。",
+      "公開ドメイン、基本言語、SNS 連動、スマホ、インポート、IP 制限を設定し、稼働地域と契約情報を確かめます。",
     profileLead: "自分のアカウント、表示、PAT、パスキー、IP 制限を設定します。",
     noLanguages: "言語が登録されていません",
     profileIdentity: "アカウント情報",
@@ -2082,14 +2083,15 @@ const i18n = {
     contractTrialExtendedNone: "なし",
     contractTrialFinal: "最後の無料期間の終わり",
     contractSubscription: "契約",
-    contractSubActive: "契約中(次の更新 {date})",
-    contractSubCancelled: "解約済み({date} まで使えます)",
+    contractSubActive: "契約中（次の更新 {date}）",
+    contractSubCancelled: "解約済み（{date} まで使えます）",
     contractSubNone: "なし",
     contractGrace: "データ削除の待機期間",
     contractLastDay: "最終日",
     contractDeleteAt: "データを消す日",
     contractDaysLeft: "残り",
     contractDays: "{n} 日",
+    contractRange: "{from} 〜 {to}（{n} 日間）",
     contractEndedNote:
       "無料期間が終わりました。契約しない場合、データは上の日に消えます。",
     contractPending: "契約情報はまだ届いていません。1 時間ほどで出ます。",

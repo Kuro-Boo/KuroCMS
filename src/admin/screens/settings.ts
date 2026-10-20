@@ -850,22 +850,26 @@ async function settings() {
       escapeHtml(t("contractHelp")) +
       "</div>" +
       "<div id='contractRows' style='display:grid;grid-template-columns:max-content 1fr;gap:6px 16px;font-size:14px'></div>" +
-      "<div id='contractNote' class='muted' style='font-size:13px;line-height:1.7'></div>" +
+      "<div id='contractNote' class='readonlyBanner' style='display:none;margin:0;flex-wrap:wrap'></div>" +
+      "<div id='contractSynced' class='muted' style='font-size:12px'></div>" +
       "</div></div>",
   );
   let contractLoaded = false;
   async function loadContract() {
     const rows = byId("contractRows");
     const note = byId("contractNote");
-    if (!rows || !note) return;
+    const synced = byId("contractSynced");
+    if (!rows || !note || !synced) return;
     rows.innerHTML = "<span class='muted'>…</span>";
     note.textContent = "";
+    note.style.display = "none";
+    synced.textContent = "";
     try {
       const r: Dynamic = await api("/api/system/contract");
       const c: Dynamic = r.contract;
       if (!c) {
         rows.innerHTML = "";
-        note.textContent = t("contractPending");
+        synced.textContent = t("contractPending");
         return;
       }
       const DAY = 86_400_000;
@@ -901,9 +905,7 @@ async function settings() {
           t("contractTrialExtended"),
           c.trial_extended_until
             ? date(c.trial_extended_until) +
-                (c.trial_extension_note
-                  ? "(" + c.trial_extension_note + ")"
-                  : "")
+                (c.trial_extension_note ? " · " + c.trial_extension_note : "")
             : t("contractTrialExtendedNone"),
         ) +
         line(t("contractTrialFinal"), date(c.trial_final_at), true) +
@@ -918,12 +920,10 @@ async function settings() {
         html +=
           line(
             t("contractGrace"),
-            date(c.trial_final_at) +
-              " – " +
-              date(c.delete_at) +
-              "(" +
-              t("contractDays").replace("{n}", String(c.delete_after_days)) +
-              ")",
+            t("contractRange")
+              .replace("{from}", date(c.trial_final_at))
+              .replace("{to}", date(c.delete_at))
+              .replace("{n}", String(c.delete_after_days)),
           ) +
           line(t("contractLastDay"), date(c.delete_at - DAY), true) +
           line(t("contractDeleteAt"), date(c.delete_at)) +
@@ -932,6 +932,7 @@ async function settings() {
             t("contractDays").replace("{n}", String(left)),
             true,
           );
+        note.style.display = "";
         note.textContent = t("contractEndedNote") + " ";
         const move = document.createElement("a");
         move.href = "https://kuro.boo/kurocms/?pick=move#install";
@@ -942,13 +943,9 @@ async function settings() {
       }
       rows.innerHTML = html;
       if (c.synced_at)
-        note.insertAdjacentText(
-          "beforeend",
-          (note.textContent ? " " : "") +
-            t("contractSynced").replace(
-              "{date}",
-              new Date(c.synced_at).toLocaleString(state.uiLang),
-            ),
+        synced.textContent = t("contractSynced").replace(
+          "{date}",
+          new Date(c.synced_at).toLocaleString(state.uiLang),
         );
       contractLoaded = true;
     } catch (err) {
