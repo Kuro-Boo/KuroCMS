@@ -36,7 +36,7 @@ check(
   10 * 1024 * MB,
 );
 check("前後の空白は落とす", parseMediaQuota(` ${100 * MB} `), 100 * MB);
-check("未設定(自社の導入)は上限なし", parseMediaQuota(undefined), null);
+check("未設定(顧客導入)は上限なし", parseMediaQuota(undefined), null);
 check("空も上限なし", parseMediaQuota(""), null);
 check("0 は上限なし(全部断るにはしない)", parseMediaQuota("0"), null);
 check("負の数は上限なし", parseMediaQuota("-1"), null);

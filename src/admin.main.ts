@@ -1883,7 +1883,7 @@ const i18n = {
     legalAgreed: "同意した版",
     legalTitle: "規約が更新されました",
     legalFirstTitle: "はじめに",
-    moveToSelfLink: "自社の Cloudflare へ引っ越す →",
+    moveToSelfLink: "ご自身の Cloudflare アカウントへ引っ越す →",
     moveReceivingTitle: "引っ越しを受けています",
     moveReceivingLead:
       "Entamy の委託から、記事とメディアを写しています。終わると、このサイトの利用者全員に、このアドレスでパスキーを登録するリンクがメールで届きます。",
@@ -2191,7 +2191,7 @@ const i18n = {
     r2SetupHelp:
       "画像・動画・音楽を扱う場合だけ必要です。無料枠の 10GB までは課金されません。設定はご自身の Cloudflare で行います（KuroCMS からは作りません）。① R2 の利用を開始し、バケットを作る ② Workers & Pages → {worker} → 設定 → バインディング → 追加 → R2 バケット で、変数名を MEDIA_BUCKET にして ① のバケットを選ぶ。保存すると、この枠に「利用可能です」と出ます。",
     publicDomainManagedHelp:
-      "委託のサイトのアドレスです。変更はできません。独自ドメインを使う場合は、自社の Cloudflare へ引っ越してから設定します。",
+      "委託のサイトのアドレスです。変更はできません。独自ドメインを使う場合は、ご自身の Cloudflare アカウントへ引っ越してから設定します。",
     r2SetupDashboard: "Cloudflare で R2 を確認",
     r2SetupReady: "R2 メディアストレージは利用可能です。",
     cfManualSteps:

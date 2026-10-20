@@ -5012,7 +5012,7 @@ async function settings(
         publicDomain: (row?.public_domain as string | undefined) ?? "",
         developmentDomain: deriveInternalPreviewUrl(request, env),
         managedHosting: isManagedHosting(env),
-        // R2 を手で繋ぐ案内に出す Worker の名前(自社運用だけ)。
+        // R2 を手で繋ぐ案内に出す Worker の名前(顧客導入だけ)。
         workerName: isManagedHosting(env) ? "" : (env.CF_WORKER_NAME ?? ""),
         defaultLang,
         initialLang: (row?.initial_lang as string | undefined) ?? defaultLang,
@@ -10895,12 +10895,12 @@ const RESTORE_KV_WIPE_PAGE = 500; // each KV delete is a subrequest — stay < 1
 const PAGE_KV_PREFIXES = ["pageb:", "page:"] as const;
 const RESTORE_R2_WIPE_PAGE = 1000; // R2 delete takes an array (one subrequest)
 
-// ── 委託から自社への引っ越し（src/move.ts・仕様 cms-move-to-self） ─────────────
+// ── 委託運用から顧客導入への引っ越し（src/move.ts・仕様 cms-move-to-self） ─────────────
 //
 // 受付が kmove_ の鍵で叩く口。移す元（source）は読むだけ、移す先（target）は書くだけ。
 // 写す表は、バックアップの表に「利用者（メールと権限）」と「メディアの番号の続き」を足したもの。
 // パスキー・ログインの状態・登録した回線・PAT は持っていかない（ドメインに結び付く・
-// 委託の鍵が自社でそのまま使えるのは危ない）。SNS の連携の鍵は、仕上げで空にする。
+// 委託の鍵が顧客導入でそのまま使えるのは危ない）。SNS の連携の鍵は、仕上げで空にする。
 const MOVE_TABLES = ["users", ...BACKUP_TABLES_INSERT_ORDER, "media_id_seq"];
 const MOVE_TABLE_SET = new Set(MOVE_TABLES);
 /** 移す先の鍵で作るパスキーの登録のリンクの有効期間（引っ越しの後の最初のログインに使う）。 */

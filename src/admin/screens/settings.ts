@@ -1222,7 +1222,7 @@ async function settings() {
         ?.querySelector<HTMLElement>(".muted");
       if (help) {
         help.textContent = t("publicDomainManagedHelp") + " ";
-        // 自社への引っ越し(仕様 cms-move-to-self)。受付の引っ越しの頁(kuro.boo の導入の節)へ。
+        // 顧客導入への引っ越し(仕様 cms-move-to-self)。受付の引っ越しの頁(kuro.boo の導入の節)へ。
         const move = document.createElement("a");
         move.href = "https://kuro.boo/kurocms/?pick=move#install";
         move.target = "_blank";
