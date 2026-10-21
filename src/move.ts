@@ -83,6 +83,22 @@ export async function moveFrozen(env: Env): Promise<boolean> {
   return !!state && state.role === "source" && state.frozen === 1;
 }
 
+/**
+ * 引っ越しを終えた移す元か（鍵を消して止めたまま・委託運用 → 顧客導入でも、顧客導入 → 委託運用の引き渡しでも）。
+ * 最後の突き合わせの間（止めているが鍵はある）とは分ける。終えた移す元は、もうこのサイトの本体ではない ——
+ * Entamy ID への導入の報告・Mailer の鍵の更新・SNS の鍵の更新をしない（ID から見て、引っ越した古いサイトが
+ * 動き続けているように見えないように。サイトの持ち主と契約は移す先の導入の記録に移っている）。
+ */
+export async function moveRetired(env: Env): Promise<boolean> {
+  const state = await readMoveState(env);
+  return (
+    !!state &&
+    state.role === "source" &&
+    state.frozen === 1 &&
+    !state.token_hash
+  );
+}
+
 /** 移す先で、仕上げがまだ（初期化を受け付けない）か。 */
 export async function moveTargetPending(env: Env): Promise<boolean> {
   const state = await readMoveState(env);

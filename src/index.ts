@@ -25,7 +25,7 @@ import {
   searchEndpoint,
   serveTemplateCss,
 } from "./public";
-import { moveFrozen, movedPage, movedTo } from "./move";
+import { moveFrozen, movedPage, moveRetired, movedTo } from "./move";
 import type { Env } from "./types";
 
 export default {
@@ -52,7 +52,10 @@ export default {
     // token maintenance shares that trigger, but the helper only touches D1 at
     // UTC 00:17 and only calls Meta after 30 days. Its D1 claim also absorbs
     // duplicate Cron deliveries.
-    ctx.waitUntil(runScheduledThreadsTokenRefresh(env, event.scheduledTime));
+    // 引っ越しを終えた移す元は、もうこのサイトの本体ではない。基盤への報告と鍵の更新をしない(moveRetired)。
+    const retired = await moveRetired(env).catch(() => false);
+    if (!retired)
+      ctx.waitUntil(runScheduledThreadsTokenRefresh(env, event.scheduledTime));
     // 番人(WorkerOps)の更新は app が行う(cms-workerops)。app の版が変わったのを見つけたら、
     // 自動更新が入なら番人を上げる。版が同じ間は KV を 1 回読むだけ。
     // 接続元の登録の期限切れを片付ける(1 時間に 1 回。毎分の起動に相乗りする)。
@@ -82,6 +85,7 @@ export default {
     //   限って KV の書き込み枠（無料枠 1,000/日）を焼き切る。間引きは
     //   entamy-connect の EntamyMailer が持っているので、ここでは素直に呼ぶ
     //   —— 控えが生きていれば通信せず、失敗直後なら自分で見送る。
+    if (retired) return;
     ctx.waitUntil(
       (async () => {
         await reportInstall(env);

@@ -14,6 +14,7 @@ import {
   movedPage,
   movedTo,
   moveFrozen,
+  moveRetired,
   moveTargetPending,
   readRows,
   readRowsByKey,
@@ -260,6 +261,7 @@ console.log("move");
       "utf8",
     ),
   );
+  eq("鍵が無ければ役を終えていない", await moveRetired(env), false);
   const first = await startMoveOut(env, 1000);
   const now = Date.now();
   const again = await startMoveOut(env, now);
@@ -274,6 +276,13 @@ console.log("move");
     ["source", now + 86_400_000, 0],
   );
   eq("ハッシュだけを置く", row.token_hash, await sha256Hex(again.token));
+  raw.exec("UPDATE move_state SET frozen = 1");
+  eq(
+    "最後の突き合わせで止めている間は、役を終えていない",
+    await moveRetired(env),
+    false,
+  );
+  raw.exec("UPDATE move_state SET frozen = 0");
   const call = (token: string) =>
     new Request("https://site.example/kurocms/api/system/move/manifest", {
       headers: { authorization: `Bearer ${token}` },
@@ -298,6 +307,11 @@ console.log("move");
     "引き渡した後は行き先を返す",
     await movedTo(env),
     "https://abc.kurocms.site",
+  );
+  eq(
+    "引き渡した移す元は役を終えている(基盤へ報告しない)",
+    await moveRetired(env),
+    true,
   );
   eq(
     "引き渡した導入では作らない",

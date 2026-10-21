@@ -889,7 +889,7 @@ const i18n = {
     legalTerms: "Terms of Service",
     legalPrivacy: "Privacy Policy",
     legalAgreeButton: "Agree and continue",
-    contactTitle: "Register a contact email",
+    contactTitle: "Register the owner's email address",
     contactLead:
       "Register the owner's email address. The Entamy ID for it becomes the owner of this CMS: important notices about this CMS are sent there, and it holds the contract if the site moves to Entamy managed hosting. It is not used for anything else.",
     contactConsent: "I agree to this use",
@@ -2079,7 +2079,7 @@ const i18n = {
     legalTerms: "利用規約",
     legalPrivacy: "プライバシーポリシー",
     legalAgreeButton: "同意して続ける",
-    contactTitle: "連絡先のメールアドレスの登録",
+    contactTitle: "持ち主のメールアドレスの登録",
     contactLead:
       "持ち主のメールアドレスを登録します。このアドレスの Entamy ID がこの CMS の持ち主になり、重要なお知らせが届き、Entamy の委託運用へ引っ越すときは契約の持ち主になります。それ以外には使いません。",
     contactConsent: "この使い方に了承します",
