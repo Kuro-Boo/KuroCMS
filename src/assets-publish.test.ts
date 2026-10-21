@@ -56,6 +56,27 @@ function d1(): D1Database {
 
 const toBase = (s: string) => toBase64(s);
 eq("base64 は UTF-8 で", toBase("あ"), Buffer.from("あ").toString("base64"));
+{
+  // 組み込みの toBase64 が無い所の形でも、同じ出力(大きなページ・区切り 0x8000 をまたぐ)。
+  const big = "日本語のページ<p>é😀</p>".repeat(20000);
+  eq(
+    "base64 は大きなページでも同じ",
+    toBase(big),
+    Buffer.from(big).toString("base64"),
+  );
+  const proto = Uint8Array.prototype as Uint8Array & { toBase64?: unknown };
+  const saved = Object.getOwnPropertyDescriptor(proto, "toBase64");
+  if (saved) delete proto.toBase64;
+  try {
+    eq(
+      "base64 は組み込みが無くても同じ",
+      toBase(big),
+      Buffer.from(big).toString("base64"),
+    );
+  } finally {
+    if (saved) Object.defineProperty(proto, "toBase64", saved);
+  }
+}
 eq("資産のパス: トップ", pageAssetPath("/", "ja", "ja", ""), "/index.html");
 eq(
   "資産のパス: 他の言語",

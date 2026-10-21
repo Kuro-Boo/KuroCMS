@@ -35,9 +35,19 @@
 import type { Env } from "./types";
 import { langPath } from "./lang-path.ts";
 
-/** UTF-8 の文字列 → base64(資産の上げ口は base64 で受ける)。 */
+/**
+ * UTF-8 の文字列 → base64(資産の上げ口は base64 で受ける)。
+ *
+ * 組み込みの Uint8Array.prototype.toBase64 を使う。String.fromCharCode で 1 字ずつ作る形は、
+ * 11 言語のページ 1 つ(約 870 KB)で 12 ms かかり、登録の CPU の 9 割を占めていた。1 回に
+ * 100 ページを読む最後の回が CPU の上限で打ち切られ、全体ビルドが終わらなかった
+ * (課題 a408a584・2026-10-21 に dump の写しで測った。組み込みは同じ出力で 0.85 ms)。
+ * 組み込みの無い所(古い実行環境)だけ前の形で作る。
+ */
 export function toBase64(text: string): string {
   const bytes = new TextEncoder().encode(text);
+  const native = (bytes as Uint8Array & { toBase64?: () => string }).toBase64;
+  if (typeof native === "function") return native.call(bytes);
   let bin = "";
   for (let i = 0; i < bytes.length; i += 0x8000) {
     bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
