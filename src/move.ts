@@ -250,7 +250,8 @@ function moveToken(): string {
 }
 
 /**
- * 委託運用へ引っ越す鍵を置く（管理者が設定から押す）。押すたびに鍵を作り直す（前の鍵は効かなくなる）。
+ * 引っ越しの移す元の鍵を置く（管理者が設定の「運用の形」から押す・site-move.ts）。押すたびに鍵を作り直す
+ * （前の鍵は効かなくなる）。委託運用の導入でも置く —— 導入口は、記録のアドレスでこの鍵を読めたかで頼み手を確かめる。
  * 移す先として引っ越しを受けている途中・もう引き渡した導入では作らない。
  */
 export async function startMoveOut(
@@ -276,6 +277,16 @@ export async function startMoveOut(
     .bind(await sha256Hex(token), expiresAt, now)
     .run();
   return { token, expiresAt };
+}
+
+/**
+ * 導入口が受けなかった引っ越しの鍵を消す（使われない鍵を 24 時間残さない）。止めている・引き渡した・
+ * 移す先として受けている行には触れない。
+ */
+export async function cancelMoveOut(env: Env): Promise<void> {
+  await env.DB.prepare(
+    "UPDATE move_state SET token_hash = '' WHERE id = 1 AND role = 'source' AND frozen = 0 AND finished_at IS NULL",
+  ).run();
 }
 
 /** 引き渡しの後の行き先。1 つの isolate で 1 分だけ覚える（どの要求でも引くので D1 を毎回は読まない）。 */

@@ -119,12 +119,18 @@ import {
   forgetMovedCache,
   moveFrozen,
   moveTargetPending,
-  startMoveOut,
   readRows,
   readRowsByKey,
   rowsByKeys,
   tableShape,
 } from "./move";
+import {
+  forgetSiteMoveJob,
+  readSiteMoveJob,
+  resumeSiteMove,
+  siteMoveDirection,
+  startSiteMove,
+} from "./site-move";
 import {
   currentNetwork,
   handleNetworkConfirm,
@@ -799,17 +805,45 @@ async function handleApiDispatch(
         (await regionReport(env.DB, request, lang)) as unknown as JsonValue,
       );
     }
-    // 委託運用へ引っ越す鍵を置く(顧客導入だけ・仕様 cms-move-to-self「顧客導入から委託運用へ」)。
-    // 鍵は画面へ一度だけ返し、画面が導入口の頁へ渡す(URL の # の後ろ。サーバーへは送られない)。
-    if (request.method === "POST" && path === "/api/system/move-out") {
+    // 運用の形の引っ越し(仕様 cms-move-to-self「CMS の画面から」・src/site-move.ts)。委託運用なら顧客導入へ、
+    // 顧客導入なら委託運用へ。導入口へはこのサーバーが導入の口座で頼み、進み具合は画面が導入口から直に読む。
+    if (
+      path === "/api/system/site-move" ||
+      path === "/api/system/site-move/resume"
+    ) {
       requireAdmin(user);
-      if (isManagedHosting(env))
-        throw new HttpError(
-          409,
-          "managed_hosting",
-          "This site is already managed by Entamy.",
+      if (request.method === "GET" && path === "/api/system/site-move") {
+        return json({
+          to: siteMoveDirection(env),
+          // 導入口で入れた導入だけが自分の Worker の名前を持つ(持ち主の記録がある)。
+          ownerKnown: !!(env.CF_WORKER_NAME ?? "").trim(),
+          job: (await readSiteMoveJob(env)) as unknown as JsonValue,
+        });
+      }
+      if (request.method === "POST" && path === "/api/system/site-move") {
+        // サイト全体と契約を動かすので、画面でログインした人だけ(漏れた PAT で始めさせない)。
+        requireInteractiveUser(user);
+        const body = await readJson(request);
+        const lang = /^[a-z]{2}$/.test(String(body.lang ?? ""))
+          ? String(body.lang)
+          : "ja";
+        return json(
+          (await startSiteMove(env, body, lang)) as unknown as JsonValue,
+          { status: 202 },
         );
-      return json((await startMoveOut(env)) as unknown as JsonValue);
+      }
+      if (
+        request.method === "POST" &&
+        path === "/api/system/site-move/resume"
+      ) {
+        await resumeSiteMove(env);
+        return json({ ok: true });
+      }
+      if (request.method === "DELETE" && path === "/api/system/site-move") {
+        await forgetSiteMoveJob(env);
+        return json({ ok: true });
+      }
+      throw new HttpError(405, "method_not_allowed", "Method not allowed.");
     }
     // 契約情報(委託だけ・cms-pricing「契約情報」)。受付が毎時書く contract_info の 1 行をそのまま返す。
     // 表が無い(古い版から上げたて)・行が無い(受付がまだ書いていない)ときは contract: null。

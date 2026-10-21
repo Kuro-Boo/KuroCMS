@@ -152,6 +152,24 @@ export class EntamySession {
   ): Promise<EntamyResult<Record<string, unknown>>> {
     return refuse<Record<string, unknown>>();
   }
+  /** 委託運用 ⇄ 顧客導入の引っ越し(導入口)。基盤が無いので頼めない。 */
+  startSiteMove(
+    _body: Record<string, unknown>,
+    _lang: string,
+  ): Promise<EntamyResult<{ jobId: string; statusUrl: string }>> {
+    return refuse<{ jobId: string; statusUrl: string }>();
+  }
+  siteMoveStatusUrl(_jobId: string): string {
+    return "";
+  }
+  siteMoveStatus(
+    _jobId: string,
+  ): Promise<EntamyResult<Record<string, unknown>>> {
+    return refuse<Record<string, unknown>>();
+  }
+  resumeSiteMove(_jobId: string): Promise<EntamyResult<void>> {
+    return refuse<void>();
+  }
 }
 
 export interface InstallReport {

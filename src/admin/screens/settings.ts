@@ -261,6 +261,8 @@ async function settings() {
       escapeHtml(t("saveSiteSettings")) +
       "</button>" +
       "</form>" +
+      // 運用の形(委託運用 ⇄ 顧客導入の引っ越し・site-move.ts)。
+      siteMoveSectionHtml() +
       "</div>" +
       // ── SNS ──────────────────────────────────────────────────────────
       "<div id='panel-sns' class='settingsPanel' style='display:none'>" +
@@ -937,11 +939,15 @@ async function settings() {
           );
         note.style.display = "";
         note.textContent = t("contractEndedNote") + " ";
+        // 顧客導入への引っ越しは「基本」の「運用の形」から(この画面の中で進める)。
         const move = document.createElement("a");
-        move.href = "https://kurocms.entamy.com/?pick=move#install";
-        move.target = "_blank";
-        move.rel = "noopener";
-        move.textContent = t("moveToSelfLink");
+        move.href = "#";
+        move.textContent = t("siteMoveToSelf") + " →";
+        move.addEventListener("click", (e) => {
+          e.preventDefault();
+          switchTab("basic");
+          byId("siteMoveSection")?.scrollIntoView({ behavior: "smooth" });
+        });
         note.appendChild(move);
       }
       rows.innerHTML = html;
@@ -1220,16 +1226,7 @@ async function settings() {
       const help = publicDomainInput
         .closest("label")
         ?.querySelector<HTMLElement>(".muted");
-      if (help) {
-        help.textContent = t("publicDomainManagedHelp") + " ";
-        // 顧客導入への引っ越し(仕様 cms-move-to-self)。受付の引っ越しの頁(kuro.boo の導入の節)へ。
-        const move = document.createElement("a");
-        move.href = "https://kurocms.entamy.com/?pick=move#install";
-        move.target = "_blank";
-        move.rel = "noopener";
-        move.textContent = t("moveToSelfLink");
-        help.appendChild(move);
-      }
+      if (help) help.textContent = t("publicDomainManagedHelp");
       // 空の枠を残すと、枠の間(stack の gap)だけが空く。
       for (const id of [
         "workerOriginSection",
@@ -1237,48 +1234,9 @@ async function settings() {
         "r2SetupSection",
       ])
         byId(id)?.remove();
-    } else {
-      // 顧客導入から委託運用への引っ越し(仕様 cms-move-to-self「顧客導入から委託運用へ」・2026-10-21)。
-      // 押すとこの導入が引っ越しの鍵を置き、導入口の頁へ鍵を渡す。鍵は URL の # の後ろに載せる
-      // (ブラウザはサーバーへ送らない)。ポップアップを止められないよう、先に窓を開けてから行き先を入れる。
-      const help = publicDomainInput
-        .closest("label")
-        ?.querySelector<HTMLElement>(".muted");
-      if (help) {
-        const move = document.createElement("a");
-        move.href = "#";
-        move.textContent = t("moveToManagedLink");
-        move.addEventListener("click", async (e) => {
-          e.preventDefault();
-          if (!confirm(t("moveToManagedConfirm"))) return;
-          const w = window.open("", "_blank");
-          try {
-            const r: Dynamic = await api("/api/system/move-out", {
-              method: "POST",
-              body: "{}",
-            });
-            const ticket = JSON.stringify({
-              api: location.origin + withBase("/api/system/move/"),
-              token: r.token,
-            });
-            const hash = btoa(unescape(encodeURIComponent(ticket)))
-              .replace(/\+/g, "-")
-              .replace(/\//g, "_")
-              .replace(/=+$/, "");
-            const url =
-              "https://kurocms.entamy.com/?pick=movein#movein=" + hash;
-            if (w) {
-              w.opener = null;
-              w.location.href = url;
-            } else location.href = url;
-          } catch (err) {
-            w?.close();
-            toast(errorMessage(err), true);
-          }
-        });
-        help.append(" ", move);
-      }
     }
+    // 運用の形(委託運用なら顧客導入へ、顧客導入なら委託運用へ)。引っ越しはこの画面の中で進める。
+    void mountSiteMove();
 
     // Worker origin URL + CNAME guide
     (function () {

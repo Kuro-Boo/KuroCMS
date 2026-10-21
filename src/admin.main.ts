@@ -806,10 +806,83 @@ const i18n = {
     legalAgreed: "Agreed version",
     legalTitle: "Terms have been updated",
     legalFirstTitle: "Before you start",
-    moveToSelfLink: "Move to your own Cloudflare →",
-    moveToManagedLink: "Move to Entamy managed hosting →",
-    moveToManagedConfirm:
-      "Move this site to Entamy managed hosting?\n\nThe Entamy page opens in a new tab. Sign in with your Entamy ID there and start the move. This site keeps working while everything is copied; at the end it shows a notice that sends visitors to the new address.\n\nManaged hosting is paid. It starts with a free period, counted from when the new site is ready (once per Entamy ID; not if you have used managed hosting before). The Entamy page shows its length.",
+    siteMoveTitle: "Hosting",
+    siteMoveNowManaged:
+      "This site runs on Entamy managed hosting (Entamy's Cloudflare account).",
+    siteMoveNowSelf:
+      "This site runs on your own Cloudflare account (self-hosted).",
+    siteMoveToSelf: "Move to your own Cloudflare account",
+    siteMoveToManaged: "Move to Entamy managed hosting",
+    siteMoveSelfLead:
+      "KuroCMS is set up in your Cloudflare account and your articles, media, settings and users are copied over. This site keeps working while it copies (it pauses only for a few minutes at the final check). When it finishes, this address shows a notice that sends visitors to the new address, and everyone on the site gets an email with a link to register a passkey there. Self-hosting is free.",
+    siteMoveManagedLead:
+      "KuroCMS is set up on Entamy's Cloudflare account and your articles, media, settings and users are copied over. This site keeps working while it copies. When it finishes, this site shows a notice that sends visitors to the new address ({id}.kurocms.site), and everyone on the site gets an email with a link to register a passkey there. Custom domains are not carried over. Nothing in your Cloudflare account is deleted.",
+    siteMoveManagedPrice:
+      "Managed hosting is paid. The free period starts when the new site is ready (once per Entamy ID; not if you have used managed hosting before). The contract belongs to the Entamy ID that installed this site.",
+    siteMoveAccountId: "Cloudflare Account ID",
+    siteMoveToken: "Cloudflare API token",
+    siteMoveTokenHelp:
+      "A token with the same permissions as a self-hosted install. Neither Entamy nor this site keeps it. If the site has media, turn on R2 in your Cloudflare dashboard first.",
+    siteMoveConfirm:
+      "I understand: a new install is created in my account (nothing existing is overwritten), and social-media keys and PATs are not carried over.",
+    siteMoveConfirmRequired: "Please tick the checkbox to confirm.",
+    siteMoveCfRequired: "Enter the 32-character Account ID and the API token.",
+    siteMoveStart: "Start the move",
+    siteMoveRunning: "Moving… ({p}%)",
+    siteMoveFailed: "The move stopped. What was copied so far is kept.",
+    siteMoveResume: "Resume",
+    siteMoveAgain: "Try again",
+    siteMoveDone: "The move is complete.",
+    siteMoveMailed:
+      "Sent {n} people a link to register a passkey at the new address.",
+    siteMoveNewAddress: "New address",
+    siteMoveOpenAdmin: "Open the new admin panel",
+    siteMoveOpsKey: "WorkerOps key",
+    siteMoveOpsKeyNote:
+      "The key to the new site's recovery console. Save it now somewhere safe. Delete the API token in Cloudflare after the move.",
+    siteMoveStep_verify_token: "Check the token and permissions",
+    siteMoveStep_reserve_names: "Check for conflicts",
+    siteMoveStep_create_storage: "Create the database and storage",
+    siteMoveStep_fetch_release: "Fetch the release (verify the signature)",
+    siteMoveStep_deploy_app: "Deploy KuroCMS",
+    siteMoveStep_apply_schema: "Initialize the database",
+    siteMoveStep_bootstrap_admin: "Prepare the administrator",
+    siteMoveStep_create_update_token: "Create the update-only token",
+    siteMoveStep_deploy_workerops: "Deploy WorkerOps",
+    siteMoveStep_finish: "Register the install",
+    siteMoveStepManaged_verify_token: "Check readiness",
+    siteMoveStepManaged_reserve_names: "Choose the installation ID",
+    siteMoveStepManaged_create_update_token: "Prepare updates",
+    siteMoveStepManaged_deploy_workerops: "Assign the public address",
+    siteMoveStep_move_copy: "Copy articles and settings",
+    siteMoveStep_move_media: "Copy media (checked with SHA-256)",
+    siteMoveStep_move_build: "Build the public pages",
+    siteMoveStep_move_check: "Final check (pauses this site for a few minutes)",
+    siteMoveStep_move_finish:
+      "Send passkey emails and point this address to a notice",
+    err_owner_unknown:
+      "This install has no owner record (it was installed before the Entamy installer). Link an owner Entamy ID to it first.",
+    err_wrong_direction: "This site cannot move in that direction.",
+    err_move_in_progress: "A move is already in progress.",
+    err_move_ticket_invalid:
+      "Entamy could not confirm this site. Reload and try again.",
+    err_source_too_old: "Update KuroCMS to the latest version first.",
+    err_source_busy: "This site is in the middle of another move.",
+    err_media_too_large:
+      "The media is larger than the managed hosting limit (10 GB per site).",
+    err_already_managed: "Your Entamy ID already has a managed site.",
+    err_contract_required:
+      "The free period has already been used. A subscription is needed for managed hosting.",
+    err_managed_unavailable:
+      "Managed hosting is not accepting new sites right now.",
+    err_managed_capacity_full:
+      "Managed hosting is full right now. Please try again later.",
+    err_managed_month_full:
+      "This month's sign-ups for managed hosting are full. Please try again next month.",
+    err_no_managed_install: "The managed install was not found.",
+    err_entamy_unavailable:
+      "Could not reach Entamy. Please try again in a moment.",
+    err_invalid_input: "Check the Account ID and the API token.",
     moveReceivingTitle: "This site is moving in",
     moveReceivingLead:
       "Your articles and media are being copied from Entamy hosting. When it finishes, everyone on the site gets an email with a link to register a passkey for this address.",
@@ -1887,10 +1960,83 @@ const i18n = {
     legalAgreed: "同意した版",
     legalTitle: "規約が更新されました",
     legalFirstTitle: "はじめに",
-    moveToSelfLink: "ご自身の Cloudflare アカウントへ引っ越す →",
-    moveToManagedLink: "Entamy の委託運用へ引っ越す →",
-    moveToManagedConfirm:
-      "このサイトを Entamy の委託運用へ引っ越しますか？\n\n新しいタブで Entamy の頁が開きます。そこで Entamy ID にログインして引っ越しを始めてください。写している間もこのサイトはそのまま使えます。終わると、このサイトは新しいアドレスへの案内に替わります。\n\n委託運用は有料です。最初の無料期間は、新しいサイトが使えるようになった時点から数えます（Entamy ID ごとに 1 回。委託運用を使ったことがある場合は付きません）。長さは Entamy の頁に出ます。",
+    siteMoveTitle: "運用の形",
+    siteMoveNowManaged:
+      "いまは Entamy の委託運用で動いています（Entamy の Cloudflare アカウント）。",
+    siteMoveNowSelf:
+      "いまはご自身の Cloudflare アカウントで動いています（顧客導入）。",
+    siteMoveToSelf: "ご自身の Cloudflare アカウントへ引っ越す",
+    siteMoveToManaged: "Entamy の委託運用へ引っ越す",
+    siteMoveSelfLead:
+      "ご自身の Cloudflare アカウントに KuroCMS を立て、記事・メディア・設定・利用者を写します。写している間もこのサイトはそのまま使えます（最後の突き合わせの数分だけ止まります）。終わると、このアドレスは新しいアドレスへの案内に替わり、利用者全員に、新しいアドレスでパスキーを登録するリンクがメールで届きます。顧客導入は無料です。",
+    siteMoveManagedLead:
+      "Entamy の Cloudflare アカウントに KuroCMS を立て、記事・メディア・設定・利用者を写します。写している間もこのサイトはそのまま使えます。終わると、このサイトは新しいアドレス（{導入ID}.kurocms.site）への案内に替わり、利用者全員に、新しいアドレスでパスキーを登録するリンクがメールで届きます。独自ドメインは引き継ぎません。ご自身の Cloudflare のものは消しません。",
+    siteMoveManagedPrice:
+      "委託運用は有料です。最初の無料期間は、新しいサイトが使えるようになった時点から数えます（Entamy ID ごとに 1 回。委託運用を使ったことがある場合は付きません）。契約の持ち主は、このサイトを導入した Entamy ID です。",
+    siteMoveAccountId: "Cloudflare の Account ID",
+    siteMoveToken: "Cloudflare の API トークン",
+    siteMoveTokenHelp:
+      "顧客導入と同じ権限のトークンです。Entamy もこのサイトも保存しません。メディアがあるサイトは、先に Cloudflare のダッシュボードで R2 を有効にしてください。",
+    siteMoveConfirm:
+      "移す先は新しい導入として作られ、既存のものを上書きしないこと、SNS の連携の鍵と PAT は持っていかないことを確かめました。",
+    siteMoveConfirmRequired: "チェックを入れて確かめてください。",
+    siteMoveCfRequired: "32 桁の Account ID と API トークンを入れてください。",
+    siteMoveStart: "引っ越しを始める",
+    siteMoveRunning: "引っ越しています（{p}%）",
+    siteMoveFailed: "引っ越しが止まりました。写した分は残っています。",
+    siteMoveResume: "続きから再開",
+    siteMoveAgain: "やり直す",
+    siteMoveDone: "引っ越しが終わりました。",
+    siteMoveMailed:
+      "利用者 {n} 人に、新しいアドレスでパスキーを登録するリンクを送りました。",
+    siteMoveNewAddress: "新しいアドレス",
+    siteMoveOpenAdmin: "新しい管理画面を開く",
+    siteMoveOpsKey: "番人（WorkerOps）の鍵",
+    siteMoveOpsKeyNote:
+      "新しいサイトの復旧画面に入る鍵です。いま安全な場所に控えてください。引っ越しが終わったら、API トークンは Cloudflare で削除してください。",
+    siteMoveStep_verify_token: "トークンと権限を確かめる",
+    siteMoveStep_reserve_names: "既存のものとの衝突を確かめる",
+    siteMoveStep_create_storage: "データベースと保存先を作る",
+    siteMoveStep_fetch_release: "版を取得する（署名を確かめる）",
+    siteMoveStep_deploy_app: "KuroCMS を配備する",
+    siteMoveStep_apply_schema: "データベースを初期化する",
+    siteMoveStep_bootstrap_admin: "管理者を準備する",
+    siteMoveStep_create_update_token: "更新専用のトークンを作る",
+    siteMoveStep_deploy_workerops: "番人（WorkerOps）を配備する",
+    siteMoveStep_finish: "導入を記録する",
+    siteMoveStepManaged_verify_token: "準備を確かめる",
+    siteMoveStepManaged_reserve_names: "導入 ID を決める",
+    siteMoveStepManaged_create_update_token: "更新の準備",
+    siteMoveStepManaged_deploy_workerops: "公開アドレスを割り当てる",
+    siteMoveStep_move_copy: "記事と設定を写す",
+    siteMoveStep_move_media: "メディアを写す（SHA-256 で確かめる）",
+    siteMoveStep_move_build: "公開ページを作る",
+    siteMoveStep_move_check: "最後の突き合わせ（数分だけこのサイトを止めます）",
+    siteMoveStep_move_finish:
+      "パスキーの登録のメールを送り、このアドレスを案内に替える",
+    err_owner_unknown:
+      "この導入には持ち主の記録がありません（導入口より前の仕組みで入れた導入です）。引っ越すには、先に持ち主の Entamy ID を結んでください。",
+    err_wrong_direction: "このサイトはその向きには引っ越せません。",
+    err_move_in_progress: "引っ越しはもう始まっています。",
+    err_move_ticket_invalid:
+      "Entamy がこのサイトを確かめられませんでした。開き直してもう一度押してください。",
+    err_source_too_old: "先に KuroCMS を最新の版へ更新してください。",
+    err_source_busy: "このサイトは別の引っ越しの途中です。",
+    err_media_too_large:
+      "メディアが委託運用の上限（1 サイト 10 GB）を超えています。",
+    err_already_managed:
+      "この Entamy ID には、もう委託運用のサイトがあります。",
+    err_contract_required:
+      "無料期間はもう使っています。委託運用には契約が要ります。",
+    err_managed_unavailable: "いまは委託運用の受付を止めています。",
+    err_managed_capacity_full:
+      "いまは委託運用に空きがありません。しばらくしてからもう一度お試しください。",
+    err_managed_month_full:
+      "今月の委託運用の受付は締め切りました。来月にもう一度お試しください。",
+    err_no_managed_install: "委託の導入が見つかりません。",
+    err_entamy_unavailable:
+      "Entamy に届きませんでした。少し待ってからもう一度お試しください。",
+    err_invalid_input: "Account ID と API トークンを確かめてください。",
     moveReceivingTitle: "引っ越しを受けています",
     moveReceivingLead:
       "Entamy の委託から、記事とメディアを写しています。終わると、このサイトの利用者全員に、このアドレスでパスキーを登録するリンクがメールで届きます。",
