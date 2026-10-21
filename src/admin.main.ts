@@ -818,7 +818,7 @@ const i18n = {
     siteMoveManagedLead:
       "KuroCMS is set up on Entamy's Cloudflare account and your articles, media, settings and users are copied over. This site keeps working while it copies. When it finishes, this site shows a notice that sends visitors to the new address ({id}.kurocms.site), and everyone on the site gets an email with a link to register a passkey there. Custom domains are not carried over. Nothing in your Cloudflare account is deleted.",
     siteMoveManagedPrice:
-      "Managed hosting is paid. The free period starts when the new site is ready (once per Entamy ID; not if you have used managed hosting before). The contract belongs to the Entamy ID that installed this site.",
+      "Managed hosting is paid. The free period starts when the new site is ready (once per Entamy ID; an ID that has ever used managed hosting does not get a free period again). The contract belongs to the Entamy ID that installed this site.",
     siteMoveAccountId: "Cloudflare Account ID",
     siteMoveToken: "Cloudflare API token",
     siteMoveTokenHelp:
@@ -1972,7 +1972,7 @@ const i18n = {
     siteMoveManagedLead:
       "Entamy の Cloudflare アカウントに KuroCMS を立て、記事・メディア・設定・利用者を写します。写している間もこのサイトはそのまま使えます。終わると、このサイトは新しいアドレス（{導入ID}.kurocms.site）への案内に替わり、利用者全員に、新しいアドレスでパスキーを登録するリンクがメールで届きます。独自ドメインは引き継ぎません。ご自身の Cloudflare のものは消しません。",
     siteMoveManagedPrice:
-      "委託運用は有料です。最初の無料期間は、新しいサイトが使えるようになった時点から数えます（Entamy ID ごとに 1 回。委託運用を使ったことがある場合は付きません）。契約の持ち主は、このサイトを導入した Entamy ID です。",
+      "委託運用は有料です。最初の無料期間は、新しいサイトが使えるようになった時点から数えます（Entamy ID ごとに 1 回。一度でも委託運用を使ったことがある ID の場合は無料期間は追加されません）。契約の持ち主は、このサイトを導入した Entamy ID です。",
     siteMoveAccountId: "Cloudflare の Account ID",
     siteMoveToken: "Cloudflare の API トークン",
     siteMoveTokenHelp:
