@@ -298,6 +298,13 @@ export function adminHtml(
       button.snsPostBtn:disabled { opacity: 0.5; cursor: not-allowed; }
       .snsStatusValue.snsClearable { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
       .snsStatusValue.snsClearable:hover { opacity: 0.75; }
+      /* 2 択以上の切り替え(どちらを選んでいるかが一目で分かる)。button[aria-checked] を並べる。 */
+      .segmented { display: inline-flex; flex-wrap: wrap; justify-self: start; width: fit-content; border: 1.5px solid var(--accent); border-radius: 10px; overflow: hidden; background: var(--surface); max-width: 100%; }
+      .segmented > button { background: transparent; color: var(--accent); border: 0; border-radius: 0; padding: 8px 16px; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; box-shadow: none; }
+      .segmented > button + button { border-left: 1.5px solid var(--accent); }
+      .segmented > button:hover { background: rgba(21,122,110,.10); }
+      .segmented > button[aria-checked='true'] { background: var(--accent); color: #fff; }
+      .segmented > button[aria-checked='true']::before { content: '✓ '; }
       .snsSvcTab { opacity: .5; }
       .snsSvcTab:hover { opacity: .8; }
       .snsSvcTab.active { opacity: 1; border-color: var(--accent) !important; color: var(--accent); }
