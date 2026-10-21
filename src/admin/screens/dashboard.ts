@@ -743,17 +743,18 @@ async function dashboard() {
 }
 
 /** WorkerOps の枠の動き。KuroCMS の枠と同じく「確認 → 今すぐ更新」の 2 段で押させる。 */
-/** 委託: 更新のボタン・チャンネル・自動更新と WorkerOps の枠を隠し、自動で届く旨だけ出す。 */
+/** 委託: 更新のボタン・自動更新と WorkerOps の枠を隠し、自動で届く旨を出す。
+ *  最新版のスイッチは残す —— 番人は委託でも /api/health の update_policy で選択を読む。 */
 function applyManagedUpdates() {
   byId("guardianPanel")?.remove();
   const wrap = byId("btnUpdate")?.closest(
     ".updateBtnWrap",
   ) as HTMLElement | null;
   if (wrap) wrap.style.display = "none";
-  for (const id of ["updateChannelToggle", "autoUpdateToggle"]) {
-    const row = byId(id)?.closest(".versionRow") as HTMLElement | null;
-    if (row) row.style.display = "none";
-  }
+  const row = byId("autoUpdateToggle")?.closest(
+    ".versionRow",
+  ) as HTMLElement | null;
+  if (row) row.style.display = "none";
   const note = byId("versionNote");
   if (note) {
     note.dataset.managed = "1";

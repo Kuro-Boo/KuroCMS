@@ -1344,7 +1344,7 @@ const i18n = {
     planFree: "Free",
     cfAccountLabel: "Cloudflare account: ",
     cfAccountManaged: "Cloudflare account for hosted (managed) users",
-    managedUpdateNote: "Updates are delivered automatically by Entamy.",
+    managedUpdateNote: "Entamy delivers the chosen version automatically.",
     profileTabAccount: "Account",
     profileTabDisplay: "Display",
     profileTabPat: "PAT",
@@ -2633,7 +2633,7 @@ const i18n = {
     planFree: "無料枠",
     cfAccountLabel: "Cloudflare アカウント: ",
     cfAccountManaged: "委託利用者用の Cloudflare アカウント",
-    managedUpdateNote: "委託では、更新は Entamy が自動で届けます。",
+    managedUpdateNote: "委託では、選んだ版を Entamy が自動で届けます。",
     profileTabAccount: "アカウント",
     profileTabDisplay: "表示",
     profileTabPat: "PAT",
@@ -4600,7 +4600,7 @@ const helpContent: Record<string, Dynamic> = {
     canDo:
       "Entamy と KuroCMS からのお知らせを読む / 記事数と公開数、メディアの件数と容量を確かめる / D1・R2・KV の使用状況をグラフで確かめる（顧客導入では、無料枠と Workers Paid の含み分を切り替えられる） / KuroCMS と WorkerOps の版を確かめ、「今すぐ更新のチェック」「今すぐ更新」を押す / 「自動で更新する」「常に最新版に更新」を切り替える",
     notes:
-      "使用量が 70% を超えると黄色、90% を超えると赤になります。赤になる前に要らないメディアを消してください。委託運用では、使用状況は委託の上限に対して描きます。委託運用では更新を Entamy が届けるので、更新の操作は出ません。更新の仕組みはヘルプの「更新」を、お知らせはヘルプの「お知らせ」を見てください。",
+      "使用量が 70% を超えると黄色、90% を超えると赤になります。赤になる前に要らないメディアを消してください。委託運用では、使用状況は委託の上限に対して描きます。委託運用では更新を Entamy が届けるので、出るのは最新版のスイッチだけです。更新の仕組みはヘルプの「更新」を、お知らせはヘルプの「お知らせ」を見てください。",
   },
   articles: {
     title: "記事管理＆ビルド",
@@ -4711,7 +4711,7 @@ const helpContent: Record<string, Dynamic> = {
     canDo:
       "導入している版・安定版・最新版を確かめる / 「今すぐ更新のチェック」「今すぐ更新」で更新する / 「自動で更新する」を入・切にする / 「常に最新版に更新」で、安定版だけを入れるか、リリースのたびに入れるかを選ぶ / WorkerOps も同じように更新する",
     notes:
-      "自動で更新するときは、1 日に 1 回、選んだ版の新しいものを確かめ、WorkerOps が入れます。入れた直後の確かめに失敗すると、元の版に戻します。安定版は、提供元が確かめて昇格させた版です。最新版はリリースのたびに出るので、確かめの少ない版も入ります。版を確かめられなかったときは「確認できませんでした」と出ます。最新という意味ではありません。委託運用では Entamy が更新を届けるので、更新の操作は出ません。",
+      "自動で更新するときは、1 日に 1 回、選んだ版の新しいものを確かめ、WorkerOps が入れます。入れた直後の確かめに失敗すると、元の版に戻します。安定版は、提供元が確かめて昇格させた版です。最新版はリリースのたびに出るので、確かめの少ない版も入ります。版を確かめられなかったときは「確認できませんでした」と出ます。最新という意味ではありません。委託運用では Entamy が更新を届けるので、出るのは最新版のスイッチだけです。選んだ版を自動で入れます。",
   },
   notices: {
     title: "お知らせと持ち主",
@@ -4807,7 +4807,7 @@ const helpContentEn: Record<string, Dynamic> = {
     canDo:
       'Read notices from Entamy and KuroCMS / Check the article and published counts, and media counts and sizes / Check D1, R2 and KV usage on charts (when self-hosting, switch between the free allowance and what Workers Paid includes) / Check the KuroCMS and WorkerOps versions and press "Check for Update" or "Update Now" / Switch "Update automatically" and "Always update to latest"',
     notes:
-      'Usage turns yellow above 70% and red above 90%. Delete media you no longer need before it turns red. On managed hosting, usage is drawn against the managed limits. On managed hosting, Entamy delivers updates, so the update controls are not shown. See "Updates" and "Notices" in this help for how those work.',
+      'Usage turns yellow above 70% and red above 90%. Delete media you no longer need before it turns red. On managed hosting, usage is drawn against the managed limits. On managed hosting, Entamy delivers updates, so only the latest-version switch is shown. See "Updates" and "Notices" in this help for how those work.',
   },
   articles: {
     title: "Article Manager & build",
@@ -4918,7 +4918,7 @@ const helpContentEn: Record<string, Dynamic> = {
     canDo:
       'See the installed, stable and latest versions / Update with "Check for Update" and "Update Now" / Turn "Update automatically" on or off / Use "Always update to latest" to choose between stable versions only and every release / Update WorkerOps the same way',
     notes:
-      "With automatic updates, the chosen channel is checked once a day and WorkerOps installs anything new. If the check right after installing fails, it goes back to the previous version. Stable versions are releases the publisher has checked and promoted. The latest channel gets every release, including ones that have been checked less. If the version check cannot reach the release source, it says so; that does not mean you are up to date. On managed hosting Entamy delivers updates, so the update controls are not shown.",
+      "With automatic updates, the chosen channel is checked once a day and WorkerOps installs anything new. If the check right after installing fails, it goes back to the previous version. Stable versions are releases the publisher has checked and promoted. The latest channel gets every release, including ones that have been checked less. If the version check cannot reach the release source, it says so; that does not mean you are up to date. On managed hosting Entamy delivers updates, so only the latest-version switch is shown; the chosen version is installed automatically.",
   },
   notices: {
     title: "Notices and the owner",
