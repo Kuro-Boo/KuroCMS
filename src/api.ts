@@ -60,6 +60,7 @@ import {
 } from "./kuroeditor/normalize.js";
 import { checkRecipeCards } from "./recipe-guard.js";
 import { entamyPort } from "./entamy-port";
+import { checkSiteProof } from "./site-proof";
 import {
   CONTACT_CONSENT_VERSION,
   contactState,
@@ -513,6 +514,17 @@ async function handleApiDispatch(
         },
         { headers: jsonHeaders },
       );
+    }
+
+    // このサイトの短い証(src/site-proof.ts)。導入口が、ID に持ち主を結ぶ前に頼み手を確かめる。
+    // ログインの仕組みを通さない(証そのものが鍵)。中身は返さない。
+    if (request.method === "GET" && path === "/api/system/site-proof") {
+      return (await checkSiteProof(request, env))
+        ? json({ ok: true })
+        : json(
+            { error: { code: "unauthorized", message: "Invalid proof." } },
+            { status: 401 },
+          );
     }
 
     // 引っ越しの口(src/move.ts)。受付が kmove_ の鍵で叩く。ログインの仕組みを通さない。

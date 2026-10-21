@@ -172,10 +172,14 @@ export class EntamySession {
   }
   siteOwner(
     _worker: string,
+    _proof?: string,
   ): Promise<
     EntamyResult<{ owner: "record" | "id" | null; minVersion: string | null }>
   > {
-    return refuse<{ owner: "record" | "id" | null; minVersion: string | null }>();
+    return refuse<{
+      owner: "record" | "id" | null;
+      minVersion: string | null;
+    }>();
   }
   // 導入の持ち主(ID 第7章)。公開の写しでは基盤へ繋がないので、どれも断る
   // (管理画面は「いまは確認できません」を出し、ダイアログは出さない)。
@@ -551,10 +555,21 @@ export async function regionReport(
   d1_primary: boolean | null;
   rtt_ms: number | null;
   same: boolean | null;
-  names: { worker: string | null; entry: string | null; d1_region: string | null; d1_colo: string | null };
+  names: {
+    worker: string | null;
+    entry: string | null;
+    d1_region: string | null;
+    d1_colo: string | null;
+  };
 }> {
   return {
-    worker_colo: null, entry_colo: null, d1_region: null, d1_colo: null, d1_primary: null, rtt_ms: null, same: null,
+    worker_colo: null,
+    entry_colo: null,
+    d1_region: null,
+    d1_colo: null,
+    d1_primary: null,
+    rtt_ms: null,
+    same: null,
     names: { worker: null, entry: null, d1_region: null, d1_colo: null },
   };
 }

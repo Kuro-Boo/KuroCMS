@@ -15,6 +15,7 @@
  */
 import { entamyPort } from "./entamy-port.ts";
 import { optedOut } from "./entamy.ts";
+import { clearSiteProof, makeSiteProof } from "./site-proof.ts";
 import type { Env } from "./types.ts";
 
 /** 了承の文面の版。**文面(ダイアログの説明・メール)を変えたら上げる。** */
@@ -69,9 +70,14 @@ export async function contactState(env: Env): Promise<ContactState> {
       };
     }
     // ID に結び付きが無くても、導入口で入れた導入なら持ち主は分かっている。訊けなければ未登録と読まない。
+    // 短い証を添えて訊く —— 導入口はそれを記録のアドレスで確かめ、ID にも持ち主を結ぶ(持ち主宛ての
+    // お知らせがこのサイトにも出るように・ID 第7章)。次に開いたときは ID の結び付きで linked と読む。
+    const proof = await makeSiteProof(env).catch(() => undefined);
     const site = await port.session.siteOwner(
       (env.CF_WORKER_NAME ?? "").trim(),
+      proof,
     );
+    if (proof) await clearSiteProof(env).catch(() => {});
     if (!site.ok) return { state: "unavailable" };
     if (site.value.owner === "record") return { state: "installer" };
     return { state: "none", declined, pending };
