@@ -37,6 +37,7 @@ import {
   buildAllPublicPages,
   cheapHash,
   deleteArticlePages,
+  clearMovedAssets,
   extractTwTokens,
   findTwCdnUrl,
   generatePage,
@@ -11217,6 +11218,9 @@ async function handleMove(
       .bind(origin)
       .run();
     forgetMovedCache();
+    // 置いてある公開ページを下ろす(Worker の手前で返り、案内が出ないため)。番人が
+    // 忙しければ、毎分の定期処理が続きをやる(index.ts)。
+    await clearMovedAssets(env);
     return json({ ok: true, movedTo: origin });
   }
 

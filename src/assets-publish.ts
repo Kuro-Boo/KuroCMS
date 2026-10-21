@@ -217,7 +217,7 @@ export async function manifestFingerprint(
   return assetHash(lines);
 }
 
-function lastFingerprint(result: string): string | null {
+export function lastFingerprint(result: string): string | null {
   try {
     return (
       (JSON.parse(result || "{}") as { manifest?: string }).manifest ?? null

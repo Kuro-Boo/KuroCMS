@@ -21,6 +21,7 @@ import {
   isPublicPath,
   isSitePublished,
   resolveFaviconPath,
+  clearMovedAssets,
   runScheduledAutoBuild,
   searchEndpoint,
   serveTemplateCss,
@@ -56,6 +57,14 @@ export default {
     const retired = await moveRetired(env).catch(() => false);
     if (!retired)
       ctx.waitUntil(runScheduledThreadsTokenRefresh(env, event.scheduledTime));
+    // 引き渡し済みなら、残っている公開ページを下ろす(済んでいれば 1 回読むだけ)。
+    // 1.10.91 までに引き渡した導入も、更新されたこの版がここで下ろす。
+    else
+      ctx.waitUntil(
+        clearMovedAssets(env).catch((err) => {
+          console.error("moved assets clear failed:", err);
+        }),
+      );
     // 番人(WorkerOps)の更新は app が行う(cms-workerops)。app の版が変わったのを見つけたら、
     // 自動更新が入なら番人を上げる。版が同じ間は KV を 1 回読むだけ。
     // 接続元の登録の期限切れを片付ける(1 時間に 1 回。毎分の起動に相乗りする)。

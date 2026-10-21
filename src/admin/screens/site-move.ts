@@ -34,41 +34,90 @@ function siteMoveSectionHtml(): string {
     "<div id='siteMoveNow' style='font-weight:700'></div>" +
     "<div class='muted' id='siteMoveNote' style='display:none'></div>" +
     "<div><button type='button' class='secondary' id='siteMoveOpen'></button></div>" +
-    "<div id='siteMoveForm' class='stack' style='display:none'>" +
-    "<div class='muted' id='siteMoveLead'></div>" +
-    "<div class='muted' id='siteMovePrice' style='display:none'></div>" +
-    "<div id='siteMoveCf' class='stack' style='display:none'>" +
-    "<label>" +
-    escapeHtml(t("siteMoveAccountId")) +
-    "<input id='siteMoveAccountId' autocomplete='off' maxlength='32' placeholder='0123456789abcdef0123456789abcdef' /></label>" +
-    "<label>" +
-    escapeHtml(t("siteMoveToken")) +
-    "<div class='muted'>" +
-    escapeHtml(t("siteMoveTokenHelp")) +
-    "</div><input id='siteMoveToken' type='password' autocomplete='off' /></label>" +
-    "</div>" +
-    "<div class='toggleRow'><div><b>" +
-    escapeHtml(t("siteMoveConfirm")) +
-    "</b></div><input id='siteMoveConfirm' type='checkbox' class='toggle' /></div>" +
-    "<div class='toolbar' style='gap:8px'>" +
-    "<button type='button' id='siteMoveStart'>" +
-    escapeHtml(t("siteMoveStart")) +
-    "</button>" +
-    "<button type='button' class='secondary' id='siteMoveCancel'>" +
-    escapeHtml(t("cancel")) +
+    // 走っている間・止まった後は、この 1 行と「進み具合を見る」だけを枠に残す(中身はダイアログ)。
+    "<div id='siteMoveInline' class='toolbar' style='display:none;gap:12px;align-items:center'>" +
+    "<b id='siteMoveInlineState'></b>" +
+    "<button type='button' class='secondary' id='siteMoveShow'>" +
+    escapeHtml(t("siteMoveShow")) +
     "</button></div>" +
+    "</div>"
+  );
+}
+
+/** 引っ越しのダイアログ。確かめ・Cloudflare の欄・作業の工程・進み具合を 1 枚で見せる。 */
+function siteMoveDialogHtml(toSelf: boolean): string {
+  return (
+    "<div class='popupCard stack' role='dialog' aria-modal='true' aria-live='polite' style='width:min(640px,94vw);max-height:90vh;overflow:auto'>" +
+    "<h3 class='popupTitle'>" +
+    escapeHtml(t(toSelf ? "siteMoveToSelf" : "siteMoveToManaged")) +
+    "</h3>" +
+    "<div id='siteMoveForm' class='stack'>" +
+    "<div class='muted'>" +
+    escapeHtml(t(toSelf ? "siteMoveSelfLead" : "siteMoveManagedLead")) +
+    "</div>" +
+    (toSelf
+      ? ""
+      : "<div class='muted'>" +
+        escapeHtml(t("siteMoveManagedPrice")) +
+        "</div>") +
+    (toSelf
+      ? "<div class='stack'><label>" +
+        escapeHtml(t("siteMoveAccountId")) +
+        "<input id='siteMoveAccountId' autocomplete='off' maxlength='32' placeholder='0123456789abcdef0123456789abcdef' /></label>" +
+        "<label>" +
+        escapeHtml(t("siteMoveToken")) +
+        "<div class='muted'>" +
+        escapeHtml(t("siteMoveTokenHelp")) +
+        "</div><input id='siteMoveToken' type='password' autocomplete='off' /></label></div>"
+      : "") +
     "</div>" +
     "<div id='siteMoveProgress' class='stack' style='display:none'>" +
     "<div><b id='siteMoveState'></b></div>" +
     "<div style='height:8px;border-radius:4px;background:var(--surface-2);overflow:hidden'>" +
     "<div id='siteMoveBar' style='height:100%;width:0;background:var(--theme-accent,#0f766e);transition:width .4s'></div></div>" +
+    "</div>" +
+    // 工程は始める前から見せる(何が起きるかを先に分かるように)。始めたら印が付いていく。
+    "<div class='fieldLabel'>" +
+    escapeHtml(t("siteMoveStepsTitle")) +
+    "</div>" +
     "<ol id='siteMoveSteps' class='muted' style='margin:0;padding-left:20px;font-size:13px;display:grid;gap:2px'></ol>" +
     "<div id='siteMoveOps' style='display:none'></div>" +
     "<div id='siteMoveResult'></div>" +
-    "</div>" +
+    "<div id='siteMoveConfirmRow' class='toggleRow'><div><b>" +
+    escapeHtml(t("siteMoveConfirm")) +
+    "</b></div><input id='siteMoveConfirm' type='checkbox' class='toggle' /></div>" +
+    "<p class='muted' id='siteMoveCloseNote' style='display:none;font-size:12px;margin:0'>" +
+    escapeHtml(t("siteMoveCloseNote")) +
+    "</p>" +
+    "<div class='toolbar' style='gap:8px;justify-content:flex-end'>" +
+    "<button type='button' class='secondary' id='siteMoveCancel'>" +
+    escapeHtml(t("cancel")) +
+    "</button>" +
+    "<button type='button' id='siteMoveStart'>" +
+    escapeHtml(t("siteMoveStart")) +
+    "</button></div>" +
     "</div>"
   );
 }
+
+/** 導入口の工程の順(deployer.ts の STEPS と move.ts の MOVE_STEPS)。始める前の一覧に使う。 */
+const SITE_MOVE_STEP_KEYS = [
+  "verify_token",
+  "reserve_names",
+  "create_storage",
+  "fetch_release",
+  "deploy_app",
+  "apply_schema",
+  "bootstrap_admin",
+  "create_update_token",
+  "deploy_workerops",
+  "finish",
+  "move_copy",
+  "move_media",
+  "move_build",
+  "move_check",
+  "move_finish",
+];
 
 function siteMoveToken(prefix: string): string {
   const bytes = crypto.getRandomValues(new Uint8Array(36));
@@ -115,19 +164,10 @@ async function mountSiteMove(): Promise<void> {
   const now = byId("siteMoveNow")!;
   const note = byId("siteMoveNote")!;
   const open = byId("siteMoveOpen") as Dynamic;
-  const form = byId("siteMoveForm")!;
-  const progress = byId("siteMoveProgress")!;
+  const inline = byId("siteMoveInline")!;
+  const inlineState = byId("siteMoveInlineState")!;
   now.textContent = t(toSelf ? "siteMoveNowManaged" : "siteMoveNowSelf");
   open.textContent = t(toSelf ? "siteMoveToSelf" : "siteMoveToManaged");
-  byId("siteMoveLead")!.textContent = t(
-    toSelf ? "siteMoveSelfLead" : "siteMoveManagedLead",
-  );
-  const price = byId("siteMovePrice")!;
-  if (!toSelf) {
-    price.style.display = "";
-    price.textContent = t("siteMoveManagedPrice");
-  }
-  byId("siteMoveCf")!.style.display = toSelf ? "" : "none";
   // 持ち主が分からなければ、先に持ち主の登録(確認メール 1 通)。結ばれたら枠を描き直す。
   let needOwner = false;
   if (info.owner === null) {
@@ -146,6 +186,37 @@ async function mountSiteMove(): Promise<void> {
     if (timer) clearInterval(timer);
     timer = null;
   };
+  // 始めた後の工程(導入口が返す最新)。ダイアログを開き直したときに描き直す。
+  let lastJob: Dynamic = null;
+  let opsKey = "";
+
+  // ダイアログ。閉じても引っ越しは導入口で続き、枠の 1 行が進み具合を追う。
+  let overlay: HTMLDivElement | null = null;
+  function closeDialog() {
+    overlay?.remove();
+    overlay = null;
+    // 走っていないなら、もう追う必要はない(枠のボタンから開き直せる)。
+    if (!lastJob) stop();
+  }
+  function openDialog() {
+    closeDialog();
+    overlay = createPopupBackdrop();
+    overlay.id = "siteMoveOverlay";
+    overlay.innerHTML = siteMoveDialogHtml(toSelf);
+    document.body.appendChild(overlay);
+    byId("siteMoveCancel")!.addEventListener("click", closeDialog);
+    byId("siteMoveStart")!.addEventListener("click", () => void start());
+    if (lastJob) {
+      showOps(opsKey);
+      render(lastJob);
+    } else {
+      // 始める前: 工程を並べて見せる(印なし)。
+      paintSteps(
+        SITE_MOVE_STEP_KEYS.map((key) => ({ key, status: "pending" })),
+        !toSelf,
+      );
+    }
+  }
 
   // 引っ越しを受ける版の下限(導入口が持つ)。足りなければ、押したときに先に更新を求める。
   const tooOld =
@@ -168,16 +239,13 @@ async function mountSiteMove(): Promise<void> {
       );
       return;
     }
-    form.style.display = "";
-    open.style.display = "none";
+    openDialog();
   });
-  byId("siteMoveCancel")!.addEventListener("click", () => {
-    form.style.display = "none";
-    open.style.display = "";
-  });
+  byId("siteMoveShow")!.addEventListener("click", openDialog);
 
   function showOps(key: string) {
-    const ops = byId("siteMoveOps")!;
+    const ops = byId("siteMoveOps");
+    if (!ops) return;
     if (!key) {
       ops.style.display = "none";
       return;
@@ -193,22 +261,17 @@ async function mountSiteMove(): Promise<void> {
       "</div>";
   }
 
-  function stepLabel(id: string, managedTarget: boolean): string {
-    const managedKey = "siteMoveStepManaged_" + id;
+  function stepLabel(key: string, managedTarget: boolean): string {
+    const managedKey = "siteMoveStepManaged_" + key;
     if (managedTarget && t(managedKey) !== managedKey) return t(managedKey);
-    const key = "siteMoveStep_" + id;
-    return t(key) !== key ? t(key) : id;
+    const k = "siteMoveStep_" + key;
+    return t(k) !== k ? t(k) : key;
   }
 
-  function render(job: Dynamic) {
-    progress.style.display = "";
-    form.style.display = "none";
-    open.style.display = "none";
-    const pct = Math.max(0, Math.min(100, Number(job.progress) || 0));
-    byId("siteMoveBar")!.style.width = pct + "%";
-    const managedTarget = job.mode === "managed";
-    const steps = byId("siteMoveSteps")!;
-    steps.innerHTML = (job.steps || [])
+  function paintSteps(list: Dynamic[], managedTarget: boolean) {
+    const steps = byId("siteMoveSteps");
+    if (!steps) return;
+    steps.innerHTML = list
       .map((s: Dynamic) => {
         const mark =
           s.status === "done"
@@ -224,26 +287,51 @@ async function mountSiteMove(): Promise<void> {
             : s.status === "error"
               ? " style='color:var(--danger)'"
               : "";
+        // 導入口の工程は key で来る(古い形は id)。
+        const key = String(s.key ?? s.id ?? "");
         return (
           "<li" +
           style +
           ">" +
           mark +
-          escapeHtml(stepLabel(String(s.id), managedTarget)) +
+          escapeHtml(stepLabel(key, managedTarget)) +
           "</li>"
         );
       })
       .join("");
-    const state = byId("siteMoveState")!;
+  }
+
+  function paintInline(text: string) {
+    open.style.display = "none";
+    inline.style.display = "";
+    inlineState.textContent = text;
+  }
+
+  function render(job: Dynamic) {
+    lastJob = job;
+    const pct = Math.max(0, Math.min(100, Number(job.progress) || 0));
+    const running = job.status === "running";
+    const stateText = running
+      ? t("siteMoveRunning").replace("{p}", String(pct))
+      : job.status === "error"
+        ? t("siteMoveFailed")
+        : t("siteMoveDone");
+    paintInline(stateText);
+    if (!running) stop();
+    if (!overlay) return;
+    byId("siteMoveForm")!.style.display = "none";
+    byId("siteMoveConfirmRow")!.style.display = "none";
+    byId("siteMoveStart")!.style.display = "none";
+    byId("siteMoveCancel")!.textContent = t("close");
+    byId("siteMoveCloseNote")!.style.display = running ? "" : "none";
+    byId("siteMoveProgress")!.style.display = "";
+    byId("siteMoveBar")!.style.width = pct + "%";
+    byId("siteMoveState")!.textContent = stateText;
+    paintSteps(job.steps || [], job.mode === "managed");
     const result = byId("siteMoveResult")!;
     result.innerHTML = "";
-    if (job.status === "running") {
-      state.textContent = t("siteMoveRunning").replace("{p}", String(pct));
-      return;
-    }
-    stop();
+    if (running) return;
     if (job.status === "error") {
-      state.textContent = t("siteMoveFailed");
       if (job.move?.resumable) {
         const btn = document.createElement("button");
         btn.type = "button";
@@ -263,7 +351,7 @@ async function mountSiteMove(): Promise<void> {
         });
         result.appendChild(btn);
       } else {
-        // 写し始める前に止まった(鍵・権限・空きなど)。やり直せるように枠を戻す。
+        // 写し始める前に止まった(鍵・権限・空きなど)。やり直せるように最初の形へ戻す。
         const again = document.createElement("button");
         again.type = "button";
         again.className = "secondary";
@@ -273,16 +361,17 @@ async function mountSiteMove(): Promise<void> {
             () => {},
           );
           siteMoveRemember(null);
-          showOps("");
-          progress.style.display = "none";
+          opsKey = "";
+          lastJob = null;
+          inline.style.display = "none";
           open.style.display = "";
+          openDialog();
         });
         result.appendChild(again);
       }
       return;
     }
     if (job.status === "done" && job.result) {
-      state.textContent = t("siteMoveDone");
       const url = String(job.result.publicUrl || "");
       const p = document.createElement("div");
       p.className = "stack";
@@ -324,7 +413,7 @@ async function mountSiteMove(): Promise<void> {
     timer = setInterval(poll, SITE_MOVE_POLL_MS);
   }
 
-  byId("siteMoveStart")!.addEventListener("click", async () => {
+  async function start() {
     const confirmBox = byId("siteMoveConfirm") as Dynamic;
     if (!confirmBox.checked) {
       toast(t("siteMoveConfirmRequired"), true);
@@ -336,7 +425,7 @@ async function mountSiteMove(): Promise<void> {
       api: location.origin + withBase("/api/system/move/"),
       timeZone: detectBrowserTimezone(),
     };
-    let opsKey = "";
+    let key = "";
     if (toSelf) {
       const accountId = (byId("siteMoveAccountId") as Dynamic).value.trim();
       const token = (byId("siteMoveToken") as Dynamic).value.trim();
@@ -344,8 +433,8 @@ async function mountSiteMove(): Promise<void> {
         toast(t("siteMoveCfRequired"), true);
         return;
       }
-      opsKey = siteMoveToken("wops_");
-      Object.assign(body, { accountId, token, workerOpsToken: opsKey });
+      key = siteMoveToken("wops_");
+      Object.assign(body, { accountId, token, workerOpsToken: key });
     }
     const btn = byId("siteMoveStart") as Dynamic;
     btn.disabled = true;
@@ -354,21 +443,31 @@ async function mountSiteMove(): Promise<void> {
         method: "POST",
         body: JSON.stringify(body),
       });
-      (byId("siteMoveToken") as Dynamic).value = "";
-      if (opsKey) {
-        siteMoveRemember(opsKey);
-        showOps(opsKey);
+      const tokenInput = byId("siteMoveToken") as Dynamic;
+      if (tokenInput) tokenInput.value = "";
+      if (key) {
+        opsKey = key;
+        siteMoveRemember(key);
+        showOps(key);
       }
+      // 最初の読み取りまでの間も、ダイアログは進み具合の形にしておく。
+      render({
+        status: "running",
+        progress: 0,
+        mode: toSelf ? "self" : "managed",
+        steps: SITE_MOVE_STEP_KEYS.map((k) => ({ key: k, status: "pending" })),
+      });
       follow(job.statusUrl);
     } catch (err) {
       toast(errorMessage(err), true);
     } finally {
       btn.disabled = false;
     }
-  });
+  }
 
   if (info.job?.statusUrl) {
-    showOps(info.job.to === "self" ? siteMoveRemembered() : "");
+    opsKey = info.job.to === "self" ? siteMoveRemembered() : "";
+    paintInline(t("siteMoveRunning").replace("{p}", "0"));
     follow(info.job.statusUrl);
   }
 }
@@ -377,6 +476,7 @@ async function mountSiteMove(): Promise<void> {
 async function refreshSiteMove(): Promise<void> {
   const box = byId("siteMoveSection");
   if (!box) return;
+  byId("siteMoveOverlay")?.remove();
   box.outerHTML = siteMoveSectionHtml();
   await mountSiteMove();
 }

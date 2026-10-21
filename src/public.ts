@@ -91,10 +91,13 @@ import {
   type AssetsProgress,
   assetsPending,
   forgetPages,
+  lastFingerprint,
+  manifestFingerprint,
   pageRecordStatements,
   publishAssets,
   recordPages,
 } from "./assets-publish";
+import { movedTo } from "./move";
 
 // Bump when the page-rendering OUTPUT changes in a way the per-page source_hash
 // can't see (e.g. the <head> content-CSS <link>, template-model shape). The
@@ -4225,7 +4228,11 @@ export async function publishSiteAssets(
           }
         }
         return {
-          published: pub?.site_is_published === 1,
+          // 委託運用へ引き渡した後は、ページを 1 枚も置かない(静的資産は Worker の手前で
+          // 返るので、残すと案内が出ない —— 2026-10-21 に 8210de で見つけた)。
+          published:
+            pub?.site_is_published === 1 &&
+            !(await movedTo(env).catch(() => null)),
           defaultLang: settings.default_lang || "en",
           publicBase: settings.base_path || "",
           css,
@@ -4235,6 +4242,23 @@ export async function publishSiteAssets(
     },
     opts,
   );
+}
+
+/**
+ * 引き渡し済みの移す元の公開ページを下ろす(空の一覧を番人へ渡す)。もう空なら何もしない。
+ * 番人が別の操作中で断ったときは、毎分の定期処理がまた呼ぶ。決して投げない。
+ */
+export async function clearMovedAssets(env: Env): Promise<void> {
+  if (!(await movedTo(env).catch(() => null))) return;
+  const row = await env.DB.prepare(
+    "SELECT result FROM asset_publish WHERE id = 1",
+  )
+    .first<{ result: string }>()
+    .catch(() => null);
+  // 一度も資産を置いていない導入は、下ろすものが無い。
+  if (!row?.result) return;
+  if (lastFingerprint(row.result) === (await manifestFingerprint({}))) return;
+  await publishSiteAssets(env, { force: true });
 }
 
 // ─── Build helpers ────────────────────────────────────────────────────────────
