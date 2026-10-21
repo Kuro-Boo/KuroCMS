@@ -814,11 +814,11 @@ const i18n = {
     siteMoveToSelf: "Move to your own Cloudflare account",
     siteMoveToManaged: "Move to Entamy managed hosting",
     siteMoveSelfLead:
-      "KuroCMS is set up in your Cloudflare account and your articles, media, settings and users are copied over. This site keeps working while it copies (it pauses only for a few minutes at the final check). When it finishes, this address shows a notice that sends visitors to the new address, and everyone on the site gets an email with a link to register a passkey there. Self-hosting is free.",
+      "KuroCMS is set up in your Cloudflare account and your articles, media, settings and users are copied over. This site keeps working while it copies (it pauses only for a few minutes at the final check). When it finishes, this address shows a notice that sends visitors to the new address, and every administrator of this KuroCMS gets an email with a link to register a passkey there. Self-hosting is free.",
     siteMoveManagedLead:
-      "KuroCMS is set up on Entamy's Cloudflare account and your articles, media, settings and users are copied over. This site keeps working while it copies. When it finishes, this site shows a notice that sends visitors to the new address ({id}.kurocms.site), and everyone on the site gets an email with a link to register a passkey there. Custom domains are not carried over. Nothing in your Cloudflare account is deleted.",
+      "KuroCMS is set up on Entamy's Cloudflare account and your articles, media, settings and users are copied over. This site keeps working while it copies. When it finishes, this site shows a notice that sends visitors to the new address ({id}.kurocms.site), and every administrator of this KuroCMS gets an email with a link to register a passkey there. Custom domains are not carried over. The KuroCMS installed in your own Cloudflare account is not deleted; if you no longer need it, delete it yourself after switching. You cannot choose the installation ID.",
     siteMoveManagedPrice:
-      "Managed hosting is paid. The free period starts when the new site is ready (once per Entamy ID; an ID that has ever used managed hosting does not get a free period again). The contract belongs to the Entamy ID that installed this site.",
+      "Managed hosting is paid. The free period starts when the new site is ready (once per registered email account; an ID that has ever used managed hosting does not get a free period again). The contract belongs to the Entamy ID that installed this site.",
     siteMoveAccountId: "Cloudflare Account ID",
     siteMoveToken: "Cloudflare API token",
     siteMoveTokenHelp:
@@ -886,7 +886,7 @@ const i18n = {
     err_invalid_input: "Check the Account ID and the API token.",
     moveReceivingTitle: "This site is moving in",
     moveReceivingLead:
-      "Your articles and media are being copied from Entamy hosting. When it finishes, everyone on the site gets an email with a link to register a passkey for this address.",
+      "Your articles and media are being copied from Entamy hosting. When it finishes, every administrator of this site gets an email with a link to register a passkey for this address.",
     legalTerms: "Terms of Service",
     legalPrivacy: "Privacy Policy",
     legalAgreeButton: "Agree and continue",
@@ -2023,11 +2023,11 @@ const i18n = {
     siteMoveToSelf: "ご自身の Cloudflare アカウントへ引っ越す",
     siteMoveToManaged: "Entamy の委託運用へ引っ越す",
     siteMoveSelfLead:
-      "ご自身の Cloudflare アカウントに KuroCMS を立て、記事・メディア・設定・利用者を写します。写している間もこのサイトはそのまま使えます（最後の突き合わせの数分だけ止まります）。終わると、このアドレスは新しいアドレスへの案内に替わり、利用者全員に、新しいアドレスでパスキーを登録するリンクがメールで届きます。顧客導入は無料です。",
+      "ご自身の Cloudflare アカウントに KuroCMS を立て、記事・メディア・設定・利用者を写します。写している間もこのサイトはそのまま使えます（最後の突き合わせの数分だけ止まります）。終わると、このアドレスは新しいアドレスへの案内に替わり、この KuroCMS の管理者全員に、新しいアドレスでパスキーを登録するリンクがメールで届きます。顧客導入は無料です。",
     siteMoveManagedLead:
-      "Entamy の Cloudflare アカウントに KuroCMS を立て、記事・メディア・設定・利用者を写します。写している間もこのサイトはそのまま使えます。終わると、このサイトは新しいアドレス（{導入ID}.kurocms.site）への案内に替わり、利用者全員に、新しいアドレスでパスキーを登録するリンクがメールで届きます。独自ドメインは引き継ぎません。ご自身の Cloudflare のものは消しません。",
+      "Entamy の Cloudflare アカウントに KuroCMS を立て、記事・メディア・設定・利用者を写します。写している間もこのサイトはそのまま使えます。終わると、このサイトは新しいアドレス（{導入ID}.kurocms.site）への案内に替わり、この KuroCMS の管理者全員に、新しいアドレスでパスキーを登録するリンクがメールで届きます。独自ドメインは引き継ぎません。ご自身の Cloudflare に導入した KuroCMS のものは消しません。必要なければ、運用を切り替えた後にご自身で削除してください。※導入 ID は選べません。",
     siteMoveManagedPrice:
-      "委託運用は有料です。最初の無料期間は、新しいサイトが使えるようになった時点から数えます（Entamy ID ごとに 1 回。一度でも委託運用を使ったことがある ID の場合は無料期間は追加されません）。契約の持ち主は、このサイトを導入した Entamy ID です。",
+      "委託運用は有料です。最初の無料期間は、新しいサイトが使えるようになった時点から数えます（登録メールアカウントごとに 1 回。一度でも委託運用を使ったことがある ID の場合は無料期間は追加されません）。契約の持ち主は、このサイトを導入した Entamy ID です。",
     siteMoveAccountId: "Cloudflare の Account ID",
     siteMoveToken: "Cloudflare の API トークン",
     siteMoveTokenHelp:
@@ -2095,7 +2095,7 @@ const i18n = {
     err_invalid_input: "Account ID と API トークンを確かめてください。",
     moveReceivingTitle: "引っ越しを受けています",
     moveReceivingLead:
-      "Entamy の委託から、記事とメディアを写しています。終わると、このサイトの利用者全員に、このアドレスでパスキーを登録するリンクがメールで届きます。",
+      "Entamy の委託から、記事とメディアを写しています。終わると、このサイトの管理者全員に、このアドレスでパスキーを登録するリンクがメールで届きます。",
     legalTerms: "利用規約",
     legalPrivacy: "プライバシーポリシー",
     legalAgreeButton: "同意して続ける",
