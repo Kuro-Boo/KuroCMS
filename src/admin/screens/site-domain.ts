@@ -104,17 +104,25 @@ async function mountOwnDomain(publicDomain: string): Promise<void> {
       "<div class='muted'>" +
       escapeHtml(t("ownDomainLead")) +
       "</div>" +
-      "<div class='toolbar' style='gap:6px'>" +
-      "<button type='button' class='secondary" +
-      (dns === "cloudflare" ? " active" : "") +
-      "' data-own-dns='cloudflare'>" +
-      escapeHtml(t("ownDomainDnsCloudflare")) +
-      "</button>" +
-      "<button type='button' class='secondary" +
-      (dns === "other" ? " active" : "") +
-      "' data-own-dns='other'>" +
-      escapeHtml(t("ownDomainDnsOther")) +
-      "</button>" +
+      "<div class='segmented' role='radiogroup'>" +
+      ["cloudflare", "other"]
+        .map(
+          (v) =>
+            "<button type='button' role='radio' aria-checked='" +
+            (dns === v) +
+            "' data-own-dns='" +
+            v +
+            "'>" +
+            escapeHtml(
+              t(
+                v === "cloudflare"
+                  ? "ownDomainDnsCloudflare"
+                  : "ownDomainDnsOther",
+              ),
+            ) +
+            "</button>",
+        )
+        .join("") +
       "</div>" +
       ownDomainSteps(
         dns === "cloudflare"
