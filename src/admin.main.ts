@@ -1166,9 +1166,9 @@ const i18n = {
     currentCustomDomains: "Configured custom domains",
     noCustomDomains: "No custom domain configured yet.",
     customDomainHelp:
-      "Enter a domain in a Cloudflare zone you own. Cloudflare automatically creates the DNS record and SSL certificate — no manual CNAME needed. Requires the worker token to have DNS edit permission (granted on a fresh install/re-bootstrap).",
+      "Enter a domain in a Cloudflare zone you own. Cloudflare automatically creates the DNS record and SSL certificate — no manual CNAME needed. The Cloudflare token of this install needs DNS edit permission.",
     customDomainPermNote:
-      "If this failed with a permission error, the worker token lacks DNS edit access. Re-bootstrap KuroCMS to regenerate the token, or add the domain from the Cloudflare dashboard.",
+      "If this failed with a permission error, the Cloudflare token of this install lacks DNS edit access. Add the domain from the Cloudflare dashboard instead: Workers & Pages → your KuroCMS Worker → Settings → Domains & Routes → Add → Custom domain.",
     setCustomDomain: "Set custom domain",
     customDomainAdded:
       "Custom domain attached. DNS and SSL are being provisioned by Cloudflare (a few minutes). Then set it as the Public Domain above.",
@@ -1455,7 +1455,7 @@ const i18n = {
     err_missing_file: "No file was selected.",
     err_media_not_found: "The media file was not found.",
     err_r2_not_configured:
-      "Media storage (R2) is not set up. Create and connect it under Settings → Basic.",
+      "Media storage (R2) is not set up. See Settings → Basic → R2 media storage.",
     err_cf_creds_missing: "Cloudflare credentials are not configured.",
     err_custom_domain_required: "Assign a custom domain first.",
     err_email_routing_destination_unverified:
@@ -1685,12 +1685,11 @@ const i18n = {
     coverMidHint:
       "Specify a cover by image id, e.g. [[img-xxx]]. Loads when you leave the field.",
     coverMidNotFound: "No image found for that id.",
-    r2CoverUnavail:
-      'Enable R2 to use media (Settings → Basic → "Start using R2").',
+    r2CoverUnavail: "Media needs R2. See Settings → Basic → R2 media storage.",
     slugLabelNote: "read-only, click to copy",
     slugCopyHint: "Click to copy",
     slugHint:
-      "Letters, numbers, hyphens, underscores only. Cannot be changed after creation.",
+      "Lowercase letters, numbers and hyphens only (start with a letter or number). Cannot be changed after creation.",
     articleTitlePlaceholder: "Enter article title",
     summaryPlaceholder: "Summary (up to 200 chars · used for SNS)",
     bodyLabel: "Body",
@@ -1705,7 +1704,7 @@ const i18n = {
     // Cloudflare 側で始めただけでは使えず、KuroCMS の「R2 利用開始」を押して
     // はじめてバケットが繋がるので、2 段階であることを必ず書く。
     r2EnableDesc:
-      'Images, video and audio are stored in Cloudflare R2. Nothing is charged within the 10 GB free tier. Two steps: (1) start R2 in the Cloudflare dashboard, then (2) press "Start using R2" in KuroCMS under Settings → Basic. After step 2 the bucket is created and connected automatically and this screen becomes available.',
+      "Images, video and audio are stored in Cloudflare R2. Nothing is charged up to the free 10 GB. Set it up in your own Cloudflare by following the steps under Settings → Basic → R2 media storage (start R2, create a bucket, and bind it to this Worker as MEDIA_BUCKET). Once it is bound, this screen becomes available.",
     uploadPreparing: "Preparing…",
     uploading: "Uploading…",
     uploadComplete: "Done",
@@ -1725,7 +1724,7 @@ const i18n = {
     videoTypeLabel: "Videos",
     audioTypeLabel: "Music",
     r2MediaUnavailMsg:
-      'Media unavailable<br>Settings → Basic → "Start using R2"',
+      "Media unavailable<br>Settings → Basic → R2 media storage",
     tmplCommunityLocked: "🔒 Published to community — cannot edit",
     tmplCommunityUnlockHint:
       "Unpublish from community in the Template Preview tab first.",
@@ -1823,6 +1822,7 @@ const i18n = {
     mediaInfoCountMid2: " file(s), ",
     mediaInfoCountEnd: " in R2.",
     helpBasic: "Basics",
+    helpUpdates: "Updates",
     blueskyAppPassword: "Access Token (App Password)",
     blueskyAppPasswordHelp: "Generate in Bluesky Settings → App Passwords.",
     importFromStrapi: "Import from Strapi",
@@ -2452,9 +2452,9 @@ const i18n = {
     currentCustomDomains: "設定済みカスタムドメイン",
     noCustomDomains: "カスタムドメインは未設定です。",
     customDomainHelp:
-      "ご自身の Cloudflare アカウントで管理しているドメインを入力してください。Cloudflare が DNS レコードと SSL 証明書を自動作成します（CNAME の手動追加は不要）。設定には worker トークンに DNS 編集権限が必要です（新規インストール／再ブートストラップ時に付与）。",
+      "ご自身の Cloudflare アカウントで管理しているドメインを入力してください。Cloudflare が DNS レコードと SSL 証明書を自動作成します（CNAME の手動追加は不要）。設定には、この導入の Cloudflare のトークンに DNS の編集権限が必要です。",
     customDomainPermNote:
-      "権限エラーで失敗した場合、worker トークンに DNS 編集権限がありません。再ブートストラップでトークンを再生成するか、Cloudflare ダッシュボードからドメインを追加してください。",
+      "権限エラーで失敗した場合は、この導入の Cloudflare のトークンに DNS の編集権限がありません。Cloudflare ダッシュボードの Workers & Pages → KuroCMS の Worker → 設定 → ドメインとルート → 追加 → カスタムドメイン から追加してください。",
     setCustomDomain: "カスタムドメインを設定",
     customDomainAdded:
       "カスタムドメインを割り当てました。Cloudflare が DNS と SSL を自動構成中です（数分）。完了後、上の「公開ドメイン」に設定して保存してください。",
@@ -2744,7 +2744,7 @@ const i18n = {
     err_missing_file: "ファイルが選ばれていません。",
     err_media_not_found: "画像・メディアが見つかりません。",
     err_r2_not_configured:
-      "画像の保存先（R2）が未設定です。設定 → 基本で作成・接続してください。",
+      "画像の保存先（R2）が未設定です。「設定 → 基本」の「R2 メディアストレージ」の手順でつないでください。",
     err_cf_creds_missing: "Cloudflare の資格情報が未設定です。",
     err_custom_domain_required: "先にカスタムドメインを割り当ててください。",
     err_email_routing_destination_unverified:
@@ -2979,11 +2979,11 @@ const i18n = {
       "画像ID（例: [[img-xxx]]）でカバーを指定。フォーカスを外すと読み込みます。",
     coverMidNotFound: "そのIDの画像が見つかりません。",
     r2CoverUnavail:
-      "メディアを使うには R2 の有効化が必要です（設定 → 基本 →「R2 利用開始」）。",
+      "メディアを使うには R2 が必要です（設定 → 基本 →「R2 メディアストレージ」）。",
     slugLabelNote: "slugは変更不可。クリックでコピー",
     slugCopyHint: "クリックでコピー",
     slugHint:
-      "半角英数・ハイフン・アンダースコアのみ。作成後は変更できません。",
+      "半角の小文字英数字とハイフンだけ（先頭は英数字）。作成後は変更できません。",
     articleTitlePlaceholder: "記事タイトルを入力",
     summaryPlaceholder: "記事の概要（200文字まで・SNS 投稿でも使用）",
     bodyLabel: "記事本文",
@@ -2995,7 +2995,7 @@ const i18n = {
     dropZoneLead: "ここにファイルをドロップ、またはクリックして選択",
     r2EnableTitle: "メディアを使うには R2 の有効化が必要です",
     r2EnableDesc:
-      "画像・動画・音楽は Cloudflare R2 に保存します。無料枠の 10GB までは課金されません。手順は 2 つです。① Cloudflare ダッシュボードで R2 の利用を開始する。② KuroCMS の「設定 → 基本」にある「R2 利用開始」ボタンを押す。② まで行うとバケットの作成と接続を自動で行い、この画面が使えるようになります。",
+      "画像・動画・音楽は Cloudflare R2 に保存します。無料枠の 10GB までは課金されません。設定はご自身の Cloudflare で行います。「設定 → 基本」の「R2 メディアストレージ」にある手順（R2 の利用を始め、バケットを作り、この Worker に MEDIA_BUCKET の名前でつなぐ）を済ませると、この画面が使えるようになります。",
     uploadPreparing: "準備中…",
     uploading: "アップロード中…",
     uploadComplete: "完了",
@@ -3014,7 +3014,8 @@ const i18n = {
     imageTypeLabel: "画像",
     videoTypeLabel: "動画",
     audioTypeLabel: "音楽",
-    r2MediaUnavailMsg: "メディア利用不可<br>設定 → 基本 →「R2 利用開始」",
+    r2MediaUnavailMsg:
+      "メディア利用不可<br>設定 → 基本 →「R2 メディアストレージ」",
     tmplCommunityLocked: "🔒 コミュニティ公開中のテンプレートは修正できません",
     tmplCommunityUnlockHint:
       "テンプレート表示タブで「コミュニティ非公開」にしてから編集してください",
@@ -3113,6 +3114,7 @@ const i18n = {
     mediaInfoCountMid2: " 件、合計 ",
     mediaInfoCountEnd: " の R2 容量を使用しています。",
     helpBasic: "基本",
+    helpUpdates: "更新",
     blueskyAppPassword: "アクセストークン（App Password）",
     blueskyAppPasswordHelp: "Bluesky の設定 → App Passwords で発行。",
     importFromStrapi: "Strapiからのインポート",
@@ -4580,159 +4582,211 @@ function makePieChart(
   );
 }
 
+// ヘルプの中身(v2・2026-10-21 に全面改定)。画面の文言とコードで確かめたことだけを書く。
+// 表示の約束: canDo は " / " で、notes は「。」で(英語は ". " で)区切って箇条書きにする(help.ts)。
+// 括弧の中に「。」を入れない(そこで切れる)。
 const helpContent: Record<string, Dynamic> = {
   basic: {
-    title: "KuroCMS 基本ガイド",
-    role: "KuroCMS は Cloudflare Workers + D1 上で動作する個人用ヘッドレス CMS です。記事・メディア・設定を Web ブラウザから管理し、公開ページを KV キャッシュ経由で高速配信します。PC 不要で、すべての管理作業をブラウザのみで完結できます。",
+    title: "KuroCMS の基本",
+    role: "KuroCMS は Cloudflare の上で動く記事管理システムです。記事・メディア・サイトの見た目を管理画面で整え、ビルドすると公開ページができます。動かし方は 2 つあり、Entamy の Cloudflare アカウントで動く「委託運用」と、ご自身の Cloudflare アカウントで動く「顧客導入」です。いまどちらで動いているかは「設定 → 運用の形」で確かめられます。",
     canDo:
-      "記事の作成・多言語対応・公開管理 / 画像・動画・音楽のアップロード（R2 必須）/ カテゴリ・タイプ・言語の管理 / デザインテンプレートの選択・編集とフォント設定 / SNS（Bluesky・X・Threads）への記事投稿 / 複数ユーザーの招待・管理 / バックアップの作成・復元 / REST API 経由での記事登録（PAT 使用）",
+      "記事を書く（多言語・修正履歴・自動保存） / 画像・動画・音楽を置き、記事やサイト文字に貼る / テンプレート・サイト文字・フォント・計測で公開サイトを整える / ビルドして公開ページを作る（手動・予定公開に合わせた自動ビルドなど） / SNS（Bluesky・X・Threads）へ記事を投稿する / 利用者を招待し、管理者と投稿者に分ける / バックアップと復元 / REST API と MCP で、AI から記事を扱う（PAT） / 委託運用と顧客導入のあいだで引っ越す",
     notes:
-      "D1（5GB）・R2（10GB）・KV（1 日あたりの書き込み回数）などの Cloudflare 無料枠を超えると課金が発生します。使用状況はダッシュボードで確認してください。パスキーは複数のデバイスに登録しておくことを強く推奨します。",
+      "ログインはパスキー（指紋や顔認証など）だけで、パスワードはありません。パスキーは複数のデバイスに登録しておいてください。パスキーをすべて失くしたときは、ログイン画面から登録済みのメールアドレスに再設定のリンクを送れます。記事の公開・非公開や表示の設定を変えても、ビルドするまで公開ページは変わりません。顧客導入では、Cloudflare の無料枠を超えた分がご自身の Cloudflare に課金されます。委託運用では、メディアの保存に上限（1 サイト 10 GB）があります。使用状況はダッシュボードで確かめてください。",
   },
   dashboard: {
     title: "ダッシュボード",
-    role: "サイト全体の状態を一目で把握するホーム画面です。ストレージ使用量・記事数・メディア数などの統計をグラフと数値で表示します。",
+    role: "サイトの状態をまとめて見るホーム画面です。お知らせ・記事とメディアの数・使用状況・版（KuroCMS と、復旧の番人 WorkerOps）を表示します。",
     canDo:
-      "D1（データベース）・R2（メディア）の使用量と KV（ページキャッシュ）の 1 日あたり書き込み回数を円グラフで確認 / 公開済み・下書き・非公開の記事数を確認 / 画像・動画・音楽の登録件数と合計容量を確認 / バージョンカードで導入中・安定版・最新版のバージョン確認と「今すぐ更新」の実行、「常に最新版に更新」トグルの切り替え",
+      "Entamy と KuroCMS からのお知らせを読む / 記事数と公開数、メディアの件数と容量を確かめる / D1・R2・KV の使用状況をグラフで確かめる（顧客導入では、無料枠と Workers Paid の含み分を切り替えられる） / KuroCMS と WorkerOps の版を確かめ、「今すぐ更新のチェック」「今すぐ更新」を押す / 「自動で更新する」「常に最新版に更新」を切り替える",
     notes:
-      "使用量が 70% を超えると黄色、90% を超えると赤で警告表示されます。赤になる前に不要なデータを削除してください。R2 使用量はアップロードされたファイルの合計サイズ、D1 の使用量は推定値です。KV はページキャッシュの 1 日あたり書き込み回数で、Cloudflare 無料枠の上限を超えると公開ビルドに失敗することがあります。",
+      "使用量が 70% を超えると黄色、90% を超えると赤になります。赤になる前に要らないメディアを消してください。委託運用では、使用状況は委託の上限に対して描きます。委託運用では更新を Entamy が届けるので、更新の操作は出ません。更新の仕組みはヘルプの「更新」を、お知らせはヘルプの「お知らせ」を見てください。",
   },
   articles: {
-    title: "記事管理",
-    role: "登録されているすべての記事を一覧・検索・並べ替えできる画面です。タイトルをクリックすると記事の編集画面に移動します。",
+    title: "記事管理＆ビルド",
+    role: "記事の一覧と、公開ページのビルドをまとめた画面です。記事の公開・非公開の切り替えと、SNS への投稿もここで行います。",
     canDo:
-      "ソート順プルダウンで更新日・公開日・タイトル順に並べ替え / キーワードで記事を検索 / タイトルをクリックして記事編集画面へ移動 / 「公開する」「非公開に」ボタンで公開フラグを切り替え / SNS（Bluesky・X・Threads）への投稿ボタンで記事を投稿 / 下部ビルドバーでビルド設定（手動／自動／常時）の切り替えと「今すぐビルド」の実行 / 対応言語数の確認",
+      "更新日・公開日・タイトルで並べ替え、カテゴリで絞り込み、タイトルと Slug で検索する / タイトルを押して記事を開く / 「公開する」「非公開に」で公開の印を切り替える / 記事ごとのビルドの状態（ビルド済み・未ビルド・公開待ち・公開終了）を確かめる / Bluesky・X・Threads へ投稿する（実際には投稿せず投稿済みにする、投稿済みの印を外す、もできる） / 下のビルド欄で方式を選び、「今すぐビルド」を押す / ビルドした公開ページを開く",
     notes:
-      "記事の新規作成はサイドバーの「記事作成」から行います。公開・非公開の切り替えは「フラグ」の設定であり、ビルドを実行するまで公開サイトには一切反映されません（手動モードでは「今すぐビルド」、自動モードでは cron が自動反映）。SNS への投稿は公開済みかつビルド済みの記事のみ可能です。検索はタイトルと Slug を対象に行います。",
+      "公開・非公開は印を付けるだけで、ビルドするまで公開ページは変わりません。ビルドの方式は 4 つです。「手動ビルドのみ」「公開予定記事をその時間に自動ビルド」「未来記事も無条件にビルド」「強制的に全件をビルド」から選びます。大きなサイトのビルドは、Cloudflare の 1 回の実行の上限に合わせて何回かに分けて進みます。途中で止まっても、もう一度ビルドすると続きから進みます。SNS へ投稿できるのは、公開してビルド済みの記事だけです。SNS の接続は「設定 → SNS連動」で行います。",
   },
   newArticle: {
     title: "記事作成 / 編集",
-    role: "新しい記事の作成と、既存記事の本文・設定編集を行う画面です。新規作成時はタイプ・Slug・初期言語を登録します。記事一覧からタイトルをクリックすると編集モードで開きます。",
+    role: "記事を作り、本文や設定を書き換える画面です。新しく作るときは、タイプ・Slug・最初の言語を決めます。記事管理でタイトルを押すと、この画面で開きます。",
     canDo:
-      "記事タイプの選択（Collection タイプのみ）/ Slug の設定 / 初期言語の選択 / 公開日時の設定 / タイトル・要約・本文（リッチエディタ）の編集 / カバー画像の設定 / カテゴリの割り当て / ハッシュタグの設定 / 公開・下書き・非公開の切り替え",
+      "タイプ・Slug・最初の言語を決めて作る / タイトル・概要（200 文字まで・SNS の投稿にも使う）・本文をリッチエディタで書く / カバー画像・カテゴリ・ハッシュタグ・公開日時を設定する / ほかの言語の翻訳を作る（基本言語の内容を写して始められる） / 修正履歴を見て、過去の版を「コピーして最新に」で戻す / この記事だけをビルドする",
     notes:
-      "Slug は小文字英数字とハイフンのみ使用可能（先頭は英数字、アンダースコア不可）で、作成後に変更できません。タイプが登録されていない場合は先にタイプ管理画面でタイプを作成してください。カバー画像は画像管理でアップロード済みの画像から選択します。公開への切り替えはフラグの設定のみで、ビルドを実行するまで公開サイトには反映されません。",
+      "Slug は半角の小文字英数字とハイフンだけで、先頭は英数字です。作った後は変えられません。公開中の記事は、右上で下書きに切り替えてから編集します。編集は自動で保存され、保存の状態は画面に出ます。開いた後に AI などが本文を書き換えていたときは、上書きするか聞きます。上書きしても、相手の版は修正履歴に残ります。過去の版に戻せるのは下書きのときだけで、カテゴリ・公開日・タイプは戻りません。カバー画像は、画像管理の画像から選ぶか、ファイルから読み込みます。",
   },
   images: {
     title: "画像管理",
-    role: "R2 に保存された画像ファイルのアップロード・一覧・削除を管理する画面です。",
+    role: "画像をアップロードして管理する画面です。画像ごとに MID（img-001 など）が付き、記事の本文やサイト文字に [[img-001]] と書くと、そこに画像が出ます。",
     canDo:
-      "画像ファイルのドラッグ＆ドロップまたはクリックでアップロード / アップロード済み画像の一覧表示（サムネイル付き）/ 画像の削除（R2 と D1 から同時削除）/ 「画像サイズの自動縮小」でアップロード時の縮小上限を選択（縮小なし・200KB・500KB・1MB・2MB）",
+      "ドラッグ＆ドロップかクリックでアップロードする / MID を押して [[MID]] をコピーする / 一覧で確かめ、要らない画像を消す / 「画像サイズの自動縮小」で、アップロードのときの上限を選ぶ（変換しない・200KB・500KB・1MB・2MB）",
     notes:
-      "R2 の有効化が必要です（設定 → 基本 →「R2 利用開始」）。「画像サイズの自動縮小」は選択した瞬間に自動保存され、以後のアップロードに適用されます（毎回の設定は不要）。この設定はブラウザごとに保存されるため、別のブラウザ・端末では既定値の 1MB に戻ります。登録済みの画像には影響しません。同一内容のファイルを再アップロードした場合は既存の画像が再利用され、重複登録されません。アップロードした画像は URL が分かれば誰でもアクセス可能です。機密画像はアップロードしないでください。R2 無料枠は 10GB です。不要な画像は定期的に削除してください。",
+      "メディアは Cloudflare R2 に置きます。顧客導入で R2 がまだ無いときは、「設定 → 基本」の「R2 メディアストレージ」の手順でつないでください。自動縮小の設定はブラウザごとに覚えます。別のブラウザや端末では選び直してください。同じ内容の画像をもう一度上げると、前の画像を使い回します。アップロードした画像は、アドレスが分かれば誰でも見られます。人に見せない画像は置かないでください。",
   },
   videos: {
     title: "動画管理",
-    role: "動画ファイルのアップロード管理と、YouTube 等の外部サービスの埋め込みコード生成を行う画面です。",
+    role: "動画ファイルをアップロードして管理する画面です。記事の本文やサイト文字に [[vid-001]] と書くと、そこに動画のプレーヤーが出ます。",
     canDo:
-      "動画ファイルのアップロード（R2 必須）/ YouTube・Vimeo・NicoNico の埋め込み iframe コード生成 / アップロード済み動画の一覧と削除",
+      "動画ファイルをアップロードする / MID を押して [[MID]] をコピーする / 一覧で確かめ、要らない動画を消す",
     notes:
-      "動画ファイルは容量が大きく、R2 の無料枠（10GB）をすぐに使い切ります。極力 YouTube などの外部リンク型を使ってください。外部リンク型は R2 の容量を消費しません。",
+      "動画は容量が大きく、R2 の無料枠や委託運用の上限をすぐに使います。できるだけ YouTube などに置き、記事にはそのリンクを入れてください。外のサービスに置いた動画は R2 を使いません。",
   },
   audios: {
     title: "音楽管理",
-    role: "音楽・音声ファイルのアップロード管理と、SoundCloud・Spotify の埋め込みコード生成を行う画面です。",
+    role: "音楽・音声ファイルをアップロードして管理する画面です。記事の本文やサイト文字に [[aud-001]] と書くと、そこに音楽のプレーヤーが出ます。",
     canDo:
-      "音楽ファイルのアップロード（R2 必須）/ SoundCloud・Spotify の埋め込み iframe コード生成 / アップロード済み音楽ファイルの一覧と削除",
+      "音楽・音声ファイルをアップロードする / MID を押して [[MID]] をコピーする / 一覧で確かめ、要らないファイルを消す",
     notes:
-      "音楽ファイルも動画と同様に容量が大きいため、SoundCloud や Spotify の外部リンク型を優先してください。外部リンク型は R2 を消費しません。",
+      "音楽も容量が大きいため、できるだけ SoundCloud や Spotify などに置いてください。外のサービスに置いたものは R2 を使いません。",
   },
   categories: {
     title: "カテゴリ管理",
     role: "記事の分類に使うカテゴリを管理する画面です。",
-    canDo: "カテゴリの追加・編集・削除 / カテゴリ一覧の確認",
+    canDo: "カテゴリを追加・名前の変更・削除する / カテゴリの一覧を確かめる",
     notes:
-      "カテゴリを削除すると、そのカテゴリが割り当てられた記事との関連データも削除されます。初期値として Business・Hobby・Sports・Money・Life が登録されています。",
+      "記事で使っているカテゴリは消せません。先に記事から外してください。最初から Business・Hobby・Sports・Money・Life が入っています。",
   },
   languages: {
     title: "言語管理",
-    role: "KuroCMS で使用する言語を登録・管理する画面です。REST API で記事を登録する際の言語コードのバリデーションにも使用されます。",
-    canDo: "対応言語の追加・削除 / 登録言語一覧の確認",
+    role: "記事に使う言語を登録する画面です。REST API で記事を登録するときも、ここにある言語だけを受け付けます。",
+    canDo:
+      "言語を名前やコードで探して追加する / 言語を外す（翻訳を残すか、まとめて消すかを選ぶ） / 登録した言語の一覧を確かめる",
     notes:
-      "REST API で記事を登録する際、ここに登録されていない言語コードは受け付けません。言語を削除すると、その言語の翻訳データもすべて削除できます（削除時に選択）。言語コードは小文字 2〜3 文字＋任意の地域サブタグ（例: ja, en, pt-br）を使用します。追加ダイアログは ISO 639-1 全言語から検索式で選択できます。",
+      "言語を外しても、既定では翻訳は残り、登録し直すと戻ります。消す欄にチェックを入れたときだけ、その言語のデータも消えます。基本言語は外せません。基本言語は「設定 → 表示」で決めます。言語コードは ja・en・pt-br のような形です。",
   },
   types: {
     title: "タイプ管理",
-    role: "記事の種別（ブログ・ニュース等）を管理する画面です。Collection（複数記事）と Single（1 件のみ）の 2 種類があります。",
+    role: "記事の種類（ニュース・ブログなど）を管理する画面です。複数の記事を持つ Collection と、1 件だけの Single の 2 種類があります。",
     canDo:
-      "Collection タイプの追加・編集（記事管理画面に表示されるブログ等）/ Single タイプの追加・編集（TOP・About 等の固定ページ）/ タイプの削除",
+      "Collection のタイプを追加・編集する（ブログなど、記事管理に並ぶもの） / Single のタイプを追加・編集する（TOP・About などの固定ページ） / タイプを消す",
     notes:
-      "記事が 1 件でも存在するタイプは削除できません（先に記事を削除するか、記事のタイプを変更してください）。初期登録の news・blog タイプは削除しないことを強く推奨します。Single タイプは 1 タイプにつき 1 記事しか持てません。",
-  },
-  settings: {
-    title: "設定",
-    role: "サイト全体の設定を管理する画面です。基本・SNS・ライセンス・インポートの 4 タブ構成です（インポートタブ内で Strapi と KuroCMS を切り替えます）。",
-    canDo:
-      "公開ドメイン・独自ドメイン（Cloudflare）・R2 の設定 / 基本言語の設定 / SNS 外部連動（Bluesky・X・Threads）の設定 / ライセンス表示の確認 / Strapi からの記事インポート / 他の KuroCMS からのデータ読み込み",
-    notes:
-      "サイト名はサイト管理画面、テーマ（デザイン）はテンプレートで設定します。管理画面 URL・Worker 名・D1 名は bootstrap スクリプトで設定し、この画面からは変更できません。SNS への投稿は記事一覧の投稿ボタンから記事ごと・SNS ごとに手動で行えます（公開済みかつビルド済みの記事のみ）。SNS タブでは各サービスの「全件投稿済みにする／解除」の一括操作もできます。Strapi インポートは Strapi v4/v5 の REST API に対応しています。",
+      "記事が 1 件でもあるタイプは消せません。先に記事を消すか、記事のタイプを変えてください。最初から入っている news と blog は残しておくことを勧めます。Single のタイプは記事を 1 件しか持てません。",
   },
   siteManagement: {
     title: "サイト管理",
-    role: "公開サイトのテンプレート・固定コンテンツ・フォント・計測を管理する画面です。テンプレート表示・テンプレート選択・テンプレート編集・サイト文字編集・フォント管理・計測の 6 タブ構成です。",
+    role: "公開サイトのテンプレート・サイト文字・フォント・計測を管理する画面です。テンプレート表示・テンプレート選択・テンプレート編集・サイト文字編集・フォント管理・計測の 6 つのタブがあります。",
     canDo:
-      "テンプレート表示：PC・スマホ表示のプレビュー確認とテンプレート公開 / テンプレート選択：ローカル・公開テンプレートの選択と適用 / テンプレート編集：テンプレートの HTML ソースを直接編集 / サイト文字編集：サイト名と多言語の固定コンテンツを編集 / フォント管理：Web フォントの読み込みと基本フォントの指定 / 計測：GA4 計測 ID と SEO 用サイト説明文の設定",
+      "テンプレート表示：パソコンとスマホの見え方を確かめる / テンプレート選択：手元のテンプレートやコミュニティのテンプレートを選ぶ / テンプレート編集：テンプレートの HTML を直接書き換える / サイト文字編集：サイト名や、テンプレートが使う文字を言語ごとに書く / フォント管理：Web フォントを読み込み、言語ごとに基本フォントを決める / 計測：GA4 の計測 ID と、SEO 用のサイト説明を設定する",
     notes:
-      "テンプレートを変更した後は「テンプレート表示」タブの「テンプレート公開」ボタンで反映してください。サイト文字・フォント・計測の変更後は下部の「今すぐビルド」ボタンで公開サイトに反映します。テンプレート編集には HTML の知識が必要です。テンプレート公開ボタンはテンプレートを選択または編集した後に有効になります。",
+      "テンプレート・サイト文字・フォント・計測の変更は、ビルドすると公開ページに出ます。サイト文字は、テンプレートが参照するキーと一致しないと、その場所が空になります。テンプレートの編集には HTML の知識が要ります。コミュニティに公開中のテンプレートは編集できません。先に非公開にしてください。",
+  },
+  settings: {
+    title: "設定",
+    role: "サイト全体の設定をまとめた画面です。タブごとに分かれています。開いているタブのくわしい説明は、そのタブでヘルプを押すと出ます。",
+    canDo:
+      "基本：公開ドメイン・Worker の URL・独自ドメイン・R2 メディアストレージ / 表示：基本言語・サイトのタイムゾーン・記事の末尾に筆者を出すか / 運用の形：持ち主の登録と、委託運用と顧客導入のあいだの引っ越し / メール送信：この CMS のメールをどこから送るか（顧客導入だけ） / SNS連動：Bluesky・X・Threads の接続と、投稿済みの印の一括操作 / スマホ設定：狭い画面で記事のメディアを全幅にする / インポート：Strapi や別の KuroCMS から記事を取り込む / IP 制限：管理画面を使える回線を絞る / 稼働地域：データベースと KuroCMS が動いている場所を確かめる / 契約情報：委託の契約と無料期間の日付（委託運用だけ）",
+    notes:
+      "表示とスマホ設定の変更は、ビルド（全ページ）を実行するまで公開ページに出ません。委託運用では、公開アドレスは「導入 ID.kurocms.site」で変えられません。独自ドメインを使うときは、ご自身の Cloudflare へ引っ越してから設定します。データベースの地域は作ったときに決まり、後から変えられません。契約情報は 1 時間ほどごとに更新されます。",
+  },
+  hosting: {
+    title: "運用の形と引っ越し",
+    role: "このサイトがどこで動いているか（委託運用か顧客導入か）と、持ち主を確かめるタブです。もう一方の形への引っ越しもここで行います。",
+    canDo:
+      "持ち主（Entamy ID）のメールアドレスを登録・変更・取り消す / いまの運用の形を確かめる / 委託運用から、ご自身の Cloudflare アカウントへ引っ越す（顧客導入・無料） / 顧客導入から、Entamy の委託運用へ引っ越す（有料・最初に無料期間がある） / 引っ越しの工程と進み具合をダイアログで見る / 止まった引っ越しを「途中から再開」で続ける",
+    notes:
+      "導入口で入れたサイトは、そのときログインした Entamy ID が持ち主です。それより前に入れたサイトは、先に持ち主のメールアドレスを登録します。確認のメールが 1 通届きます。引っ越すには、KuroCMS を新しい版へ更新しておく必要があります。足りないときは画面が知らせます。写している間もサイトはそのまま使えます。止まるのは最後の突き合わせの数分だけです。ダイアログを閉じても引っ越しは止まりません。終わると、古いアドレスは新しいアドレスへの案内に替わり、管理者全員に、新しいアドレスでパスキーを登録するリンクがメールで届きます。持っていかないものは、パスキー・ログインの状態・登録した回線・PAT・SNS の連携の鍵・操作の記録です。更新の方式と IP 制限は、引っ越し先では既定に戻ります。委託運用の無料期間は、登録メールアカウントごとに 1 回です。委託運用へ移った後も、ご自身の Cloudflare に入れた KuroCMS は消しません。要らなければご自身で消してください。",
+  },
+  mail: {
+    title: "メール送信",
+    role: "この CMS が送るメール（パスキーの再設定など）を、どこから送るかを決めるタブです。顧客導入のサイトにだけ出ます。",
+    canDo:
+      "いまの送り方（自分のドメイン、または黒兎のサーバー）を確かめる / 自分のドメインから送るスイッチを入れる / 最後のメールがどの経路で送られたかを確かめる / Cloudflare の Email Routing を設定する手順を見る",
+    notes:
+      "既定では黒兎のサーバーが送ります。黒兎のサーバーには送信数の上限があります。自分のドメインから送るには、このサイトに Worker のカスタムドメインがあり、そのドメインで Email Routing が有効で、管理者全員のアドレスが宛先として認証済みであることが要ります。自分のドメインで送れなかったときは、黒兎のサーバーが代わりに送ります。最後のメールを代わりに送ったときと、送れなかったときは、赤で出ます。設定を変えられるのは管理者だけです。委託運用では Entamy が送るので、このタブは出ません。",
+  },
+  ipGate: {
+    title: "IP 制限",
+    role: "管理画面を、利用者ごとに登録した回線からしか使えないようにする仕組みです。盗まれたログインの状態（クッキー）を、ほかの場所で使わせません。",
+    canDo:
+      "設定 → IP 制限：入・切、PAT も制限するか、登録を残す日数（IPv6 と IPv4）を決める / プロフィール → IP 制限：自分の登録した回線を確かめ、心当たりの無いものを外す / IPv6 のプロバイダーの prefix（/48・/56 など）を固定で足す",
+    notes:
+      "既定は入です。登録は自動で、パスキーでログインすると、その回線が登録されます。使うたびに期限が延び、使わなくなった回線は決めた日数で外れます。登録していない回線から使われると止め、本人へ確認のリンクをメールします。パスキーでログインし直しても登録されます。PAT の制限は既定で切です。AI や MCP は、アドレスの変わるクラウドの回線から呼ぶことが多いためです。IP 制限を切ると、盗まれたログインの状態がどの回線からでも使えるようになります。",
+  },
+  updates: {
+    title: "更新と復旧の番人",
+    role: "KuroCMS と、その復旧の番人（WorkerOps）の版を新しくする仕組みです。ダッシュボードの版の枠で操作します。",
+    canDo:
+      "導入している版・安定版・最新版を確かめる / 「今すぐ更新のチェック」「今すぐ更新」で更新する / 「自動で更新する」を入・切にする / 「常に最新版に更新」で、安定版だけを入れるか、リリースのたびに入れるかを選ぶ / WorkerOps も同じように更新する",
+    notes:
+      "自動で更新するときは、1 日に 1 回、選んだ版の新しいものを確かめ、WorkerOps が入れます。入れた直後の確かめに失敗すると、元の版に戻します。安定版は、提供元が確かめて昇格させた版です。最新版はリリースのたびに出るので、確かめの少ない版も入ります。版を確かめられなかったときは「確認できませんでした」と出ます。最新という意味ではありません。委託運用では Entamy が更新を届けるので、更新の操作は出ません。",
+  },
+  notices: {
+    title: "お知らせと持ち主",
+    role: "Entamy と KuroCMS からのお知らせを受け取る仕組みです。お知らせはダッシュボードに出ます。",
+    canDo:
+      "お知らせを読み、「確認した」で閉じる / 「あとで読む」で後回しにする / ほかの Entamy の製品のお知らせも受け取るかを選ぶ / 持ち主のメールアドレスを登録して、重要なお知らせを受け取る（設定 → 運用の形）",
+    notes:
+      "緊急・重要なお知らせは、ログインしたときにダイアログでも出ます。新しいお知らせを確かめられなかったときは、前に受け取ったものを出し、その旨を表示します。持ち主のメールアドレスは、重要なお知らせと、委託運用の契約の持ち主のためだけに使います。同じ持ち主の複数のサイトでは、1 か所で確認したお知らせは、ほかのサイトでも確認済みになります。規約が更新されると、次に開いたときに同意を求めます。",
   },
   profile: {
     title: "プロフィール",
-    role: "ログイン中のユーザーの個人設定と Personal Access Token（PAT）を管理する画面です。",
+    role: "自分のアカウント・表示・PAT・パスキー・登録した回線を設定する画面です。アカウント・表示・PAT・パスキー・IP 制限の 5 つのタブがあります。",
     canDo:
-      "管理画面の表示言語の切り替え / ダークモードの切り替え / パスキーの追加登録 / PAT の発行・一覧確認・取り消し",
+      "アカウント：ユーザー名とメールアドレスを変える / 表示：管理画面の言語とダークモードを切り替える / PAT：REST API と MCP（AI 連携）で使うトークンを作る・取り消す / パスキー：このデバイスを追加し、名前を変え、要らないものを消す / IP 制限：自分の登録した回線を確かめ、外す",
     notes:
-      "PAT は REST API アクセス用のトークンです。外部に漏れると不正アクセスの原因になります。不要な PAT はすぐに取り消してください。パスキーのバックアップを複数デバイスで設定しておくと、デバイス紛失時もログインできます。",
+      "プロフィールのメールアドレスは、パスキーの再設定などが届くあなたのアドレスです。サイトの持ち主（Entamy ID）とは別で、持ち主は「設定 → 運用の形」で確かめます。PAT の権限は、あなたの権限と同じです。漏れると不正に使われるので、要らない PAT はすぐ取り消してください。REST API の使い方は /api/help に出ます。最後のパスキーは消せません。",
   },
   users: {
     title: "ユーザー管理",
-    role: "管理者が複数のユーザー（管理者・投稿者）を招待・管理する画面です。管理者専用です。",
+    role: "利用者を招待し、権限を決める画面です。管理者だけが使えます。",
     canDo:
-      "招待リンクの発行によるユーザー追加 / 権限（管理者・投稿者）の設定 / ユーザーの削除",
+      "メールアドレスを入れて招待リンクを発行する / 権限（管理者・投稿者）を変える / アカウントを無効にする・消す / 登録日と最終ログインを確かめる",
     notes:
-      "権限は管理者と投稿者の2種類で、管理者は投稿者の権限も兼ねます。招待リンクは第三者に共有しないでください。管理者は最低1名必要です。",
+      "招待リンクは 48 時間有効です。本人にだけ渡してください。管理者は投稿者の権限も兼ねます。自分自身の権限は変えられず、自分を消すこともできません。",
   },
   backup: {
     title: "バックアップ",
-    role: "サイト全体のデータを ZIP ファイルとして書き出し、復元する画面です。管理者専用で、バックアップ・復元の 2 タブ構成です。",
+    role: "サイトの中身を ZIP に書き出し、ZIP から戻す画面です。管理者だけが使え、バックアップとレストアの 2 つのタブがあります。",
     canDo:
-      "記事・タクソノミー・設定・メディアを含む ZIP バックアップの作成 / ZIP ファイルからの復元（レストア）",
+      "記事・翻訳・カテゴリ・タクソノミー・テンプレート・サイトの設定・SNS 連携と、画像・動画・音楽の実ファイルを 1 つの ZIP に保存する / ZIP から、今の中身をすべて置き換えて戻す",
     notes:
-      "バックアップ ZIP には SNS 連携トークンや Bluesky のパスワード等の機密情報が含まれます。ファイルは厳重に保管してください。復元は既存データを上書きする可能性があるため、実行前に内容をよく確認してください。バックアップ・復元はすべてブラウザ内で処理されます。",
+      "利用者・パスキー・PAT は ZIP に入りません。SNS 連携のトークンは入るので、ZIP は大切に保管してください。レストアは、今のコンテンツ・メディア・設定をすべて消してから置き換えます。取り消せません。処理の間はタブを開いたままにしてください。大きなサイトは Chrome か Edge を使ってください。レストアの後はビルドすると、公開ページが作り直されます。別の Cloudflare や委託運用へ移るときは、バックアップではなく「設定 → 運用の形」の引っ越しを使ってください。",
   },
   faq: {
     title: "よくある質問 (Q&A)",
     faqs: [
       {
-        q: "別のドメイン（インスタンス）に引っ越したい",
-        a: "サイドバーの「バックアップ」から ZIP を書き出し、新しいインスタンスで bootstrap.sh を実行した後、同画面の「レストア」で復元します。設定の「インポート」タブから、稼働中の別 KuroCMS のデータを直接読み込むこともできます。Worker・D1・R2 のバインドは bootstrap スクリプトが自動で行います。",
+        q: "委託運用からご自身の Cloudflare へ（または逆へ）移りたい",
+        a: "「設定 → 運用の形」の引っ越しを使ってください。記事・メディア・設定・利用者を写し、終わると古いアドレスは新しいアドレスへの案内に替わります。パスキーは持っていけないので、新しいアドレスで登録し直すリンクがメールで届きます。",
       },
       {
-        q: "Strapi からインポートした記事を上書きしたい",
-        a: "インポート画面の「全件インポート」ボタンを押すと、KuroCMS で編集済みの記事を自動検出します（「修正済」バッジで表示）。上書きする記事を個別にチェックしてから実行できます。チェックしなかった記事は KuroCMS 版のまま保持されます。",
+        q: "パスキーを登録したデバイスを失くしたら？",
+        a: "ほかのデバイスのパスキーでログインできます。すべて失くしたときは、ログイン画面の「新しくデバイスを登録する場合」から登録済みのメールアドレスを入れると、再設定のリンクが届きます（30 分有効・1 回だけ）。メールが届かないときは、管理者に「設定 → メール送信」の状態を確かめてもらってください。",
       },
       {
-        q: "パスキーを登録したデバイスを紛失したら？",
-        a: "プロフィール画面から複数のデバイスにパスキーを事前登録しておくことを強く推奨します。すべてのデバイスを失った場合は、初期設定で構成したメールアドレスへの OTP ログイン（Cloudflare Access）が使用できます。",
+        q: "記事を公開したのに、公開ページに出ません",
+        a: "公開は印を付けるだけで、ビルドするまで公開ページは変わりません。記事管理の下の「今すぐビルド」を押してください。公開日時が先の記事は、その時刻まで出ません（ビルドの方式を「未来記事も無条件にビルド」にすると出ます）。",
       },
       {
-        q: "記事の slug は後から変更できますか？",
-        a: "できません。Slug は作成時に確定し、以降は変更不可です。URL の永続性を保証するための設計です。変更が必要な場合は記事を削除して再作成してください。",
+        q: "記事の Slug は後から変えられますか？",
+        a: "変えられません。URL が変わらないようにするためです。変えたいときは、記事を作り直してください。",
       },
       {
-        q: "無料枠を超えた場合はどうなりますか？",
-        a: "Cloudflare から自動的に従量課金されます（後払い）。ダッシュボードで D1・R2・KV の使用量を定期的に確認してください。70% を超えると黄色、90% を超えると赤で警告が表示されます。不要なメディアファイルは定期的に削除することを推奨します。",
+        q: "持ち主（Entamy ID）とは何ですか？",
+        a: "このサイトの持ち主として Entamy に記録されているアカウントです。重要なお知らせが届き、委託運用の契約の持ち主になります。導入口で入れたサイトは、そのときログインした Entamy ID です。それより前のサイトは「設定 → 運用の形」で登録します。プロフィールのメールアドレスとは別のものです。",
       },
       {
-        q: "REST API で記事を登録・取得するには？",
-        a: "プロフィール画面で Personal Access Token（PAT）を発行し、Authorization: Bearer <token> ヘッダーを付けて API にアクセスします。エンドポイント一覧と使い方は /api/help を参照してください。AI（LLM）ツールからの記事投稿にも利用できます。",
+        q: "使用量が上限を超えるとどうなりますか？",
+        a: "顧客導入では、Cloudflare の無料枠を超えた分がご自身の Cloudflare に課金されます（後払い）。委託運用では、メディアの保存が上限に達すると、新しく保存できなくなります。どちらも、ダッシュボードで使用状況を確かめ、要らないメディアを消してください。",
       },
       {
-        q: "R2 なしでも使えますか？",
-        a: "テキストのみの記事であれば R2 なしでも動作します。画像・動画・音楽ファイルのアップロードには R2 が必須です。R2 は「設定 → 基本」の「R2 利用開始」から有効化できます（無料枠 10GB までは課金なし）。",
+        q: "REST API や AI（MCP）から記事を扱うには？",
+        a: "プロフィールの PAT タブでトークンを作り、Authorization: Bearer <token> を付けて API を呼びます。使い方は /api/help に出ます。MCP の接続先と Claude Code の設定例も、同じタブにあります。",
       },
       {
-        q: "複数ユーザーで使えますか？",
-        a: "複数ユーザーの登録に対応しています。管理者は「ユーザー管理」画面から招待リンクを発行してユーザーを追加できます。権限は管理者と投稿者の2種類で、管理者は投稿者の権限も兼ねます。",
+        q: "R2 が無くても使えますか？",
+        a: "文字だけの記事なら使えます。画像・動画・音楽には R2 が要ります。顧客導入では「設定 → 基本」の「R2 メディアストレージ」の手順でつないでください。委託運用では最初から使えます。",
+      },
+      {
+        q: "Strapi から取り込んだ記事を上書きしたい",
+        a: "「設定 → インポート」の「全件インポート」を押すと、KuroCMS で編集した記事を見つけて「修正済」と表示します。上書きする記事にだけチェックを入れて実行します。チェックしなかった記事は KuroCMS の版のまま残ります。",
+      },
+      {
+        q: "複数人で使えますか？",
+        a: "使えます。管理者が「ユーザー管理」で招待リンクを発行して追加します。権限は管理者と投稿者の 2 つで、管理者は投稿者の権限も兼ねます。",
       },
     ],
   },
@@ -4740,157 +4794,206 @@ const helpContent: Record<string, Dynamic> = {
 
 const helpContentEn: Record<string, Dynamic> = {
   basic: {
-    title: "KuroCMS Getting Started Guide",
-    role: "KuroCMS is a personal headless CMS running on Cloudflare Workers + D1. Manage articles, media, and settings from any web browser and deliver public pages fast via KV cache. No PC required — all admin tasks can be completed entirely in the browser.",
+    title: "KuroCMS basics",
+    role: "KuroCMS is a content management system that runs on Cloudflare. You shape articles, media and the look of the site in this admin panel, and a build turns them into public pages. It runs in one of two ways: managed hosting on Entamy's Cloudflare account, or self-hosting on your own Cloudflare account. Settings → Hosting shows which one this site uses.",
     canDo:
-      "Create & manage articles with multilingual support / Upload images, video, and audio (R2 required) / Manage categories, types, and languages / Choose and edit design templates and fonts / Post articles to SNS (Bluesky, X, Threads) / Invite and manage multiple users / Create and restore backups / Register articles via REST API (PAT authentication)",
+      "Write articles (multilingual, revision history, autosave) / Upload images, video and audio and place them in articles and site text / Shape the public site with templates, site text, fonts and analytics / Build public pages (manually, or automatically at scheduled publish times) / Post articles to Bluesky, X and Threads / Invite users as administrators or authors / Back up and restore / Work with articles from AI through the REST API and MCP (PAT) / Move between managed hosting and self-hosting",
     notes:
-      "Cloudflare free tier limits: D1 (5 GB), R2 (10 GB), KV (daily write operations). Exceeding these limits will incur charges. Monitor usage on the Dashboard. Strongly recommended: register passkeys on multiple devices.",
+      "Sign-in uses passkeys only (fingerprint, face and the like); there is no password. Register passkeys on more than one device. If you lose every passkey, the sign-in screen can email a reset link to your registered address. Publishing, unpublishing or changing display settings does not change the public pages until you build. When self-hosting, anything beyond Cloudflare's free allowance is billed to your Cloudflare account. On managed hosting, media storage has a limit (10 GB per site). Check usage on the dashboard.",
   },
   dashboard: {
     title: "Dashboard",
-    role: "The home screen for a quick overview of your entire site. Displays storage usage, article counts, and media statistics in charts and numbers.",
+    role: "The home screen for the state of the site. It shows notices, article and media counts, usage, and versions (KuroCMS and its recovery guardian, WorkerOps).",
     canDo:
-      'Check D1 (database) and R2 (media) usage plus KV (page cache) daily write operations in pie charts / View published, draft, and hidden article counts / Check image, video, and audio counts with total storage / Use the version card to see the installed, stable, and latest versions, run "Update Now", and toggle "Always update to latest"',
+      'Read notices from Entamy and KuroCMS / Check the article and published counts, and media counts and sizes / Check D1, R2 and KV usage on charts (when self-hosting, switch between the free allowance and what Workers Paid includes) / Check the KuroCMS and WorkerOps versions and press "Check for Update" or "Update Now" / Switch "Update automatically" and "Always update to latest"',
     notes:
-      "Usage above 70% shows a yellow warning; above 90% shows red. Delete unnecessary data before it turns red. R2 usage reflects total uploaded file size; D1 usage is an estimate. KV is shown as daily page-cache write operations — exceeding the Cloudflare free-tier limit can cause site builds to fail.",
+      'Usage turns yellow above 70% and red above 90%. Delete media you no longer need before it turns red. On managed hosting, usage is drawn against the managed limits. On managed hosting, Entamy delivers updates, so the update controls are not shown. See "Updates" and "Notices" in this help for how those work.',
   },
   articles: {
-    title: "Article Manager",
-    role: "List, search, and sort all registered articles. Click a title to open the article editor.",
+    title: "Article Manager & build",
+    role: "The article list together with building the public pages. You also publish or unpublish articles and post them to social media here.",
     canDo:
-      "Sort by updated date, publish date, or title using the dropdown / Search articles by keyword / Click a title to edit / Toggle the publish flag with the Publish and Unpublish buttons / Post articles to SNS (Bluesky, X, Threads) with the post buttons / Switch build mode (manual・auto・always) and run Build Now from the bottom build bar / Check supported language count per article",
+      'Sort by updated date, publish date or title, filter by category, and search titles and slugs / Open an article by clicking its title / Set the publish flag with "Publish" and "Unpublish" / Check each article\'s build state (built, not built, scheduled, ended) / Post to Bluesky, X and Threads (you can also mark as posted without posting, or clear the posted mark) / Choose a build mode in the build bar and press "Build Now" / Open the built public page',
     notes:
-      'Create new articles from the "New Article" sidebar item. Toggling publish/unpublish only sets a FLAG — nothing changes on the public site until a build runs ("Build Now" in manual mode; the cron applies it automatically in auto mode). SNS posting is only available for articles that are published AND built. Search covers titles and slugs.',
+      'Publishing only sets a flag; the public pages do not change until you build. There are four build modes: "Manual build only", "Auto-build scheduled posts at their time", "Build future posts unconditionally" and "Force full rebuild (all pages)". A large site builds in several passes to fit Cloudflare\'s per-run limits. If a build stops, building again continues from where it stopped. Only published and built articles can be posted to social media. Connect the services under Settings → SNS.',
   },
   newArticle: {
-    title: "New Article / Edit Article",
-    role: "Create new articles and edit body, settings, and metadata of existing articles. On first creation, set the type, slug, and initial language. Click a title in the article list to open in edit mode.",
+    title: "New / edit article",
+    role: "Create articles and edit their body and settings. A new article needs a type, a slug and its first language. Clicking a title in Article Manager opens it here.",
     canDo:
-      "Select article type (Collection types only) / Set slug / Select initial language / Set publish date and time / Edit title, summary, and body (rich editor) / Set cover image / Assign categories / Add hashtags / Toggle published, draft, or hidden",
+      'Create with a type, slug and first language / Write the title, summary (up to 200 characters, also used for social posts) and body in the rich editor / Set the cover image, categories, hashtags and publish time / Create translations (optionally starting from a copy of the base language) / Browse the revision history and restore an older version with "Copy to latest" / Build just this article',
     notes:
-      "Slugs may only contain lowercase letters, numbers, and hyphens (must start with a letter or number; underscores are not allowed) and cannot be changed after creation. If no types are registered, create one in Types first. Cover images are selected from images already uploaded in Image Manager. Switching to published only sets the flag — the public site does not change until a build runs.",
+      "A slug uses lowercase letters, numbers and hyphens, and starts with a letter or number. It cannot be changed after creation. To edit a published article, switch it to draft with the button at the top right first. Edits save automatically and the save state is shown on screen. If an AI or another client changed the body after you opened it, you are asked before overwriting; their version stays in the revision history. Older versions can be restored only while the article is a draft, and categories, publish date and type are not restored. Pick the cover from Images or load it from a file.",
   },
   images: {
-    title: "Image Manager",
-    role: "Manage image files stored in R2 — upload, list, and delete.",
+    title: "Images",
+    role: "Upload and manage images. Each image gets an MID such as img-001, and writing [[img-001]] in an article or in site text shows the image there.",
     canDo:
-      'Upload image files via drag & drop or click / Browse uploaded images with thumbnails / Delete images (removes from both R2 and D1) / Choose the upload size limit with "Automatic image resizing" (no resize / 200 KB / 500 KB / 1 MB / 2 MB)',
+      'Upload by drag and drop or by clicking / Click an MID to copy [[MID]] / Review the list and delete images you no longer need / Choose the upload size limit under "Automatic image resizing" (no conversion, 200KB, 500KB, 1MB, 2MB)',
     notes:
-      'R2 must be enabled (Settings → Basic → "Start using R2"). The "Automatic image resizing" choice is saved automatically the moment you select it and applies to subsequent uploads (it is stored per browser in localStorage, so a different browser or device falls back to the default 1 MB; already-uploaded images are not affected). Re-uploading a file with identical content reuses the existing image instead of registering a duplicate. Uploaded images are publicly accessible via URL. Do not upload confidential images. R2 free tier is 10 GB. Delete unused images regularly.',
+      "Media is stored in Cloudflare R2. If a self-hosted site has no R2 yet, connect it with the steps under Settings → Basic → R2 media storage. The auto-resize choice is remembered per browser, so choose again on another browser or device. Uploading the same image again reuses the existing one. Anyone who knows an uploaded image's address can see it, so do not upload private images.",
   },
   videos: {
-    title: "Video Manager",
-    role: "Upload and manage video files, and generate embed codes for YouTube and other external services.",
+    title: "Videos",
+    role: "Upload and manage video files. Writing [[vid-001]] in an article or in site text shows a video player there.",
     canDo:
-      "Upload video files (R2 required) / Generate embed iframe code for YouTube, Vimeo, NicoNico / List and delete uploaded videos",
+      "Upload video files / Click an MID to copy [[MID]] / Review the list and delete videos you no longer need",
     notes:
-      "Video files are large and quickly consume the R2 free tier (10 GB). Use external services like YouTube whenever possible. External links do not consume R2 storage.",
+      "Video files are large and quickly use up the free R2 allowance or the managed limit. Where possible, host videos on YouTube or a similar service and put the link in the article. Videos hosted elsewhere do not use R2.",
   },
   audios: {
-    title: "Audio Manager",
-    role: "Upload and manage audio files, and generate embed codes for SoundCloud and Spotify.",
+    title: "Audio",
+    role: "Upload and manage music and audio files. Writing [[aud-001]] in an article or in site text shows an audio player there.",
     canDo:
-      "Upload audio files (R2 required) / Generate embed iframe code for SoundCloud and Spotify / List and delete uploaded audio files",
+      "Upload music and audio files / Click an MID to copy [[MID]] / Review the list and delete files you no longer need",
     notes:
-      "Audio files are also large. Prefer external links (SoundCloud, Spotify) to avoid consuming R2 storage.",
+      "Audio files are large too, so host them on SoundCloud, Spotify or a similar service where possible. Files hosted elsewhere do not use R2.",
   },
   categories: {
-    title: "Category Manager",
-    role: "Manage categories used to classify articles.",
-    canDo: "Add, edit, and delete categories / View category list",
+    title: "Categories",
+    role: "Manage the categories used to group articles.",
+    canDo: "Add, rename and delete categories / Review the category list",
     notes:
-      "Deleting a category removes article-category associations for that category. Initial categories include Business, Hobby, Sports, Money, and Life.",
+      "A category used by articles cannot be deleted; remove it from those articles first. Business, Hobby, Sports, Money and Life are included from the start.",
   },
   languages: {
-    title: "Language Manager",
-    role: "Register and manage the languages used in KuroCMS. Also used to validate language codes when registering articles via REST API.",
-    canDo: "Add and remove supported languages / View registered language list",
+    title: "Languages",
+    role: "Register the languages used for articles. The REST API also accepts only the languages listed here.",
+    canDo:
+      "Search by name or code and add a language / Remove a language (choose whether to keep or delete its translations) / Review the registered languages",
     notes:
-      "Language codes not registered here will be rejected by the REST API. When deleting a language you can optionally purge all translation data for that language (chosen in the delete dialog). Use lowercase 2–3 letter codes with an optional region subtag (such as ja, en, pt-br). The add dialog offers a searchable picker covering all ISO 639-1 languages.",
+      "Removing a language keeps its translations by default, and registering it again brings them back. Its data is deleted only if you tick the delete box. The base language cannot be removed; set it under Settings → Display. Language codes look like ja, en or pt-br.",
   },
   types: {
-    title: "Type Manager",
-    role: "Manage article types (blog, news, etc.). Two kinds: Collection (multiple articles) and Single (one article only).",
+    title: "Types",
+    role: "Manage article types such as news or blog. A Collection type holds many articles and a Single type holds exactly one.",
     canDo:
-      "Add and edit Collection types (blog, etc.) / Add and edit Single types (fixed pages like TOP or About) / Delete types",
+      "Add and edit Collection types (blogs and the like, listed in Articles) / Add and edit Single types (fixed pages such as Top or About) / Delete types",
     notes:
-      "A type cannot be deleted while any article uses it (delete those articles first, or change their type). It is strongly recommended not to delete the initial news and blog types. A Single type can only hold one article.",
-  },
-  settings: {
-    title: "Settings",
-    role: "Manage site-wide settings. Organized into 4 tabs: Basic, SNS, License, and Import (the Import tab toggles between Strapi and KuroCMS).",
-    canDo:
-      "Set public domain, custom domain (Cloudflare), and R2 / Configure the default language / Set up SNS integrations (Bluesky, X, Threads) / View license / Import articles from Strapi / Load data from another KuroCMS",
-    notes:
-      'Site name is set in Site Manager, and theme (design) is set per template. The admin URL, Worker name, and D1 name are set by the bootstrap script and cannot be changed here. SNS posting is done manually per article and per service via the post buttons in the article list (only for articles that are published AND built). The SNS tab also offers bulk "mark all as posted / unmark all" actions per service. Strapi import supports Strapi v4/v5 REST API.',
+      "A type with even one article cannot be deleted; delete those articles or change their type first. Keeping the built-in news and blog types is recommended. A Single type can hold only one article.",
   },
   siteManagement: {
     title: "Site Manager",
-    role: "Manage templates, static content, fonts, and analytics for the public site. 6 tabs: Template Preview, Select Template, Edit Template, Edit Site Text, Font Management, and Analytics.",
+    role: "Manage the public site's template, site text, fonts and analytics. It has six tabs: template preview, template selection, template editing, site text, fonts and analytics.",
     canDo:
-      "Template Preview: check desktop/mobile previews and publish the template / Select Template: choose and apply a local or community template / Edit Template: edit the template HTML source directly / Edit Site Text: edit the site name and multilingual fixed content / Font Management: load web fonts and pick a base font / Analytics: set the GA4 measurement ID and SEO site description",
+      "Template preview: check how the site looks on a computer and a phone / Template selection: choose a local template or one from the community library / Template editing: edit the template HTML directly / Site text: write the site name and the text the template uses, per language / Fonts: load web fonts and choose a base font per language / Analytics: set the GA4 measurement ID and the SEO site description",
     notes:
-      'After changing a template, click "Publish Template" in the Template Preview tab to apply. After editing site text, fonts, or analytics, click "Build Now" to reflect changes on the public site. Editing templates requires HTML knowledge. The publish button activates after selecting or editing a template.',
+      "Changes to the template, site text, fonts and analytics reach the public pages when you build. Site text must use the keys the template refers to, or that spot stays empty. Editing a template requires HTML knowledge. A template published to the community cannot be edited; unpublish it first.",
+  },
+  settings: {
+    title: "Settings",
+    role: "Site-wide settings, split into tabs. Press Help while a tab is open to see help for that tab.",
+    canDo:
+      "Basic: public domain, Worker URL, custom domain, R2 media storage / Display: base language, site time zone, author line at the end of articles / Hosting: register the owner, and move between managed hosting and self-hosting / Email: where this CMS sends its mail from (self-hosting only) / SNS: connect Bluesky, X and Threads, and set or clear posted marks in bulk / Mobile: make article media full width on narrow screens / Import: bring in articles from Strapi or another KuroCMS / IP restriction: limit the networks that can use the admin panel / Region: see where the database and KuroCMS run / Contract: dates of the managed contract and free period (managed hosting only)",
+    notes:
+      "Display and Mobile changes reach the public pages only after a full build. On managed hosting, the public address is your-installation-id.kurocms.site and cannot be changed. To use your own domain, move to your own Cloudflare account first. The database region is fixed when the database is created. Contract information refreshes about once an hour.",
+  },
+  hosting: {
+    title: "Hosting and moving",
+    role: "This tab shows where the site runs (managed hosting or self-hosting) and who owns it. You also move to the other form here.",
+    canDo:
+      'Register, change or remove the owner\'s email address (Entamy ID) / See the current hosting form / Move from managed hosting to your own Cloudflare account (self-hosting, free) / Move from self-hosting to Entamy managed hosting (paid, with a free period at first) / Watch the steps and progress of a move in a dialog / Continue a stopped move with "Resume from where it stopped"',
+    notes:
+      "For a site installed through the installer, the owner is the Entamy ID that signed in at the time. For a site installed before that, register the owner's email address first; you receive one confirmation email. Moving requires a recent KuroCMS version, and the screen tells you if yours is too old. The site keeps working while it copies and pauses only for a few minutes at the final check. Closing the dialog does not stop the move. When it finishes, the old address shows a notice that points to the new one, and every administrator gets an email with a link to register a passkey at the new address. Passkeys, sign-in state, registered networks, PATs, social media keys and the activity log are not carried over. The update settings and IP restriction return to their defaults at the new site. The managed free period is given once per registered email account. After moving to managed hosting, the KuroCMS in your own Cloudflare account is not deleted; delete it yourself if you no longer need it.",
+  },
+  mail: {
+    title: "Email",
+    role: "This tab decides where the mail this CMS sends (passkey resets and the like) comes from. It is shown only on self-hosted sites.",
+    canDo:
+      "See how mail is sent now (your own domain, or the Kuro-Boo server) / Turn on sending from your own domain / See which route the last email took / Read the steps to set up Cloudflare Email Routing",
+    notes:
+      "By default the Kuro-Boo server sends the mail, and it has a sending limit. To send from your own domain, this site needs a custom domain on its Worker, Email Routing must be on for that domain, and every administrator's address must be a verified destination. If sending from your own domain fails, the Kuro-Boo server sends it instead. The last email is shown in red if it was relayed or could not be sent. Only administrators can change this. On managed hosting Entamy sends the mail, so this tab is not shown.",
+  },
+  ipGate: {
+    title: "IP restriction",
+    role: "Lets each user use the admin panel only from networks registered to them. A stolen sign-in state (cookie) cannot be used from anywhere else.",
+    canDo:
+      "Settings → IP restriction: turn it on or off, decide whether PATs are restricted too, and set how many days networks stay registered (IPv6 and IPv4) / Profile → IP restriction: see your registered networks and remove any you do not recognise / Pin an IPv6 provider prefix (/48, /56 and so on)",
+    notes:
+      "It is on by default. Registration is automatic: signing in with a passkey registers that network. Each use extends it, and networks you stop using drop off after the set number of days. Use from an unregistered network is stopped, and the user gets a confirmation link by email; signing in again with a passkey also registers it. Restricting PATs is off by default, because AI agents and MCP often call from cloud networks whose addresses change. Turning IP restriction off lets a stolen sign-in state work from any network.",
+  },
+  updates: {
+    title: "Updates and the recovery guardian",
+    role: "How KuroCMS and its recovery guardian (WorkerOps) are updated. Use the version box on the dashboard.",
+    canDo:
+      'See the installed, stable and latest versions / Update with "Check for Update" and "Update Now" / Turn "Update automatically" on or off / Use "Always update to latest" to choose between stable versions only and every release / Update WorkerOps the same way',
+    notes:
+      "With automatic updates, the chosen channel is checked once a day and WorkerOps installs anything new. If the check right after installing fails, it goes back to the previous version. Stable versions are releases the publisher has checked and promoted. The latest channel gets every release, including ones that have been checked less. If the version check cannot reach the release source, it says so; that does not mean you are up to date. On managed hosting Entamy delivers updates, so the update controls are not shown.",
+  },
+  notices: {
+    title: "Notices and the owner",
+    role: "How notices from Entamy and KuroCMS reach you. Notices appear on the dashboard.",
+    canDo:
+      'Read a notice and close it with "Got it" / Put it off with "Read later" / Choose whether to receive notices from other Entamy products / Register the owner\'s email address to receive important notices (Settings → Hosting)',
+    notes:
+      "Urgent and important notices also appear in a dialog when you sign in. If new notices cannot be checked, the ones received earlier are shown with a note saying so. The owner's email address is used only for important notices and as the owner of a managed contract. On several sites with the same owner, a notice acknowledged on one site is acknowledged on the others too. When the terms are updated, you are asked to agree the next time you open the admin panel.",
   },
   profile: {
     title: "Profile",
-    role: "Manage personal settings and Personal Access Tokens (PAT) for the currently logged-in user.",
+    role: "Your account, display, PATs, passkeys and registered networks. It has five tabs: Account, Display, PAT, Passkeys and IP restriction.",
     canDo:
-      "Switch admin UI language / Toggle dark mode / Register additional passkeys / Issue, list, and revoke PATs",
+      "Account: change your user name and email address / Display: switch the admin panel language and dark mode / PAT: create and revoke tokens for the REST API and MCP (AI) / Passkeys: add this device, rename passkeys and delete ones you no longer need / IP restriction: see and remove your registered networks",
     notes:
-      "PATs are tokens for REST API access. A leaked PAT can lead to unauthorized access — revoke unused PATs promptly. Register passkeys on multiple devices to maintain login access if a device is lost.",
+      "The email address in your profile is where passkey resets and similar mail reach you. It is separate from the site owner (Entamy ID), which you check under Settings → Hosting. A PAT has the same permissions as you. A leaked PAT can be misused, so revoke any you no longer need right away. How to use the REST API is shown at /api/help. Your last passkey cannot be deleted.",
   },
   users: {
-    title: "User Management",
-    role: "Admin-only screen to invite and manage multiple users (admins / authors).",
+    title: "Users",
+    role: "Invite users and set their permissions. Administrators only.",
     canDo:
-      "Add users via invite links / Set roles (admin / author) / Remove users",
+      "Enter an email address and issue an invitation link / Change permissions (administrator or author) / Disable or delete accounts / See registration and last sign-in dates",
     notes:
-      "There are two roles, admin and author; an admin also has author privileges. Do not share invite links with third parties. At least one admin is required.",
+      "Invitation links are valid for 48 hours. Give them only to the person invited. Administrators also have author permissions. You cannot change your own permissions or delete yourself.",
   },
   backup: {
     title: "Backup",
-    role: "Admin-only screen to export the entire site as a ZIP file and restore it. Two tabs: Backup and Restore.",
+    role: "Export the site's content to a ZIP and restore from a ZIP. Administrators only; it has Backup and Restore tabs.",
     canDo:
-      "Create a ZIP backup including articles, taxonomy, settings, and media / Restore from a ZIP file",
+      "Save articles, translations, categories, taxonomy, templates, site settings, social connections, and the image, video and audio files in one ZIP / Restore from a ZIP, replacing everything currently there",
     notes:
-      "The backup ZIP contains sensitive data such as SNS integration tokens and your Bluesky password — store the file securely. Restore may overwrite existing data, so review the contents before running it. Backup and restore are processed entirely in the browser.",
+      "Users, passkeys and PATs are not in the ZIP. Social media tokens are, so keep the ZIP safe. Restore deletes all current content, media and settings before replacing them, and it cannot be undone. Keep the tab open while it runs. Use Chrome or Edge for large sites. After a restore, build to regenerate the public pages. To move to another Cloudflare account or to managed hosting, use the move under Settings → Hosting rather than a backup.",
   },
   faq: {
-    title: "FAQ (Q&A)",
+    title: "FAQ",
     faqs: [
       {
-        q: "I want to migrate to a different domain (instance)",
-        a: "Export a ZIP from the Backup screen in the sidebar, run bootstrap.sh on the new instance, then restore it from the same screen. You can also load data directly from another running KuroCMS via the Import tab in Settings. The bootstrap script automatically configures Worker, D1, and R2 bindings.",
-      },
-      {
-        q: "I want to overwrite articles imported from Strapi",
-        a: 'Click "Import All" on the Import screen to automatically detect KuroCMS-edited articles (shown with an edited badge). Check the ones you want to overwrite before running. Unchecked articles remain as they are in KuroCMS.',
+        q: "I want to move from managed hosting to my own Cloudflare (or the other way)",
+        a: "Use the move under Settings → Hosting. It copies articles, media, settings and users, and when it finishes the old address points visitors to the new one. Passkeys cannot be carried over, so you receive an email with a link to register one at the new address.",
       },
       {
         q: "What if I lose the device with my passkey?",
-        a: "It is strongly recommended to register passkeys on multiple devices in advance from the Profile screen. If all devices are lost, you can use OTP login (Cloudflare Access) via the email address configured during initial setup.",
+        a: 'Sign in with a passkey on another device. If you have lost them all, enter your registered email address under "Register a new device" on the sign-in screen to receive a reset link (valid for 30 minutes, single use). If the email does not arrive, ask an administrator to check Settings → Email.',
       },
       {
-        q: "Can I change an article slug after creation?",
-        a: "No. The slug is finalized at creation and cannot be changed. This is by design to ensure URL permanence. If a change is needed, delete the article and recreate it.",
+        q: "I published an article but it does not appear on the public site",
+        a: 'Publishing only sets a flag; the public pages change when you build. Press "Build Now" at the bottom of Article Manager. An article with a future publish time does not appear until then (the "Build future posts unconditionally" mode shows it).',
       },
       {
-        q: "What happens if I exceed the free tier?",
-        a: "Cloudflare will automatically bill you on a pay-as-you-go basis. Regularly check D1, R2, and KV usage on the Dashboard. Yellow warning appears above 70%, red above 90%. It is recommended to delete unnecessary media files regularly.",
+        q: "Can I change an article's slug later?",
+        a: "No. It stays fixed so that the URL never changes. To change it, create the article again.",
       },
       {
-        q: "How do I register and retrieve articles via REST API?",
-        a: "Issue a Personal Access Token (PAT) from the Profile screen, then access the API with an Authorization: Bearer <token> header. See /api/help for endpoint list and usage. Can also be used for posting articles from AI (LLM) tools.",
+        q: "What is the owner (Entamy ID)?",
+        a: "The account Entamy records as the owner of this site. It receives important notices and becomes the owner of a managed contract. For a site installed through the installer, it is the Entamy ID that signed in at the time; for older sites, register it under Settings → Hosting. It is separate from the email address in your profile.",
+      },
+      {
+        q: "What happens if usage goes over the limit?",
+        a: "When self-hosting, anything beyond Cloudflare's free allowance is billed to your Cloudflare account. On managed hosting, new media cannot be saved once storage reaches the limit. Either way, check usage on the dashboard and delete media you no longer need.",
+      },
+      {
+        q: "How do I work with articles from the REST API or AI (MCP)?",
+        a: "Create a token on the PAT tab of your profile and call the API with an Authorization: Bearer <token> header. Usage is shown at /api/help. The MCP endpoint and a Claude Code configuration example are on the same tab.",
       },
       {
         q: "Can I use KuroCMS without R2?",
-        a: 'Yes, for text-only articles. R2 is required for image, video, and audio file uploads. Enable it from Settings → Basic → "Start using R2" (no charge within the 10 GB free tier).',
+        a: "Yes, for text-only articles. Images, video and audio need R2. When self-hosting, connect it with the steps under Settings → Basic → R2 media storage. Managed hosting has it from the start.",
       },
       {
-        q: "Can multiple users share KuroCMS?",
-        a: "Yes, multiple users are supported. Administrators can invite users from the User Manager screen. There are two roles: Admin and Author; an admin also has author privileges.",
+        q: "I want to overwrite articles imported from Strapi",
+        a: 'Press "Import All" under Settings → Import. Articles edited in KuroCMS are detected and marked "edited". Tick only the ones to overwrite and run it; unticked articles keep their KuroCMS version.',
+      },
+      {
+        q: "Can several people use it?",
+        a: "Yes. An administrator adds people by issuing invitation links under Users. There are two permission levels, administrator and author, and administrators also have author permissions.",
       },
     ],
   },
@@ -5417,10 +5520,26 @@ async function render() {
   }
 }
 
+/**
+ * 設定とプロフィールは、開いているタブにくわしいヘルプがあればそれを出す
+ * (運用の形・メール送信・IP 制限は、画面全体の説明では足りないため)。
+ */
+function helpTopicFor(key: string): string {
+  if (key !== "settings" && key !== "profile") return key;
+  const tab =
+    document.querySelector<HTMLElement>(".settingsTab.active")?.dataset.tab ||
+    "";
+  const byTab: Record<string, string> =
+    key === "settings"
+      ? { hosting: "hosting", mail: "mail", ipgate: "ipGate" }
+      : { network: "ipGate" };
+  return byTab[tab] || key;
+}
+
 document.body.addEventListener("click", (event: Dynamic) => {
   const helpTrigger = event.target.closest("[data-help-key]");
   if (helpTrigger) {
-    showHelpDialog(helpTrigger.dataset.helpKey);
+    showHelpDialog(helpTopicFor(helpTrigger.dataset.helpKey));
     return;
   }
   const link = event.target.closest("a[href]");
