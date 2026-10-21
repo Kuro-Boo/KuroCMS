@@ -49,7 +49,12 @@ function showHelpDialog(key: Dynamic) {
           return s.trim();
         })
         .map(function (s) {
-          return "・" + s.trim() + (state.uiLang === "ja" ? "。" : ".");
+          // 英語の最後の文は "." で終わったまま残る。足す前に外す("..." にしない)。
+          return (
+            "・" +
+            s.trim().replace(/[.。]$/, "") +
+            (state.uiLang === "ja" ? "。" : ".")
+          );
         })
         .join("<br>");
     })() +
@@ -108,9 +113,14 @@ async function help() {
     { key: "types", label: t("types"), divider: false },
     { key: "siteManagement", label: t("siteManagement"), divider: true },
     { key: "settings", label: t("settings"), divider: false },
+    { key: "hosting", label: t("siteMoveTitle"), divider: false },
+    { key: "mail", label: t("settingsTabMail"), divider: false },
+    { key: "ipGate", label: t("settingsTabIpGate"), divider: false },
     { key: "users", label: t("userManager"), divider: false },
     { key: "backup", label: t("backup"), divider: false },
     { key: "profile", label: t("profile"), divider: false },
+    { key: "updates", label: t("helpUpdates"), divider: true },
+    { key: "notices", label: t("noticeHeading"), divider: false },
     { key: "faq", label: "Q&A", divider: true },
   ];
 
@@ -185,7 +195,7 @@ async function help() {
           .map(function (s: Dynamic) {
             return (
               "<li>" +
-              escapeHtml(s.trim()) +
+              escapeHtml(s.trim().replace(/[.。]$/, "")) +
               (state.uiLang === "ja" ? "。" : ".") +
               "</li>"
             );
