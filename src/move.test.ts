@@ -9,12 +9,16 @@ import {
   authorizeMove,
   deleteByKeys,
   hasMoveToken,
+  forgetMovedCache,
   mediaKey,
+  movedPage,
+  movedTo,
   moveFrozen,
   moveTargetPending,
   readRows,
   readRowsByKey,
   rowsByKeys,
+  startMoveOut,
   tableShape,
 } from "./move.ts";
 import type { Env } from "./types";
@@ -245,6 +249,83 @@ console.log("move");
     await code(Promise.resolve().then(() => mediaKey("/../system/x"))),
     "bad_media_path",
   );
+}
+
+// 顧客導入 → 委託運用(2026-10-21)。鍵は KuroCMS が自分で置き、引き渡しの後は案内を出す。
+{
+  const { raw, env } = world();
+  raw.exec(
+    readFileSync(
+      new URL("../migrations/0078_move_out.sql", import.meta.url),
+      "utf8",
+    ),
+  );
+  const first = await startMoveOut(env, 1000);
+  const now = Date.now();
+  const again = await startMoveOut(env, now);
+  eq("押すたびに鍵を作り直す", first.token !== again.token, true);
+  const row = raw.prepare("SELECT * FROM move_state").get() as Record<
+    string,
+    unknown
+  >;
+  eq(
+    "移す元として置き、24 時間で切れる",
+    [row.role, row.expires_at, row.frozen],
+    ["source", now + 86_400_000, 0],
+  );
+  eq("ハッシュだけを置く", row.token_hash, await sha256Hex(again.token));
+  const call = (token: string) =>
+    new Request("https://site.example/kurocms/api/system/move/manifest", {
+      headers: { authorization: `Bearer ${token}` },
+    });
+  eq(
+    "前の鍵は効かない",
+    await code(authorizeMove(call(first.token), env, ["source"])),
+    "move_unauthorized",
+  );
+  eq(
+    "新しい鍵は移す元の口で通る",
+    await code(authorizeMove(call(again.token), env, ["source"])),
+    "passed",
+  );
+  forgetMovedCache();
+  eq("引き渡すまで案内は出さない", await movedTo(env), null);
+  raw.exec(
+    "UPDATE move_state SET token_hash = '', frozen = 1, moved_to = 'https://abc.kurocms.site'",
+  );
+  forgetMovedCache();
+  eq(
+    "引き渡した後は行き先を返す",
+    await movedTo(env),
+    "https://abc.kurocms.site",
+  );
+  eq(
+    "引き渡した導入では作らない",
+    await code(startMoveOut(env)),
+    "move_finished",
+  );
+  const page = movedPage(
+    "https://abc.kurocms.site",
+    new Request("https://blog.example.com/posts/1?x=1", {
+      headers: { "accept-language": "ja,en" },
+    }),
+  );
+  const html = await page.text();
+  eq(
+    "同じ道で新しいアドレスへ",
+    html.includes('href="https://abc.kurocms.site/posts/1?x=1"'),
+    true,
+  );
+  eq("言語に合わせる", html.includes("このサイトは引っ越しました"), true);
+  raw.exec(
+    "UPDATE move_state SET role = 'target', moved_to = NULL, finished_at = NULL",
+  );
+  eq(
+    "引っ越しを受けている途中では作らない",
+    await code(startMoveOut(env)),
+    "move_target_pending",
+  );
+  forgetMovedCache();
 }
 
 if (failed) {

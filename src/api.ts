@@ -114,8 +114,11 @@ import {
   deleteByKeys,
   hasMoveToken,
   mediaKey,
+  MOVE_OUT_TTL_MS,
+  forgetMovedCache,
   moveFrozen,
   moveTargetPending,
+  startMoveOut,
   readRows,
   readRowsByKey,
   rowsByKeys,
@@ -794,6 +797,18 @@ async function handleApiDispatch(
       return json(
         (await regionReport(env.DB, request, lang)) as unknown as JsonValue,
       );
+    }
+    // 委託運用へ引っ越す鍵を置く(顧客導入だけ・仕様 cms-move-to-self「顧客導入から委託運用へ」)。
+    // 鍵は画面へ一度だけ返し、画面が導入口の頁へ渡す(URL の # の後ろ。サーバーへは送られない)。
+    if (request.method === "POST" && path === "/api/system/move-out") {
+      requireAdmin(user);
+      if (isManagedHosting(env))
+        throw new HttpError(
+          409,
+          "managed_hosting",
+          "This site is already managed by Entamy.",
+        );
+      return json((await startMoveOut(env)) as unknown as JsonValue);
     }
     // 契約情報(委託だけ・cms-pricing「契約情報」)。受付が毎時書く contract_info の 1 行をそのまま返す。
     // 表が無い(古い版から上げたて)・行が無い(受付がまだ書いていない)ときは contract: null。
@@ -10947,6 +10962,8 @@ async function handleMove(
       version: KUROCMS_VERSION,
       frozen: state.frozen === 1,
       finished: !!state.finished_at,
+      // 移す元の延長(renew)と引き渡し(handoff)の口がある版か(顧客導入 → 委託運用・2026-10-21)。
+      moveOut: true,
       r2: !!env.MEDIA_BUCKET,
       buildMode: await getBuildMode(env),
       tables,
@@ -11043,6 +11060,39 @@ async function handleMove(
       .bind(frozen)
       .run();
     return json({ ok: true, frozen: frozen === 1 });
+  }
+  // 逆向き(顧客導入 → 委託運用・2026-10-21)。導入口はお客様の D1 に触れないので、鍵の延長と
+  // 引き渡しを移す元の口で頼む。
+  if (method === "POST" && head === "renew") {
+    await authorizeMove(request, env, ["source"]);
+    const expiresAt = Date.now() + MOVE_OUT_TTL_MS;
+    await env.DB.prepare("UPDATE move_state SET expires_at = ? WHERE id = 1")
+      .bind(expiresAt)
+      .run();
+    return json({ ok: true, expiresAt });
+  }
+  if (method === "POST" && head === "handoff") {
+    await authorizeMove(request, env, ["source"]);
+    const body = await readJson(request);
+    const to = typeof body.to === "string" ? body.to : "";
+    let origin = "";
+    try {
+      const u = new URL(to);
+      if (u.protocol === "https:" && !u.username && !u.password)
+        origin = u.origin;
+    } catch {
+      /* 下で断る */
+    }
+    if (!origin)
+      throw new HttpError(400, "bad_target", "to must be an https origin.");
+    // 鍵を消し、止めたまま、行き先を残す。これ以降は全部の道で案内を出す(index.ts)。
+    await env.DB.prepare(
+      "UPDATE move_state SET token_hash = '', frozen = 1, moved_to = ? WHERE id = 1",
+    )
+      .bind(origin)
+      .run();
+    forgetMovedCache();
+    return json({ ok: true, movedTo: origin });
   }
 
   // ── 移す先 ──

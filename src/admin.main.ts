@@ -807,6 +807,9 @@ const i18n = {
     legalTitle: "Terms have been updated",
     legalFirstTitle: "Before you start",
     moveToSelfLink: "Move to your own Cloudflare →",
+    moveToManagedLink: "Move to Entamy managed hosting →",
+    moveToManagedConfirm:
+      "Move this site to Entamy managed hosting?\n\nThe Entamy page opens in a new tab. Sign in with your Entamy ID there and start the move. This site keeps working while everything is copied; at the end it shows a notice that sends visitors to the new address.\n\nManaged hosting is paid. It starts with a free period, counted from when the new site is ready (once per Entamy ID; not if you have used managed hosting before). The Entamy page shows its length.",
     moveReceivingTitle: "This site is moving in",
     moveReceivingLead:
       "Your articles and media are being copied from Entamy hosting. When it finishes, everyone on the site gets an email with a link to register a passkey for this address.",
@@ -1884,6 +1887,9 @@ const i18n = {
     legalTitle: "規約が更新されました",
     legalFirstTitle: "はじめに",
     moveToSelfLink: "ご自身の Cloudflare アカウントへ引っ越す →",
+    moveToManagedLink: "Entamy の委託運用へ引っ越す →",
+    moveToManagedConfirm:
+      "このサイトを Entamy の委託運用へ引っ越しますか？\n\n新しいタブで Entamy の頁が開きます。そこで Entamy ID にログインして引っ越しを始めてください。写している間もこのサイトはそのまま使えます。終わると、このサイトは新しいアドレスへの案内に替わります。\n\n委託運用は有料です。最初の無料期間は、新しいサイトが使えるようになった時点から数えます（Entamy ID ごとに 1 回。委託運用を使ったことがある場合は付きません）。長さは Entamy の頁に出ます。",
     moveReceivingTitle: "引っ越しを受けています",
     moveReceivingLead:
       "Entamy の委託から、記事とメディアを写しています。終わると、このサイトの利用者全員に、このアドレスでパスキーを登録するリンクがメールで届きます。",

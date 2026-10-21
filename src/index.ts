@@ -24,7 +24,7 @@ import {
   searchEndpoint,
   serveTemplateCss,
 } from "./public";
-import { moveFrozen } from "./move";
+import { moveFrozen, movedPage, movedTo } from "./move";
 import type { Env } from "./types";
 
 export default {
@@ -126,6 +126,13 @@ export default {
     //   front of the whole site, when the script is perfectly fine.
     if (request.method === "GET" && pathname === "/api/health") {
       return handleApi(rewriteRequestPath(request, pathname), env, ctx);
+    }
+
+    // 委託運用へ引っ越し終えた導入(move_state.moved_to)は、どの道を開いても新しいアドレスへ案内する。
+    // 引っ越しの口だけは通す(導入口が引き渡しの後に状態を読むことがある)。
+    if (!url.pathname.includes("/api/system/move/")) {
+      const to = await movedTo(env).catch(() => null);
+      if (to) return movedPage(to, request);
     }
 
     const setupRequired = await needsSetup(env);

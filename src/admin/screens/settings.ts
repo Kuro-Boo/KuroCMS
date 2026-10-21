@@ -1237,6 +1237,47 @@ async function settings() {
         "r2SetupSection",
       ])
         byId(id)?.remove();
+    } else {
+      // 顧客導入から委託運用への引っ越し(仕様 cms-move-to-self「顧客導入から委託運用へ」・2026-10-21)。
+      // 押すとこの導入が引っ越しの鍵を置き、導入口の頁へ鍵を渡す。鍵は URL の # の後ろに載せる
+      // (ブラウザはサーバーへ送らない)。ポップアップを止められないよう、先に窓を開けてから行き先を入れる。
+      const help = publicDomainInput
+        .closest("label")
+        ?.querySelector<HTMLElement>(".muted");
+      if (help) {
+        const move = document.createElement("a");
+        move.href = "#";
+        move.textContent = t("moveToManagedLink");
+        move.addEventListener("click", async (e) => {
+          e.preventDefault();
+          if (!confirm(t("moveToManagedConfirm"))) return;
+          const w = window.open("", "_blank");
+          try {
+            const r: Dynamic = await api("/api/system/move-out", {
+              method: "POST",
+              body: "{}",
+            });
+            const ticket = JSON.stringify({
+              api: location.origin + withBase("/api/system/move/"),
+              token: r.token,
+            });
+            const hash = btoa(unescape(encodeURIComponent(ticket)))
+              .replace(/\+/g, "-")
+              .replace(/\//g, "_")
+              .replace(/=+$/, "");
+            const url =
+              "https://kurocms.entamy.com/?pick=movein#movein=" + hash;
+            if (w) {
+              w.opener = null;
+              w.location.href = url;
+            } else location.href = url;
+          } catch (err) {
+            w?.close();
+            toast(errorMessage(err), true);
+          }
+        });
+        help.append(" ", move);
+      }
     }
 
     // Worker origin URL + CNAME guide
