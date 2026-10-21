@@ -53,33 +53,10 @@ async function profile() {
       escapeHtml(t("copy")) +
       "</button></div></label><label>" +
       escapeHtml(t("email")) +
-      "<input id='profileEmail' type='email' /></label>" +
-      "<div class='stack' id='mailDeliveryBox' style='gap:8px;padding:12px;border:1px solid var(--border,#2a2f3a);border-radius:8px'>" +
-      "<div><b>" +
-      escapeHtml(t("mailDeliveryTitle")) +
-      "</b></div><div class='tokenHelp'>" +
-      escapeHtml(t("mailDeliveryLead")) +
-      "</div><div class='tokenHelp'>" +
-      escapeHtml(t("mailDeliveryRequirement")) +
-      "</div><div class='tokenHelp' style='color:var(--danger,#b42318)'>" +
-      escapeHtml(t("mailDeliveryKuroLimit")) +
-      "</div><div id='mailDeliveryStatus' class='tokenBox' style='white-space:normal'>-</div>" +
-      // ⚠ 設定は **Cloudflare 側でしか行えない**（宛先の verify も Email Routing の
-      //   有効化も CMS からは実行できない）。手順を出さないと、トグルが押せない
-      //   理由も、次に何をすればよいかも画面から分からない。
-      "<details id='mailSetupGuide' style='border:1px solid var(--line,#2a2f3a);border-radius:8px;padding:10px'>" +
-      "<summary style='cursor:pointer;font-weight:600'>" +
-      escapeHtml(t("mailSetupGuideTitle")) +
-      "</summary>" +
-      "<div class='tokenHelp' style='margin-top:8px'>" +
-      escapeHtml(t("mailSetupGuideIntro")) +
-      "</div>" +
-      "<div id='mailSetupGuideBody' class='stack' style='gap:10px;margin-top:10px'></div>" +
-      "</details>" +
-      "<div class='toggleRow'><div><div><b>" +
-      escapeHtml(t("mailDeliveryToggle")) +
-      "</b></div><div id='mailDeliveryManageHelp' class='tokenMeta'></div></div>" +
-      "<input id='mailRoutingToggle' type='checkbox' class='toggle' disabled /></div></div><button>" +
+      "<input id='profileEmail' type='email' /><div class='muted' style='font-size:12px'>" +
+      escapeHtml(t("profileEmailHelp")) +
+      "</div></label>" +
+      "<button>" +
       escapeHtml(t("updateAccount")) +
       "</button></form>" +
       // ログアウトはアカウントの枠の中、区切り線の下に置く(別の枠にすると、枠どうしが寄って幅もずれる)。
@@ -181,199 +158,12 @@ async function profile() {
     }
   });
   let generatedToken = "";
-  function renderProfileMailSettings(data: Dynamic) {
-    const status = byId("mailDeliveryStatus");
-    const toggle = byId("mailRoutingToggle");
-    const help = byId("mailDeliveryManageHelp");
-    if (!status || !toggle || !help) return;
-
-    const domains = (data.domains || [])
-      .map((domain: Dynamic) => domain.hostname || "")
-      .filter(Boolean)
-      .join(", ");
-    const destinationState = data.destinationVerified
-      ? t("mailDeliveryVerified")
-      : t("mailDeliveryUnverified");
-    status.innerHTML =
-      "<div><b>" +
-      escapeHtml(t("mailDeliveryCurrent")) +
-      ":</b> " +
-      escapeHtml(
-        data.enabled ? t("mailDeliveryCustom") : t("mailDeliveryKuro"),
-      ) +
-      "</div><div><b>" +
-      escapeHtml(t("mailDeliveryDomain")) +
-      ":</b> " +
-      escapeHtml(domains || "-") +
-      "</div><div><b>" +
-      escapeHtml(t("mailDeliverySender")) +
-      ":</b> " +
-      escapeHtml(data.senderAddress || "-") +
-      "</div><div><b>" +
-      escapeHtml(t("mailDeliveryDestination")) +
-      ":</b> " +
-      escapeHtml(data.destination || "-") +
-      "（" +
-      escapeHtml(destinationState) +
-      "）</div>" +
-      // ⚠ 宛先の verify は**アカウント単位**、Email Routing の有効化は
-      //   **zone 単位**。片方だけ満たしても送信は失敗するので、両方出す。
-      "<div><b>" +
-      escapeHtml(t("mailDeliveryZoneOn").replace(/。$/, "")) +
-      ":</b> " +
-      escapeHtml(
-        data.senderZoneEnabled === true
-          ? t("mailDeliveryVerified")
-          : // `null`（確認できない）を「無効」と見せない。既存の導入は
-            // zone 側の権限を持たないため、ここは頻繁に不明になる。
-            (data.senderZoneEnabled === false
-              ? t("mailDeliveryZoneOff")
-              : t("mailDeliveryZoneUnknown")) +
-              (data.senderZoneReason
-                ? "（" + data.senderZoneReason + "）"
-                : ""),
-      ) +
-      "</div>" +
-      // 復旧メールは要求した本人へ送るので、他の管理者が未 verified だと
-      // その人だけ無言で締め出される。
-      ((data.unverifiedAdmins || []).length > 0
-        ? "<div style='color:var(--danger,#b42318);margin-top:4px'>" +
-          escapeHtml(
-            t("mailDeliveryAdminsUnverified") +
-              ": " +
-              (data.unverifiedAdmins || []).join(", "),
-          ) +
-          "</div>"
-        : "") +
-      (!data.available && data.reason
-        ? "<div style='color:var(--danger,#b42318);margin-top:4px'>" +
-          escapeHtml(t("mailDeliveryUnavailable") + ": " + data.reason) +
-          "</div>"
-        : "");
-    toggle.checked = Boolean(data.enabled);
-    toggle.disabled = !data.canManage || (!data.enabled && !data.canEnable);
-    help.textContent = data.canManage ? "" : t("mailDeliveryAdminOnly");
-    renderMailSetupGuide(data);
-  }
-
-  /**
-   * 自ドメイン送信の設定手順。
-   *
-   * ⚠ **済んだ手順にも印を付ける。** どこで止まっているのかが分からないと、
-   *   トグルが押せない理由を探して Cloudflare 中をさまようことになる。
-   *   verify すべきアドレスは**この画面のプロフィールのメールアドレス**であって、
-   *   ドメインに紐づく適当なアドレスではない（復旧メールは本人へ送るため）。
-   */
-  function renderMailSetupGuide(data: Dynamic) {
-    const body = byId("mailSetupGuideBody");
-    if (!body) return;
-    const zone =
-      ((data.domains || [])[0] || {}).zoneName ||
-      String(data.senderAddress || "").split("@")[1] ||
-      "";
-    // ⚠ **zone 配下ではない。** 宛先アドレスはアカウント単位で共有され
-    //   （同じアカウントのどのドメインでも使い回せる）、現在の入口は
-    //   Compute → Email Service → Email Routing。zone を差し込んだ URL
-    //   （/:account/<zone>/email/routing）は宛先の画面に着かない。
-    //   ドメインは、この画面に入ってから選ぶ。
-    const dash =
-      "https://dash.cloudflare.com/?to=/:account/email-service/routing";
-    const mark = (done: boolean) => (done ? "✅ " : "▢ ");
-    const step = (done: boolean, title: string, desc: string) =>
-      "<div><div><b>" +
-      mark(done) +
-      escapeHtml(title) +
-      "</b></div><div class='tokenMeta' style='white-space:normal'>" +
-      escapeHtml(desc) +
-      "</div></div>";
-    body.innerHTML =
-      step(
-        data.senderZoneEnabled === true,
-        t("mailSetupStep1"),
-        t("mailSetupStep1Body").replace("{zone}", zone || "-"),
-      ) +
-      step(
-        // ⚠ **自分が verified でも足りない。** 管理者が複数いるなら全員分が要る。
-        //   誰か 1 人でも未 verified だと、その人だけ復旧メールが届かず、
-        //   自分の画面は緑のまま相手が締め出される。
-        Boolean(data.destinationVerified) &&
-          (data.unverifiedAdmins || []).length === 0,
-        t("mailSetupStep2"),
-        t("mailSetupStep2Body").replace(
-          "{address}",
-          // 本人のアドレスと、未 verified の管理者を重複なく並べる。
-          // そのまま Cloudflare に貼れる形で出す。
-          Array.from(
-            new Set(
-              [data.destination as string]
-                .concat(data.unverifiedAdmins || [])
-                .filter(Boolean),
-            ),
-          ).join(", ") || "-",
-        ),
-      ) +
-      step(
-        Boolean(data.enabled),
-        t("mailSetupStep3"),
-        t("mailSetupStep3Body"),
-      ) +
-      "<div style='display:flex;gap:8px;flex-wrap:wrap'>" +
-      "<a class='secondary' target='_blank' rel='noopener' href='" +
-      escapeHtml(dash) +
-      "' style='font-size:12px;padding:6px 14px;text-decoration:none'>" +
-      escapeHtml(t("mailSetupOpenCf")) +
-      "</a>" +
-      "<a class='secondary' target='_blank' rel='noopener' href='https://developers.cloudflare.com/email-routing/get-started/enable-email-routing/' style='font-size:12px;padding:6px 14px;text-decoration:none'>" +
-      escapeHtml(t("mailSetupDocs")) +
-      "</a></div>" +
-      "<div class='tokenMeta' style='white-space:normal'>" +
-      escapeHtml(t("mailSetupNote")) +
-      "</div>";
-  }
-
-  async function loadProfileMailSettings() {
-    if (state.preview) {
-      renderProfileMailSettings({
-        available: true,
-        enabled: false,
-        provider: "kuro_boo",
-        domains: [{ hostname: "cms.example.com" }],
-        senderAddress: "no-reply@example.com",
-        destination: "admin@example.com",
-        destinationVerified: true,
-        canEnable: false,
-        canManage: false,
-      });
-      return;
-    }
-    try {
-      renderProfileMailSettings(await api("/api/me/mail-settings"));
-    } catch (error) {
-      // 委託: 自分のドメインから送る設定は無いので、枠ごと出さない。
-      if ((error as { code?: string })?.code === "managed_hosting") {
-        byId("mailDeliveryBox")?.remove();
-        return;
-      }
-      renderProfileMailSettings({
-        available: false,
-        enabled: false,
-        domains: [],
-        destination: byId("profileEmail")?.value || "",
-        destinationVerified: false,
-        canEnable: false,
-        canManage: Boolean(state.currentUser?.isAdmin),
-        reason: errorMessage(error),
-      });
-    }
-  }
-
   async function loadProfileAndTokens() {
     if (state.preview) {
       byId("profileDisplayName")!.value = "Preview Admin";
       byId("profileAuthorId")!.textContent = "author_preview0000";
       byId("profileEmail")!.value = "admin@example.com";
       byId("profileRoles")!.textContent = t("adminRole");
-      await loadProfileMailSettings();
       byId("tokenHistory")!.innerHTML =
         "<div class='tokenRow'><div><b>Personal token</b><div class='tokenMeta'>" +
         formatDateTime(new Date().toISOString()) +
@@ -493,7 +283,6 @@ async function profile() {
       : meUser.isAuthor
         ? t("authorRole")
         : "-";
-    void loadProfileMailSettings();
     byId("tokenHistory")!.innerHTML =
       (tokenData.tokens || [])
         .map((token: Dynamic) => {
@@ -555,31 +344,6 @@ async function profile() {
       toast(errorMessage(error), true, btn);
     }
   });
-  byId("mailRoutingToggle")!.addEventListener(
-    "change",
-    async (event: Dynamic) => {
-      const toggle = event.target;
-      const enabled = Boolean(toggle.checked);
-      toggle.disabled = true;
-      if (state.preview) {
-        toggle.checked = !enabled;
-        toast(t("previewReadOnly"), false, toggle);
-        return;
-      }
-      try {
-        await api("/api/me/mail-settings", {
-          method: "PUT",
-          body: JSON.stringify({ enabled }),
-        });
-        toast(t("mailDeliverySaved"), false, toggle);
-        await loadProfileMailSettings();
-      } catch (error) {
-        toggle.checked = !enabled;
-        toast(errorMessage(error), true, toggle);
-        await loadProfileMailSettings();
-      }
-    },
-  );
   byId("tokenForm")!.addEventListener("submit", async (event: Dynamic) => {
     event.preventDefault();
     const btn =

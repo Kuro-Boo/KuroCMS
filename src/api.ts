@@ -3789,6 +3789,8 @@ async function profileMailSettings(
         senderZoneEnabled: state.senderZoneEnabled,
         senderZoneReason: state.senderZoneReason,
         unverifiedAdmins: state.unverifiedAdmins,
+        // 直近の送信がどの経路で届いたか(代わりに送った・送れなかったを画面に出す)。
+        lastStatus: (await readMailStatus(env)) as unknown as JsonValue,
         // ⚠ 有効化の条件は 3 つとも要る。1 つでも欠けると、送信のたびに
         //   失敗して**無言で届かなくなる**（復旧メールは失敗が見えにくい）。
         canEnable:
@@ -3812,6 +3814,7 @@ async function profileMailSettings(
         senderZoneEnabled: false,
         senderZoneReason: "",
         unverifiedAdmins: [],
+        lastStatus: (await readMailStatus(env)) as unknown as JsonValue,
         canEnable: false,
         canManage: user.isAdmin,
         reason: err instanceof Error ? err.message : String(err),

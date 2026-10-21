@@ -159,8 +159,12 @@ async function settings() {
 
   const tabBar = [
     "basic",
+    // 表示(基本言語・時計・筆者)。「基本」が長く、下の項目を見落とすので分けた。
+    "display",
     // 運用の形(委託運用 ⇄ 顧客導入の引っ越し)。「基本」の下では見落とすので専用のタブにする。
     "hosting",
+    // メール送信(サイト全体の設定・管理者だけ)。2026-10-21 にプロフィールから移した。
+    "mail",
     "sns",
     "mobile",
     "import",
@@ -171,7 +175,9 @@ async function settings() {
     .map((id) => {
       const labels: Record<string, string> = {
         basic: t("settingsTabBasic"),
+        display: t("settingsTabDisplay"),
         hosting: t("siteMoveTitle"),
+        mail: t("settingsTabMail"),
         sns: t("settingsTabSns"),
         mobile: t("settingsTabMobile"),
         import: t("settingsTabImport"),
@@ -188,6 +194,7 @@ async function settings() {
         // 契約情報は委託だけ(設定を読んでから出す)。
         (id === "contract" ? " id='contractTabBtn' style='display:none'" : "") +
         (id === "hosting" ? " id='siteMoveTabBtn'" : "") +
+        (id === "mail" ? " id='mailTabBtn'" : "") +
         ">" +
         escapeHtml(labels[id] || id) +
         "</button>"
@@ -241,6 +248,14 @@ async function settings() {
       // /api/system/custom-domains; falls back to manual dashboard steps).
       "<div id='customDomainSection' style='margin-top:4px'></div>" +
       "<div id='r2SetupSection' style='margin-top:4px'></div>" +
+      "<button>" +
+      escapeHtml(t("saveSiteSettings")) +
+      "</button>" +
+      "</form>" +
+      "</div>" +
+      // ── 表示(基本言語・サイトの時計・筆者。公開ページの出し方。2026-10-21 に「基本」から分けた) ──
+      "<div id='panel-display' class='settingsPanel' style='display:none'>" +
+      "<form class='panel stack' id='displayForm'>" +
       "<label>" +
       escapeHtml(t("defaultLanguage")) +
       "<div class='muted'>" +
@@ -270,6 +285,7 @@ async function settings() {
       "<div id='panel-hosting' class='settingsPanel' style='display:none'>" +
       siteMoveSectionHtml() +
       "</div>" +
+      mailSettingsPanelHtml() +
       // ── SNS ──────────────────────────────────────────────────────────
       "<div id='panel-sns' class='settingsPanel' style='display:none'>" +
       "<div class='panel stack'>" +
@@ -454,16 +470,14 @@ async function settings() {
       "<div class='muted' style='font-size:12px'>" +
       escapeHtml(t("mobileIntro")) +
       "</div>" +
-      "<label style='flex-direction:row;align-items:center;gap:8px;cursor:pointer'>" +
-      "<input id='mobileMediaFullWidth' type='checkbox' style='width:auto;margin:0' />" +
+      // 切り替えの行は部品(.toggleRow)を使う —— 何の切り替えかを、スイッチの横に書く。
+      "<div class='toggleRow'><div><div><b>" +
       escapeHtml(t("mobileMediaFullWidth")) +
-      "</label>" +
-      "<div class='muted' style='font-size:12px'>" +
+      "</b></div><div class='tokenMeta'>" +
       escapeHtml(t("mobileMediaFullWidthHelp")) +
-      "</div>" +
-      "<div class='muted' style='font-size:12px'>" +
+      "</div><div class='tokenMeta' style='margin-top:6px'>" +
       escapeHtml(t("mobileMediaFullWidthVideo")) +
-      "</div>" +
+      "</div></div><input id='mobileMediaFullWidth' type='checkbox' class='toggle' /></div>" +
       "<div style='font-size:12px;padding:8px 10px;border-radius:8px;background:rgba(128,128,128,.12)'>" +
       escapeHtml(t("mobileBuildNote")) +
       "</div>" +
@@ -1242,6 +1256,7 @@ async function settings() {
     }
     // 運用の形(委託運用なら顧客導入へ、顧客導入なら委託運用へ)。引っ越しはこの画面の中で進める。
     void mountSiteMove();
+    void mountMailSettings();
 
     // Worker origin URL + CNAME guide
     (function () {
@@ -2706,6 +2721,7 @@ async function settings() {
 
     for (const formId of [
       "siteForm",
+      "displayForm",
       "snsForm",
       "xAutoPostForm",
       "threadsAutoPostForm",

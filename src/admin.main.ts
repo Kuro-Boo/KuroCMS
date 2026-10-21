@@ -798,7 +798,7 @@ const i18n = {
     languageManagerLead: "Register languages to be used for data entry.",
     typesLead: "Manage article types such as news, blog, and research.",
     settingsLead:
-      "Set the public domain, base language, social links, mobile, imports, and IP restriction, and check the region and contract.",
+      "Set the public domain, display (base language, time zone, byline), hosting, email, social links, mobile, imports, and IP restriction, and check the region and contract.",
     profileLead:
       "Your own account, display, PATs, passkeys, and IP restriction.",
     noLanguages: "No languages registered",
@@ -945,17 +945,32 @@ const i18n = {
     email: "Email",
     mailDeliveryTitle: "Email delivery",
     mailDeliveryLead:
-      "You can send CMS emails from your own domain or use the Kuro-Boo server.",
+      "Emails from this CMS (passkey recovery, invitations, etc.) are sent by the Kuro-Boo server by default. If you set up your own domain, mail is sent within Cloudflare's free allowance and is not subject to the Kuro-Boo server's limit. If your own domain fails to send, the Kuro-Boo server sends it instead.",
     mailDeliveryRequirement:
-      "To send passkey and other messages from your domain, configure a Worker Custom Domain for the sender and add this profile email to Email Routing Destination Addresses.",
+      "To send from your own domain, this site needs a Worker Custom Domain, Email Routing enabled on that domain, and every administrator's email address added and verified as an Email Routing destination address.",
     mailDeliveryKuroLimit:
-      "The Kuro-Boo server is intended for light use and can send approximately two messages per day.",
+      "The Kuro-Boo server has a sending limit. Once it is reached, mail cannot be sent until the limit resets.",
     mailDeliveryCurrent: "Current method",
     mailDeliveryCustom: "Your domain (Email Routing)",
     mailDeliveryKuro: "Kuro-Boo server",
     mailDeliveryDomain: "Custom Domain",
     mailDeliverySender: "Sender",
-    mailDeliveryDestination: "Destination",
+    mailDeliveryDestination: "Destination (your address)",
+    mailDeliveryZoneLabel: "Email Routing on the sender domain",
+    mailDeliveryZoneStateOn: "enabled",
+    mailDeliveryCfMissing:
+      "This site has no Cloudflare key, so sending from your own domain cannot be set up. Mail is sent by the Kuro-Boo server.",
+    mailDeliveryCfAuth:
+      "This site's Cloudflare key cannot read the Cloudflare settings (the key is old or lacks permission). Sending from your own domain cannot be set up, but mail is still sent by the Kuro-Boo server.",
+    mailLastTitle: "Last email",
+    mailLastRouting: "sent from your own domain",
+    mailLastKuro: "sent by the Kuro-Boo server",
+    mailLastRelayed:
+      "your own domain failed, so the Kuro-Boo server sent it instead",
+    mailLastFailed: "could not be sent",
+    settingsTabMail: "Email",
+    profileEmailHelp:
+      "Your address on this CMS (passkey recovery emails and similar are sent here). The site owner (Entamy ID) is shown in Settings → Hosting.",
     mailDeliveryVerified: "verified",
     mailDeliveryUnverified: "not verified",
     mailDeliveryUnavailable: "Cloudflare settings could not be read",
@@ -1011,6 +1026,7 @@ const i18n = {
     publishAt: "Publish At",
     summary: "Summary",
     settingsTabBasic: "Basic",
+    settingsTabDisplay: "Display",
     settingsTabSns: "SNS",
     settingsTabMobile: "Mobile",
     siteTimezone: "Site time zone",
@@ -1022,7 +1038,7 @@ const i18n = {
     showBylineHelp:
       "Adds “Written by: <display name of the person who created the article>” below each article, and names that person as the author in the structured data for search engines. Turn it off for sites that do not need an author line, such as company or product sites — the structured data then names the site as the author instead. Changing it changes generated HTML, so run a build (all pages) afterwards.",
     siteTimezoneAutoSet:
-      "Site time zone set to {tz} (from this browser). Article dates and the monthly archive now follow it — run a build (all pages) to apply it to the public site. You can change it under Settings → Basic.",
+      "Site time zone set to {tz} (from this browser). Article dates and the monthly archive now follow it — run a build (all pages) to apply it to the public site. You can change it under Settings → Display.",
     mobileTitle: "Mobile layout (site build)",
     mobileIntro:
       "These settings change the HTML that the SITE BUILD generates for your public pages. They do not affect the KuroCMS admin screens or the editor — what you see while writing stays exactly the same.",
@@ -1224,12 +1240,12 @@ const i18n = {
       "These administrators are not verified destinations and would stop receiving recovery mail",
     // 配送の不調。**順調なときは出さない。**
     recoverRelayed:
-      "Your own domain could not send this message, so kuro.boo's server delivered it instead. The mail should arrive, but the own-domain setting is not working — check Profile → Mail delivery.",
+      "Your own domain could not send this message, so kuro.boo's server delivered it instead. The mail should arrive, but the own-domain setting is not working — check Settings → Email.",
     recoverRelayedReason: "Own-domain error",
     recoverNotDelivered:
       "The message could NOT be sent. Nothing will arrive until this is resolved.",
     recoverQuota:
-      "kuro.boo's sending limit has been reached. The limit resets, so try again after about 12 hours — or set up your own domain in Profile → Mail delivery to send without this limit.",
+      "kuro.boo's sending limit has been reached. The limit resets, so try again after about 12 hours — or set up your own domain in Settings → Email to send without this limit.",
     recoverReason: "Reason",
     recoverSent:
       "If that email is registered, a recovery link has been sent. Please check your inbox.",
@@ -1992,7 +2008,7 @@ const i18n = {
     languageManagerLead: "データ登録で利用する言語を登録します。",
     typesLead: "news、blog、research などの記事タイプを管理します。",
     settingsLead:
-      "公開ドメイン、基本言語、SNS 連動、スマホ、インポート、IP 制限を設定し、稼働地域と契約情報を確かめます。",
+      "公開ドメイン、表示（基本言語・時刻・筆者）、運用の形、メール送信、SNS 連動、スマホ、インポート、IP 制限を設定し、稼働地域と契約情報を確かめます。",
     profileLead: "自分のアカウント、表示、PAT、パスキー、IP 制限を設定します。",
     noLanguages: "言語が登録されていません",
     profileIdentity: "アカウント情報",
@@ -2136,17 +2152,32 @@ const i18n = {
     email: "メール",
     mailDeliveryTitle: "メール送信設定",
     mailDeliveryLead:
-      "CMSからのメールは、自分のドメインから送信する方法と、黒兎サーバーを使う方法があります。",
+      "この CMS からのメール（パスキーの復旧・招待など）は、既定では黒兎のサーバーが送ります。自分のドメインから送るように設定すると、Cloudflare の無料枠で送れ、黒兎のサーバーの上限を受けません。自分のドメインで送れなかったときは、黒兎のサーバーが代わりに送ります。",
     mailDeliveryRequirement:
-      "自分のドメイン名でパスキー発行などのメールを送るには、送信元となるWorker Custom Domainの設定と、Email RoutingのDestination Addressesへのプロフィールメール登録・検証が必要です。",
+      "自分のドメインから送るには、このサイトに Worker のカスタムドメインがあること、そのドメインで Email Routing が有効なこと、管理者全員のメールアドレスが Email Routing の宛先として認証済みであることが必要です。",
     mailDeliveryKuroLimit:
-      "黒兎サーバーでメール送信する場合は、1日2通程度しか送信できないのでご注意ください。",
+      "黒兎のサーバーには送信数の上限があります。上限に達すると、時間がたつまで送れません。",
     mailDeliveryCurrent: "現在の送信方法",
     mailDeliveryCustom: "自分のドメイン（Email Routing）",
-    mailDeliveryKuro: "黒兎サーバー",
+    mailDeliveryKuro: "黒兎のサーバー",
     mailDeliveryDomain: "カスタムドメイン",
     mailDeliverySender: "送信元",
-    mailDeliveryDestination: "送信先",
+    mailDeliveryDestination: "宛先（あなたのアドレス）",
+    mailDeliveryZoneLabel: "送信元ドメインの Email Routing",
+    mailDeliveryZoneStateOn: "有効",
+    mailDeliveryCfMissing:
+      "このサイトには Cloudflare の鍵が無いため、自分のドメインからの送信は設定できません。メールは黒兎のサーバーが送ります。",
+    mailDeliveryCfAuth:
+      "このサイトの Cloudflare の鍵では Cloudflare の設定を読めません（鍵が古いか、権限が足りません）。自分のドメインからの送信は設定できませんが、メールは黒兎のサーバーが送ります。",
+    mailLastTitle: "最後のメール",
+    mailLastRouting: "自分のドメインから送りました",
+    mailLastKuro: "黒兎のサーバーが送りました",
+    mailLastRelayed:
+      "自分のドメインで送れなかったため、黒兎のサーバーが代わりに送りました",
+    mailLastFailed: "送れませんでした",
+    settingsTabMail: "メール送信",
+    profileEmailHelp:
+      "この CMS で使うあなたのアドレスです（パスキーを失くしたときの復旧メールなどが届きます）。サイトの持ち主（Entamy ID）は「設定 → 運用の形」で確かめます。",
     mailDeliveryVerified: "検証済み",
     mailDeliveryUnverified: "未検証",
     mailDeliveryUnavailable: "Cloudflareの設定を取得できません",
@@ -2277,6 +2308,7 @@ const i18n = {
     backupInterruptedDismiss: "閉じる",
     inviteUser: "ユーザーを招待",
     settingsTabBasic: "基本",
+    settingsTabDisplay: "表示",
     settingsTabSns: "SNS連動",
     settingsTabMobile: "スマホ設定",
     siteTimezone: "サイトのタイムゾーン",
@@ -2288,7 +2320,7 @@ const i18n = {
     showBylineHelp:
       "記事の下に「筆者: 記事を作った人の表示名」を出し、検索エンジン向けの構造化データでもその人を著者にします。会社・製品紹介のサイトなど、筆者を出す必要がないサイトは OFF にしてください（構造化データの著者はサイト名になります）。生成される HTML が変わるので、変更後はビルド（全ページ）を実行してください。",
     siteTimezoneAutoSet:
-      "サイトのタイムゾーンを {tz}（このブラウザの設定）にしました。記事の日付と月別アーカイブの区切りがこれに従います。公開ページに反映するにはビルド（全ページ）を実行してください。変更は設定 → 基本タブから行えます。",
+      "サイトのタイムゾーンを {tz}（このブラウザの設定）にしました。記事の日付と月別アーカイブの区切りがこれに従います。公開ページに反映するにはビルド（全ページ）を実行してください。変更は設定 → 表示タブから行えます。",
     mobileTitle: "スマホ向けレイアウト（サイトビルドの設定）",
     mobileIntro:
       "ここの設定は、サイトビルドが生成する公開ページの HTML を変えるものです。KuroCMS の管理画面やエディタの表示は変わりません（執筆中の見え方はそのままです）。",
@@ -2492,12 +2524,12 @@ const i18n = {
       "次の管理者は verified な宛先ではないため、復旧メールが届かなくなります",
     // 配送の不調。**順調なときは出さない。**
     recoverRelayed:
-      "自ドメインからの送信に失敗したため、黒兎のサーバーが代わりに送信しました。メールは届くはずですが、自ドメインの設定は機能していません。プロフィール → メール配信をご確認ください。",
+      "自ドメインからの送信に失敗したため、黒兎のサーバーが代わりに送信しました。メールは届くはずですが、自ドメインの設定は機能していません。設定 → メール送信をご確認ください。",
     recoverRelayedReason: "自ドメイン側のエラー",
     recoverNotDelivered:
       "メールを送信できませんでした。このままでは届きません。",
     recoverQuota:
-      "黒兎のサーバーの送信上限に達しました。上限は時間で戻るため、12 時間ほど空けて再度お試しください。プロフィール → メール配信で自ドメインを設定すると、この上限を受けずに送信できます。",
+      "黒兎のサーバーの送信上限に達しました。上限は時間で戻るため、12 時間ほど空けて再度お試しください。設定 → メール送信で自分のドメインを設定すると、この上限を受けずに送信できます。",
     recoverReason: "理由",
     recoverSent:
       "登録があれば、再設定リンクを送信しました。メールをご確認ください。",
