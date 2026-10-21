@@ -159,6 +159,8 @@ async function settings() {
 
   const tabBar = [
     "basic",
+    // 運用の形(委託運用 ⇄ 顧客導入の引っ越し)。「基本」の下では見落とすので専用のタブにする。
+    "hosting",
     "sns",
     "mobile",
     "import",
@@ -169,6 +171,7 @@ async function settings() {
     .map((id) => {
       const labels: Record<string, string> = {
         basic: t("settingsTabBasic"),
+        hosting: t("siteMoveTitle"),
         sns: t("settingsTabSns"),
         mobile: t("settingsTabMobile"),
         import: t("settingsTabImport"),
@@ -184,6 +187,7 @@ async function settings() {
         "'" +
         // 契約情報は委託だけ(設定を読んでから出す)。
         (id === "contract" ? " id='contractTabBtn' style='display:none'" : "") +
+        (id === "hosting" ? " id='siteMoveTabBtn'" : "") +
         ">" +
         escapeHtml(labels[id] || id) +
         "</button>"
@@ -261,7 +265,9 @@ async function settings() {
       escapeHtml(t("saveSiteSettings")) +
       "</button>" +
       "</form>" +
-      // 運用の形(委託運用 ⇄ 顧客導入の引っ越し・site-move.ts)。
+      "</div>" +
+      // ── 運用の形(委託運用 ⇄ 顧客導入の引っ越し・site-move.ts) ─────────
+      "<div id='panel-hosting' class='settingsPanel' style='display:none'>" +
       siteMoveSectionHtml() +
       "</div>" +
       // ── SNS ──────────────────────────────────────────────────────────
@@ -939,14 +945,13 @@ async function settings() {
           );
         note.style.display = "";
         note.textContent = t("contractEndedNote") + " ";
-        // 顧客導入への引っ越しは「基本」の「運用の形」から(この画面の中で進める)。
+        // 顧客導入への引っ越しは「運用の形」のタブから(この画面の中で進める)。
         const move = document.createElement("a");
         move.href = "#";
         move.textContent = t("siteMoveToSelf") + " →";
         move.addEventListener("click", (e) => {
           e.preventDefault();
-          switchTab("basic");
-          byId("siteMoveSection")?.scrollIntoView({ behavior: "smooth" });
+          switchTab("hosting");
         });
         note.appendChild(move);
       }

@@ -1,6 +1,6 @@
 // KuroCMS admin screen module. Concatenated by scripts/build-admin.js.
 //
-// 運用の形(仕様 cms-move-to-self「CMS の画面から」・2026-10-21)。設定の「基本」に置く枠。
+// 運用の形(仕様 cms-move-to-self「CMS の画面から」・2026-10-21)。設定の専用のタブ(「基本」の隣)に置く枠。
 // いま委託運用で動いていれば「ご自身の Cloudflare アカウントへ引っ越す」、顧客導入で動いていれば
 // 「Entamy の委託運用へ引っ越す」だけを出す(トグルのように片方)。LP と導入口の頁は、まだ CMS を
 // 持っていない人のためのもので、運用中の人は確かめ・Cloudflare の欄・進み具合・再開までこの枠で済ませる。
@@ -15,10 +15,9 @@ const SITE_MOVE_OPS_KEY = "kurocms_site_move_ops";
 
 function siteMoveSectionHtml(): string {
   return (
-    "<div id='siteMoveSection' class='panel stack' style='display:none;margin-top:16px;border-top:1px solid var(--line) !important'>" +
-    "<div><div class='fieldLabel'>" +
-    escapeHtml(t("siteMoveTitle")) +
-    "</div><div class='muted' id='siteMoveNow'></div></div>" +
+    "<div id='siteMoveSection' class='panel stack' style='display:none'>" +
+    // 見出しはタブが言うので置かない(SNS のタブと同じ)。いまの形を最初の行に。
+    "<div id='siteMoveNow' style='font-weight:700'></div>" +
     "<div class='muted' id='siteMoveNote' style='display:none'></div>" +
     "<div><button type='button' class='secondary' id='siteMoveOpen'></button></div>" +
     "<div id='siteMoveForm' class='stack' style='display:none'>" +
@@ -91,8 +90,9 @@ async function mountSiteMove(): Promise<void> {
   try {
     info = await api("/api/system/site-move");
   } catch {
-    // 管理者でない・古いサーバー。枠ごと出さない。
+    // 管理者でない・古いサーバー。タブごと出さない。
     box.remove();
+    byId("siteMoveTabBtn")?.remove();
     return;
   }
   box.style.display = "";
