@@ -141,7 +141,7 @@ import {
   siteMoveOwner,
   startSiteMove,
 } from "./site-move";
-import { siteDomain } from "./site-domain";
+import { askManagedUpdateCheck, siteDomain } from "./site-domain";
 import {
   currentNetwork,
   handleNetworkConfirm,
@@ -4455,7 +4455,9 @@ async function setUpdateChannel(request: Request, env: Env): Promise<Response> {
   const body = await readJson(request);
   const channel = body.channel === "latest" ? "latest" : "stable";
   await env.PUBLIC_PAGES.put(UPDATE_CHANNEL_KEY, channel);
-  return json({ ok: true, channel });
+  // 委託は自分で更新できない。番人にすぐ確かめさせる(しないと次の 1 日 1 回の確認まで入らない)。
+  const checkRequested = await askManagedUpdateCheck(env);
+  return json({ ok: true, channel, checkRequested });
 }
 
 /**

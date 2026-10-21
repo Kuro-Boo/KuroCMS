@@ -639,10 +639,13 @@ async function dashboard() {
       const nextChannel = channelToggle.checked ? "latest" : "stable";
       channelToggle.disabled = true;
       try {
-        await api("/api/system/update-channel", {
+        const res = (await api("/api/system/update-channel", {
           method: "PUT",
           body: JSON.stringify({ channel: nextChannel }),
-        });
+        })) as { checkRequested?: boolean };
+        // 委託: 番人にすぐ確かめさせた。数分で入る(画面は自分では入れられない)。
+        if (res?.checkRequested)
+          toast(t("managedUpdateRequested"), false, channelToggle);
         // checkVersion 経由にする。**直接叩かない** —— サーバ側が版を確認
         // できない状態でチャンネルを切り替えたとき、ここだけブラウザ経由の
         // 確認を飛ばすと表示が "v—" に戻ってしまう。

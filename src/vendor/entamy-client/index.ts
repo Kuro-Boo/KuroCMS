@@ -175,6 +175,11 @@ export class EntamySession {
   ): Promise<EntamyResult<Record<string, unknown>>> {
     return refuse<Record<string, unknown>>();
   }
+  siteCheckUpdate(
+    _body: Record<string, unknown>,
+  ): Promise<EntamyResult<Record<string, unknown>>> {
+    return refuse<Record<string, unknown>>();
+  }
   siteOwner(
     _worker: string,
     _proof?: string,

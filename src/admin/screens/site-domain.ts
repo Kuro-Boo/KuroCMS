@@ -139,7 +139,7 @@ async function mountOwnDomain(publicDomain: string): Promise<void> {
         "<label>" +
         escapeHtml(t("ownDomainHostLabel")) +
         "<div style='display:flex;gap:8px'>" +
-        "<input id='ownDomainHost' placeholder='www.example.com' autocomplete='off' style='flex:1;min-width:0' />" +
+        "<input id='ownDomainHost' placeholder='blog.example.com' autocomplete='off' style='flex:1;min-width:0' />" +
         "<button type='button' id='ownDomainPrepareBtn'>" +
         escapeHtml(t("ownDomainPrepare")) +
         "</button></div></label>";

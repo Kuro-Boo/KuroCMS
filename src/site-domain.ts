@@ -19,6 +19,36 @@ import { isManagedHosting } from "./media-quota.ts";
 import { clearSiteProof, makeSiteProof } from "./site-proof.ts";
 import type { Env } from "./types.ts";
 
+/**
+ * 委託の番人に「今すぐ新しい版を確かめて」と頼む(持ち主が更新のチャンネルを切り替えたとき・cms-workerops)。
+ * 番人は 1 日 1 回しか取得口を見ないので、頼まなければ切り替えても最大 24 時間入らない。頼めたら true。
+ * 頼めなくても(圏外・古い導入口)切り替えは効いている —— 次の 1 日 1 回の確認で入る。
+ */
+export async function askManagedUpdateCheck(
+  env: Env,
+  session?: Pick<
+    Awaited<ReturnType<typeof entamyPort>>["session"],
+    "siteCheckUpdate"
+  >,
+): Promise<boolean> {
+  if (!isManagedHosting(env)) return false;
+  try {
+    const port = session ?? (await entamyPort(env)).session;
+    const proof = await makeSiteProof(env);
+    try {
+      const res = await port.siteCheckUpdate({
+        worker: (env.CF_WORKER_NAME ?? "").trim(),
+        proof,
+      });
+      return res.ok && res.value.outcome !== "error";
+    } finally {
+      await clearSiteProof(env).catch(() => {});
+    }
+  } catch {
+    return false;
+  }
+}
+
 export type SiteDomainAction = "status" | "prepare" | "switch" | "remove";
 const ACTIONS: ReadonlySet<string> = new Set([
   "status",
