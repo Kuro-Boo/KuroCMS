@@ -5297,8 +5297,8 @@ async function settings(
       settingsToSave.mobile_media_full_width = mobileMediaFullWidth ? 1 : 0;
     if (hasSiteTimezone) settingsToSave.site_timezone = siteTimezone;
     if (hasShowByline) settingsToSave.show_byline = showByline ? 1 : 0;
-    // 委託の公開アドレスは受付が決めたもの({導入ID}.kurocms.site)で、変えると公開が壊れる。
-    if (isManagedHosting(env)) delete settingsToSave.public_domain;
+    // 委託でも公開ドメインは変えられる(2026-10-22)。独自ドメインは基盤が kurocms.site の
+    // Custom Hostname で付ける(core-offering 14 節)ので、付いたらここで切り替えて作り直す。
     await saveSettings(env, settingsToSave);
 
     // 公開フラグは本来 PUT /api/v1/published の担当（テンプレート系の一族に

@@ -1241,7 +1241,6 @@ async function settings() {
     if (s.managedHosting) {
       const contractTab = byId("contractTabBtn");
       if (contractTab) contractTab.style.display = "";
-      (publicDomainInput as unknown as HTMLInputElement).readOnly = true;
       const help = publicDomainInput
         .closest("label")
         ?.querySelector<HTMLElement>(".muted");

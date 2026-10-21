@@ -1176,7 +1176,7 @@ const i18n = {
     r2SetupHelp:
       "Only needed if you want images, video, or audio. Nothing is charged up to the free 10 GB. Set it up in your own Cloudflare (KuroCMS does not create it): 1) start R2 and create a bucket; 2) Workers & Pages → {worker} → Settings → Bindings → Add → R2 bucket, name the variable MEDIA_BUCKET and pick the bucket from step 1. Once saved, this box shows it as enabled.",
     publicDomainManagedHelp:
-      "Your site's address on Entamy hosting. It cannot be changed. To use your own domain, move to your own Cloudflare account first.",
+      "The address used for links in your public pages. By default it is your Entamy hosting address (installation-id.kurocms.site). Once your own domain is attached, change it here and rebuild all pages. Ask Entamy to attach your own domain.",
     r2SetupDashboard: "Open R2 in Cloudflare",
     r2SetupReady: "R2 media storage is enabled.",
     cfManualSteps:
@@ -2462,7 +2462,7 @@ const i18n = {
     r2SetupHelp:
       "画像・動画・音楽を扱う場合だけ必要です。無料枠の 10GB までは課金されません。設定はご自身の Cloudflare で行います（KuroCMS からは作りません）。① R2 の利用を開始し、バケットを作る ② Workers & Pages → {worker} → 設定 → バインディング → 追加 → R2 バケット で、変数名を MEDIA_BUCKET にして ① のバケットを選ぶ。保存すると、この枠に「利用可能です」と出ます。",
     publicDomainManagedHelp:
-      "委託のサイトのアドレスです。変更はできません。独自ドメインを使う場合は、ご自身の Cloudflare アカウントへ引っ越してから設定します。",
+      "公開ページのリンクに使うアドレスです。既定は委託のアドレス（導入 ID.kurocms.site）です。独自ドメインが付いたら、ここをそのアドレスに変えて、全ページをビルドし直してください。独自ドメインを付けるときは Entamy にご依頼ください。",
     r2SetupDashboard: "Cloudflare で R2 を確認",
     r2SetupReady: "R2 メディアストレージは利用可能です。",
     cfManualSteps:
@@ -4679,7 +4679,7 @@ const helpContent: Record<string, Dynamic> = {
     canDo:
       "基本：公開ドメイン・Worker の URL・独自ドメイン・R2 メディアストレージ / 表示：基本言語・サイトのタイムゾーン・記事の末尾に筆者を出すか / 運用の形：持ち主の登録と、委託運用と顧客導入のあいだの引っ越し / メール送信：この CMS のメールをどこから送るか（顧客導入だけ） / SNS連動：Bluesky・X・Threads の接続と、投稿済みの印の一括操作 / スマホ設定：狭い画面で記事のメディアを全幅にする / インポート：Strapi や別の KuroCMS から記事を取り込む / IP 制限：管理画面を使える回線を絞る / 稼働地域：データベースと KuroCMS が動いている場所を確かめる / 契約情報：委託の契約と無料期間の日付（委託運用だけ）",
     notes:
-      "表示とスマホ設定の変更は、ビルド（全ページ）を実行するまで公開ページに出ません。委託運用では、公開アドレスは「導入 ID.kurocms.site」で変えられません。独自ドメインを使うときは、ご自身の Cloudflare へ引っ越してから設定します。データベースの地域は作ったときに決まり、後から変えられません。契約情報は 1 時間ほどごとに更新されます。",
+      "表示とスマホ設定の変更は、ビルド（全ページ）を実行するまで公開ページに出ません。委託運用の公開アドレスは、既定では「導入 ID.kurocms.site」です。独自ドメインは Entamy が付けます。付いたら公開ドメインをそのアドレスに変えて、全ページをビルドし直します。データベースの地域は作ったときに決まり、後から変えられません。契約情報は 1 時間ほどごとに更新されます。",
   },
   hosting: {
     title: "運用の形と引っ越し",
@@ -4886,7 +4886,7 @@ const helpContentEn: Record<string, Dynamic> = {
     canDo:
       "Basic: public domain, Worker URL, custom domain, R2 media storage / Display: base language, site time zone, author line at the end of articles / Hosting: register the owner, and move between managed hosting and self-hosting / Email: where this CMS sends its mail from (self-hosting only) / SNS: connect Bluesky, X and Threads, and set or clear posted marks in bulk / Mobile: make article media full width on narrow screens / Import: bring in articles from Strapi or another KuroCMS / IP restriction: limit the networks that can use the admin panel / Region: see where the database and KuroCMS run / Contract: dates of the managed contract and free period (managed hosting only)",
     notes:
-      "Display and Mobile changes reach the public pages only after a full build. On managed hosting, the public address is your-installation-id.kurocms.site and cannot be changed. To use your own domain, move to your own Cloudflare account first. The database region is fixed when the database is created. Contract information refreshes about once an hour.",
+      "Display and Mobile changes reach the public pages only after a full build. On managed hosting, the public address is installation-id.kurocms.site by default. Entamy attaches your own domain; once it is attached, change the public domain to it and rebuild all pages. The database region is fixed when the database is created. Contract information refreshes about once an hour.",
   },
   hosting: {
     title: "Hosting and moving",
