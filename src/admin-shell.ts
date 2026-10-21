@@ -298,13 +298,16 @@ export function adminHtml(
       button.snsPostBtn:disabled { opacity: 0.5; cursor: not-allowed; }
       .snsStatusValue.snsClearable { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
       .snsStatusValue.snsClearable:hover { opacity: 0.75; }
-      /* 2 択以上の切り替え(どちらを選んでいるかが一目で分かる)。button[aria-checked] を並べる。 */
-      .segmented { display: inline-flex; flex-wrap: wrap; justify-self: start; width: fit-content; border: 1.5px solid var(--accent); border-radius: 10px; overflow: hidden; background: var(--surface); max-width: 100%; }
-      .segmented > button { background: transparent; color: var(--accent); border: 0; border-radius: 0; padding: 8px 16px; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; box-shadow: none; }
-      .segmented > button + button { border-left: 1.5px solid var(--accent); }
-      .segmented > button:hover { background: rgba(21,122,110,.10); }
-      .segmented > button[aria-checked='true'] { background: var(--accent); color: #fff; }
-      .segmented > button[aria-checked='true']::before { content: '✓ '; }
+      /* 2 択以上の切り替え(セグメントスイッチ)。溝の中に選択肢を並べ、選んでいる側だけを塗って浮かせる。
+         頭のラジオの丸でも選択が分かる。button[role=radio][aria-checked] を並べる。大域の button の書式
+         (詳細度 0,2,1)に負けないよう [role] まで付けて指す。 */
+      .segmented { display: inline-flex; flex-wrap: wrap; gap: 4px; padding: 4px; justify-self: start; width: fit-content; max-width: 100%; background: var(--surface-2); border: 1px solid var(--line); border-radius: 999px; }
+      .segmented.segmented > button[role='radio'] { display: inline-flex; align-items: center; gap: 8px; background: transparent; color: var(--muted); border: 0; border-radius: 999px; padding: 9px 18px; font: inherit; font-size: 14px; font-weight: 700; line-height: 1.2; cursor: pointer; box-shadow: none; transition: background .15s, color .15s, box-shadow .15s; }
+      .segmented.segmented > button[role='radio']::before { content: ''; flex: none; width: 14px; height: 14px; border-radius: 50%; border: 2px solid currentColor; box-sizing: border-box; }
+      .segmented.segmented > button[role='radio']:hover { background: var(--surface-3); color: var(--ink); filter: none; }
+      .segmented.segmented > button[role='radio'][aria-checked='true'] { background: var(--accent); color: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.28); }
+      .segmented.segmented > button[role='radio'][aria-checked='true']::before { border-color: #fff; background: radial-gradient(circle, #fff 0 3px, transparent 3.5px); }
+      .segmented.segmented > button[role='radio']:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
       .snsSvcTab { opacity: .5; }
       .snsSvcTab:hover { opacity: .8; }
       .snsSvcTab.active { opacity: 1; border-color: var(--accent) !important; color: var(--accent); }
