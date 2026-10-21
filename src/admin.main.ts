@@ -1411,7 +1411,8 @@ const i18n = {
     planFree: "Free",
     cfAccountLabel: "Cloudflare account: ",
     cfAccountManaged: "Cloudflare account for hosted (managed) users",
-    managedUpdateNote: "Entamy delivers the chosen version automatically.",
+    managedUpdateNote:
+      "Entamy delivers the chosen version automatically. New versions are checked and installed once a day (about 24 hours after the last check). Urgent fixes are delivered by Entamy right away.",
     profileTabAccount: "Account",
     profileTabDisplay: "Display",
     profileTabPat: "PAT",
@@ -2769,7 +2770,8 @@ const i18n = {
     planFree: "無料枠",
     cfAccountLabel: "Cloudflare アカウント: ",
     cfAccountManaged: "委託利用者用の Cloudflare アカウント",
-    managedUpdateNote: "委託では、選んだ版を Entamy が自動で届けます。",
+    managedUpdateNote:
+      "委託では、選んだ版を Entamy が自動で届けます。新しい版は 1 日 1 回（前回の確認から 24 時間後）確かめて入れます。急ぎの直しは Entamy がすぐに届けます。",
     profileTabAccount: "アカウント",
     profileTabDisplay: "表示",
     profileTabPat: "PAT",
@@ -4855,7 +4857,7 @@ const helpContent: Record<string, Dynamic> = {
     canDo:
       "導入している版・安定版・最新版を確かめる / 「今すぐ更新のチェック」「今すぐ更新」で更新する / 「自動で更新する」を入・切にする / 「常に最新版に更新」で、安定版だけを入れるか、リリースのたびに入れるかを選ぶ / WorkerOps も同じように更新する",
     notes:
-      "自動で更新するときは、1 日に 1 回、選んだ版の新しいものを確かめ、WorkerOps が入れます。入れた直後の確かめに失敗すると、元の版に戻します。安定版は、提供元が確かめて昇格させた版です。最新版はリリースのたびに出るので、確かめの少ない版も入ります。版を確かめられなかったときは「確認できませんでした」と出ます。最新という意味ではありません。委託運用では Entamy が更新を届けるので、出るのは最新版のスイッチだけです。選んだ版を自動で入れます。",
+      "自動で更新するときは、1 日に 1 回、選んだ版の新しいものを確かめ、WorkerOps が入れます。入れた直後の確かめに失敗すると、元の版に戻します。安定版は、提供元が確かめて昇格させた版です。最新版はリリースのたびに出るので、確かめの少ない版も入ります。版を確かめられなかったときは「確認できませんでした」と出ます。最新という意味ではありません。委託運用では Entamy が更新を届けるので、出るのは最新版のスイッチだけです。選んだ版の新しいものを 1 日 1 回（前回の確認から 24 時間後）確かめて自動で入れます。急ぎの直しは Entamy がすぐに届けます。",
   },
   notices: {
     title: "お知らせと持ち主",
@@ -5070,7 +5072,7 @@ const helpContentEn: Record<string, Dynamic> = {
     canDo:
       'See the installed, stable and latest versions / Update with "Check for Update" and "Update Now" / Turn "Update automatically" on or off / Use "Always update to latest" to choose between stable versions only and every release / Update WorkerOps the same way',
     notes:
-      "With automatic updates, the chosen channel is checked once a day and WorkerOps installs anything new. If the check right after installing fails, it goes back to the previous version. Stable versions are releases the publisher has checked and promoted. The latest channel gets every release, including ones that have been checked less. If the version check cannot reach the release source, it says so; that does not mean you are up to date. On managed hosting Entamy delivers updates, so only the latest-version switch is shown; the chosen version is installed automatically.",
+      "With automatic updates, the chosen channel is checked once a day and WorkerOps installs anything new. If the check right after installing fails, it goes back to the previous version. Stable versions are releases the publisher has checked and promoted. The latest channel gets every release, including ones that have been checked less. If the version check cannot reach the release source, it says so; that does not mean you are up to date. On managed hosting Entamy delivers updates, so only the latest-version switch is shown. New versions of the chosen channel are checked and installed automatically once a day (about 24 hours after the last check). Urgent fixes are delivered by Entamy right away.",
   },
   notices: {
     title: "Notices and the owner",
