@@ -17,6 +17,19 @@ import { HttpError } from "./http.ts";
 import { isManagedHosting } from "./media-quota.ts";
 import { cancelMoveOut, startMoveOut } from "./move.ts";
 import type { Env } from "./types.ts";
+import { KUROCMS_VERSION } from "./version.ts";
+
+/** 版 a が b より古いか(major.minor.patch。読めない版は古いと見る)。 */
+export function olderThan(a: string, b: string): boolean {
+  const p = (v: string) =>
+    /^\d+\.\d+\.\d+$/.test(v) ? v.split(".").map(Number) : null;
+  const x = p(a);
+  const y = p(b);
+  if (!y) return false;
+  if (!x) return true;
+  for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i]! < y[i]!;
+  return false;
+}
 
 /** 始めた引っ越し（ほかの管理者・ほかの端末でも進み具合へ戻れるように）。 */
 const K_JOB = "system:site_move_job";
@@ -67,14 +80,17 @@ export async function readSiteMoveJob(env: Env): Promise<SiteMoveJob | null> {
 export async function siteMoveOwner(
   env: Env,
   session?: SiteMoveSession,
-): Promise<"record" | "id" | null | "unknown"> {
+): Promise<{
+  owner: "record" | "id" | null | "unknown";
+  minVersion: string | null;
+}> {
   try {
     const res = await (session ?? (await sessionOf(env))).siteOwner(
       (env.CF_WORKER_NAME ?? "").trim(),
     );
-    return res.ok ? res.value.owner : "unknown";
+    return res.ok ? res.value : { owner: "unknown", minVersion: null };
   } catch {
-    return "unknown";
+    return { owner: "unknown", minVersion: null };
   }
 }
 
@@ -136,6 +152,15 @@ export async function startSiteMove(
     payload.workerOpsToken = text(body, "workerOpsToken");
   }
   const port = { session: session ?? (await sessionOf(env)) };
+  // 引っ越しを受ける版の下限(導入口が持つ)。足りなければ鍵を置く前に断る —— 先に更新してもらう。
+  // 導入口も頼まれた時点で確かめるので、ここで分からなくても(圏外)そのまま頼む。
+  const owner = await siteMoveOwner(env, port.session);
+  if (owner.minVersion && olderThan(KUROCMS_VERSION, owner.minVersion))
+    throw new HttpError(
+      409,
+      "source_too_old",
+      `Update KuroCMS to ${owner.minVersion} or later first.`,
+    );
   // 走っている（止まって再開を待つ）引っ越しがあれば始めない —— 鍵を置き替えると、その引っ越しが読めなくなる。
   const current = await readSiteMoveJob(env);
   if (current) {

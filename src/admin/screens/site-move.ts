@@ -13,6 +13,18 @@ const SITE_MOVE_POLL_MS = 3000;
 // (引っ越しの結果には載らない。閉じても控え直せるように)。
 const SITE_MOVE_OPS_KEY = "kurocms_site_move_ops";
 
+/** 版 a が b より古いか(major.minor.patch)。読めない版は古いと見る。 */
+function siteMoveOlder(a: string, b: string): boolean {
+  const p = (v: string) =>
+    /^\d+\.\d+\.\d+$/.test(v) ? v.split(".").map(Number) : null;
+  const x = p(a);
+  const y = p(b);
+  if (!y) return false;
+  if (!x) return true;
+  for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i]! < y[i]!;
+  return false;
+}
+
 function siteMoveSectionHtml(): string {
   return (
     "<div id='siteMoveSection' class='panel stack' style='display:none'>" +
@@ -135,7 +147,20 @@ async function mountSiteMove(): Promise<void> {
     timer = null;
   };
 
+  // 引っ越しを受ける版の下限(導入口が持つ)。足りなければ、押したときに先に更新を求める。
+  const tooOld =
+    typeof info.minVersion === "string" &&
+    siteMoveOlder(String(info.version || ""), info.minVersion);
   open.addEventListener("click", () => {
+    if (tooOld) {
+      const msg = t("siteMoveNeedUpdate")
+        .replace("{min}", info.minVersion)
+        .replace("{now}", String(info.version || ""));
+      note.style.display = "";
+      note.textContent = msg;
+      toast(msg, true);
+      return;
+    }
     if (needOwner) {
       openContactDialog(
         { state: "none" },

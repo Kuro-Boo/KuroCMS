@@ -4,6 +4,7 @@
 import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import {
+  olderThan,
   readSiteMoveJob,
   startSiteMove,
   type SiteMoveSession,
@@ -58,6 +59,7 @@ function session(
         failure: { kind: string; status?: number; message?: string };
       },
   status: Record<string, unknown> | null = null,
+  minVersion: string | null = null,
 ) {
   const sent: Array<Record<string, unknown>> = [];
   const s = {
@@ -70,6 +72,10 @@ function session(
         ? { ok: true, value: status }
         : { ok: false, failure: { kind: "network" } },
     resumeSiteMove: async () => ({ ok: true, value: undefined }),
+    siteOwner: async () => ({
+      ok: true,
+      value: { owner: "record", minVersion },
+    }),
   } as unknown as SiteMoveSession;
   return { s, sent };
 }
@@ -218,6 +224,40 @@ console.log("site-move");
     "自分の引っ越しの口を渡す",
     sent[0]?.api,
     "https://blog.example.com/kurocms/api/system/move/",
+  );
+}
+
+{
+  // 引っ越しを受ける版の下限より古ければ、鍵を置く前に断る(先に更新)。
+  const { raw, env } = world({ CF_WORKER_NAME: "kurocms-app-0123abcd" });
+  const old = session(accepted, null, "99.0.0");
+  eq(
+    "版が足りなければ source_too_old",
+    await code(startSiteMove(env, {}, "ja", old.s)),
+    "source_too_old",
+  );
+  eq(
+    "頼まない・鍵も置かない",
+    [
+      old.sent.length,
+      raw.prepare("SELECT COUNT(*) AS n FROM move_state").get(),
+    ],
+    [0, { n: 0 }],
+  );
+  const ok = session(accepted, null, "1.0.0");
+  eq(
+    "足りていれば始める",
+    await code(startSiteMove(env, {}, "ja", ok.s)),
+    "passed",
+  );
+  eq(
+    "版の比べ",
+    [
+      olderThan("1.10.86", "1.10.87"),
+      olderThan("1.10.87", "1.10.87"),
+      olderThan("2.0.0", "1.10.87"),
+    ],
+    [true, false, false],
   );
 }
 

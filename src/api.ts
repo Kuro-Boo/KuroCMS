@@ -887,7 +887,9 @@ async function handleApiDispatch(
         return json({
           to: siteMoveDirection(env),
           // 持ち主が分かるか(record = 導入口の記録・id = 連絡先の登録・null = まだ・unknown = 訊けない)。
-          owner: await siteMoveOwner(env),
+          ...(await siteMoveOwner(env)),
+          // いまの版(引っ越しを受ける版の下限 minVersion と比べて、足りなければ先に更新を求める)。
+          version: KUROCMS_VERSION,
           job: (await readSiteMoveJob(env)) as unknown as JsonValue,
         });
       }

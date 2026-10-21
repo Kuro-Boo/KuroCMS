@@ -866,7 +866,8 @@ const i18n = {
     err_move_in_progress: "A move is already in progress.",
     err_move_ticket_invalid:
       "Entamy could not confirm this site. Reload and try again.",
-    err_source_too_old: "Update KuroCMS to the latest version first.",
+    err_source_too_old:
+      'To move, first update KuroCMS ("Check for Update" on the dashboard).',
     err_source_busy: "This site is in the middle of another move.",
     err_media_too_large:
       "The media is larger than the managed hosting limit (10 GB per site).",
@@ -912,6 +913,8 @@ const i18n = {
     siteMoveNeedOwner:
       "This site was installed before the Entamy installer, so its owner is not known yet. Register the owner's email address first (one confirmation email). That Entamy ID will hold the managed hosting contract.",
     siteMoveRegisterOwner: "Register the owner",
+    siteMoveNeedUpdate:
+      'To move, first update KuroCMS to v{min} or later (now v{now}). You can update from "Check for Update" on the dashboard.',
     siteMoveOwnerUnavailable:
       "Could not check the owner right now. Please try again in a moment.",
     contactPanelHelp:
@@ -2056,7 +2059,8 @@ const i18n = {
     err_move_in_progress: "引っ越しはもう始まっています。",
     err_move_ticket_invalid:
       "Entamy がこのサイトを確かめられませんでした。開き直してもう一度押してください。",
-    err_source_too_old: "先に KuroCMS を最新の版へ更新してください。",
+    err_source_too_old:
+      "引っ越すには、先に KuroCMS を更新してください（ダッシュボードの「今すぐ更新のチェック」）。",
     err_source_busy: "このサイトは別の引っ越しの途中です。",
     err_media_too_large:
       "メディアが委託運用の上限（1 サイト 10 GB）を超えています。",
@@ -2102,6 +2106,8 @@ const i18n = {
     siteMoveNeedOwner:
       "このサイトは導入口より前の仕組みで入れたため、持ち主がまだ分かりません。先に持ち主のメールアドレスを登録してください（確認のメール 1 通）。その Entamy ID が委託運用の契約の持ち主になります。",
     siteMoveRegisterOwner: "持ち主を登録する",
+    siteMoveNeedUpdate:
+      "引っ越すには、先に KuroCMS を v{min} 以上へ更新してください（いまは v{now}）。ダッシュボードの「今すぐ更新のチェック」から更新できます。",
     siteMoveOwnerUnavailable:
       "いまは持ち主を確かめられません。少し待ってからもう一度お試しください。",
     contactPanelHelp:

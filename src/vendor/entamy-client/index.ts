@@ -170,8 +170,12 @@ export class EntamySession {
   resumeSiteMove(_jobId: string): Promise<EntamyResult<void>> {
     return refuse<void>();
   }
-  siteOwner(_worker: string): Promise<EntamyResult<{ owner: "record" | "id" | null }>> {
-    return refuse<{ owner: "record" | "id" | null }>();
+  siteOwner(
+    _worker: string,
+  ): Promise<
+    EntamyResult<{ owner: "record" | "id" | null; minVersion: string | null }>
+  > {
+    return refuse<{ owner: "record" | "id" | null; minVersion: string | null }>();
   }
   // 導入の持ち主(ID 第7章)。公開の写しでは基盤へ繋がないので、どれも断る
   // (管理画面は「いまは確認できません」を出し、ダイアログは出さない)。
