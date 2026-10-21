@@ -61,6 +61,7 @@ import {
 import { checkRecipeCards } from "./recipe-guard.js";
 import { entamyPort } from "./entamy-port";
 import { KUROCMS_VERSION } from "./version";
+import { noteRunningVersion } from "./version-since";
 import { isValidTimeZone } from "./timezone";
 import {
   exceedsMediaQuota,
@@ -4352,6 +4353,8 @@ async function systemVersion(env: Env, refresh = false): Promise<Response> {
     channel,
     autoUpdate: await getAutoUpdate(env).catch(() => true),
     hasUpdate,
+    // いまの版がいつ入ったか。記録より前に入った版は at が null(分からない日を出さない)。
+    since: (await noteRunningVersion(env).catch(() => null)) as JsonValue,
     checkOk: check.ok,
     checkedAt: check.checkedAt,
     checkError: check.ok ? null : (check.error ?? null),

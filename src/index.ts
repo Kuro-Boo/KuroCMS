@@ -6,6 +6,7 @@ import { reportInstall } from "./entamy";
 import { entamyPort } from "./entamy-port";
 import { guardianAutoTick } from "./guardian-update";
 import { guardianDeps } from "./guardian-deps";
+import { noteRunningVersion } from "./version-since";
 import { purgeIpGate } from "./ip-gate";
 import { runScheduledThreadsTokenRefresh } from "./threads-token";
 import { html, notFound, notFoundPage } from "./http";
@@ -62,6 +63,12 @@ export default {
         }),
       );
     }
+    // いまの版がいつ入ったか(ダッシュボードの KuroCMS の枠)。どの経路で入っても 1 分以内に残る。
+    ctx.waitUntil(
+      noteRunningVersion(env).catch((err) => {
+        console.error("version note failed:", err);
+      }),
+    );
     ctx.waitUntil(
       guardianAutoTick(env, guardianDeps(env)).catch((err) => {
         console.error("guardian auto-update failed:", err);

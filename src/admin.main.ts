@@ -1200,6 +1200,7 @@ const i18n = {
     guardianCheckFailed:
       "Could not check the WorkerOps versions. This does NOT mean it is up to date.",
     guardianResultUpdated: "Updated WorkerOps {from} → {to} ({when}).",
+    versionUpdatedAt: "Updated KuroCMS {from} → {to} ({when}).",
     guardianResultRolledBack:
       "WorkerOps {to} did not answer, so it was rolled back to the previous version ({when}). Reason: {error}",
     guardianResultFailed:
@@ -2355,6 +2356,7 @@ const i18n = {
       "WorkerOps の版を確認できませんでした。「最新です」という意味ではありません。",
     guardianResultUpdated:
       "WorkerOps を {from} → {to} に更新しました（{when}）。",
+    versionUpdatedAt: "KuroCMS を {from} → {to} に更新しました（{when}）。",
     guardianResultRolledBack:
       "WorkerOps {to} が応答しなかったため、元の版に戻しました（{when}）。理由: {error}",
     guardianResultFailed:

@@ -576,21 +576,28 @@ async function dashboard() {
     if (btn)
       btn.textContent = v.hasUpdate ? t("updateNow") : t("checkForUpdate");
 
-    // 委託の一文(applyManagedUpdates)は版の結果で書き換えない。
-    if (note && !note.dataset.managed) {
+    if (note) {
       // 確認できたなら黙っている。出すのは「確認できていない」ときだけ。
-      if (v.checkOk || v.viaBrowser) {
-        note.style.display = "none";
-        note.textContent = "";
-      } else {
+      let check = "";
+      if (!(v.checkOk || v.viaBrowser)) {
         const when = v.checkedAt
           ? new Date(String(v.checkedAt)).toLocaleString()
           : "";
-        note.style.display = "";
-        note.textContent = v.stable
+        check = v.stable
           ? t("versionCheckFailedStale").replace("{when}", when)
           : t("versionCheckFailed");
       }
+      // いまの版がいつ入ったか(WorkerOps の枠の「最後の結果」と同じ位置)。分からない日は出さない。
+      const since = v.since as Dynamic;
+      note.dataset.check = check;
+      note.dataset.since =
+        since && since.at && since.version === v.current
+          ? t("versionUpdatedAt")
+              .replace("{from}", since.from ? "v" + since.from : "v—")
+              .replace("{to}", "v" + since.version)
+              .replace("{when}", new Date(String(since.at)).toLocaleString())
+          : "";
+      paintVersionNote(note);
     }
   }
 
@@ -750,9 +757,18 @@ function applyManagedUpdates() {
   const note = byId("versionNote");
   if (note) {
     note.dataset.managed = "1";
-    note.textContent = t("managedUpdateNote");
-    note.style.display = "";
+    paintVersionNote(note);
   }
+}
+
+/** KuroCMS の枠の一番下の 1 行。委託の一文は版の確認の結果より優先し、更新した日は常に添える。 */
+function paintVersionNote(note: HTMLElement) {
+  const lines = [
+    note.dataset.managed ? t("managedUpdateNote") : note.dataset.check || "",
+    note.dataset.since || "",
+  ].filter(Boolean);
+  note.style.display = lines.length ? "" : "none";
+  note.textContent = lines.join(" ");
 }
 
 function setupGuardianPanel() {
