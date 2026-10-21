@@ -204,18 +204,20 @@ console.log("site-move");
   );
 }
 {
-  // 導入口より前の導入(Worker の名前が無い)は、頼む前に断る。
-  const { raw, env } = world();
+  // 導入口より前の導入(Worker の名前が無い v1)も導入口へ頼む。持ち主は導入口が ID から引くので、自分の口を渡す。
+  const { env } = world();
   const { s, sent } = session(accepted);
-  eq(
-    "v1 は持ち主が分からない",
-    await code(startSiteMove(env, {}, "ja", s)),
-    "owner_unknown",
+  await startSiteMove(
+    env,
+    { api: "https://blog.example.com/kurocms/api/system/move/" },
+    "ja",
+    s,
   );
+  eq("名前は空のまま", sent[0]?.worker, "");
   eq(
-    "頼まない・鍵も置かない",
-    [sent.length, raw.prepare("SELECT COUNT(*) AS n FROM move_state").get()],
-    [0, { n: 0 }],
+    "自分の引っ越しの口を渡す",
+    sent[0]?.api,
+    "https://blog.example.com/kurocms/api/system/move/",
   );
 }
 

@@ -60,6 +60,13 @@ import {
 } from "./kuroeditor/normalize.js";
 import { checkRecipeCards } from "./recipe-guard.js";
 import { entamyPort } from "./entamy-port";
+import {
+  CONTACT_CONSENT_VERSION,
+  contactState,
+  declineContact,
+  removeContact,
+  startContact,
+} from "./owner-contact";
 import { KUROCMS_VERSION } from "./version";
 import { noteRunningVersion } from "./version-since";
 import { isValidTimeZone } from "./timezone";
@@ -129,6 +136,7 @@ import {
   readSiteMoveJob,
   resumeSiteMove,
   siteMoveDirection,
+  siteMoveOwner,
   startSiteMove,
 } from "./site-move";
 import {
@@ -712,6 +720,69 @@ async function handleApiDispatch(
       return json({ ok: true, version: state.currentVersion });
     }
 
+    // 持ち主の連絡先(cms-admin-integration「連絡先の登録」)。管理者だけ。結んだ持ち主は、委託運用へ
+    // 引っ越すときの契約の持ち主にもなる。メールアドレスは KuroCMS に写さず、そのつど Entamy ID に訊く。
+    if (request.method === "GET" && path === "/api/system/contact") {
+      requireAdmin(user);
+      return json((await contactState(env)) as unknown as JsonValue);
+    }
+    if (request.method === "POST" && path === "/api/system/contact") {
+      requireAdmin(user);
+      const body = await readJson(request);
+      const result = await startContact(env, {
+        email: typeof body.email === "string" ? body.email : "",
+        consent: body.consent === true,
+        lang: typeof body.lang === "string" ? body.lang : "en",
+        site: new URL(request.url).origin,
+      });
+      if (!result.ok) {
+        throw new HttpError(result.status, result.error, result.error);
+      }
+      // どの管理者が、どの版の文面に了承したか(ID には CMS の利用者を渡さない)。
+      await logActivity(
+        env,
+        user,
+        "system.contact_consent",
+        "system",
+        "contact",
+        {
+          consentVersion: CONTACT_CONSENT_VERSION,
+        },
+      );
+      return json({ ok: true });
+    }
+    if (request.method === "POST" && path === "/api/system/contact/remove") {
+      requireAdmin(user);
+      const result = await removeContact(env);
+      if (!result.ok) {
+        throw new HttpError(503, "unavailable", "unavailable");
+      }
+      await logActivity(
+        env,
+        user,
+        "system.contact_remove",
+        "system",
+        "contact",
+        {
+          removed: result.removed,
+        },
+      );
+      return json({ ok: true, removed: result.removed });
+    }
+    if (request.method === "POST" && path === "/api/system/contact/decline") {
+      requireAdmin(user);
+      await declineContact(env);
+      await logActivity(
+        env,
+        user,
+        "system.contact_decline",
+        "system",
+        "contact",
+        {},
+      );
+      return json({ ok: true });
+    }
+
     // 導入の名乗り。**認証必須** —— 誰でも読めると、導入の識別子が外に出る。
     if (request.method === "GET" && path === "/api/system/install-id") {
       requireAdmin(user);
@@ -815,8 +886,8 @@ async function handleApiDispatch(
       if (request.method === "GET" && path === "/api/system/site-move") {
         return json({
           to: siteMoveDirection(env),
-          // 導入口で入れた導入だけが自分の Worker の名前を持つ(持ち主の記録がある)。
-          ownerKnown: !!(env.CF_WORKER_NAME ?? "").trim(),
+          // 持ち主が分かるか(record = 導入口の記録・id = 連絡先の登録・null = まだ・unknown = 訊けない)。
+          owner: await siteMoveOwner(env),
           job: (await readSiteMoveJob(env)) as unknown as JsonValue,
         });
       }

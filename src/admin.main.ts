@@ -861,7 +861,7 @@ const i18n = {
     siteMoveStep_move_finish:
       "Send passkey emails and point this address to a notice",
     err_owner_unknown:
-      "This install has no owner record (it was installed before the Entamy installer). Link an owner Entamy ID to it first.",
+      "The owner of this site is not known yet. Register the owner first (Settings → Hosting).",
     err_wrong_direction: "This site cannot move in that direction.",
     err_move_in_progress: "A move is already in progress.",
     err_move_ticket_invalid:
@@ -889,6 +889,42 @@ const i18n = {
     legalTerms: "Terms of Service",
     legalPrivacy: "Privacy Policy",
     legalAgreeButton: "Agree and continue",
+    contactTitle: "Register a contact email",
+    contactLead:
+      "Register the owner's email address. The Entamy ID for it becomes the owner of this CMS: important notices about this CMS are sent there, and it holds the contract if the site moves to Entamy managed hosting. It is not used for anything else.",
+    contactConsent: "I agree to this use",
+    contactEmail: "Email address",
+    contactRegister: "Register",
+    contactLater: "Later",
+    contactDecline: "Don't register",
+    contactClose: "Close",
+    contactSent:
+      'A confirmation email was sent to {email}. Open the link in it and press "Confirm" (valid for 30 minutes).',
+    contactDone: "Your contact email has been confirmed.",
+    contactInvalidEmail: "Please enter a valid email address.",
+    contactRateLimited:
+      "Too many emails were sent. Please try again in an hour.",
+    contactUnavailable:
+      "The registration service is not reachable right now. Please try again later.",
+    contactPanelTitle: "Owner (contact email)",
+    contactInstaller:
+      "The Entamy ID used to install this site with the Entamy installer is its owner.",
+    siteMoveNeedOwner:
+      "This site was installed before the Entamy installer, so its owner is not known yet. Register the owner's email address first (one confirmation email). That Entamy ID will hold the managed hosting contract.",
+    siteMoveRegisterOwner: "Register the owner",
+    siteMoveOwnerUnavailable:
+      "Could not check the owner right now. Please try again in a moment.",
+    contactPanelHelp:
+      "Important notices about this CMS (security, updates, backup reminders) are sent here, and this Entamy ID holds the contract if the site moves to Entamy managed hosting. It is not used for anything else.",
+    contactLinked: "Registered: {email} (confirmed {date})",
+    contactPending: "Waiting for confirmation: {email}",
+    contactNone: "Not registered",
+    contactOptedOut:
+      "Reporting to Entamy is turned off, so a contact cannot be registered.",
+    contactChange: "Change",
+    contactRemove: "Remove",
+    contactRemoveConfirm:
+      "Remove the contact email? Important notices will no longer reach you.",
     legalRequired: "Please tick the checkbox to agree.",
     // 導入を見分けるための番号。**"INSTALL-ID" とは呼ばない** ——
     // 導入の鍵(install_id)と取り違えられるため。
@@ -2015,7 +2051,7 @@ const i18n = {
     siteMoveStep_move_finish:
       "パスキーの登録のメールを送り、このアドレスを案内に替える",
     err_owner_unknown:
-      "この導入には持ち主の記録がありません（導入口より前の仕組みで入れた導入です）。引っ越すには、先に持ち主の Entamy ID を結んでください。",
+      "このサイトの持ち主がまだ分かりません。先に持ち主を登録してください（設定 → 運用の形）。",
     err_wrong_direction: "このサイトはその向きには引っ越せません。",
     err_move_in_progress: "引っ越しはもう始まっています。",
     err_move_ticket_invalid:
@@ -2043,6 +2079,42 @@ const i18n = {
     legalTerms: "利用規約",
     legalPrivacy: "プライバシーポリシー",
     legalAgreeButton: "同意して続ける",
+    contactTitle: "連絡先のメールアドレスの登録",
+    contactLead:
+      "持ち主のメールアドレスを登録します。このアドレスの Entamy ID がこの CMS の持ち主になり、重要なお知らせが届き、Entamy の委託運用へ引っ越すときは契約の持ち主になります。それ以外には使いません。",
+    contactConsent: "この使い方に了承します",
+    contactEmail: "メールアドレス",
+    contactRegister: "登録する",
+    contactLater: "後で",
+    contactDecline: "登録しない",
+    contactClose: "閉じる",
+    contactSent:
+      "{email} に確認のメールを送りました。メールのリンクを開き、「確認する」を押してください(30分有効)。",
+    contactDone: "連絡先のメールアドレスを確認できました。",
+    contactInvalidEmail: "メールアドレスを正しく入力してください。",
+    contactRateLimited:
+      "送った回数が多すぎます。1時間ほどおいてから試してください。",
+    contactUnavailable:
+      "いまは登録の窓口につながりません。しばらくしてから試してください。",
+    contactPanelTitle: "持ち主（連絡先のメールアドレス）",
+    contactInstaller:
+      "このサイトを導入口で入れたときの Entamy ID が持ち主です。",
+    siteMoveNeedOwner:
+      "このサイトは導入口より前の仕組みで入れたため、持ち主がまだ分かりません。先に持ち主のメールアドレスを登録してください（確認のメール 1 通）。その Entamy ID が委託運用の契約の持ち主になります。",
+    siteMoveRegisterOwner: "持ち主を登録する",
+    siteMoveOwnerUnavailable:
+      "いまは持ち主を確かめられません。少し待ってからもう一度お試しください。",
+    contactPanelHelp:
+      "この CMS の重要なお知らせ（セキュリティ・更新・バックアップのお願いなど）が届き、Entamy の委託運用へ引っ越すときは、この Entamy ID が契約の持ち主になります。それ以外には使いません。",
+    contactLinked: "登録済み: {email}(確認 {date})",
+    contactPending: "確認待ち: {email}",
+    contactNone: "未登録",
+    contactOptedOut:
+      "Entamy への報告を止めているため、連絡先は登録できません。",
+    contactChange: "変更",
+    contactRemove: "取り消し",
+    contactRemoveConfirm:
+      "連絡先のメールアドレスを取り消しますか？重要なお知らせが届かなくなります。",
     legalRequired: "チェックを入れて同意してください。",
     installIdentity: "管理番号",
     profilePreferences: "表示設定",
@@ -4950,6 +5022,263 @@ async function checkLegalConsentOnce() {
   document.body.appendChild(ov);
 }
 
+/**
+ * 持ち主の連絡先(古い導入。cms-admin-integration「連絡先の登録」)。
+ *
+ * 管理者が開いたとき、持ち主が結ばれていなければ一度だけ尋ねる。**どれを選んでも管理画面は
+ * 止めない。** 訊けないとき(圏外)は「未登録」と読まずに何も出さない。
+ */
+type ContactInfo = {
+  state: "opted_out" | "unavailable" | "installer" | "linked" | "none";
+  email?: string;
+  linkedAt?: string;
+  declined?: boolean;
+  pending?: { email: string; expiresAt: string } | null;
+};
+
+let contactChecked = false;
+/** ログイン中の人のメールアドレス。持ち主の登録の欄に初めから入れる(多くは管理者が持ち主)。 */
+let sessionEmail = "";
+async function checkContactOnce() {
+  if (contactChecked || !state.isAdmin || state.preview) return;
+  contactChecked = true;
+  let info: ContactInfo;
+  try {
+    info = await api("/api/system/contact");
+  } catch {
+    return;
+  }
+  if (info.state !== "none" || info.declined) return;
+  openContactDialog(info, { prompt: true });
+}
+
+function openContactDialog(
+  info: ContactInfo,
+  opts: { prompt: boolean; onClose?: () => void },
+) {
+  // 規約の同意と同じく、共有ダイアログに載せず自前で組む(全画面用の指定を拾って崩れるため)。
+  const ov = document.createElement("div");
+  ov.setAttribute("role", "dialog");
+  ov.setAttribute("aria-modal", "true");
+  ov.style.cssText =
+    "position:fixed;inset:0;z-index:3000;background:rgba(8,12,22,.72);" +
+    "display:flex;align-items:center;justify-content:center;padding:20px";
+  const card = document.createElement("div");
+  card.style.cssText =
+    "width:min(520px,100%);background:var(--panel,#141f35);color:var(--ink,#e9eefc);" +
+    "border:1px solid var(--line,#293b5d);border-radius:14px;padding:22px;" +
+    "font-size:14px;line-height:1.8;box-shadow:0 18px 50px rgba(0,0,0,.5)";
+  ov.appendChild(card);
+  let polling: ReturnType<typeof setInterval> | null = null;
+  const close = () => {
+    if (polling) clearInterval(polling);
+    ov.remove();
+    opts.onClose?.();
+  };
+  const button = (label: string, primary: boolean) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = label;
+    b.style.cssText =
+      "border:0;border-radius:9px;padding:10px 16px;font:inherit;font-weight:700;cursor:pointer;" +
+      (primary
+        ? "background:var(--accent,#2f7d6b);color:#fff"
+        : "background:transparent;color:var(--muted,#91a0c3);border:1px solid var(--line,#293b5d)");
+    return b;
+  };
+
+  const h = document.createElement("h3");
+  h.textContent = t("contactTitle");
+  h.style.cssText = "margin:0 0 10px;font-size:18px";
+  const lead = document.createElement("p");
+  lead.textContent = t("contactLead");
+  lead.style.cssText =
+    "margin:0 0 12px;color:var(--muted,#91a0c3);font-size:13px";
+  const input = document.createElement("input");
+  input.type = "email";
+  input.autocomplete = "email";
+  input.placeholder = t("contactEmail");
+  input.setAttribute("aria-label", t("contactEmail"));
+  input.value = info.pending?.email ?? sessionEmail;
+  input.style.cssText = "width:100%;box-sizing:border-box;margin:0 0 10px";
+  const label = document.createElement("label");
+  label.style.cssText =
+    "display:flex;align-items:flex-start;gap:10px;cursor:pointer;margin:0 0 10px";
+  const box = document.createElement("input");
+  box.type = "checkbox";
+  box.style.cssText = "margin-top:5px;flex:0 0 auto;width:16px;height:16px";
+  const boxText = document.createElement("span");
+  boxText.textContent = t("contactConsent");
+  label.appendChild(box);
+  label.appendChild(boxText);
+  const msg = document.createElement("div");
+  msg.style.cssText =
+    "color:var(--danger,#ff9aa5);font-size:12px;min-height:16px;margin-bottom:8px";
+  const row = document.createElement("div");
+  row.style.cssText =
+    "display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap";
+
+  const go = button(t("contactRegister"), true);
+  // 了承とアドレスが揃うまで押せない。**押せない理由は見た目で分かるようにする。**
+  const sync = () => {
+    const ready = box.checked && input.value.trim().includes("@");
+    go.disabled = !ready;
+    go.style.opacity = ready ? "1" : ".45";
+    go.style.cursor = ready ? "pointer" : "not-allowed";
+  };
+  box.addEventListener("change", sync);
+  input.addEventListener("input", sync);
+  sync();
+
+  if (opts.prompt) {
+    const decline = button(t("contactDecline"), false);
+    decline.onclick = () => {
+      close();
+      void api("/api/system/contact/decline", {
+        method: "POST",
+        body: "{}",
+      }).catch(() => {});
+    };
+    const later = button(t("contactLater"), false);
+    later.onclick = close;
+    row.appendChild(decline);
+    row.appendChild(later);
+  } else {
+    const cancel = button(t("contactClose"), false);
+    cancel.onclick = close;
+    row.appendChild(cancel);
+  }
+  row.appendChild(go);
+
+  const sent = (email: string) => {
+    card.replaceChildren();
+    const h2 = h.cloneNode(true);
+    const p = document.createElement("p");
+    p.textContent = t("contactSent").replace("{email}", email);
+    p.style.cssText = "margin:0 0 14px";
+    const r = document.createElement("div");
+    r.style.cssText = "display:flex;justify-content:flex-end";
+    const done = button(t("contactClose"), true);
+    done.onclick = close;
+    r.appendChild(done);
+    card.append(h2, p, r);
+    // 確認の頁で押されたら「確認済み」に変わる。開いているあいだだけ訊き直す(期限の30分まで)。
+    const until = Date.now() + 30 * 60 * 1000;
+    polling = setInterval(async () => {
+      if (Date.now() > until || !ov.isConnected) {
+        if (polling) clearInterval(polling);
+        return;
+      }
+      try {
+        const now = (await api("/api/system/contact")) as ContactInfo;
+        if (now.state === "linked" && now.email === email) {
+          if (polling) clearInterval(polling);
+          p.textContent = t("contactDone");
+          setTimeout(close, 1500);
+        }
+      } catch {
+        /* 次の回にまた訊く */
+      }
+    }, 5000);
+  };
+
+  go.onclick = async () => {
+    if (go.disabled) return;
+    go.disabled = true;
+    msg.textContent = "";
+    const email = input.value.trim();
+    try {
+      await api("/api/system/contact", {
+        method: "POST",
+        body: JSON.stringify({ email, consent: true, lang: state.uiLang }),
+      });
+      sent(email.toLowerCase());
+    } catch (e) {
+      const code = (e as { code?: string }).code;
+      msg.textContent =
+        code === "invalid_email"
+          ? t("contactInvalidEmail")
+          : code === "rate_limited"
+            ? t("contactRateLimited")
+            : t("contactUnavailable");
+      sync();
+    }
+  };
+
+  card.append(h, lead, input, label, msg, row);
+  document.body.appendChild(ov);
+  input.focus();
+}
+
+/** 設定(基本)の連絡先の欄。アドレスは ID に訊いたものを出す(KuroCMS には写さない)。 */
+async function renderContactPanel(el: HTMLElement | null) {
+  if (!el) return;
+  if (!state.isAdmin || state.preview) {
+    el.remove();
+    return;
+  }
+  let info: ContactInfo;
+  try {
+    info = await api("/api/system/contact");
+  } catch {
+    info = { state: "unavailable" };
+  }
+  const line =
+    info.state === "linked"
+      ? t("contactLinked")
+          .replace("{email}", info.email ?? "")
+          .replace("{date}", info.linkedAt ? formatDateTime(info.linkedAt) : "")
+      : info.state === "installer"
+        ? t("contactInstaller")
+        : info.state === "opted_out"
+          ? t("contactOptedOut")
+          : info.state === "unavailable"
+            ? t("contactUnavailable")
+            : info.pending
+              ? t("contactPending").replace("{email}", info.pending.email)
+              : t("contactNone");
+  el.innerHTML =
+    "<div class='panelHead'><h3>" +
+    escapeHtml(t("contactPanelTitle")) +
+    "</h3></div>" +
+    "<div class='muted' style='font-size:12px'>" +
+    escapeHtml(t("contactPanelHelp")) +
+    "</div>" +
+    "<div style='display:flex;align-items:center;gap:8px;flex-wrap:wrap'>" +
+    "<span style='flex:1;min-width:0;word-break:break-all'>" +
+    escapeHtml(line) +
+    "</span>" +
+    (info.state === "linked" || info.state === "none"
+      ? "<button type='button' class='secondary' id='contactEditBtn'>" +
+        escapeHtml(
+          info.state === "linked" ? t("contactChange") : t("contactRegister"),
+        ) +
+        "</button>"
+      : "") +
+    (info.state === "linked"
+      ? "<button type='button' class='danger' id='contactRemoveBtn'>" +
+        escapeHtml(t("contactRemove")) +
+        "</button>"
+      : "") +
+    "</div>";
+  const rerender = () => void renderContactPanel(el);
+  el.querySelector("#contactEditBtn")?.addEventListener("click", () =>
+    openContactDialog(info, { prompt: false, onClose: rerender }),
+  );
+  el.querySelector("#contactRemoveBtn")?.addEventListener(
+    "click",
+    async (event) => {
+      if (!confirm(t("contactRemoveConfirm"))) return;
+      try {
+        await api("/api/system/contact/remove", { method: "POST", body: "{}" });
+        rerender();
+      } catch (err) {
+        toast(errorMessage(err), true, event.currentTarget as HTMLElement);
+      }
+    },
+  );
+}
+
 async function render() {
   try {
     if (state.preview) {
@@ -4983,6 +5312,8 @@ async function render() {
           return loginScreen();
         }
         state.isAdmin = sessionData.isAdmin === true;
+        sessionEmail =
+          typeof sessionData.email === "string" ? sessionData.email : "";
         setAdminDocumentTitle(sessionData.displayName);
       } catch {
         return loginScreen();
@@ -4997,6 +5328,8 @@ async function render() {
     setTimeout(checkLegalConsentOnce, 0);
     // お知らせ(Entamy Notice)。**描画は止めない**。緊急・重要の未読は規約の窓が済んでから出す。
     setTimeout(noticeGateOnce, 0);
+    // 持ち主の連絡先(古い導入)。描画は止めない(外部への問い合わせで決まるため)。
+    setTimeout(checkContactOnce, 0);
     // Screens that expose a live list register a reloader (activeListReload);
     // clear it here so it only points at the screen currently on view.
     activeListReload = null;

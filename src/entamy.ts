@@ -26,7 +26,7 @@
  */
 
 import type { Env } from "./types";
-import { entamyNoticeFor, entamyPort } from "./entamy-port";
+import { entamyNoticeFor, entamyPort } from "./entamy-port.ts";
 import { needsAgreement } from "./vendor/entamy-client/index.ts";
 import { KUROCMS_VERSION } from "./version.ts";
 
@@ -37,7 +37,7 @@ const K_TERMS_VER = "system:terms_accepted_version";
 // 版が変わらない限り1日1回で足りる。**毎回送っても分かることは増えない。**
 const REPORT_INTERVAL_MS = 24 * 3600 * 1000;
 
-async function optedOut(env: Env): Promise<boolean> {
+export async function optedOut(env: Env): Promise<boolean> {
   return (await env.PUBLIC_PAGES.get(K_OPTOUT)) === "1";
 }
 

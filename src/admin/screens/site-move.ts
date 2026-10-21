@@ -16,6 +16,8 @@ const SITE_MOVE_OPS_KEY = "kurocms_site_move_ops";
 function siteMoveSectionHtml(): string {
   return (
     "<div id='siteMoveSection' class='panel stack' style='display:none'>" +
+    // 持ち主(連絡先)。導入口より前の導入は、ここで結んでから引っ越す(renderContactPanel)。
+    "<div id='contactPanel' class='stack' style='gap:8px;padding-bottom:16px;border-bottom:1px solid var(--line)'></div>" +
     // 見出しはタブが言うので置かない(SNS のタブと同じ)。いまの形を最初の行に。
     "<div id='siteMoveNow' style='font-weight:700'></div>" +
     "<div class='muted' id='siteMoveNote' style='display:none'></div>" +
@@ -96,6 +98,7 @@ async function mountSiteMove(): Promise<void> {
     return;
   }
   box.style.display = "";
+  void renderContactPanel(byId("contactPanel"));
   const toSelf = info.to === "self";
   const now = byId("siteMoveNow")!;
   const note = byId("siteMoveNote")!;
@@ -113,9 +116,16 @@ async function mountSiteMove(): Promise<void> {
     price.textContent = t("siteMoveManagedPrice");
   }
   byId("siteMoveCf")!.style.display = toSelf ? "" : "none";
-  if (!info.ownerKnown) {
+  // 持ち主が分からなければ、先に持ち主の登録(確認メール 1 通)。結ばれたら枠を描き直す。
+  let needOwner = false;
+  if (info.owner === null) {
+    needOwner = true;
     note.style.display = "";
-    note.textContent = t("err_owner_unknown");
+    note.textContent = t("siteMoveNeedOwner");
+    open.textContent = t("siteMoveRegisterOwner");
+  } else if (info.owner === "unknown") {
+    note.style.display = "";
+    note.textContent = t("siteMoveOwnerUnavailable");
     open.disabled = true;
   }
 
@@ -126,6 +136,13 @@ async function mountSiteMove(): Promise<void> {
   };
 
   open.addEventListener("click", () => {
+    if (needOwner) {
+      openContactDialog(
+        { state: "none" },
+        { prompt: false, onClose: () => void refreshSiteMove() },
+      );
+      return;
+    }
     form.style.display = "";
     open.style.display = "none";
   });
@@ -290,6 +307,8 @@ async function mountSiteMove(): Promise<void> {
     }
     const body: Record<string, string> = {
       lang: state.uiLang,
+      // 自分の引っ越しの口(導入口より前の導入は、導入口の記録にアドレスが無い)。
+      api: location.origin + withBase("/api/system/move/"),
       timeZone: detectBrowserTimezone(),
     };
     let opsKey = "";
@@ -327,4 +346,12 @@ async function mountSiteMove(): Promise<void> {
     showOps(info.job.to === "self" ? siteMoveRemembered() : "");
     follow(info.job.statusUrl);
   }
+}
+
+/** 枠を描き直す(持ち主を結んだ後など)。 */
+async function refreshSiteMove(): Promise<void> {
+  const box = byId("siteMoveSection");
+  if (!box) return;
+  box.outerHTML = siteMoveSectionHtml();
+  await mountSiteMove();
 }

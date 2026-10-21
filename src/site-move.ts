@@ -26,7 +26,7 @@ export type SiteMoveTo = "self" | "managed";
 /** 導入口へ頼む口(entamy-connect のセッション)。試験では差し替える。 */
 export type SiteMoveSession = Pick<
   Awaited<ReturnType<typeof entamyPort>>["session"],
-  "startSiteMove" | "siteMoveStatus" | "resumeSiteMove"
+  "startSiteMove" | "siteMoveStatus" | "resumeSiteMove" | "siteOwner"
 >;
 
 async function sessionOf(env: Env): Promise<SiteMoveSession> {
@@ -56,6 +56,25 @@ export async function readSiteMoveJob(env: Env): Promise<SiteMoveJob | null> {
       : null;
   } catch {
     return null;
+  }
+}
+
+/**
+ * この導入の持ち主が分かるか(導入口に訊く)。導入口で入れた導入(v2)は記録から(record)、導入口より前の
+ * 導入(v1)は連絡先の登録で結んだ持ち主から(id)。どちらも無ければ null —— 画面は先に持ち主の登録を出す。
+ * 訊けなければ unknown(持ち主がいないとは読まない)。
+ */
+export async function siteMoveOwner(
+  env: Env,
+  session?: SiteMoveSession,
+): Promise<"record" | "id" | null | "unknown"> {
+  try {
+    const res = await (session ?? (await sessionOf(env))).siteOwner(
+      (env.CF_WORKER_NAME ?? "").trim(),
+    );
+    return res.ok ? res.value.owner : "unknown";
+  } catch {
+    return "unknown";
   }
 }
 
@@ -102,17 +121,13 @@ export async function startSiteMove(
   session?: SiteMoveSession,
 ): Promise<SiteMoveJob> {
   const to = siteMoveDirection(env);
-  // 導入口で入れた導入は、自分の Worker の名前（kurocms-app-{導入ID}）を持つ。無ければ記録も無い（v1）。
-  const worker = (env.CF_WORKER_NAME ?? "").trim();
-  if (!worker)
-    throw new HttpError(
-      409,
-      "owner_unknown",
-      "This installation has no owner record.",
-    );
+  // 導入口で入れた導入は、自分の Worker の名前（kurocms-app-{導入ID}）を持つ。導入口より前の導入（v1）は
+  // 無いことがあり、持ち主は連絡先の登録で結んだもの（導入口が ID から引く）。自分の引っ越しの口も渡す
+  // （画面が開いているアドレスの口。v1 は導入口の記録にアドレスが無い）。
   const payload: Record<string, unknown> = {
     to,
-    worker,
+    worker: (env.CF_WORKER_NAME ?? "").trim(),
+    api: text(body, "api"),
     timeZone: text(body, "timeZone"),
   };
   if (to === "self") {

@@ -170,6 +170,34 @@ export class EntamySession {
   resumeSiteMove(_jobId: string): Promise<EntamyResult<void>> {
     return refuse<void>();
   }
+  siteOwner(_worker: string): Promise<EntamyResult<{ owner: "record" | "id" | null }>> {
+    return refuse<{ owner: "record" | "id" | null }>();
+  }
+  // 導入の持ち主(ID 第7章)。公開の写しでは基盤へ繋がないので、どれも断る
+  // (管理画面は「いまは確認できません」を出し、ダイアログは出さない)。
+  ownerLink(): Promise<EntamyResult<EntamyOwnerState>> {
+    return refuse<EntamyOwnerState>();
+  }
+  beginOwnerLink(
+    _email: string,
+    _continueUrl: string,
+    _options: { consentVersion: string; subject: string; text: string },
+  ): Promise<EntamyResult<void>> {
+    return refuse<void>();
+  }
+  removeOwnerLink(): Promise<EntamyResult<{ removed: boolean }>> {
+    return refuse<{ removed: boolean }>();
+  }
+}
+
+export interface EntamyOwnerState {
+  owner: {
+    email: string;
+    consentVersion: string;
+    consentedAt: string;
+    linkedAt: string;
+  } | null;
+  pending: { email: string; expiresAt: string } | null;
 }
 
 export interface InstallReport {
