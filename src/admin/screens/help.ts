@@ -113,6 +113,7 @@ async function help() {
     { key: "types", label: t("types"), divider: false },
     { key: "siteManagement", label: t("siteManagement"), divider: true },
     { key: "settings", label: t("settings"), divider: false },
+    { key: "domain", label: t("settingsTabDomain"), divider: false },
     { key: "hosting", label: t("siteMoveTitle"), divider: false },
     { key: "mail", label: t("settingsTabMail"), divider: false },
     { key: "ipGate", label: t("settingsTabIpGate"), divider: false },

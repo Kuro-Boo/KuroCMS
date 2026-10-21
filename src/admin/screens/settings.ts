@@ -159,6 +159,8 @@ async function settings() {
 
   const tabBar = [
     "basic",
+    // ドメイン(公開ドメイン・Worker の URL・独自ドメイン)。顧客導入でも委託運用でも同じタブ(2026-10-22)。
+    "domain",
     // 表示(基本言語・時計・筆者)。「基本」が長く、下の項目を見落とすので分けた。
     "display",
     // 運用の形(委託運用 ⇄ 顧客導入の引っ越し)。「基本」の下では見落とすので専用のタブにする。
@@ -175,6 +177,7 @@ async function settings() {
     .map((id) => {
       const labels: Record<string, string> = {
         basic: t("settingsTabBasic"),
+        domain: t("settingsTabDomain"),
         display: t("settingsTabDisplay"),
         hosting: t("siteMoveTitle"),
         mail: t("settingsTabMail"),
@@ -194,6 +197,7 @@ async function settings() {
         // 契約情報は委託だけ(設定を読んでから出す)。
         (id === "contract" ? " id='contractTabBtn' style='display:none'" : "") +
         (id === "hosting" ? " id='siteMoveTabBtn'" : "") +
+        (id === "basic" ? " id='basicTabBtn'" : "") +
         (id === "mail" ? " id='mailTabBtn'" : "") +
         ">" +
         escapeHtml(labels[id] || id) +
@@ -209,13 +213,23 @@ async function settings() {
       "</div>" +
       // ── Basic ────────────────────────────────────────────────────────
       "<div id='panel-basic' class='settingsPanel'>" +
-      "<form class='panel stack' id='siteForm'>" +
-      "<div id='siteFormStatus'></div>" +
+      // 基本は R2 メディアストレージ(顧客導入)。ドメインに関わるものは「ドメイン」のタブへ(2026-10-22)。
+      "<div class='panel stack' id='basicPanel'>" +
+      "<div id='r2SetupSection'></div>" +
+      "</div>" +
+      "</div>" +
+      // ── ドメイン(公開ドメイン・Worker の URL・独自ドメイン。顧客導入・委託運用で同じタブ) ──
+      "<div id='panel-domain' class='settingsPanel' style='display:none'>" +
+      "<div class='stack'>" +
       // サイト名はサイト管理（サイト情報）画面に移設。設定フォーム保存時は読込済みの
       // 値をそのままエコーして消えないようにする（saveAll 参照）。
-      "<label>" +
+      "<form class='panel stack' id='siteForm'>" +
+      "<div class='panelHead'><div class='fieldLabel' style='margin:0'>" +
       escapeHtml(t("publicDomain")) +
-      "<div class='muted'>" +
+      "</div><button type='button' class='secondary' id='resetPublicDomainBtn' style='font-size:12px;padding:4px 10px;display:none'>" +
+      escapeHtml(t("publicDomainReset")) +
+      "</button></div>" +
+      "<div class='muted' id='publicDomainHelpText'>" +
       escapeHtml(t("publicDomainHelp")) +
       "</div><div style='display:flex;align-items:center;gap:8px'>" +
       "<input id='publicDomain' required placeholder='https://kuro.boo/' style='flex:1;min-width:0' />" +
@@ -224,7 +238,16 @@ async function settings() {
       "' aria-label='" +
       escapeHtml(t("openPublicPage")) +
       "' style='display:none;align-items:center;justify-content:center;padding:3px 8px;text-decoration:none;font-size:14px;line-height:1;white-space:nowrap'>&#8599;</a>" +
-      "</div></label>" +
+      "</div>" +
+      "<div class='muted' style='font-size:12px'>" +
+      escapeHtml(t("publicDomainLinksNote")) +
+      "</div>" +
+      "<button>" +
+      escapeHtml(t("saveSiteSettings")) +
+      "</button>" +
+      "</form>" +
+      // 顧客導入: Worker の URL と独自ドメイン(Cloudflare の Custom Domain)。
+      "<div class='panel stack' id='selfDomainPanel'>" +
       "<div id='workerOriginSection' style='display:none'>" +
       "<div class='fieldLabel'>" +
       escapeHtml(t("workerOriginUrl")) +
@@ -246,12 +269,11 @@ async function settings() {
       "</div>" +
       // Cloudflare-native custom domain manager (populated by JS from
       // /api/system/custom-domains; falls back to manual dashboard steps).
-      "<div id='customDomainSection' style='margin-top:4px'></div>" +
-      "<div id='r2SetupSection' style='margin-top:4px'></div>" +
-      "<button>" +
-      escapeHtml(t("saveSiteSettings")) +
-      "</button>" +
-      "</form>" +
+      "<div id='customDomainSection'></div>" +
+      "</div>" +
+      // 委託運用: 自分のドメイン(Cloudflare for SaaS・site-domain.ts)。
+      ownDomainPanelHtml() +
+      "</div>" +
       "</div>" +
       // ── 表示(基本言語・サイトの時計・筆者。公開ページの出し方。2026-10-21 に「基本」から分けた) ──
       "<div id='panel-display' class='settingsPanel' style='display:none'>" +
@@ -1238,20 +1260,34 @@ async function settings() {
 
     // 委託: アドレスは受付が決めたもの({導入ID}.kurocms.site)。表示だけにし、
     // workers.dev・独自ドメイン・R2 の枠は出さない(鍵も持たない・重複する表示も出さない)。
+    // 既定値に戻す: 委託は {導入ID}.kurocms.site、顧客導入は workers.dev のアドレス(サーバーが決める)。
+    const resetBtn = byId("resetPublicDomainBtn");
+    const defaultPublicDomain = String(s.defaultPublicDomain || "");
+    if (resetBtn && defaultPublicDomain) {
+      resetBtn.style.display = "";
+      resetBtn.addEventListener("click", (e: Dynamic) => {
+        publicDomainInput.value = defaultPublicDomain;
+        syncPublicDomainOpenButton();
+        toast(
+          t("publicDomainResetDone").replace("{url}", defaultPublicDomain),
+          false,
+          e.currentTarget,
+        );
+      });
+    }
+
     if (s.managedHosting) {
       const contractTab = byId("contractTabBtn");
       if (contractTab) contractTab.style.display = "";
-      const help = publicDomainInput
-        .closest("label")
-        ?.querySelector<HTMLElement>(".muted");
+      const help = byId("publicDomainHelpText");
       if (help) help.textContent = t("publicDomainManagedHelp");
-      // 空の枠を残すと、枠の間(stack の gap)だけが空く。
-      for (const id of [
-        "workerOriginSection",
-        "customDomainSection",
-        "r2SetupSection",
-      ])
-        byId(id)?.remove();
+      // 委託は鍵を持たない: workers.dev・Cloudflare の Custom Domain・R2 の枠は出さず、
+      // 自分のドメインは Cloudflare for SaaS の枠(site-domain.ts)で付ける。基本のタブは中身が無いので隠す。
+      byId("selfDomainPanel")?.remove();
+      byId("basicTabBtn")?.remove();
+      byId("panel-basic")?.remove();
+      switchTab("domain");
+      void mountOwnDomain(s.publicDomain || "");
     }
     // 運用の形(委託運用なら顧客導入へ、顧客導入なら委託運用へ)。引っ越しはこの画面の中で進める。
     void mountSiteMove();

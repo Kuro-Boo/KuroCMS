@@ -61,6 +61,8 @@ export interface Env {
   CF_API_TOKEN?: string;
   CF_ACCOUNT_ID?: string;
   CF_WORKER_NAME?: string;
+  /** 委託用ドメイン(kurocms.site など)。無ければ kurocms.site(公開ドメインの既定値に使う)。 */
+  HOSTED_DOMAIN?: string;
   COMMUNITY_PAT?: string;
   COMMUNITY_API?: Fetcher;
   /**

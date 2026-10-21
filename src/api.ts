@@ -141,6 +141,7 @@ import {
   siteMoveOwner,
   startSiteMove,
 } from "./site-move";
+import { siteDomain } from "./site-domain";
 import {
   currentNetwork,
   handleNetworkConfirm,
@@ -928,6 +929,25 @@ async function handleApiDispatch(
       if (request.method === "DELETE" && path === "/api/system/site-move") {
         await forgetSiteMoveJob(env);
         return json({ ok: true });
+      }
+      throw new HttpError(405, "method_not_allowed", "Method not allowed.");
+    }
+    // 委託の独自ドメイン(core-offering 14 節・src/site-domain.ts)。導入口へはこのサーバーが導入の口座で頼む。
+    if (path === "/api/system/site-domain") {
+      requireAdmin(user);
+      if (request.method === "GET")
+        return json((await siteDomain(env, "status")) as unknown as JsonValue);
+      if (request.method === "POST") {
+        // 公開のアドレスを動かすので、画面でログインした人だけ(漏れた PAT で動かさない)。
+        requireInteractiveUser(user);
+        const body = await readJson(request);
+        return json(
+          (await siteDomain(
+            env,
+            String(body.action ?? ""),
+            typeof body.hostname === "string" ? body.hostname : undefined,
+          )) as unknown as JsonValue,
+        );
       }
       throw new HttpError(405, "method_not_allowed", "Method not allowed.");
     }
@@ -5159,6 +5179,8 @@ async function settings(
         ga4MeasurementId: (row?.ga4_measurement_id as string | undefined) ?? "",
         publicDomain: (row?.public_domain as string | undefined) ?? "",
         developmentDomain: deriveInternalPreviewUrl(request, env),
+        // 「既定値に戻す」の値(設定 → ドメイン)。
+        defaultPublicDomain: defaultPublicDomain(request, env),
         managedHosting: isManagedHosting(env),
         // R2 を手で繋ぐ案内に出す Worker の名前(顧客導入だけ)。
         workerName: isManagedHosting(env) ? "" : (env.CF_WORKER_NAME ?? ""),
@@ -12999,6 +13021,23 @@ function withJsonHeaders(response: Response): Response {
     statusText: response.statusText,
     headers,
   });
+}
+
+/**
+ * 公開ドメインの既定値(設定 → ドメインの「既定値に戻す」)。委託は導入口が決めたアドレス
+ * ({導入ID}.{委託用ドメイン}・Worker の名前 kurocms-app-{導入ID} から)、顧客導入は workers.dev の
+ * アドレス(いま workers.dev で開いているときだけ分かる)。分からなければ空(ボタンを出さない)。
+ */
+function defaultPublicDomain(request: Request, env: Env): string {
+  if (isManagedHosting(env)) {
+    const id = /^kurocms-app-([a-z0-9]{4,40})$/.exec(
+      (env.CF_WORKER_NAME ?? "").trim(),
+    )?.[1];
+    const hosted = (env.HOSTED_DOMAIN ?? "").trim() || "kurocms.site";
+    return id ? `https://${id}.${hosted}/` : "";
+  }
+  const origin = new URL(request.url).origin;
+  return /\.workers\.dev$/.test(new URL(origin).hostname) ? `${origin}/` : "";
 }
 
 function deriveInternalPreviewUrl(request: Request, env: Env): string {

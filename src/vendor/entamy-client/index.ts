@@ -170,6 +170,11 @@ export class EntamySession {
   resumeSiteMove(_jobId: string): Promise<EntamyResult<void>> {
     return refuse<void>();
   }
+  siteDomain(
+    _body: Record<string, unknown>,
+  ): Promise<EntamyResult<Record<string, unknown>>> {
+    return refuse<Record<string, unknown>>();
+  }
   siteOwner(
     _worker: string,
     _proof?: string,

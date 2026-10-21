@@ -1175,6 +1175,73 @@ const i18n = {
     r2SetupTitle: "R2 media storage",
     r2SetupHelp:
       "Only needed if you want images, video, or audio. Nothing is charged up to the free 10 GB. Set it up in your own Cloudflare (KuroCMS does not create it): 1) start R2 and create a bucket; 2) Workers & Pages → {worker} → Settings → Bindings → Add → R2 bucket, name the variable MEDIA_BUCKET and pick the bucket from step 1. Once saved, this box shows it as enabled.",
+    settingsTabDomain: "Domain",
+    publicDomainReset: "Reset to default",
+    publicDomainResetDone:
+      "Set to the default ({url}). Save, then rebuild all pages.",
+    publicDomainLinksNote:
+      "Links in your public pages (article URLs, canonical, sitemap and so on) are built from this public domain. After changing it, save and rebuild all pages.",
+    ownDomainTitle: "Publish under your own domain",
+    ownDomainLead:
+      "On KuroCMS managed hosting you can publish your site under your own domain name, using Cloudflare for SaaS. KuroCMS already has the Cloudflare for SaaS contract, so there is nothing extra for you to sign up for or pay. The steps depend on where your domain's DNS is managed.",
+    ownDomainDnsCloudflare: "DNS on Cloudflare",
+    ownDomainDnsOther: "Other DNS providers",
+    ownDomainStepsCloudflare:
+      'Enter the domain name below (for example www.example.com or example.com) and press "Prepare".\nIn the Cloudflare dashboard, add the TXT records shown (ownership and certificate) to the domain\'s DNS. Adding TXT records does not change what the domain shows now.\nA few minutes later press "Check status". When the certificate is "Issued", press "Switch domain". This switches the setting on the kurocms.site side.\nFinally, point the domain\'s CNAME to {target}. Keep the proxy on (orange cloud). A CNAME also works on the root domain (example.com) on Cloudflare. A domain on Cloudflare becomes active when the CNAME points here (about a minute).\nWhen it is active, press "Use as public domain", save, and rebuild all pages.',
+    ownDomainStepsOther:
+      'Enter the domain name below (for example www.example.com) and press "Prepare".\nAt your DNS provider, add the TXT records shown (ownership and certificate). Adding TXT records does not change what the domain shows now.\nA few minutes later press "Check status". When the certificate is "Issued", press "Switch domain". This switches the setting on the kurocms.site side.\nFinally, point the domain\'s CNAME to {target}. Many DNS providers cannot put a CNAME on the root domain (example.com): use a subdomain such as www and forward the root domain to it at your provider. If your provider supports ALIAS, ANAME or CNAME flattening, the root domain works too.\nWhen it is active, press "Use as public domain", save, and rebuild all pages.',
+    ownDomainOverwriteNote:
+      "When you change the CNAME, whatever the domain showed before will no longer be shown. Email (MX) and other records are not affected.",
+    ownDomainHostLabel: "Domain name",
+    ownDomainPrepare: "Prepare",
+    ownDomainCheck: "Check status",
+    ownDomainSwitch: "Switch domain",
+    ownDomainRemove: "Cancel this domain",
+    ownDomainRemoveConfirm:
+      "Remove this domain from KuroCMS? If the CNAME already points here, the domain will stop showing your site.",
+    ownDomainUsePublic: "Use as public domain",
+    ownDomainUsePublicDone:
+      "Entered in the public domain. Save, then rebuild all pages.",
+    ownDomainRecordsTitle: "Records to add to DNS",
+    ownDomainColType: "Type",
+    ownDomainColName: "Name",
+    ownDomainColValue: "Value",
+    ownDomainColPurpose: "Purpose",
+    ownDomainPurposeOwnership: "Ownership",
+    ownDomainPurposeCertificate: "Certificate",
+    ownDomainPurposeTraffic: "Publish (last)",
+    ownDomainCert: "Certificate",
+    ownDomainHost: "Domain",
+    ownDomainSwitchedLabel: "kurocms.site side",
+    ownDomainCertPending: "Waiting (checking the TXT)",
+    ownDomainCertActive: "Issued",
+    ownDomainHostPending: "Waiting",
+    ownDomainHostActive: "Active",
+    ownDomainSwitchedYes: "Switched",
+    ownDomainSwitchedNo: "Not yet",
+    ownDomainNextTxt:
+      'Next: add the TXT records, then press "Check status" a few minutes later.',
+    ownDomainNextSwitch: 'The certificate is issued. Press "Switch domain".',
+    ownDomainNextCname: "Next: point the CNAME of {host} to {target}.",
+    ownDomainNextPublic:
+      'Active. Press "Use as public domain", save, and rebuild all pages.',
+    ownDomainDone: "Your site is published under this domain.",
+    ownDomainErrors: "Messages from Cloudflare",
+    err_invalid_hostname: "Enter a domain name such as www.example.com.",
+    err_hostname_taken:
+      "This domain is already in use on KuroCMS managed hosting.",
+    err_domain_not_verified:
+      "The certificate is not issued yet. Check that the TXT records are added, then try again in a few minutes.",
+    err_domain_switched:
+      "This domain is already switched. Cancel it first to use another domain.",
+    err_no_domain: "Prepare a domain first.",
+    err_not_managed: "This is only for managed hosting.",
+    err_proof_invalid:
+      "Could not confirm this site to Entamy. Please try again.",
+    err_domain_not_permitted:
+      "Entamy cannot change the domain settings right now. Please contact Entamy.",
+    err_domain_failed:
+      "Could not change the domain settings. Please try again later.",
     publicDomainManagedHelp:
       "The address used for links in your public pages. By default it is your Entamy hosting address (installation-id.kurocms.site). Once your own domain is attached, change it here and rebuild all pages. Ask Entamy to attach your own domain.",
     r2SetupDashboard: "Open R2 in Cloudflare",
@@ -1418,7 +1485,7 @@ const i18n = {
     err_not_configured:
       "This SNS is not connected. Set it up under Settings → SNS.",
     err_no_public_domain:
-      "The site's public domain is not set. Set it under Settings → Basic.",
+      "The site's public domain is not set. Set it under Settings → Domain.",
     err_invalid_field: "Some input is invalid. Please check the values.",
     err_invalid_email: "That email address is not in a valid format.",
     err_document_not_found: "The article was not found.",
@@ -2461,6 +2528,75 @@ const i18n = {
     r2SetupTitle: "R2 メディアストレージ",
     r2SetupHelp:
       "画像・動画・音楽を扱う場合だけ必要です。無料枠の 10GB までは課金されません。設定はご自身の Cloudflare で行います（KuroCMS からは作りません）。① R2 の利用を開始し、バケットを作る ② Workers & Pages → {worker} → 設定 → バインディング → 追加 → R2 バケット で、変数名を MEDIA_BUCKET にして ① のバケットを選ぶ。保存すると、この枠に「利用可能です」と出ます。",
+    settingsTabDomain: "ドメイン",
+    publicDomainReset: "既定値に戻す",
+    publicDomainResetDone:
+      "既定値（{url}）を入れました。保存して、全ページをビルドしてください。",
+    publicDomainLinksNote:
+      "公開ページ内のリンク（記事の URL・canonical・サイトマップなど）は、この公開ドメインから作ります。変えたら保存して、全ページをビルドしてください。",
+    ownDomainTitle: "自分のドメインで公開する",
+    ownDomainLead:
+      "KuroCMS の委託運用では、Cloudflare for SaaS の機能を使って、お客様のドメイン名でサイトを公開できます。Cloudflare for SaaS は KuroCMS 側で契約しているので、お客様の追加の契約や費用はありません。設定の手順は、お客様のドメインの DNS をどこで管理しているかで変わります。",
+    ownDomainDnsCloudflare: "Cloudflare で管理している",
+    ownDomainDnsOther: "その他の DNS（お名前.com など）",
+    ownDomainStepsCloudflare:
+      "下にドメイン名（例: www.example.com や example.com）を入れて「準備する」を押します。\nCloudflare のダッシュボードで、そのドメインの DNS に、表示された TXT レコード（所有の確認・証明書）を追加します。TXT を足しても、今の表示は変わりません。\n数分後に「状態を確かめる」を押します。証明書が「発行済み」になったら「ドメインを切り替える」を押します。kurocms.site 側の設定が切り替わります。\n最後に、そのドメインの CNAME を {target} に向けます。プロキシはオン（オレンジの雲）のままで構いません。Cloudflare なら、ルートのドメイン（example.com）にも CNAME を置けます。Cloudflare で管理しているドメインは、CNAME を向けた時点で有効になります（1 分ほど）。\n有効になったら「公開ドメインに入れる」を押して保存し、全ページをビルドします。",
+    ownDomainStepsOther:
+      "下にドメイン名（例: www.example.com）を入れて「準備する」を押します。\nお使いの DNS の管理画面で、表示された TXT レコード（所有の確認・証明書）を追加します。TXT を足しても、今の表示は変わりません。\n数分後に「状態を確かめる」を押します。証明書が「発行済み」になったら「ドメインを切り替える」を押します。kurocms.site 側の設定が切り替わります。\n最後に、そのドメインの CNAME を {target} に向けます。ルートのドメイン（example.com）には CNAME を置けない DNS が多いので、www などのサブドメインを使い、ルートのドメインは DNS 会社の転送で www へ送ってください。ALIAS・ANAME・CNAME flattening に対応していれば、ルートのドメインにも置けます。\n有効になったら「公開ドメインに入れる」を押して保存し、全ページをビルドします。",
+    ownDomainOverwriteNote:
+      "CNAME を書き換えると、そのドメインでそれまで表示していたものは見えなくなります。メール（MX）やほかのレコードには影響しません。",
+    ownDomainHostLabel: "ドメイン名",
+    ownDomainPrepare: "準備する",
+    ownDomainCheck: "状態を確かめる",
+    ownDomainSwitch: "ドメインを切り替える",
+    ownDomainRemove: "取り消す",
+    ownDomainRemoveConfirm:
+      "このドメインを KuroCMS から外しますか？ すでに CNAME をこちらへ向けている場合、そのドメインではサイトが表示されなくなります。",
+    ownDomainUsePublic: "公開ドメインに入れる",
+    ownDomainUsePublicDone:
+      "公開ドメインに入れました。保存して、全ページをビルドしてください。",
+    ownDomainRecordsTitle: "DNS に足すレコード",
+    ownDomainColType: "種類",
+    ownDomainColName: "名前",
+    ownDomainColValue: "値",
+    ownDomainColPurpose: "用途",
+    ownDomainPurposeOwnership: "所有の確認",
+    ownDomainPurposeCertificate: "証明書",
+    ownDomainPurposeTraffic: "公開（最後に）",
+    ownDomainCert: "証明書",
+    ownDomainHost: "ドメイン",
+    ownDomainSwitchedLabel: "kurocms.site 側",
+    ownDomainCertPending: "発行待ち（TXT を確かめています）",
+    ownDomainCertActive: "発行済み",
+    ownDomainHostPending: "確認待ち",
+    ownDomainHostActive: "有効",
+    ownDomainSwitchedYes: "切り替え済み",
+    ownDomainSwitchedNo: "まだ",
+    ownDomainNextTxt:
+      "次: TXT レコードを足して、数分後に「状態を確かめる」を押してください。",
+    ownDomainNextSwitch:
+      "証明書が発行されました。「ドメインを切り替える」を押してください。",
+    ownDomainNextCname: "次: {host} の CNAME を {target} に向けてください。",
+    ownDomainNextPublic:
+      "有効になりました。「公開ドメインに入れる」を押して保存し、全ページをビルドしてください。",
+    ownDomainDone: "このドメインで公開しています。",
+    ownDomainErrors: "Cloudflare からの知らせ",
+    err_invalid_hostname:
+      "www.example.com のような形でドメイン名を入れてください。",
+    err_hostname_taken:
+      "このドメインは、すでに KuroCMS の委託運用で使われています。",
+    err_domain_not_verified:
+      "証明書がまだ発行されていません。TXT レコードを足したか確かめて、数分後にもう一度押してください。",
+    err_domain_switched:
+      "このドメインは切り替え済みです。別のドメインにするときは、先に取り消してください。",
+    err_no_domain: "先にドメインを準備してください。",
+    err_not_managed: "委託運用だけで使えます。",
+    err_proof_invalid:
+      "このサイトを Entamy に確かめられませんでした。もう一度押してください。",
+    err_domain_not_permitted:
+      "いま Entamy がドメインの設定を変えられません。Entamy にお問い合わせください。",
+    err_domain_failed:
+      "ドメインの設定を変えられませんでした。しばらくしてから、もう一度押してください。",
     publicDomainManagedHelp:
       "公開ページのリンクに使うアドレスです。既定は委託のアドレス（導入 ID.kurocms.site）です。独自ドメインが付いたら、ここをそのアドレスに変えて、全ページをビルドし直してください。独自ドメインを付けるときは Entamy にご依頼ください。",
     r2SetupDashboard: "Cloudflare で R2 を確認",
@@ -2709,7 +2845,7 @@ const i18n = {
     err_not_configured:
       "この SNS の接続が未設定です。設定 → SNS で登録してください。",
     err_no_public_domain:
-      "サイトの公開ドメインが未設定です。設定 → 基本で登録してください。",
+      "サイトの公開ドメインが未設定です。設定 → ドメインで登録してください。",
     err_invalid_field: "入力に誤りがあります。内容をご確認ください。",
     err_invalid_email: "メールアドレスの形式が正しくありません。",
     err_document_not_found: "記事が見つかりません。",
@@ -4677,9 +4813,17 @@ const helpContent: Record<string, Dynamic> = {
     title: "設定",
     role: "サイト全体の設定をまとめた画面です。タブごとに分かれています。開いているタブのくわしい説明は、そのタブでヘルプを押すと出ます。",
     canDo:
-      "基本：公開ドメイン・Worker の URL・独自ドメイン・R2 メディアストレージ / 表示：基本言語・サイトのタイムゾーン・記事の末尾に筆者を出すか / 運用の形：持ち主の登録と、委託運用と顧客導入のあいだの引っ越し / メール送信：この CMS のメールをどこから送るか（顧客導入だけ） / SNS連動：Bluesky・X・Threads の接続と、投稿済みの印の一括操作 / スマホ設定：狭い画面で記事のメディアを全幅にする / インポート：Strapi や別の KuroCMS から記事を取り込む / IP 制限：管理画面を使える回線を絞る / 稼働地域：データベースと KuroCMS が動いている場所を確かめる / 契約情報：委託の契約と無料期間の日付（委託運用だけ）",
+      "基本：R2 メディアストレージ（顧客導入だけ） / ドメイン：公開ドメインと既定値に戻す・Worker の URL・独自ドメイン（委託運用は Cloudflare for SaaS で自分のドメインを付ける） / 表示：基本言語・サイトのタイムゾーン・記事の末尾に筆者を出すか / 運用の形：持ち主の登録と、委託運用と顧客導入のあいだの引っ越し / メール送信：この CMS のメールをどこから送るか（顧客導入だけ） / SNS連動：Bluesky・X・Threads の接続と、投稿済みの印の一括操作 / スマホ設定：狭い画面で記事のメディアを全幅にする / インポート：Strapi や別の KuroCMS から記事を取り込む / IP 制限：管理画面を使える回線を絞る / 稼働地域：データベースと KuroCMS が動いている場所を確かめる / 契約情報：委託の契約と無料期間の日付（委託運用だけ）",
     notes:
-      "表示とスマホ設定の変更は、ビルド（全ページ）を実行するまで公開ページに出ません。委託運用の公開アドレスは、既定では「導入 ID.kurocms.site」です。独自ドメインは Entamy が付けます。付いたら公開ドメインをそのアドレスに変えて、全ページをビルドし直します。データベースの地域は作ったときに決まり、後から変えられません。契約情報は 1 時間ほどごとに更新されます。",
+      "表示とスマホ設定の変更は、ビルド（全ページ）を実行するまで公開ページに出ません。公開ページ内のリンクは、ドメインのタブの一番上の公開ドメインから作ります。データベースの地域は作ったときに決まり、後から変えられません。契約情報は 1 時間ほどごとに更新されます。",
+  },
+  domain: {
+    title: "ドメイン",
+    role: "このサイトをどのアドレスで公開するかを決めるタブです。顧客導入でも委託運用でも、ここにまとまっています。",
+    canDo:
+      "公開ドメインを変える / 「既定値に戻す」で、委託運用は 導入 ID.kurocms.site に、顧客導入は workers.dev のアドレスに戻す / Worker の URL を確かめる（顧客導入） / Cloudflare の独自ドメインを付ける（顧客導入） / 自分のドメインで公開する（委託運用・Cloudflare for SaaS）",
+    notes:
+      "公開ページ内のリンク（記事の URL・canonical・サイトマップなど）は、一番上の公開ドメインから作ります。変えたら保存して、全ページをビルドしてください。委託運用で自分のドメインを使うときは、ドメイン名を入れて「準備する」を押し、表示された TXT レコードを DNS に足します。証明書が発行済みになったら「ドメインを切り替える」を押し、最後に CNAME を 導入 ID.kurocms.site に向けます。Cloudflare で管理しているドメインは、CNAME を向けた時点で有効になります。ほかの DNS では、ルートのドメインに CNAME を置けないことが多いので、www などを使います。CNAME を書き換えると、そのドメインでそれまで表示していたものは見えなくなります。Cloudflare for SaaS は KuroCMS 側で契約しているので、お客様の追加の費用はありません。",
   },
   hosting: {
     title: "運用の形と引っ越し",
@@ -4884,9 +5028,17 @@ const helpContentEn: Record<string, Dynamic> = {
     title: "Settings",
     role: "Site-wide settings, split into tabs. Press Help while a tab is open to see help for that tab.",
     canDo:
-      "Basic: public domain, Worker URL, custom domain, R2 media storage / Display: base language, site time zone, author line at the end of articles / Hosting: register the owner, and move between managed hosting and self-hosting / Email: where this CMS sends its mail from (self-hosting only) / SNS: connect Bluesky, X and Threads, and set or clear posted marks in bulk / Mobile: make article media full width on narrow screens / Import: bring in articles from Strapi or another KuroCMS / IP restriction: limit the networks that can use the admin panel / Region: see where the database and KuroCMS run / Contract: dates of the managed contract and free period (managed hosting only)",
+      "Basic: R2 media storage (self-hosting only) / Domain: public domain and reset to default, Worker URL, custom domain (on managed hosting, attach your own domain with Cloudflare for SaaS) / Display: base language, site time zone, author line at the end of articles / Hosting: register the owner, and move between managed hosting and self-hosting / Email: where this CMS sends its mail from (self-hosting only) / SNS: connect Bluesky, X and Threads, and set or clear posted marks in bulk / Mobile: make article media full width on narrow screens / Import: bring in articles from Strapi or another KuroCMS / IP restriction: limit the networks that can use the admin panel / Region: see where the database and KuroCMS run / Contract: dates of the managed contract and free period (managed hosting only)",
     notes:
-      "Display and Mobile changes reach the public pages only after a full build. On managed hosting, the public address is installation-id.kurocms.site by default. Entamy attaches your own domain; once it is attached, change the public domain to it and rebuild all pages. The database region is fixed when the database is created. Contract information refreshes about once an hour.",
+      "Display and Mobile changes reach the public pages only after a full build. Links in your public pages are built from the public domain at the top of the Domain tab. The database region is fixed when the database is created. Contract information refreshes about once an hour.",
+  },
+  domain: {
+    title: "Domain",
+    role: "This tab decides the address your site is published at. It is the same tab on self-hosting and managed hosting.",
+    canDo:
+      'Change the public domain / "Reset to default" goes back to installation-id.kurocms.site on managed hosting, or the workers.dev address on self-hosting / See the Worker URL (self-hosting) / Attach a Cloudflare custom domain (self-hosting) / Publish under your own domain (managed hosting, Cloudflare for SaaS)',
+    notes:
+      'Links in your public pages (article URLs, canonical, sitemap and so on) are built from the public domain at the top. After changing it, save and rebuild all pages. To use your own domain on managed hosting, enter the domain name, press "Prepare" and add the TXT records shown to your DNS. When the certificate is issued, press "Switch domain", then point the CNAME to installation-id.kurocms.site. A domain on Cloudflare becomes active when the CNAME points here. Many other DNS providers cannot put a CNAME on the root domain, so use www or similar. When you change the CNAME, whatever the domain showed before is no longer shown. KuroCMS already has the Cloudflare for SaaS contract, so there is no extra cost for you.',
   },
   hosting: {
     title: "Hosting and moving",
@@ -5531,7 +5683,7 @@ function helpTopicFor(key: string): string {
     "";
   const byTab: Record<string, string> =
     key === "settings"
-      ? { hosting: "hosting", mail: "mail", ipgate: "ipGate" }
+      ? { domain: "domain", hosting: "hosting", mail: "mail", ipgate: "ipGate" }
       : { network: "ipGate" };
   return byTab[tab] || key;
 }
