@@ -2,6 +2,7 @@
 // Cloudflare と番人の受け口は偽物で置き換え、こちらの手順(鍵・上げ方・確かめ・戻し・前方のみ・
 // 自動更新の起こし方)を固定する。
 import {
+  adoptGuardianMinute,
   guardianAutoTick,
   guardianBindings,
   guardianInfo,
@@ -43,6 +44,10 @@ function world(
     kv?: Record<string, string>;
     appVersion?: string;
     noBinding?: boolean;
+    /** 委託の app(Cloudflare の鍵を持たない)。 */
+    noToken?: boolean;
+    /** cron の付け替えが Cloudflare に断られる。 */
+    schedulesFail?: boolean;
   } = {},
 ): World {
   const kv = new Map<string, string>(Object.entries(opts.kv ?? {}));
@@ -93,7 +98,7 @@ function world(
       delete: async (k: string) => void kv.delete(k),
     },
     WORKEROPS: opts.noBinding ? undefined : binding,
-    CF_API_TOKEN: "tok",
+    CF_API_TOKEN: opts.noToken ? undefined : "tok",
     CF_ACCOUNT_ID: "acct",
     CF_WORKER_NAME: "kurocms-app",
   } as unknown as Env;
@@ -108,6 +113,18 @@ function world(
       "",
     );
     calls.push(`${method} ${path}`);
+    if (path.endsWith("/schedules") && method === "PUT") {
+      if (opts.schedulesFail)
+        return new Response(
+          JSON.stringify({
+            success: false,
+            errors: [{ code: 10000, message: "denied" }],
+          }),
+          { status: 403 },
+        );
+      calls.push(`  ${String(init!.body)}`);
+      return ok({});
+    }
     if (path === "/workers/scripts/kurocms-app/settings")
       return ok({
         bindings: [
@@ -227,6 +244,7 @@ const main = async () => {
       { type: "images", name: "IMG" },
       { type: "inherit", name: "WORKER_OPS_TOKEN" },
       { type: "plain_text", name: "SELF_UPDATE", text: "0" },
+      { type: "plain_text", name: "APP_TICK", text: "1" },
     ]);
   }
   {
@@ -407,6 +425,44 @@ const main = async () => {
       (await guardianAutoTick(w.env, w.deps))?.outcome,
       "updated",
     );
+  }
+
+  // ── cron を番人の 1 本にまとめる(adoptGuardianMinute・core-offering 11 節) ──
+  {
+    const w = world({ noToken: true });
+    await adoptGuardianMinute(w.env, w.deps);
+    eq("委託の app(鍵が無い)は何もしない(切り替えは導入口)", w.calls, []);
+  }
+  {
+    const w = world({ schedulesFail: true });
+    const err = await adoptGuardianMinute(w.env, w.deps).then(
+      () => null,
+      (e) => String(e),
+    );
+    eq(
+      "付け替えが断られたら投げ、印は残さない",
+      [!!err, w.kv.has("system:guardian_minute")],
+      [true, false],
+    );
+    w.calls.length = 0;
+    await adoptGuardianMinute(w.env, w.deps);
+    eq("断られた後 1 時間は試し直さない(毎分 API を叩かない)", w.calls, []);
+  }
+  {
+    const w = world();
+    w.clock.t += 3600_001;
+    await adoptGuardianMinute(w.env, w.deps);
+    eq("顧客導入: 番人を毎分にしてから、自分の cron を外す(この順)", w.calls, [
+      "GET /workers/scripts/kurocms-app/settings",
+      "PUT /workers/scripts/kurocms-ops/schedules",
+      `  ${JSON.stringify([{ cron: "* * * * *" }])}`,
+      "PUT /workers/scripts/kurocms-app/schedules",
+      "  []",
+    ]);
+    eq("済んだ印を残す", w.kv.get("system:guardian_minute"), "1");
+    w.calls.length = 0;
+    await adoptGuardianMinute(w.env, w.deps);
+    eq("済んだら二度としない", w.calls, []);
   }
 
   if (failed) {

@@ -29,6 +29,7 @@ import type { Env } from "./types";
 import { entamyNoticeFor, entamyPort } from "./entamy-port.ts";
 import { needsAgreement } from "./vendor/entamy-client/index.ts";
 import { KUROCMS_VERSION } from "./version.ts";
+import { guardianVersion } from "./guardian-update.ts";
 
 const K_LAST = "system:entamy_last_report";
 const K_OPTOUT = "system:entamy_optout";
@@ -49,8 +50,25 @@ export async function optedOut(env: Env): Promise<boolean> {
 //    ⚠ install_id は KV ではなく **D1 の install_identity** が正本になった
 //      （KV には全消しされる経路があり、消えると導入が二重に数え直される）。
 
+/**
+ * 番人の版。報告は毎分呼ばれるので、番人へは 15 分に 1 回だけ訊く(訊くたびに番人の要求が 1 件増える)。
+ * 番人が上がってから最長 15 分で知らせる。
+ */
+const WORKEROPS_ASK_MS = 15 * 60_000;
+let workeropsSeen: { at: number; version: string | null } | null = null;
+async function workeropsVersion(env: Env): Promise<string | null> {
+  if (workeropsSeen && Date.now() - workeropsSeen.at < WORKEROPS_ASK_MS)
+    return workeropsSeen.version;
+  const version = await guardianVersion(env).catch(() => null);
+  workeropsSeen = { at: Date.now(), version };
+  return version;
+}
+
 /** 送る数字を集める。**ここに無いものは送らない。** */
-async function collect(env: Env): Promise<Record<string, string | number>> {
+async function collect(
+  env: Env,
+  workerops: string | null,
+): Promise<Record<string, string | number>> {
   const [docs, media, langs, site, channel] = await Promise.all([
     // mode が公開フラグ（1 = 公開）。**列名は schema に合わせる**
     // ——「published」という列は無い。
@@ -90,6 +108,8 @@ async function collect(env: Env): Promise<Record<string, string | number>> {
     update_channel: channel === "latest" ? "latest" : "stable",
   };
   if (site?.template_id) stats.template_id = String(site.template_id);
+  // 番人の版。KuroCMS の版とは別に作られ、別に上がる(cms-admin-integration)。
+  if (workerops) stats.workerops_version = workerops.slice(0, 32);
   const checkedAt = (() => {
     if (!lastGood) return "";
     try {
@@ -117,11 +137,21 @@ export async function reportInstall(env: Env, force = false): Promise<void> {
     if (await optedOut(env)) return;
 
     const version = KUROCMS_VERSION;
+    // 番人の版が変わったときも、間隔を待たずに知らせる(番人は app と別に上がる)。
+    const workerops = await workeropsVersion(env);
     const last = await env.PUBLIC_PAGES.get(K_LAST);
     if (!force && last) {
       try {
-        const l = JSON.parse(last) as { at: number; version: string };
-        if (l.version === version && Date.now() - l.at < REPORT_INTERVAL_MS)
+        const l = JSON.parse(last) as {
+          at: number;
+          version: string;
+          workerops?: string | null;
+        };
+        if (
+          l.version === version &&
+          (l.workerops ?? null) === workerops &&
+          Date.now() - l.at < REPORT_INTERVAL_MS
+        )
           return;
       } catch {
         /* 壊れていたら送る */
@@ -132,7 +162,9 @@ export async function reportInstall(env: Env, force = false): Promise<void> {
     // 何を数えるか（collect）と、送るかどうか（optout / 24h）はこの製品の
     // 判断なので、ここに残す。
     const port = await entamyPort(env);
-    const sent = await port.session.reportInstall(await collect(env));
+    const sent = await port.session.reportInstall(
+      await collect(env, workerops),
+    );
     if (!sent.ok) return; // 次の機会に送る。**観測のために操作を止めない。**
 
     // ⚠ 基盤が宣言していないキーは保存されずに捨てられる。捨てられた分は
@@ -147,7 +179,7 @@ export async function reportInstall(env: Env, force = false): Promise<void> {
 
     await env.PUBLIC_PAGES.put(
       K_LAST,
-      JSON.stringify({ at: Date.now(), version }),
+      JSON.stringify({ at: Date.now(), version, workerops }),
     );
   } catch {
     // 握りつぶす。**観測できないことは、動かないことより軽い。**

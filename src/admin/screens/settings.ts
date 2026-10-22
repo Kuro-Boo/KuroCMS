@@ -1291,7 +1291,10 @@ async function settings() {
       byId("basicTabBtn")?.remove();
       byId("panel-basic")?.remove();
       switchTab("domain");
-      void mountOwnDomain(s.publicDomain || "");
+      void mountOwnDomain(
+        String(s.defaultPublicDomain || s.publicDomain || ""),
+        s.publicDomain || "",
+      );
     }
     // 運用の形(委託運用なら顧客導入へ、顧客導入なら委託運用へ)。引っ越しはこの画面の中で進める。
     void mountSiteMove();
@@ -2711,11 +2714,21 @@ async function settings() {
         // siteName is edited on the Site Management screen now; echo the loaded
         // value so saving this form does not blank it.
         const siteName = (s?.siteName || "KuroCMS").trim();
+        // 委託で、有効になる前の自分のドメインは保存しない(site-domain.ts)。公開ドメインの欄の保存なら
+        // 止めて知らせ、ほかのタブの保存なら、いま保存されている公開ドメインのまま送る。
+        let publicDomain = byId("publicDomain")!.value;
+        if (ownDomainSaveBlocked(publicDomain)) {
+          if (btn?.closest?.("#siteForm")) {
+            toast(t("ownDomainNotActiveSave"), true, btn);
+            return;
+          }
+          publicDomain = s?.publicDomain || "";
+        }
         await api("/api/settings", {
           method: "PUT",
           body: JSON.stringify({
             siteName,
-            publicDomain: byId("publicDomain")!.value,
+            publicDomain,
             defaultLang: byId("defaultLang")!.value,
             // initial_lang は基本言語に一本化（UIから廃止）。default_lang をエコー。
             initialLang: byId("defaultLang")!.value,
@@ -2740,6 +2753,8 @@ async function settings() {
           }),
         });
         toast(t("siteSettingsSaved"), false, btn);
+        if (s) s.publicDomain = publicDomain;
+        ownDomainSaved(publicDomain);
       } catch (error) {
         toast(errorMessage(error), true, btn);
         await reportClientError("settings.save", error);

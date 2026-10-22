@@ -1,10 +1,11 @@
+import { WorkerEntrypoint } from "cloudflare:workers";
 import { adminHtml } from "./admin-shell";
 import { serveAdminAsset } from "./asset-serve";
 import { serveFont } from "./fonts";
 import { handleApi, unfurlEndpoint } from "./api";
 import { reportInstall } from "./entamy";
 import { entamyPort } from "./entamy-port";
-import { guardianAutoTick } from "./guardian-update";
+import { adoptGuardianMinute, guardianAutoTick } from "./guardian-update";
 import { guardianDeps } from "./guardian-deps";
 import { noteRunningVersion } from "./version-since";
 import { purgeIpGate } from "./ip-gate";
@@ -29,7 +30,94 @@ import {
 import { moveFrozen, movedPage, moveRetired, movedTo } from "./move";
 import type { Env } from "./types";
 
-export default {
+/**
+ * 毎分の仕事。cron(顧客導入の古い導入)か、番人から渡される分(tick・番人の毎分。WorkerOps の tick.ts)で走る。
+ * どちらから来ても同じことをする(core-offering 11 節・2026-10-22: アカウントの cron を 1 本にする)。
+ */
+async function runMinute(
+  env: Env,
+  ctx: ExecutionContext,
+  at: number,
+): Promise<void> {
+  if (!env.PUBLIC_PAGES || !env.DB) return;
+  // 引っ越しの最後の突き合わせの間は作らない(documents.live が動くと、突き合わせが終わらない)。
+  ctx.waitUntil(
+    (async () => {
+      if (await moveFrozen(env)) return;
+      await runScheduledAutoBuild(env);
+    })().catch((err) => {
+      console.error("scheduled auto-build failed:", err);
+    }),
+  );
+  // The Worker already runs every minute for scheduled publishing. Threads
+  // token maintenance shares that trigger, but the helper only touches D1 at
+  // UTC 00:17 and only calls Meta after 30 days. Its D1 claim also absorbs
+  // duplicate Cron deliveries.
+  // 引っ越しを終えた移す元は、もうこのサイトの本体ではない。基盤への報告と鍵の更新をしない(moveRetired)。
+  const retired = await moveRetired(env).catch(() => false);
+  if (!retired) ctx.waitUntil(runScheduledThreadsTokenRefresh(env, at));
+  // 引き渡し済みなら、残っている公開ページを下ろす(済んでいれば 1 回読むだけ)。
+  // 1.10.91 までに引き渡した導入も、更新されたこの版がここで下ろす。
+  else
+    ctx.waitUntil(
+      clearMovedAssets(env).catch((err) => {
+        console.error("moved assets clear failed:", err);
+      }),
+    );
+  // 番人(WorkerOps)の更新は app が行う(cms-workerops)。app の版が変わったのを見つけたら、
+  // 自動更新が入なら番人を上げる。版が同じ間は KV を 1 回読むだけ。
+  // 接続元の登録の期限切れを片付ける(1 時間に 1 回。毎分の起動に相乗りする)。
+  if (new Date(at).getUTCMinutes() === 7) {
+    ctx.waitUntil(
+      purgeIpGate(env).catch((err) => {
+        console.error("ip gate purge failed:", err);
+      }),
+    );
+  }
+  // いまの版がいつ入ったか(ダッシュボードの KuroCMS の枠)。どの経路で入っても 1 分以内に残る。
+  ctx.waitUntil(
+    noteRunningVersion(env).catch((err) => {
+      console.error("version note failed:", err);
+    }),
+  );
+  ctx.waitUntil(
+    guardianAutoTick(env, guardianDeps(env)).catch((err) => {
+      console.error("guardian auto-update failed:", err);
+    }),
+  );
+  // 導入の報告。**cron に乗せる** —— 利用者の操作に相乗りさせると、
+  // 画面の応答が外部サービスの調子に引きずられる。中で1日1回に絞っている。
+  // refresh token は呼ぶたびに回転するため、同じ cron で並列に使わない。
+  // 報告を終えてから Mailer の期限を確認し、必要なら更新する。
+  // ⚠ cron は**毎分**走る。失敗のたびに叩き直すと、基盤が弱っているときに
+  //   限って KV の書き込み枠（無料枠 1,000/日）を焼き切る。間引きは
+  //   entamy-connect の EntamyMailer が持っているので、ここでは素直に呼ぶ
+  //   —— 控えが生きていれば通信せず、失敗直後なら自分で見送る。
+  if (retired) return;
+  ctx.waitUntil(
+    (async () => {
+      await reportInstall(env);
+      const port = await entamyPort(env);
+      const cred = await port.mailer.credential();
+      // ⚠ **失敗の理由を捨てない。** cron の失敗は誰の画面にも出ないので、
+      //   ここで残さないと「メールが送れない」としか分からなくなる。
+      //   実際、SAT の権限が空で発行されていた不具合は、基盤側の DB を
+      //   直接見るまで原因が掴めなかった（発行自体は成功していたため）。
+      //   `wrangler tail` で拾えるよう、種別と理由を1行だけ出す。
+      //   間引きが効くので、これが毎分流れ続けることはない。
+      if (!cred.ok) {
+        console.warn(
+          "entamy mailer credential unavailable:",
+          cred.failure.kind,
+          cred.failure.status ?? "",
+          cred.failure.message ?? "",
+        );
+      }
+    })(),
+  );
+}
+
+const worker = {
   // Cron trigger: drives "公開予定記事をその時間に自動ビルド" (auto build mode).
   // Builds only when a scheduled post has actually crossed its publish/unpublish
   // time since the last run; idle ticks are a single cheap query. No-op unless
@@ -39,83 +127,7 @@ export default {
     env: Env,
     ctx: ExecutionContext,
   ): Promise<void> {
-    if (!env.PUBLIC_PAGES || !env.DB) return;
-    // 引っ越しの最後の突き合わせの間は作らない(documents.live が動くと、突き合わせが終わらない)。
-    ctx.waitUntil(
-      (async () => {
-        if (await moveFrozen(env)) return;
-        await runScheduledAutoBuild(env);
-      })().catch((err) => {
-        console.error("scheduled auto-build failed:", err);
-      }),
-    );
-    // The Worker already runs every minute for scheduled publishing. Threads
-    // token maintenance shares that trigger, but the helper only touches D1 at
-    // UTC 00:17 and only calls Meta after 30 days. Its D1 claim also absorbs
-    // duplicate Cron deliveries.
-    // 引っ越しを終えた移す元は、もうこのサイトの本体ではない。基盤への報告と鍵の更新をしない(moveRetired)。
-    const retired = await moveRetired(env).catch(() => false);
-    if (!retired)
-      ctx.waitUntil(runScheduledThreadsTokenRefresh(env, event.scheduledTime));
-    // 引き渡し済みなら、残っている公開ページを下ろす(済んでいれば 1 回読むだけ)。
-    // 1.10.91 までに引き渡した導入も、更新されたこの版がここで下ろす。
-    else
-      ctx.waitUntil(
-        clearMovedAssets(env).catch((err) => {
-          console.error("moved assets clear failed:", err);
-        }),
-      );
-    // 番人(WorkerOps)の更新は app が行う(cms-workerops)。app の版が変わったのを見つけたら、
-    // 自動更新が入なら番人を上げる。版が同じ間は KV を 1 回読むだけ。
-    // 接続元の登録の期限切れを片付ける(1 時間に 1 回。毎分の起動に相乗りする)。
-    if (new Date(event.scheduledTime).getUTCMinutes() === 7) {
-      ctx.waitUntil(
-        purgeIpGate(env).catch((err) => {
-          console.error("ip gate purge failed:", err);
-        }),
-      );
-    }
-    // いまの版がいつ入ったか(ダッシュボードの KuroCMS の枠)。どの経路で入っても 1 分以内に残る。
-    ctx.waitUntil(
-      noteRunningVersion(env).catch((err) => {
-        console.error("version note failed:", err);
-      }),
-    );
-    ctx.waitUntil(
-      guardianAutoTick(env, guardianDeps(env)).catch((err) => {
-        console.error("guardian auto-update failed:", err);
-      }),
-    );
-    // 導入の報告。**cron に乗せる** —— 利用者の操作に相乗りさせると、
-    // 画面の応答が外部サービスの調子に引きずられる。中で1日1回に絞っている。
-    // refresh token は呼ぶたびに回転するため、同じ cron で並列に使わない。
-    // 報告を終えてから Mailer の期限を確認し、必要なら更新する。
-    // ⚠ cron は**毎分**走る。失敗のたびに叩き直すと、基盤が弱っているときに
-    //   限って KV の書き込み枠（無料枠 1,000/日）を焼き切る。間引きは
-    //   entamy-connect の EntamyMailer が持っているので、ここでは素直に呼ぶ
-    //   —— 控えが生きていれば通信せず、失敗直後なら自分で見送る。
-    if (retired) return;
-    ctx.waitUntil(
-      (async () => {
-        await reportInstall(env);
-        const port = await entamyPort(env);
-        const cred = await port.mailer.credential();
-        // ⚠ **失敗の理由を捨てない。** cron の失敗は誰の画面にも出ないので、
-        //   ここで残さないと「メールが送れない」としか分からなくなる。
-        //   実際、SAT の権限が空で発行されていた不具合は、基盤側の DB を
-        //   直接見るまで原因が掴めなかった（発行自体は成功していたため）。
-        //   `wrangler tail` で拾えるよう、種別と理由を1行だけ出す。
-        //   間引きが効くので、これが毎分流れ続けることはない。
-        if (!cred.ok) {
-          console.warn(
-            "entamy mailer credential unavailable:",
-            cred.failure.kind,
-            cred.failure.status ?? "",
-            cred.failure.message ?? "",
-          );
-        }
-      })(),
-    );
+    await runMinute(env, ctx, event.scheduledTime);
   },
 
   async fetch(
@@ -438,6 +450,30 @@ export default {
     });
   },
 };
+
+/**
+ * 入口。fetch と cron は worker のまま。tick は番人(WorkerOps)が APP_SERVICE の束縛で呼ぶ毎分 ——
+ * 束縛からしか呼べない(公開の URL からは届かない)。番人の版が APP_TICK=1 で呼べるようになったら、
+ * 顧客導入は cron を番人の 1 本にまとめる(adoptGuardianMinute)。
+ */
+export default class KuroCms extends WorkerEntrypoint<Env> {
+  fetch(request: Request): Promise<Response> {
+    return worker.fetch(request, this.env, this.ctx);
+  }
+
+  scheduled(controller: ScheduledController): Promise<void> {
+    return worker.scheduled(controller, this.env, this.ctx);
+  }
+
+  async tick(at: number): Promise<void> {
+    this.ctx.waitUntil(
+      adoptGuardianMinute(this.env, guardianDeps(this.env)).catch((err) => {
+        console.error("guardian minute adopt failed:", err);
+      }),
+    );
+    await runMinute(this.env, this.ctx, Number(at) || Date.now());
+  }
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 

@@ -165,6 +165,14 @@ async function peerStatus(env: Env): Promise<PeerStatus | null> {
   }
 }
 
+/**
+ * 番人の版(観測の workerops_version・cms-admin-integration)。受け口の無い導入は null ——
+ * 送らないだけで、Admin では「不明」になる。
+ */
+export async function guardianVersion(env: Env): Promise<string | null> {
+  return (await peerStatus(env))?.version ?? null;
+}
+
 function missingSetup(env: Env): string | null {
   if (!env.WORKEROPS) return "no_binding";
   if (!env.CF_API_TOKEN || !env.CF_ACCOUNT_ID || !env.CF_WORKER_NAME)
@@ -292,13 +300,57 @@ export function guardianBindings(bindings: unknown[]): unknown[] {
     const t = (b as { type?: string })?.type;
     const name = (b as { name?: string })?.name;
     if (typeof t !== "string" || typeof name !== "string" || !name) continue;
-    if (name === "SELF_UPDATE") continue;
+    if (name === "SELF_UPDATE" || name === "APP_TICK") continue;
     if (t === "secret_text" || t === "inherit")
       out.push({ type: "inherit", name });
     else out.push(b);
   }
   out.push({ type: "plain_text", name: "SELF_UPDATE", text: "0" });
+  // この app は番人から毎分を受ける(WorkerOps の tick.ts・adoptGuardianMinute)。
+  out.push({ type: "plain_text", name: "APP_TICK", text: "1" });
   return out;
+}
+
+const MINUTE_KEY = "system:guardian_minute";
+/** 同じ isolate で何度も KV を読まない(番人の分は毎分届く)。失敗したら 1 時間あけて試し直す。 */
+let minuteAdopted = false;
+let minuteRetryAt = 0;
+
+/**
+ * 番人から分が届いた(番人が APP_TICK=1 で app を呼べる版になった)ら、cron を番人の 1 本にまとめる
+ * (core-offering 11 節・2026-10-22)。無料の Workers は cron がアカウントで 5 本までで、導入 1 件が
+ * app の毎分と番人の 2 分ごとの 2 本を使っていた。
+ *
+ * 顧客導入だけ: app が自分のアカウントの鍵(CF_API_TOKEN)で、番人を毎分にしてから自分の cron を外す
+ * (この順 —— 逆だと、間に分が誰からも来ない時間ができる)。委託の app は鍵を持たないので何もしない
+ * (委託は cron を持たず、連絡係が番人を呼ぶ。切り替えは導入口がする)。済んだら KV に印を残し、
+ * 以後は読まない。
+ */
+export async function adoptGuardianMinute(
+  env: Env,
+  deps: GuardianDeps,
+): Promise<void> {
+  if (minuteAdopted || deps.now() < minuteRetryAt || missingSetup(env)) return;
+  if ((await env.PUBLIC_PAGES.get(MINUTE_KEY)) === "1") {
+    minuteAdopted = true;
+    return;
+  }
+  const ops = await guardianName(deps, env);
+  const put = (script: string, crons: string[]) =>
+    cf(deps, env, `/workers/scripts/${script}/schedules`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(crons.map((cron) => ({ cron }))),
+    });
+  try {
+    await put(ops, ["* * * * *"]);
+    await put(env.CF_WORKER_NAME!, []);
+  } catch (error) {
+    minuteRetryAt = deps.now() + 3600_000;
+    throw error;
+  }
+  await env.PUBLIC_PAGES.put(MINUTE_KEY, "1");
+  minuteAdopted = true;
 }
 
 async function deploy(

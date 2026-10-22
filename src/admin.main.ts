@@ -1230,8 +1230,10 @@ const i18n = {
     ownDomainLead:
       "On KuroCMS managed hosting you can publish your site under your own domain name, using Cloudflare for SaaS. KuroCMS already has the Cloudflare for SaaS contract, so there is nothing extra for you to sign up for or pay. The steps depend on where your domain's DNS is managed.",
     ownDomainDnsQuestion: "Where is your domain's DNS managed?",
-    ownDomainStep1Title: 'Enter the domain name and press "Prepare"',
-    ownDomainStep1Desc: "For example blog.example.com or example.com",
+    ownDomainStep1Title:
+      'Enter the domain name in the public domain above and press "Prepare"',
+    ownDomainStep1Desc:
+      "For example blog.example.com or example.com. Preparing does not save it yet.",
     ownDomainStep2Title: "Add the TXT records to your DNS",
     ownDomainStep2DescCf:
       "Add them in the Cloudflare dashboard. Adding them does not change what the domain shows now.",
@@ -1245,9 +1247,9 @@ const i18n = {
       "You can keep the proxy on (orange cloud). This also works for example.com. It becomes active in about a minute.",
     ownDomainStep4DescOther:
       "Many DNS providers cannot set a CNAME on example.com itself, so use a name such as blog.example.com.",
-    ownDomainStep5Title: "Use it as the public domain and rebuild all pages",
+    ownDomainStep5Title: "Save and rebuild all pages",
     ownDomainStep5Desc:
-      'Press "Use as public domain", press "Save" above, then rebuild all pages.',
+      'When it is active, press "Save Site Settings" above, then rebuild all pages. It cannot be saved before it is active.',
     ownDomainRecordsBefore:
       'The TXT records appear here when you press "Prepare".',
     ownDomainTxtGone: "The TXT records are already confirmed.",
@@ -1256,14 +1258,15 @@ const i18n = {
     ownDomainOverwriteNote:
       "When you change the CNAME, whatever the domain showed before will no longer be shown. Email (MX) and other records are not affected.",
     ownDomainPrepare: "Prepare",
+    ownDomainNeedHost:
+      "Enter the domain name you want to use in the public domain above.",
+    ownDomainNotActiveSave:
+      "This domain is not active yet. Saving it now would point your page links to an address that does not open. Save once the steps are done.",
     ownDomainCheck: "Check status",
     ownDomainSwitch: "Switch domain",
     ownDomainRemove: "Cancel this domain",
     ownDomainRemoveConfirm:
       "Remove this domain from KuroCMS? If the CNAME already points here, the domain will stop showing your site.",
-    ownDomainUsePublic: "Use as public domain",
-    ownDomainUsePublicDone:
-      "Entered in the public domain. Save, then rebuild all pages.",
     ownDomainColState: "Status",
     ownDomainRecDone: "Done",
     ownDomainRecTodo: "Not yet",
@@ -1289,7 +1292,7 @@ const i18n = {
     err_domain_failed:
       "Could not change the domain settings. Please try again later.",
     publicDomainManagedHelp:
-      "The address used for links in your public pages. By default it is your Entamy hosting address (installation-id.kurocms.site). Once your own domain is attached, change it here and rebuild all pages. Ask Entamy to attach your own domain.",
+      'The address used for links in your public pages. By default it is your Entamy hosting address (installation-id.kurocms.site). To publish under your own domain, enter it here and press "Prepare" below. Save it once it is active.',
     r2SetupDashboard: "Open R2 in Cloudflare",
     r2SetupReady: "R2 media storage is enabled.",
     cfManualSteps:
@@ -2587,8 +2590,10 @@ const i18n = {
     ownDomainLead:
       "KuroCMS の委託運用では、Cloudflare for SaaS の機能を使って、お客様のドメイン名でサイトを公開できます。Cloudflare for SaaS は KuroCMS 側で契約しているので、お客様の追加の契約や費用はありません。設定の手順は、お客様のドメインの DNS をどこで管理しているかで変わります。",
     ownDomainDnsQuestion: "ドメインの DNS はどこで管理していますか？",
-    ownDomainStep1Title: "ドメイン名を入れて「準備する」を押す",
-    ownDomainStep1Desc: "例: blog.example.com、example.com",
+    ownDomainStep1Title:
+      "上の公開ドメインにドメイン名を入れて「準備する」を押す",
+    ownDomainStep1Desc:
+      "例: blog.example.com や example.com など。準備するだけで、まだ保存はしません。",
     ownDomainStep2Title: "DNS に TXT レコードを追加する",
     ownDomainStep2DescCf:
       "Cloudflare のダッシュボードで追加します。追加しても、今の表示は変わりません。",
@@ -2602,9 +2607,9 @@ const i18n = {
       "プロキシはオン（オレンジの雲）のままで構いません。example.com にも設定できます。1 分ほどで有効になります。",
     ownDomainStep4DescOther:
       "example.com そのものには CNAME を設定できないことが多いので、blog.example.com のような名前を使ってください。",
-    ownDomainStep5Title: "公開ドメインに入れて、全ページをビルドする",
+    ownDomainStep5Title: "保存して、全ページをビルドする",
     ownDomainStep5Desc:
-      "「公開ドメインに入れる」を押し、上の「保存」を押してから、全ページをビルドします。",
+      "有効になったら、上の「サイト設定を保存」を押し、全ページをビルドします。有効になる前は保存できません。",
     ownDomainRecordsBefore:
       "「準備する」を押すと、ここに TXT レコードが表示されます。",
     ownDomainTxtGone: "TXT レコードの確認は済んでいます。",
@@ -2613,14 +2618,15 @@ const i18n = {
     ownDomainOverwriteNote:
       "CNAME を書き換えると、そのドメインでそれまで表示していたものは見えなくなります。メール（MX）やほかのレコードには影響しません。",
     ownDomainPrepare: "準備する",
+    ownDomainNeedHost:
+      "上の公開ドメインに、使いたいドメイン名を入れてください。",
+    ownDomainNotActiveSave:
+      "このドメインはまだ有効になっていません。いま保存すると、ページのリンクが開けないアドレスに向きます。手順を終えてから保存してください。",
     ownDomainCheck: "状態を確かめる",
     ownDomainSwitch: "ドメインを切り替える",
     ownDomainRemove: "取り消す",
     ownDomainRemoveConfirm:
       "このドメインを KuroCMS から外しますか？ すでに CNAME をこちらへ向けている場合、そのドメインではサイトが表示されなくなります。",
-    ownDomainUsePublic: "公開ドメインに入れる",
-    ownDomainUsePublicDone:
-      "公開ドメインに入れました。保存して、全ページをビルドしてください。",
     ownDomainColState: "状態",
     ownDomainRecDone: "済み",
     ownDomainRecTodo: "まだ",
@@ -2647,7 +2653,7 @@ const i18n = {
     err_domain_failed:
       "ドメインの設定を変えられませんでした。しばらくしてから、もう一度押してください。",
     publicDomainManagedHelp:
-      "公開ページのリンクに使うアドレスです。既定は委託のアドレス（導入 ID.kurocms.site）です。独自ドメインが付いたら、ここをそのアドレスに変えて、全ページをビルドし直してください。独自ドメインを付けるときは Entamy にご依頼ください。",
+      "公開ページのリンクに使うアドレスです。既定は委託のアドレス（導入 ID.kurocms.site）です。自分のドメインで公開するときは、ここにドメイン名を入れて、下の「準備する」を押してください。保存するのは有効になってからです。",
     r2SetupDashboard: "Cloudflare で R2 を確認",
     r2SetupReady: "R2 メディアストレージは利用可能です。",
     cfManualSteps:
