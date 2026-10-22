@@ -28,23 +28,28 @@ function ownDomainPanelHtml(): string {
   return "<div id='ownDomainPanel' class='panel stack' style='display:none'></div>";
 }
 
-/** 手順の一覧({target} は CNAME の向け先)。文言は改行区切りで持つ。 */
-function ownDomainSteps(key: string, target: string): string {
+/**
+ * 手順の 1 段(部品 .stepList)。state = done(済み・✓)/ current(今ここ)/ todo(まだ)。
+ * title はやることを 1 行で、desc は補足を短く。body はその段で使う欄やボタン。
+ */
+function ownDomainStep(
+  n: number,
+  state: "done" | "current" | "todo",
+  title: string,
+  desc: string,
+  body = "",
+): string {
   return (
-    "<ol style='margin:0;padding-left:20px;display:grid;gap:6px'>" +
-    t(key)
-      .split("\n")
-      .map(
-        (line) =>
-          "<li>" +
-          escapeHtml(line).replace(
-            "{target}",
-            "<code>" + escapeHtml(target) + "</code>",
-          ) +
-          "</li>",
-      )
-      .join("") +
-    "</ol>"
+    "<li class='stepItem " +
+    state +
+    "'><div class='stepNum'>" +
+    (state === "done" ? "✓" : String(n)) +
+    "</div><div><div class='stepTitle'>" +
+    title +
+    "</div>" +
+    (desc ? "<div class='stepDesc'>" + desc + "</div>" : "") +
+    (body ? "<div class='stepBody'>" + body + "</div>" : "") +
+    "</div></li>"
   );
 }
 
@@ -70,40 +75,163 @@ async function mountOwnDomain(publicDomain: string): Promise<void> {
     escapeHtml(text) +
     "</span>";
 
-  function nextLine(d: OwnDomain): string {
-    const certOk = d.sslStatus === "active";
-    const hostOk = d.status === "active";
-    let pd = "";
+  /** 公開ドメインの欄が、このドメインになっているか(5 段目が済んだか)。 */
+  function publicIsDomain(d: OwnDomain): boolean {
     try {
-      pd = new URL(
-        (byId("publicDomain") as HTMLInputElement | null)?.value || "",
-      ).host;
+      return (
+        new URL((byId("publicDomain") as HTMLInputElement | null)?.value || "")
+          .host === d.hostname
+      );
     } catch {
-      /* 空 */
+      return false;
     }
-    if (!certOk) return t("ownDomainNextTxt");
-    if (!d.switched) return t("ownDomainNextSwitch");
-    if (!hostOk)
-      return t("ownDomainNextCname")
-        .replace("{host}", d.hostname)
-        .replace("{target}", d.target);
-    if (pd !== d.hostname) return t("ownDomainNextPublic");
-    return t("ownDomainDone");
+  }
+
+  /** 名前や値。押してもコピー、横のボタンでもコピー(2026-10-22 利用者の指示)。 */
+  function copyCell(text: string, key: string): string {
+    return (
+      "<div style='display:flex;align-items:center;gap:6px'><code role='button' tabindex='0' style='word-break:break-all;cursor:copy' title='" +
+      escapeHtml(t("copy")) +
+      "' data-own-copy='" +
+      key +
+      "'>" +
+      escapeHtml(text) +
+      "</code><button type='button' class='secondary' data-own-copy='" +
+      key +
+      "' style='font-size:11px;padding:3px 8px'>" +
+      escapeHtml(t("copy")) +
+      "</button></div>"
+    );
+  }
+
+  /** 「名前」「値」のラベルと中身を横に並べる(狭い画面では縦)。 */
+  function labeled(label: string, body: string): string {
+    return (
+      "<div style='display:grid;grid-template-columns:minmax(48px,auto) minmax(0,1fr);gap:8px;align-items:center'><span class='fieldLabel' style='margin:0'>" +
+      escapeHtml(label) +
+      "</span>" +
+      body +
+      "</div>"
+    );
   }
 
   function render() {
     const target = domain?.target || fallbackTarget;
+    const cf = dns === "cloudflare";
+    const d = domain;
+    const certOk = d?.sslStatus === "active";
+    const hostOk = d?.status === "active";
+    const switched = !!d?.switched;
+    const pubOk = !!d && hostOk && publicIsDomain(d);
+    // どの段が済んだか。最初の済んでいない段が「今ここ」。
+    const done = [!!d, certOk, switched, hostOk, pubOk];
+    const cur = done.indexOf(false);
+    const st = (k: number) =>
+      done[k] ? "done" : k === cur ? "current" : "todo";
     const purpose: Record<string, string> = {
       ownership: t("ownDomainPurposeOwnership"),
       certificate: t("ownDomainPurposeCertificate"),
-      traffic: t("ownDomainPurposeTraffic"),
     };
-    let html =
+    const txt = (d?.records ?? [])
+      .map((r, i) => ({ r, i }))
+      .filter((x) => x.r.type === "TXT");
+    const cname = (d?.records ?? []).findIndex((r) => r.type === "CNAME");
+
+    // 1. ドメイン名
+    const step1 = d
+      ? "<div style='display:flex;flex-wrap:wrap;align-items:center;gap:10px'><b style='font-size:15px'>" +
+        escapeHtml(d.hostname) +
+        "</b><button type='button' class='secondary' id='ownDomainRemoveBtn' style='font-size:12px;padding:4px 10px'>" +
+        escapeHtml(t("ownDomainRemove")) +
+        "</button></div>"
+      : "<div style='display:flex;gap:8px'>" +
+        "<input id='ownDomainHost' placeholder='blog.example.com' autocomplete='off' style='flex:1;min-width:0' />" +
+        "<button type='button' id='ownDomainPrepareBtn'>" +
+        escapeHtml(t("ownDomainPrepare")) +
+        "</button></div>";
+
+    // 2. TXT
+    let step2 = "";
+    if (!d) {
+      step2 =
+        "<div class='muted' style='padding:12px;border:1px dashed var(--line);border-radius:10px;font-size:13px'>" +
+        escapeHtml(t("ownDomainRecordsBefore")) +
+        "</div>";
+    } else if (txt.length) {
+      // レコードごとのカード(用途と状態を見出しに、名前と値はラベル付きで押せばコピー)。
+      step2 = txt
+        .map(
+          ({ r, i }) =>
+            "<div style='border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:grid;gap:8px;background:var(--surface-2)'>" +
+            "<div style='display:flex;align-items:center;gap:8px'><b>TXT</b><span class='muted'>" +
+            escapeHtml(purpose[r.purpose] || r.purpose) +
+            "</span><span style='margin-left:auto'>" +
+            pill(
+              !!r.done,
+              r.done ? t("ownDomainRecDone") : t("ownDomainRecTodo"),
+            ) +
+            "</span></div>" +
+            labeled(t("ownDomainColName"), copyCell(r.name, i + ":name")) +
+            labeled(t("ownDomainColValue"), copyCell(r.value, i + ":value")) +
+            "</div>",
+        )
+        .join("");
+    } else if (certOk) {
+      step2 =
+        "<div class='muted' style='font-size:12px'>" +
+        escapeHtml(t("ownDomainTxtGone")) +
+        "</div>";
+    }
+
+    // 3. 確かめて切り替える
+    const step3 = d
+      ? "<div class='toolbar' style='gap:8px;flex-wrap:wrap'>" +
+        "<button type='button' class='secondary' id='ownDomainCheckBtn'>" +
+        escapeHtml(t("ownDomainCheck")) +
+        "</button>" +
+        "<button type='button' id='ownDomainSwitchBtn'" +
+        (certOk && !switched ? "" : " disabled") +
+        ">" +
+        escapeHtml(t("ownDomainSwitch")) +
+        "</button></div>" +
+        ""
+      : "";
+
+    // 4. CNAME
+    const step4 =
+      (d && cname >= 0
+        ? "<div style='border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:grid;gap:8px;background:var(--surface-2)'>" +
+          "<div style='display:flex;align-items:center;gap:8px'><b>CNAME</b><span style='margin-left:auto'>" +
+          pill(hostOk, hostOk ? t("ownDomainRecDone") : t("ownDomainRecTodo")) +
+          "</span></div>" +
+          labeled(
+            t("ownDomainColName"),
+            copyCell(d.hostname, cname + ":name"),
+          ) +
+          labeled(t("ownDomainColValue"), copyCell(target, cname + ":value")) +
+          "</div>"
+        : "") +
+      "<div class='muted' style='font-size:12px'>⚠ " +
+      escapeHtml(t("ownDomainOverwriteNote")) +
+      "</div>";
+
+    // 5. 公開ドメイン
+    const step5 =
+      hostOk && switched && !pubOk
+        ? "<div><button type='button' id='ownDomainUseBtn'>" +
+          escapeHtml(t("ownDomainUsePublic")) +
+          "</button></div>"
+        : "";
+
+    const html =
       "<div class='panelHead'><h3 style='margin:0'>" +
       escapeHtml(t("ownDomainTitle")) +
       "</h3></div>" +
       "<div class='muted'>" +
       escapeHtml(t("ownDomainLead")) +
+      "</div>" +
+      "<div class='fieldLabel' style='margin:0'>" +
+      escapeHtml(t("ownDomainDnsQuestion")) +
       "</div>" +
       segmentedHtml(
         "own-dns",
@@ -113,148 +241,49 @@ async function mountOwnDomain(publicDomain: string): Promise<void> {
         ],
         dns,
       ) +
-      ownDomainSteps(
-        dns === "cloudflare"
-          ? "ownDomainStepsCloudflare"
-          : "ownDomainStepsOther",
-        target,
+      "<ol class='stepList'>" +
+      ownDomainStep(
+        1,
+        st(0),
+        escapeHtml(t("ownDomainStep1Title")),
+        escapeHtml(t("ownDomainStep1Desc")),
+        step1,
       ) +
-      "<div class='muted' style='font-size:12px'>" +
-      escapeHtml(t("ownDomainOverwriteNote")) +
-      "</div>";
+      ownDomainStep(
+        2,
+        st(1),
+        escapeHtml(t("ownDomainStep2Title")),
+        escapeHtml(t(cf ? "ownDomainStep2DescCf" : "ownDomainStep2DescOther")),
+        step2,
+      ) +
+      ownDomainStep(
+        3,
+        st(2),
+        escapeHtml(t("ownDomainStep3Title")),
+        escapeHtml(t("ownDomainStep3Desc")),
+        step3,
+      ) +
+      ownDomainStep(
+        4,
+        st(3),
+        escapeHtml(t("ownDomainStep4Title")),
+        escapeHtml(t(cf ? "ownDomainStep4DescCf" : "ownDomainStep4DescOther")),
+        step4,
+      ) +
+      ownDomainStep(
+        5,
+        st(4),
+        escapeHtml(t("ownDomainStep5Title")),
+        escapeHtml(t("ownDomainStep5Desc")),
+        step5,
+      ) +
+      "</ol>" +
+      (pubOk
+        ? "<div class='notice' style='margin:0'>✅ " +
+          escapeHtml(t("ownDomainDone")) +
+          "</div>"
+        : "");
 
-    if (!domain) {
-      html +=
-        "<label>" +
-        escapeHtml(t("ownDomainHostLabel")) +
-        "<div style='display:flex;gap:8px'>" +
-        "<input id='ownDomainHost' placeholder='blog.example.com' autocomplete='off' style='flex:1;min-width:0' />" +
-        "<button type='button' id='ownDomainPrepareBtn'>" +
-        escapeHtml(t("ownDomainPrepare")) +
-        "</button></div></label>" +
-        // まだ準備していない: 表(足す TXT と CNAME)がどこに出るかを先に書く。
-        "<div class='fieldLabel'>" +
-        escapeHtml(t("ownDomainRecordsTitle")) +
-        "</div>" +
-        "<div class='muted' style='padding:14px;border:1px dashed var(--line);border-radius:10px'>" +
-        escapeHtml(t("ownDomainRecordsBefore")) +
-        "</div>";
-    } else {
-      const certOk = domain.sslStatus === "active";
-      const hostOk = domain.status === "active";
-      html +=
-        "<div style='display:flex;flex-wrap:wrap;align-items:center;gap:8px'>" +
-        "<b style='font-size:15px'>" +
-        escapeHtml(domain.hostname) +
-        "</b>" +
-        escapeHtml(t("ownDomainCert")) +
-        " " +
-        pill(
-          certOk,
-          certOk ? t("ownDomainCertActive") : t("ownDomainCertPending"),
-        ) +
-        escapeHtml(t("ownDomainSwitchedLabel")) +
-        " " +
-        pill(
-          domain.switched,
-          domain.switched
-            ? t("ownDomainSwitchedYes")
-            : t("ownDomainSwitchedNo"),
-        ) +
-        escapeHtml(t("ownDomainHost")) +
-        " " +
-        pill(
-          hostOk,
-          hostOk ? t("ownDomainHostActive") : t("ownDomainHostPending"),
-        ) +
-        "</div>" +
-        "<div><b>" +
-        escapeHtml(nextLine(domain)) +
-        "</b></div>" +
-        "<div class='fieldLabel'>" +
-        escapeHtml(t("ownDomainRecordsTitle")) +
-        "</div>" +
-        "<div class='tableScroll'><table class='tableCompact'><thead><tr><th>" +
-        escapeHtml(t("ownDomainColType")) +
-        "</th><th class='flexible'>" +
-        escapeHtml(t("ownDomainColName")) +
-        " / " +
-        escapeHtml(t("ownDomainColValue")) +
-        "</th><th>" +
-        escapeHtml(t("ownDomainColPurpose")) +
-        "</th><th>" +
-        escapeHtml(t("ownDomainColState")) +
-        "</th></tr></thead><tbody>" +
-        domain.records
-          .map((r, i) => {
-            // 名前と値のどちらも DNS に入れるので、両方にコピーを付ける。
-            const cell = (text: string, part: string) =>
-              // 値そのものを押してもコピーする(ボタンも残す・2026-10-22 利用者の指示)。
-              "<div style='display:flex;align-items:center;gap:6px;margin-top:4px'><code role='button' tabindex='0' style='word-break:break-all;cursor:copy' title='" +
-              escapeHtml(t("copy")) +
-              "' data-own-copy='" +
-              i +
-              ":" +
-              part +
-              "'>" +
-              escapeHtml(text) +
-              "</code><button type='button' class='secondary' data-own-copy='" +
-              i +
-              ":" +
-              part +
-              "' style='font-size:11px;padding:3px 8px'>" +
-              escapeHtml(t("copy")) +
-              "</button></div>";
-            return (
-              "<tr><td>" +
-              escapeHtml(r.type) +
-              "</td><td class='flexible' style='white-space:normal'>" +
-              cell(r.name, "name") +
-              cell(r.value, "value") +
-              "</td><td>" +
-              escapeHtml(purpose[r.purpose] || r.purpose) +
-              "</td><td>" +
-              pill(
-                !!r.done,
-                r.done ? t("ownDomainRecDone") : t("ownDomainRecTodo"),
-              ) +
-              "</td></tr>"
-            );
-          })
-          .join("") +
-        "</tbody></table></div>" +
-        // 古い準備(TXT を覚える前)は、確かめが済むと TXT が残っていない。
-        (!domain.records.some((r) => r.type === "TXT") && certOk
-          ? "<div class='muted' style='font-size:12px'>" +
-            escapeHtml(t("ownDomainTxtGone")) +
-            "</div>"
-          : "") +
-        (domain.errors.length && !hostOk
-          ? "<div class='muted' style='font-size:12px'>" +
-            escapeHtml(t("ownDomainErrors")) +
-            ": " +
-            escapeHtml(domain.errors.join(" / ")) +
-            "</div>"
-          : "") +
-        "<div class='toolbar' style='gap:8px;flex-wrap:wrap'>" +
-        "<button type='button' class='secondary' id='ownDomainCheckBtn'>" +
-        escapeHtml(t("ownDomainCheck")) +
-        "</button>" +
-        "<button type='button' id='ownDomainSwitchBtn'" +
-        (certOk && !domain.switched ? "" : " disabled") +
-        ">" +
-        escapeHtml(t("ownDomainSwitch")) +
-        "</button>" +
-        (hostOk && domain.switched
-          ? "<button type='button' id='ownDomainUseBtn'>" +
-            escapeHtml(t("ownDomainUsePublic")) +
-            "</button>"
-          : "") +
-        "<button type='button' class='secondary' id='ownDomainRemoveBtn'>" +
-        escapeHtml(t("ownDomainRemove")) +
-        "</button>" +
-        "</div>";
-    }
     panel!.innerHTML = html;
     wire();
   }

@@ -308,6 +308,21 @@ export function adminHtml(
       .segmented.segmented > button[role='radio'][aria-checked='true'] { background: var(--accent); color: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.28); }
       .segmented.segmented > button[role='radio'][aria-checked='true']::before { border-color: #fff; background: radial-gradient(circle, #fff 0 3px, transparent 3.5px); }
       .segmented.segmented > button[role='radio']:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+      /* 手順(ステップ)。番号の丸を縦の線でつなぎ、済んだ段は ✓、今の段は強調、まだの段は薄く。
+         やることを stepTitle に 1 行、補足を stepDesc に短く、その段で使う欄やボタンを stepBody に置く。 */
+      .stepList { list-style: none; margin: 0; padding: 0; display: grid; }
+      .stepItem { display: grid; grid-template-columns: 30px minmax(0, 1fr); column-gap: 14px; position: relative; padding-bottom: 22px; }
+      .stepItem:last-child { padding-bottom: 0; }
+      .stepItem:not(:last-child)::before { content: ''; position: absolute; left: 14px; top: 34px; bottom: 4px; width: 2px; background: var(--line); }
+      .stepItem.done:not(:last-child)::before { background: var(--accent); }
+      .stepNum { width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 14px; border: 2px solid var(--line); color: var(--muted); background: var(--surface); box-sizing: border-box; }
+      .stepItem.done .stepNum { background: var(--accent); border-color: var(--accent); color: #fff; }
+      .stepItem.current .stepNum { border-color: var(--accent); color: var(--accent); box-shadow: 0 0 0 4px rgba(21,122,110,.18); }
+      .stepTitle { font-weight: 800; font-size: 15px; line-height: 30px; }
+      .stepItem.todo .stepTitle { color: var(--muted); }
+      .stepItem.done .stepTitle { color: var(--muted); }
+      .stepDesc { font-size: 13px; color: var(--muted); margin-top: 2px; }
+      .stepBody { margin-top: 10px; display: grid; gap: 8px; min-width: 0; }
       .snsStatusMobile { margin: 8px 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-2); }
       .catTag { display: inline-flex; align-items: center; gap: 3px; background: rgba(21,122,110,.10); color: var(--accent); border-radius: 12px; padding: 2px 8px 2px 10px; font-size: 12px; font-weight: 600; }
       .catTag button { display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; background: rgba(220,38,38,.65); border: none; border-radius: 50%; color: #fff; cursor: pointer; font-size: 9px; line-height: 1; padding: 0; flex-shrink: 0; }
