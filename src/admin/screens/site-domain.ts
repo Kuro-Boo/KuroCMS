@@ -4,7 +4,10 @@
 // 委託用ゾーン(kurocms.site)の Cloudflare for SaaS で、お客様のドメインを付ける:
 //   準備する(Custom Hostname を作る) → お客様が TXT を足す → 状態を確かめる(証明書が発行済みか)
 //   → ドメインを切り替える(kurocms.site 側のルートをこの導入へ) → お客様が CNAME を向ける → 有効
-//   → 公開ドメインに入れて保存・全ページをビルド
+//   → 保存して全ページをビルド
+// ドメイン名を入れる欄は上の公開ドメインの 1 つだけ(2026-10-22 利用者の指示)。「準備する」はその欄から
+// 読むだけで保存しない。有効になる前の保存は止める(全ページのリンクがまだ開けないアドレスに向くので・
+// ownDomainSaveBlocked)。
 // 頼むのはサーバー(/api/system/site-domain・src/site-domain.ts)。鍵はどこにも置かない。
 
 type OwnDomainRecord = {
@@ -23,6 +26,52 @@ type OwnDomain = {
   records: OwnDomainRecord[];
   errors: string[];
 };
+
+/** 公開ドメインの欄の値からホスト名を取る(https://… でも、ドメイン名だけでもよい)。 */
+function hostOfDomainInput(value: string): string {
+  const v = value.trim();
+  if (!v) return "";
+  try {
+    return new URL(
+      /^https?:\/\//i.test(v) ? v : "https://" + v,
+    ).host.toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+/** 委託の枠が見ている状態(保存の前の確かめに使う)。委託でなければ null のまま。 */
+let ownDomainWatch: {
+  /** 委託のアドレス({導入ID}.kurocms.site)。 */
+  fallbackHost: string;
+  /** いま保存されている公開ドメイン。 */
+  savedHost: string;
+  domain: OwnDomain | null;
+  /** 保存したあとに枠を描き直す(5 段目を済みにする)。 */
+  onSaved: (host: string) => void;
+} | null = null;
+
+/**
+ * 公開ドメインをこの値で保存してはいけないか。委託で、委託のアドレスでも、いま保存されているアドレスでも、
+ * 有効になった自分のドメインでもないとき(準備しただけ・切り替える前・CNAME を向ける前)は止める。
+ */
+function ownDomainSaveBlocked(value: string): boolean {
+  if (!ownDomainWatch) return false;
+  const host = hostOfDomainInput(value);
+  if (
+    !host ||
+    host === ownDomainWatch.fallbackHost ||
+    host === ownDomainWatch.savedHost
+  )
+    return false;
+  const d = ownDomainWatch.domain;
+  return !(d && d.hostname === host && d.status === "active" && d.switched);
+}
+
+/** 設定を保存したあとに呼ぶ(保存した公開ドメインを覚え、枠を描き直す)。 */
+function ownDomainSaved(value: string): void {
+  ownDomainWatch?.onSaved(hostOfDomainInput(value));
+}
 
 function ownDomainPanelHtml(): string {
   return "<div id='ownDomainPanel' class='panel stack' style='display:none'></div>";
@@ -53,20 +102,30 @@ function ownDomainStep(
   );
 }
 
-async function mountOwnDomain(publicDomain: string): Promise<void> {
+async function mountOwnDomain(
+  defaultDomain: string,
+  savedDomain: string,
+): Promise<void> {
   const panel = byId("ownDomainPanel");
   if (!panel) return;
   panel.style.display = "";
-  // 向け先は導入口が返す。準備する前は、いまの公開アドレス(委託のアドレス)のホスト名を出す。
-  let fallbackTarget = "";
-  try {
-    fallbackTarget = new URL(publicDomain).host;
-  } catch {
-    /* 公開ドメインが空・形が悪い */
-  }
+  // 向け先は導入口が返す。準備する前は、委託のアドレス({導入ID}.kurocms.site)のホスト名を出す。
+  const fallbackTarget = hostOfDomainInput(defaultDomain);
+  let savedHost = hostOfDomainInput(savedDomain);
   let dns: "cloudflare" | "other" = "cloudflare";
   let domain: OwnDomain | null = null;
   let busy = false;
+  const watch = () => {
+    ownDomainWatch = {
+      fallbackHost: fallbackTarget,
+      savedHost,
+      domain,
+      onSaved: (host) => {
+        savedHost = host;
+        render();
+      },
+    };
+  };
 
   const pill = (ok: boolean, text: string) =>
     "<span class='badge' style='" +
@@ -74,18 +133,6 @@ async function mountOwnDomain(publicDomain: string): Promise<void> {
     "'>" +
     escapeHtml(text) +
     "</span>";
-
-  /** 公開ドメインの欄が、このドメインになっているか(5 段目が済んだか)。 */
-  function publicIsDomain(d: OwnDomain): boolean {
-    try {
-      return (
-        new URL((byId("publicDomain") as HTMLInputElement | null)?.value || "")
-          .host === d.hostname
-      );
-    } catch {
-      return false;
-    }
-  }
 
   /** 名前や値。押してもコピー、横のボタンでもコピー(2026-10-22 利用者の指示)。 */
   function copyCell(text: string, key: string): string {
@@ -116,13 +163,15 @@ async function mountOwnDomain(publicDomain: string): Promise<void> {
   }
 
   function render() {
+    watch();
     const target = domain?.target || fallbackTarget;
     const cf = dns === "cloudflare";
     const d = domain;
     const certOk = d?.sslStatus === "active";
     const hostOk = d?.status === "active";
     const switched = !!d?.switched;
-    const pubOk = !!d && hostOk && publicIsDomain(d);
+    // 5 段目: このドメインを公開ドメインとして保存したか。
+    const pubOk = !!d && hostOk && savedHost === d.hostname;
     // どの段が済んだか。最初の済んでいない段が「今ここ」。
     const done = [!!d, certOk, switched, hostOk, pubOk];
     const cur = done.indexOf(false);
@@ -144,9 +193,7 @@ async function mountOwnDomain(publicDomain: string): Promise<void> {
         "</b><button type='button' class='secondary' id='ownDomainRemoveBtn' style='font-size:12px;padding:4px 10px'>" +
         escapeHtml(t("ownDomainRemove")) +
         "</button></div>"
-      : "<div style='display:flex;gap:8px'>" +
-        "<input id='ownDomainHost' placeholder='blog.example.com' autocomplete='off' style='flex:1;min-width:0' />" +
-        "<button type='button' id='ownDomainPrepareBtn'>" +
+      : "<div><button type='button' id='ownDomainPrepareBtn'>" +
         escapeHtml(t("ownDomainPrepare")) +
         "</button></div>";
 
@@ -215,14 +262,6 @@ async function mountOwnDomain(publicDomain: string): Promise<void> {
       escapeHtml(t("ownDomainOverwriteNote")) +
       "</div>";
 
-    // 5. 公開ドメイン
-    const step5 =
-      hostOk && switched && !pubOk
-        ? "<div><button type='button' id='ownDomainUseBtn'>" +
-          escapeHtml(t("ownDomainUsePublic")) +
-          "</button></div>"
-        : "";
-
     const html =
       "<div class='panelHead'><h3 style='margin:0'>" +
       escapeHtml(t("ownDomainTitle")) +
@@ -275,7 +314,6 @@ async function mountOwnDomain(publicDomain: string): Promise<void> {
         st(4),
         escapeHtml(t("ownDomainStep5Title")),
         escapeHtml(t("ownDomainStep5Desc")),
-        step5,
       ) +
       "</ol>" +
       (pubOk
@@ -338,16 +376,16 @@ async function mountOwnDomain(publicDomain: string): Promise<void> {
       }),
     );
     byId("ownDomainPrepareBtn")?.addEventListener("click", (e: Dynamic) => {
-      const host = (
-        (byId("ownDomainHost") as HTMLInputElement | null)?.value || ""
-      ).trim();
-      if (host) void call("prepare", host, e.currentTarget);
-    });
-    byId("ownDomainHost")?.addEventListener("keydown", (e: Dynamic) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        byId("ownDomainPrepareBtn")?.click();
+      // 上の公開ドメインの欄から読む(保存はしない)。
+      const host = hostOfDomainInput(
+        (byId("publicDomain") as HTMLInputElement | null)?.value || "",
+      );
+      if (!host || host === fallbackTarget) {
+        toast(t("ownDomainNeedHost"), true, e.currentTarget);
+        byId("publicDomain")?.focus();
+        return;
       }
+      void call("prepare", host, e.currentTarget);
     });
     byId("ownDomainCheckBtn")?.addEventListener("click", (e: Dynamic) => {
       void call("status", undefined, e.currentTarget);
@@ -358,14 +396,6 @@ async function mountOwnDomain(publicDomain: string): Promise<void> {
     byId("ownDomainRemoveBtn")?.addEventListener("click", (e: Dynamic) => {
       if (confirm(t("ownDomainRemoveConfirm")))
         void call("remove", undefined, e.currentTarget);
-    });
-    byId("ownDomainUseBtn")?.addEventListener("click", (e: Dynamic) => {
-      const input = byId("publicDomain") as HTMLInputElement | null;
-      if (!input || !domain) return;
-      input.value = "https://" + domain.hostname + "/";
-      input.dispatchEvent(new Event("input"));
-      toast(t("ownDomainUsePublicDone"), false, e.currentTarget);
-      render();
     });
   }
 
