@@ -308,6 +308,10 @@ export function adminHtml(
       .segmented.segmented > button[role='radio'][aria-checked='true'] { background: var(--accent); color: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.28); }
       .segmented.segmented > button[role='radio'][aria-checked='true']::before { border-color: #fff; background: radial-gradient(circle, #fff 0 3px, transparent 3.5px); }
       .segmented.segmented > button[role='radio']:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+      /* 入力の項目を 2 列に並べて詰める(狭い画面は 1 列)。label や div を直に並べる。 */
+      .fieldGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 22px; align-items: start; }
+      .fieldGrid > * { min-width: 0; }
+      @media (max-width: 760px) { .fieldGrid { grid-template-columns: minmax(0, 1fr); } }
       /* 手順(ステップ)。番号の丸を縦の線でつなぎ、済んだ段は ✓、今の段は強調、まだの段は薄く。
          やることを stepTitle に 1 行、補足を stepDesc に短く、その段で使う欄やボタンを stepBody に置く。 */
       .stepList { list-style: none; margin: 0; padding: 0; display: grid; }

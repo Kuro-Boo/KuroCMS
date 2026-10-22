@@ -1,5 +1,52 @@
 // KuroCMS admin screen module. Concatenated by scripts/build-admin.js.
 
+/**
+ * メールの「確認済み / 未確認」(そのアドレスに届いたリンクを開けたか・招待・パスキーの再設定・確認メール)。
+ * 未確認なら「確認メールを送る」を出す。アドレスを変えて保存すると未確認に戻る(サーバー)。
+ */
+function paintEmailVerified(meUser: Dynamic) {
+  const badge = byId("profileEmailBadge");
+  const area = byId("profileEmailVerify");
+  if (!badge || !area) return;
+  const ok = !!meUser.emailVerifiedAt;
+  badge.innerHTML = ok
+    ? "<span class='badge' title='" +
+      escapeHtml(formatDateTime(meUser.emailVerifiedAt)) +
+      "'>✓ " +
+      escapeHtml(t("emailVerified")) +
+      "</span>"
+    : "<span class='badge' style='background:var(--surface-2);color:var(--muted)'>" +
+      escapeHtml(t("emailUnverified")) +
+      "</span>";
+  area.innerHTML = ok
+    ? ""
+    : "<button type='button' class='secondary' id='sendEmailVerifyBtn' style='font-size:12px;padding:5px 12px'>" +
+      escapeHtml(t("emailVerifySend")) +
+      "</button>";
+  byId("sendEmailVerifyBtn")?.addEventListener("click", async (e: Dynamic) => {
+    const btn = e.currentTarget as HTMLButtonElement;
+    if (state.preview) {
+      toast(t("previewReadOnly"), false, btn);
+      return;
+    }
+    btn.disabled = true;
+    try {
+      const res = (await api("/api/me/email/verify", {
+        method: "POST",
+        body: JSON.stringify({ lang: state.uiLang }),
+      })) as { alreadyVerified?: boolean };
+      toast(
+        res.alreadyVerified ? t("emailVerified") : t("emailVerifySent"),
+        false,
+        btn,
+      );
+    } catch (error) {
+      toast(errorMessage(error), true, btn);
+      btn.disabled = false;
+    }
+  });
+}
+
 async function profile() {
   // MCP endpoint for THIS instance. withBase() yields the same base the admin
   // uses for its own API calls, so this is correct regardless of basePath.
@@ -43,26 +90,33 @@ async function profile() {
       "' style='margin-left:auto;font-size:10px;font-weight:400;font-family:ui-monospace,monospace;" +
       "opacity:.55;letter-spacing:.02em;background:none;border:0;padding:2px 4px;color:inherit;" +
       "cursor:pointer;border-radius:5px'></button>" +
-      "</h3><table><tbody><tr><th>" +
-      escapeHtml(t("roles")) +
-      "</th><td id='profileRoles'>-</td></tr><tr id='legalAgreedRow'></tr></tbody></table><form class='stack' id='accountForm'><label>" +
+      "</h3>" +
+      // 項目を 2 列(狭い画面は 1 列)に並べて詰める(部品 .fieldGrid・2026-10-22)。
+      "<form class='stack' id='accountForm'><div class='fieldGrid'><label>" +
       escapeHtml(t("displayName")) +
-      "<input id='profileDisplayName' /></label><label>" +
-      escapeHtml(t("userIdLabel")) +
-      "<div class='tokenOutputRow'><div id='profileAuthorId' class='tokenBox' style='font-size:11px;font-family:ui-monospace,monospace'>-</div><button type='button' class='secondary' id='copyAuthorId'>" +
-      escapeHtml(t("copy")) +
-      "</button></div></label><label>" +
+      "<input id='profileDisplayName' /></label>" +
+      "<label><span style='display:flex;align-items:center;gap:8px'>" +
       escapeHtml(t("email")) +
+      "<span id='profileEmailBadge'></span></span>" +
       "<input id='profileEmail' type='email' /><div class='muted' style='font-size:12px'>" +
       escapeHtml(t("profileEmailHelp")) +
-      "</div></label>" +
-      "<button>" +
+      "</div><div id='profileEmailVerify'></div></label>" +
+      "<div><div class='fieldLabel'>" +
+      escapeHtml(t("userIdLabel")) +
+      "</div><div class='tokenOutputRow'><div id='profileAuthorId' class='tokenBox' style='font-size:11px;font-family:ui-monospace,monospace'>-</div><button type='button' class='secondary' id='copyAuthorId'>" +
+      escapeHtml(t("copy")) +
+      "</button></div></div>" +
+      "<div><div class='fieldLabel'>" +
+      escapeHtml(t("roles")) +
+      "</div><div id='profileRoles' style='padding:8px 0'>-</div></div>" +
+      "<div id='legalAgreedRow' style='display:none'></div>" +
+      "</div>" +
+      // 更新は左、ログアウトは右(枠の中・区切り線の下)。全幅のボタンにしない。
+      "<div style='display:flex;flex-wrap:wrap;gap:10px;align-items:center;border-top:1px solid var(--line);padding-top:14px'><button>" +
       escapeHtml(t("updateAccount")) +
-      "</button></form>" +
-      // ログアウトはアカウントの枠の中、区切り線の下に置く(別の枠にすると、枠どうしが寄って幅もずれる)。
-      "<div style='border-top:1px solid var(--line);padding-top:14px'><button class='danger' id='logoutBtn' style='width:100%'>" +
+      "</button><button type='button' class='danger' id='logoutBtn' style='margin-left:auto'>" +
       escapeHtml(t("logout")) +
-      "</button></div></div></div>" +
+      "</button></div></form></div></div>" +
       "<div id='panel-display' class='settingsPanel stack' style='display:none'><div class='panel stack'><h3>" +
       escapeHtml(t("profilePreferences")) +
       "</h3><label>" +
@@ -149,6 +203,22 @@ async function profile() {
         });
     });
   });
+  // 確認のリンクから戻ってきた(?emailVerify=ok|expired|invalid|changed)。結果を出して印を外す。
+  {
+    const params = new URLSearchParams(location.search);
+    const r = params.get("emailVerify");
+    if (r) {
+      const msg: Record<string, string> = {
+        ok: t("emailVerifyDone"),
+        expired: t("emailVerifyExpired"),
+        changed: t("emailVerifyChanged"),
+      };
+      toast(msg[r] || t("emailVerifyInvalid"), r !== "ok");
+      params.delete("emailVerify");
+      const q = params.toString();
+      history.replaceState(null, "", location.pathname + (q ? "?" + q : ""));
+    }
+  }
   byId("logoutBtn")?.addEventListener("click", async () => {
     try {
       await api("/api/auth/logout", { method: "POST", body: "{}" });
@@ -233,10 +303,11 @@ async function profile() {
               escapeHtml(label + " " + v) +
               "</a>"
             : "";
+        slot.style.display = "";
         slot.innerHTML =
-          "<th>" +
+          "<div class='fieldLabel'>" +
           escapeHtml(t("legalAgreed")) +
-          "</th><td style='font-size:12px'>" +
+          "</div><div style='font-size:12px;padding:8px 0'>" +
           [
             link(
               info.termsUrl ?? "https://kuro.boo/terms/",
@@ -256,7 +327,7 @@ async function profile() {
               escapeHtml(formatDateTime(info.acceptedAt)) +
               "</div>"
             : "") +
-          "</td>";
+          "</div>";
       } catch {
         /* 出せなければ何も置かない */
       }
@@ -277,6 +348,7 @@ async function profile() {
     // ユーザID（= author_id）。GET /api/me が未設定なら自動付番して返す（遅延補完はこの1箇所のみ）。
     byId("profileAuthorId")!.textContent = meUser.authorId || "-";
     byId("profileEmail")!.value = meUser.email || "";
+    paintEmailVerified(meUser);
     // 単一ロール表示（ユーザ管理画面と統一）。admin は author 権限を内包するため「管理者」のみ表示。
     byId("profileRoles")!.textContent = meUser.isAdmin
       ? t("adminRole")

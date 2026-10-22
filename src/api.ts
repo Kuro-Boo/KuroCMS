@@ -588,6 +588,10 @@ async function handleApiDispatch(
     if (request.method === "POST" && path === "/api/auth/recover/request") {
       return withJsonHeaders(await recoverRequest(request, env));
     }
+    // メールアドレスの確認のリンク(プロフィール → アカウント)。メールから開く公開の口。
+    if (request.method === "GET" && path === "/api/auth/email/verify") {
+      return verifyEmailLink(request, env);
+    }
     // 新しい回線の確認のリンク(IP 制限・ip-gate.ts)。メールから開く公開の口。
     if (
       (request.method === "GET" || request.method === "POST") &&
@@ -1199,6 +1203,12 @@ async function handleApiDispatch(
 
     if (path === "/api/me") {
       return withJsonHeaders(await me(request, env, user));
+    }
+
+    // 確認メールを送る(プロフィール → アカウント)。
+    if (request.method === "POST" && path === "/api/me/email/verify") {
+      requireInteractiveUser(user);
+      return withJsonHeaders(await sendEmailVerify(request, env, user));
     }
 
     if (path === "/api/me/mail-settings") {
@@ -2632,8 +2642,9 @@ async function passkeyRegisterComplete(
     resolvedEmail = invRow.email;
     const now = nowIso();
     await env.DB.prepare(
-      `INSERT INTO users (uid, email, display_name, author_id, is_admin, is_author, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      // 招待のリンクはそのアドレスに届いたもの —— 入った時点で確認済み。
+      `INSERT INTO users (uid, email, display_name, author_id, is_admin, is_author, created_at, updated_at, email_verified_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
       .bind(
         resolvedUid,
@@ -2642,6 +2653,7 @@ async function passkeyRegisterComplete(
         makeId("author"),
         invRow.is_admin,
         invRow.is_author,
+        now,
         now,
         now,
       )
@@ -2704,6 +2716,14 @@ async function passkeyRegisterComplete(
     )
       .bind(now, tokenHash)
       .run();
+    // 再設定のリンクはそのアドレスに届いたもの。リンクのアドレスが今のアドレスなら確認済みにする。
+    await env.DB.prepare(
+      `UPDATE users SET email_verified_at = ? WHERE uid = ? AND lower(email) = (
+         SELECT lower(email) FROM recovery_tokens WHERE token_hash = ?)`,
+    )
+      .bind(now, resolvedUid, tokenHash)
+      .run()
+      .catch(() => {});
   }
 
   const sessionId = await createSession(
@@ -3011,6 +3031,11 @@ async function updateUser(
         "email is already used by another user.",
       );
     }
+    // アドレスを変えたら未確認に戻す。
+    updates.push(
+      "email_verified_at = CASE WHEN lower(email) = ? THEN email_verified_at ELSE NULL END",
+    );
+    values.push(email.toLowerCase());
     updates.push("email = ?");
     values.push(email);
   }
@@ -6860,6 +6885,131 @@ async function debugClientError(
   return json({ ok: true });
 }
 
+const EMAIL_VERIFY_TTL_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * 確認メールを送る(プロフィール → アカウントの「確認メールを送る」)。リンクを開くと確認済みになる。
+ * 1 分に 1 通まで(押し続けて送り続けない)。リンクは 24 時間・1 回だけ。
+ */
+async function sendEmailVerify(
+  request: Request,
+  env: Env,
+  user: AuthUser,
+): Promise<Response> {
+  const row = await env.DB.prepare(
+    "SELECT email, email_verified_at FROM users WHERE uid = ?",
+  )
+    .bind(user.uid)
+    .first<{ email: string; email_verified_at: string | null }>();
+  if (!row?.email)
+    throw new HttpError(404, "user_not_found", "User was not found.");
+  if (row.email_verified_at) return json({ ok: true, alreadyVerified: true });
+  const last = await env.DB.prepare(
+    "SELECT created_at FROM email_verify_tokens WHERE uid = ? ORDER BY created_at DESC LIMIT 1",
+  )
+    .bind(user.uid)
+    .first<{ created_at: string }>();
+  if (last && Date.now() - Date.parse(last.created_at) < 60 * 1000)
+    throw new HttpError(
+      429,
+      "email_verify_too_soon",
+      "Wait a minute before sending again.",
+    );
+  const token = randomToken();
+  const tokenHash = await sha256Hex(token);
+  const now = nowIso();
+  await env.DB.prepare(
+    `INSERT INTO email_verify_tokens (token_hash, uid, email, expires_at, created_at)
+     VALUES (?, ?, ?, ?, ?)`,
+  )
+    .bind(
+      tokenHash,
+      user.uid,
+      row.email,
+      new Date(Date.now() + EMAIL_VERIFY_TTL_MS).toISOString(),
+      now,
+    )
+    .run();
+  const origin = new URL(request.url).origin;
+  const link = `${origin}${adminBasePath(env).replace(/\/admin$/, "")}/api/auth/email/verify?token=${encodeURIComponent(token)}`;
+  const settings = await env.DB.prepare(
+    "SELECT site_name FROM site_settings WHERE id = 1",
+  ).first<{ site_name: string | null }>();
+  const siteName = (settings?.site_name ?? "KuroCMS").trim() || "KuroCMS";
+  const body: Record<string, unknown> = await readJson(request).catch(
+    () => ({}),
+  );
+  const ja = body.lang === "ja";
+  const mail = ja
+    ? {
+        subject: `[${siteName}] メールアドレスの確認`,
+        text:
+          `${siteName} の管理画面で、このメールアドレスを確認します。次のリンクを開いてください（24 時間有効・1 回のみ）:\n${link}\n\n` +
+          `心当たりがない場合はこのメールを無視してください。\n`,
+        html:
+          `<p>${htmlEscape(siteName)} の管理画面で、このメールアドレスを確認します。</p>` +
+          `<p><a href="${link}">メールアドレスを確認する</a></p>` +
+          `<p style="color:#666;font-size:13px">このリンクは 24 時間有効で、1 回だけ使えます。心当たりがない場合は無視してください。</p>`,
+      }
+    : {
+        subject: `[${siteName}] Confirm your email address`,
+        text:
+          `Confirm this email address for the ${siteName} admin panel. Open this link (valid for 24 hours, single use):\n${link}\n\n` +
+          `If you did not request this, you can ignore this email.\n`,
+        html:
+          `<p>Confirm this email address for the ${htmlEscape(siteName)} admin panel.</p>` +
+          `<p><a href="${link}">Confirm email address</a></p>` +
+          `<p style="color:#666;font-size:13px">This link is valid for 24 hours and can be used once. If you did not request this, you can ignore this email.</p>`,
+      };
+  const sent = await sendMail(env, {
+    to: row.email,
+    fromName: siteName,
+    ...mail,
+    idempotencyKey: `verify-${tokenHash}`,
+  });
+  const notice = deliveryNotice(sent);
+  return json({
+    ok: true,
+    ...(notice ? { delivery: notice as unknown as JsonValue } : {}),
+  });
+}
+
+/** 確認のリンクを開いた。今のアドレスと同じなら確認済みにして、プロフィールへ戻す。 */
+async function verifyEmailLink(request: Request, env: Env): Promise<Response> {
+  const token = new URL(request.url).searchParams.get("token") ?? "";
+  const back = (result: string) =>
+    Response.redirect(
+      `${new URL(request.url).origin}${adminBasePath(env)}/profile?emailVerify=${result}`,
+      302,
+    );
+  if (!/^[A-Za-z0-9_-]{16,200}$/.test(token)) return back("invalid");
+  const tokenHash = await sha256Hex(token);
+  const row = await env.DB.prepare(
+    "SELECT uid, email, expires_at, used_at FROM email_verify_tokens WHERE token_hash = ?",
+  )
+    .bind(tokenHash)
+    .first<{
+      uid: string;
+      email: string;
+      expires_at: string;
+      used_at: string | null;
+    }>();
+  if (!row || row.used_at) return back("invalid");
+  if (Date.parse(row.expires_at) < Date.now()) return back("expired");
+  const now = nowIso();
+  await env.DB.prepare(
+    "UPDATE email_verify_tokens SET used_at = ? WHERE token_hash = ? AND used_at IS NULL",
+  )
+    .bind(now, tokenHash)
+    .run();
+  const res = await env.DB.prepare(
+    "UPDATE users SET email_verified_at = ? WHERE uid = ? AND lower(email) = lower(?)",
+  )
+    .bind(now, row.uid, row.email)
+    .run();
+  return back(res.meta?.changes ? "ok" : "changed");
+}
+
 async function me(
   request: Request,
   env: Env,
@@ -6867,11 +7017,11 @@ async function me(
 ): Promise<Response> {
   if (request.method === "GET") {
     const row = await env.DB.prepare(
-      `SELECT uid, email, display_name, author_id, is_admin, is_author, created_at, updated_at
+      `SELECT uid, email, display_name, author_id, is_admin, is_author, created_at, updated_at, email_verified_at
        FROM users WHERE uid = ?`,
     )
       .bind(user.uid)
-      .first<UserProfileRow>();
+      .first<UserProfileRow & { email_verified_at?: string | null }>();
     if (!row) {
       throw new HttpError(404, "user_not_found", "User was not found.");
     }
@@ -6894,6 +7044,8 @@ async function me(
         isAuthor: row.is_author === 1,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
+        // そのアドレスに届いたリンクを開けた日時(招待・パスキーの再設定・確認メール)。無ければ未確認。
+        emailVerifiedAt: row.email_verified_at ?? null,
       },
     });
   }
@@ -6938,9 +7090,10 @@ async function me(
     }
     const now = nowIso();
     await env.DB.prepare(
-      "UPDATE users SET email = ?, display_name = ?, author_id = COALESCE(?, author_id), updated_at = ? WHERE uid = ?",
+      // アドレスを変えたら未確認に戻す(新しいアドレスはまだ確かめていない)。
+      "UPDATE users SET email_verified_at = CASE WHEN lower(email) = ? THEN email_verified_at ELSE NULL END, email = ?, display_name = ?, author_id = COALESCE(?, author_id), updated_at = ? WHERE uid = ?",
     )
-      .bind(email, displayName || null, newAuthorId, now, user.uid)
+      .bind(email, email, displayName || null, newAuthorId, now, user.uid)
       .run();
     await logActivity(env, user, "profile.update", "user", user.uid, {
       email,

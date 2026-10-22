@@ -1018,6 +1018,17 @@ const i18n = {
       "your own domain failed, so the Kuro-Boo server sent it instead",
     mailLastFailed: "could not be sent",
     settingsTabMail: "Email",
+    emailVerified: "Verified",
+    emailUnverified: "Not verified",
+    emailVerifySend: "Send confirmation email",
+    emailVerifySent: "Sent. Open the link in the email to confirm.",
+    emailVerifyDone: "Your email address is confirmed.",
+    emailVerifyExpired:
+      "The link has expired. Send the confirmation email again.",
+    emailVerifyInvalid: "The link is invalid or already used.",
+    emailVerifyChanged:
+      "The email address was changed after the link was sent. Send the confirmation email again.",
+    err_email_verify_too_soon: "Please wait a minute before sending again.",
     profileEmailHelp:
       "Your address on this CMS (passkey recovery emails and similar are sent here). The site owner (Entamy ID) is shown in Settings → Hosting.",
     mailDeliveryVerified: "verified",
@@ -2303,6 +2314,17 @@ const i18n = {
       "自分のドメインで送れなかったため、黒兎のサーバーが代わりに送りました",
     mailLastFailed: "送れませんでした",
     settingsTabMail: "メール送信",
+    emailVerified: "確認済み",
+    emailUnverified: "未確認",
+    emailVerifySend: "確認メールを送る",
+    emailVerifySent: "送りました。メールのリンクを開くと確認済みになります。",
+    emailVerifyDone: "メールアドレスを確認しました。",
+    emailVerifyExpired:
+      "リンクの期限が切れています。確認メールを送り直してください。",
+    emailVerifyInvalid: "リンクが正しくないか、すでに使われています。",
+    emailVerifyChanged:
+      "リンクを送った後にメールアドレスが変わりました。確認メールを送り直してください。",
+    err_email_verify_too_soon: "1 分ほど待ってから、もう一度送ってください。",
     profileEmailHelp:
       "この CMS で使うあなたのアドレスです（パスキーを失くしたときの復旧メールなどが届きます）。サイトの持ち主（Entamy ID）は「設定 → 運用の形」で確かめます。",
     mailDeliveryVerified: "検証済み",
