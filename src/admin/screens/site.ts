@@ -227,12 +227,6 @@ async function siteManagement() {
   function loadTemplatesViewPanel(panel: Dynamic) {
     let tmplMode = "pc";
 
-    function tmplTabStyle(active: Dynamic) {
-      return active
-        ? "padding:6px 16px;font-size:13px;font-weight:700;border:none;border-radius:20px;background:var(--accent);color:#fff;cursor:pointer;white-space:nowrap"
-        : "padding:6px 16px;font-size:13px;font-weight:600;border:1px solid var(--line);border-radius:20px;background:var(--bg);color:var(--muted);cursor:pointer;white-space:nowrap";
-    }
-
     let communityPublished = false;
     let communityId: Dynamic = null;
     let activeTmplId: Dynamic = null;
@@ -259,16 +253,14 @@ async function siteManagement() {
 
     panel.innerHTML =
       "<div style='display:flex;align-items:center;gap:8px;margin-bottom:16px'>" +
-      "<button type='button' class='tmplModeTab' data-tmode='pc' style='" +
-      tmplTabStyle(true) +
-      "'>&#128187; " +
-      escapeHtml(t("pcMode")) +
-      "</button>" +
-      "<button type='button' class='tmplModeTab' data-tmode='sp' style='" +
-      tmplTabStyle(false) +
-      "'>&#128241; " +
-      escapeHtml(t("spMode")) +
-      "</button>" +
+      segmentedHtml(
+        "tmode",
+        [
+          ["pc", "&#128187; " + escapeHtml(t("pcMode"))],
+          ["sp", "&#128241; " + escapeHtml(t("spMode"))],
+        ],
+        tmplMode || "pc",
+      ) +
       "<div style='margin-left:auto;display:flex;align-items:center;gap:8px'>" +
       "<button type='button' id='tmplRenameBtn' style='padding:6px 14px;font-size:13px;font-weight:600;border:1px solid var(--line);border-radius:20px;background:var(--bg);color:var(--muted);cursor:pointer;white-space:nowrap'>&#9998; " +
       escapeHtml(t("tmplRenameBtn")) +
@@ -363,13 +355,11 @@ async function siteManagement() {
       }
     });
 
-    panel.querySelectorAll(".tmplModeTab").forEach(function (btn: Dynamic) {
+    panel.querySelectorAll("[data-tmode]").forEach(function (btn: Dynamic) {
       btn.addEventListener("click", function () {
         const mode = btn.dataset.tmode;
         tmplMode = mode;
-        panel.querySelectorAll(".tmplModeTab").forEach(function (b: Dynamic) {
-          b.style.cssText = tmplTabStyle(b.dataset.tmode === mode);
-        });
+        markSegmented(panel, "tmode", mode);
         loadTemplateList(mode);
       });
     });
@@ -2122,7 +2112,7 @@ async function siteManagement() {
       escapeHtml(t("contentAddBtn")) +
       "</button>" +
       "</div>" +
-      "<div id='contentLangBar' style='display:flex;gap:4px;flex-wrap:wrap;margin-bottom:10px'></div>" +
+      "<div id='contentLangBar' style='margin-bottom:10px'></div>" +
       "<div id='contentList' class='emptyState'>" +
       escapeHtml(t("loading")) +
       "</div>";
@@ -2163,38 +2153,21 @@ async function siteManagement() {
           return;
         }
         function applyLangBarActive(bar: Dynamic) {
-          bar.querySelectorAll("[data-clang]").forEach(function (b: Dynamic) {
-            const bActive = b.dataset.clang === _contentActiveLang;
-            const bIsDefault = b.dataset.clang === _contentDefaultLang;
-            // active class controls opacity via .settingsTab.active — always apply it
-            b.classList.toggle("active", bActive);
-            // default language gets blue border + color to distinguish from others
-            if (bIsDefault) {
-              b.style.borderColor = "#2563eb";
-              b.style.background = bActive ? "#2563eb" : "rgba(37,99,235,.08)";
-              b.style.color = bActive ? "#fff" : "#2563eb";
-            } else {
-              b.style.borderColor = "";
-              b.style.background = "";
-              b.style.color = "";
-            }
-          });
+          markSegmented(bar, "clang", _contentActiveLang);
         }
-        bar.innerHTML = langs
-          .map(function (tab: Dynamic) {
-            const isDefault = tab.code === defaultLang;
-            const label = isDefault
-              ? t("contentBaseLang") + "：" + escapeHtml(tab.label)
-              : escapeHtml(tab.label);
-            return (
-              "<button type='button' class='settingsTab' style='padding:5px 14px;font-size:13px' data-clang='" +
-              escapeHtml(tab.code) +
-              "'>" +
-              label +
-              "</button>"
-            );
-          })
-          .join("");
+        bar.innerHTML = segmentedHtml(
+          "clang",
+          langs.map(function (tab: Dynamic): [string, string] {
+            // 基本言語は「基本：」を頭に付けて見分ける。
+            return [
+              tab.code,
+              tab.code === defaultLang
+                ? escapeHtml(t("contentBaseLang") + "：" + tab.label)
+                : escapeHtml(tab.label),
+            ];
+          }),
+          _contentActiveLang,
+        );
         applyLangBarActive(bar);
         bar
           .querySelectorAll<AdminElement>("[data-clang]")

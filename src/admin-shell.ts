@@ -301,16 +301,13 @@ export function adminHtml(
       /* 2 択以上の切り替え(セグメントスイッチ)。溝の中に選択肢を並べ、選んでいる側だけを塗って浮かせる。
          頭のラジオの丸でも選択が分かる。button[role=radio][aria-checked] を並べる。大域の button の書式
          (詳細度 0,2,1)に負けないよう [role] まで付けて指す。 */
-      .segmented { display: inline-flex; flex-wrap: wrap; gap: 4px; padding: 4px; justify-self: start; width: fit-content; max-width: 100%; background: var(--surface-2); border: 1px solid var(--line); border-radius: 999px; }
+      .segmented { display: inline-flex; flex-wrap: wrap; gap: 4px; padding: 4px; justify-self: start; width: fit-content; max-width: 100%; background: var(--surface-2); border: 1px solid var(--line); border-radius: 23px; }
       .segmented.segmented > button[role='radio'] { display: inline-flex; align-items: center; gap: 8px; background: transparent; color: var(--muted); border: 0; border-radius: 999px; padding: 9px 18px; font: inherit; font-size: 14px; font-weight: 700; line-height: 1.2; cursor: pointer; box-shadow: none; transition: background .15s, color .15s, box-shadow .15s; }
       .segmented.segmented > button[role='radio']::before { content: ''; flex: none; width: 14px; height: 14px; border-radius: 50%; border: 2px solid currentColor; box-sizing: border-box; }
       .segmented.segmented > button[role='radio']:hover { background: var(--surface-3); color: var(--ink); filter: none; }
       .segmented.segmented > button[role='radio'][aria-checked='true'] { background: var(--accent); color: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.28); }
       .segmented.segmented > button[role='radio'][aria-checked='true']::before { border-color: #fff; background: radial-gradient(circle, #fff 0 3px, transparent 3.5px); }
       .segmented.segmented > button[role='radio']:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-      .snsSvcTab { opacity: .5; }
-      .snsSvcTab:hover { opacity: .8; }
-      .snsSvcTab.active { opacity: 1; border-color: var(--accent) !important; color: var(--accent); }
       .snsStatusMobile { margin: 8px 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-2); }
       .catTag { display: inline-flex; align-items: center; gap: 3px; background: rgba(21,122,110,.10); color: var(--accent); border-radius: 12px; padding: 2px 8px 2px 10px; font-size: 12px; font-weight: 600; }
       .catTag button { display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; background: rgba(220,38,38,.65); border: none; border-radius: 50%; color: #fff; cursor: pointer; font-size: 9px; line-height: 1; padding: 0; flex-shrink: 0; }

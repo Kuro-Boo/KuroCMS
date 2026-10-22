@@ -315,11 +315,15 @@ async function settings() {
       // instead a small Bluesky/X switcher so only one card shows at a time
       // (stacked cards get missed when the page grows long).
       "<div class='panelHead'>" +
-      "<div class='toolbar' style='gap:6px'>" +
-      "<button type='button' class='secondary snsSvcTab active' data-sns-svc-tab='bsky' style='padding:5px 14px;font-size:13px;font-weight:700'>🦋 Bluesky</button>" +
-      "<button type='button' class='secondary snsSvcTab' data-sns-svc-tab='x' style='padding:5px 14px;font-size:13px;font-weight:700'>𝕏 X (Twitter)</button>" +
-      "<button type='button' class='secondary snsSvcTab' data-sns-svc-tab='threads' style='padding:5px 14px;font-size:13px;font-weight:700'>@ Threads</button>" +
-      "</div>" +
+      segmentedHtml(
+        "sns-svc-tab",
+        [
+          ["bsky", "🦋 Bluesky"],
+          ["x", "𝕏 X (Twitter)"],
+          ["threads", "@ Threads"],
+        ],
+        "bsky",
+      ) +
       "<div class='toolbar'><button type='button' id='addSnsBtn'>" +
       escapeHtml(t("addRegister")) +
       "</button></div></div>" +
@@ -1518,11 +1522,7 @@ async function settings() {
       .forEach(function (tabBtn) {
         tabBtn.addEventListener("click", function () {
           const svc = tabBtn.dataset.snsSvcTab;
-          document
-            .querySelectorAll<AdminElement>("[data-sns-svc-tab]")
-            .forEach(function (o) {
-              o.classList.toggle("active", o === tabBtn);
-            });
+          markSegmented(document, "sns-svc-tab", svc || "bsky");
           const bc = byId("blueskyCard");
           const xc = byId("xAutoPostForm");
           const tc = byId("threadsAutoPostForm");

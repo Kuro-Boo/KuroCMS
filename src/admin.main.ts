@@ -108,6 +108,51 @@ function errorMessage(error: unknown, fallback = ""): string {
  * 1 つの訳で賄うため。**辞書に無ければ空を返し、サーバーの説明文に委ねる**
  * —— 訳が無いことより、英語でも中身が読める方がよい。
  */
+/**
+ * 選ぶ形の切り替え(部品 .segmented・セグメントスイッチ)。選択肢から 1 つを選ぶ切り替えはこれにそろえる
+ * (2026-10-22 利用者の決定)。入/切はスイッチ(.toggle)、画面の区切りはタブ(.settingsTab)で、ここではない。
+ * opts は [値, 表示の HTML(呼ぶ側でエスケープ済み)]。各ボタンは data-{attr} に値を持つ。
+ */
+function segmentedHtml(
+  attr: string,
+  opts: Array<[string, string]>,
+  selected: string,
+  style = "",
+): string {
+  return (
+    "<div class='segmented' role='radiogroup'" +
+    (style ? " style='" + style + "'" : "") +
+    ">" +
+    opts
+      .map(
+        ([v, label]) =>
+          "<button type='button' role='radio' aria-checked='" +
+          (v === selected) +
+          "' data-" +
+          attr +
+          "='" +
+          escapeHtml(v) +
+          "'>" +
+          label +
+          "</button>",
+      )
+      .join("") +
+    "</div>"
+  );
+}
+
+/** .segmented の選択を付け替える(data-{attr} が value のボタンだけ選ぶ)。 */
+function markSegmented(root: ParentNode, attr: string, value: string): void {
+  root
+    .querySelectorAll<HTMLElement>(".segmented > button[data-" + attr + "]")
+    .forEach((b) =>
+      b.setAttribute(
+        "aria-checked",
+        String(b.getAttribute("data-" + attr) === value),
+      ),
+    );
+}
+
 function errText(code?: string): string {
   if (!code) return "";
   const keys = ["err_" + code];
