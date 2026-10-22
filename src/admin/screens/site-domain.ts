@@ -12,6 +12,7 @@ type OwnDomainRecord = {
   name: string;
   value: string;
   purpose: "ownership" | "certificate" | "traffic";
+  done?: boolean;
 };
 type OwnDomain = {
   hostname: string;
@@ -130,7 +131,14 @@ async function mountOwnDomain(publicDomain: string): Promise<void> {
         "<input id='ownDomainHost' placeholder='blog.example.com' autocomplete='off' style='flex:1;min-width:0' />" +
         "<button type='button' id='ownDomainPrepareBtn'>" +
         escapeHtml(t("ownDomainPrepare")) +
-        "</button></div></label>";
+        "</button></div></label>" +
+        // まだ準備していない: 表(足す TXT と CNAME)がどこに出るかを先に書く。
+        "<div class='fieldLabel'>" +
+        escapeHtml(t("ownDomainRecordsTitle")) +
+        "</div>" +
+        "<div class='muted' style='padding:14px;border:1px dashed var(--line);border-radius:10px'>" +
+        escapeHtml(t("ownDomainRecordsBefore")) +
+        "</div>";
     } else {
       const certOk = domain.sslStatus === "active";
       const hostOk = domain.status === "active";
@@ -174,27 +182,53 @@ async function mountOwnDomain(publicDomain: string): Promise<void> {
         escapeHtml(t("ownDomainColValue")) +
         "</th><th>" +
         escapeHtml(t("ownDomainColPurpose")) +
+        "</th><th>" +
+        escapeHtml(t("ownDomainColState")) +
         "</th></tr></thead><tbody>" +
         domain.records
-          .map(
-            (r, i) =>
+          .map((r, i) => {
+            // 名前と値のどちらも DNS に入れるので、両方にコピーを付ける。
+            const cell = (text: string, part: string) =>
+              // 値そのものを押してもコピーする(ボタンも残す・2026-10-22 利用者の指示)。
+              "<div style='display:flex;align-items:center;gap:6px;margin-top:4px'><code role='button' tabindex='0' style='word-break:break-all;cursor:copy' title='" +
+              escapeHtml(t("copy")) +
+              "' data-own-copy='" +
+              i +
+              ":" +
+              part +
+              "'>" +
+              escapeHtml(text) +
+              "</code><button type='button' class='secondary' data-own-copy='" +
+              i +
+              ":" +
+              part +
+              "' style='font-size:11px;padding:3px 8px'>" +
+              escapeHtml(t("copy")) +
+              "</button></div>";
+            return (
               "<tr><td>" +
               escapeHtml(r.type) +
               "</td><td class='flexible' style='white-space:normal'>" +
-              "<div><code>" +
-              escapeHtml(r.name) +
-              "</code></div><div style='display:flex;align-items:center;gap:6px;margin-top:4px'><code style='word-break:break-all'>" +
-              escapeHtml(r.value) +
-              "</code><button type='button' class='secondary' data-own-copy='" +
-              i +
-              "' style='font-size:11px;padding:3px 8px'>" +
-              escapeHtml(t("copy")) +
-              "</button></div></td><td>" +
+              cell(r.name, "name") +
+              cell(r.value, "value") +
+              "</td><td>" +
               escapeHtml(purpose[r.purpose] || r.purpose) +
-              "</td></tr>",
-          )
+              "</td><td>" +
+              pill(
+                !!r.done,
+                r.done ? t("ownDomainRecDone") : t("ownDomainRecTodo"),
+              ) +
+              "</td></tr>"
+            );
+          })
           .join("") +
         "</tbody></table></div>" +
+        // 古い準備(TXT を覚える前)は、確かめが済むと TXT が残っていない。
+        (!domain.records.some((r) => r.type === "TXT") && certOk
+          ? "<div class='muted' style='font-size:12px'>" +
+            escapeHtml(t("ownDomainTxtGone")) +
+            "</div>"
+          : "") +
         (domain.errors.length && !hostOk
           ? "<div class='muted' style='font-size:12px'>" +
             escapeHtml(t("ownDomainErrors")) +
@@ -251,12 +285,23 @@ async function mountOwnDomain(publicDomain: string): Promise<void> {
         render();
       }),
     );
+    panel!.querySelectorAll<HTMLElement>("code[data-own-copy]").forEach((el) =>
+      el.addEventListener("keydown", (e: KeyboardEvent) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          el.click();
+        }
+      }),
+    );
     panel!.querySelectorAll<HTMLElement>("[data-own-copy]").forEach((el) =>
       el.addEventListener("click", async () => {
-        const r = domain?.records[Number(el.dataset.ownCopy)];
+        const [idx, part] = String(el.dataset.ownCopy).split(":");
+        const r = domain?.records[Number(idx)];
         if (!r) return;
         try {
-          await navigator.clipboard.writeText(r.value);
+          await navigator.clipboard.writeText(
+            part === "name" ? r.name : r.value,
+          );
           toast(t("copySuccess"), false, el);
         } catch {
           toast(t("copyFailed"), true);

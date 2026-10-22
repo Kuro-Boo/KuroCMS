@@ -1232,9 +1232,9 @@ const i18n = {
     ownDomainDnsCloudflare: "DNS on Cloudflare",
     ownDomainDnsOther: "Other DNS providers",
     ownDomainStepsCloudflare:
-      'Enter the domain name below (for example blog.example.com or example.com) and press "Prepare".\nIn the Cloudflare dashboard, add the TXT records shown (ownership and certificate) to the domain\'s DNS. Adding TXT records does not change what the domain shows now.\nA few minutes later press "Check status". When the certificate is "Issued", press "Switch domain". This switches the setting on the kurocms.site side.\nFinally, point the domain\'s CNAME to {target}. Keep the proxy on (orange cloud). A CNAME also works on the root domain (example.com) on Cloudflare. A domain on Cloudflare becomes active when the CNAME points here (about a minute).\nWhen it is active, press "Use as public domain", save, and rebuild all pages.',
+      'Enter the domain name below (for example blog.example.com or example.com) and press "Prepare".\nAfter "Prepare", the TXT records (ownership and certificate) appear in the table below. Add them to the domain\'s DNS in the Cloudflare dashboard. Adding TXT records does not change what the domain shows now.\nA few minutes later press "Check status". When the certificate is "Issued", press "Switch domain". This switches the setting on the kurocms.site side.\nFinally, point the domain\'s CNAME to {target}. Keep the proxy on (orange cloud). A CNAME also works on the root domain (example.com) on Cloudflare. A domain on Cloudflare becomes active when the CNAME points here (about a minute).\nWhen it is active, press "Use as public domain", save, and rebuild all pages.',
     ownDomainStepsOther:
-      'Enter the domain name below (for example blog.example.com) and press "Prepare".\nAt your DNS provider, add the TXT records shown (ownership and certificate). Adding TXT records does not change what the domain shows now.\nA few minutes later press "Check status". When the certificate is "Issued", press "Switch domain". This switches the setting on the kurocms.site side.\nFinally, point the domain\'s CNAME to {target}. Many DNS providers cannot put a CNAME on the root domain (example.com): use a subdomain such as www and forward the root domain to it at your provider. If your provider supports ALIAS, ANAME or CNAME flattening, the root domain works too.\nWhen it is active, press "Use as public domain", save, and rebuild all pages.',
+      'Enter the domain name below (for example blog.example.com) and press "Prepare".\nAfter "Prepare", the TXT records (ownership and certificate) appear in the table below. Add them at your DNS provider. Adding TXT records does not change what the domain shows now.\nA few minutes later press "Check status". When the certificate is "Issued", press "Switch domain". This switches the setting on the kurocms.site side.\nFinally, point the domain\'s CNAME to {target}. Many DNS providers cannot put a CNAME on the root domain (example.com): use a subdomain such as www and forward the root domain to it at your provider. If your provider supports ALIAS, ANAME or CNAME flattening, the root domain works too.\nWhen it is active, press "Use as public domain", save, and rebuild all pages.',
     ownDomainOverwriteNote:
       "When you change the CNAME, whatever the domain showed before will no longer be shown. Email (MX) and other records are not affected.",
     ownDomainHostLabel: "Domain name",
@@ -1248,6 +1248,13 @@ const i18n = {
     ownDomainUsePublicDone:
       "Entered in the public domain. Save, then rebuild all pages.",
     ownDomainRecordsTitle: "Records to add to DNS",
+    ownDomainColState: "Status",
+    ownDomainRecordsBefore:
+      'The TXT records (and the CNAME) appear here when you press "Prepare".',
+    ownDomainRecDone: "Done",
+    ownDomainRecTodo: "Not yet",
+    ownDomainTxtGone:
+      "The TXT records are already verified. Cloudflare no longer returns them, so they are not shown here.",
     ownDomainColType: "Type",
     ownDomainColName: "Name",
     ownDomainColValue: "Value",
@@ -2588,9 +2595,9 @@ const i18n = {
     ownDomainDnsCloudflare: "Cloudflare で管理している",
     ownDomainDnsOther: "その他の DNS（お名前.com など）",
     ownDomainStepsCloudflare:
-      "下にドメイン名（例: blog.example.com や example.comなど）を入れて「準備する」を押します。\nCloudflare のダッシュボードで、そのドメインの DNS に、表示された TXT レコード（所有の確認・証明書）を追加します。TXT を足しても、今の表示は変わりません。\n数分後に「状態を確かめる」を押します。証明書が「発行済み」になったら「ドメインを切り替える」を押します。kurocms.site 側の設定が切り替わります。\n最後に、そのドメインの CNAME を {target} に向けます。プロキシはオン（オレンジの雲）のままで構いません。Cloudflare なら、ルートのドメイン（example.com）にも CNAME を置けます。Cloudflare で管理しているドメインは、CNAME を向けた時点で有効になります（1 分ほど）。\n有効になったら「公開ドメインに入れる」を押して保存し、全ページをビルドします。",
+      "下にドメイン名（例: blog.example.com や example.comなど）を入れて「準備する」を押します。\n「準備する」を押すと、下の表に TXT レコード（所有の確認・証明書）が出ます。Cloudflare のダッシュボードで、そのドメインの DNS にそれを追加します。TXT を足しても、今の表示は変わりません。\n数分後に「状態を確かめる」を押します。証明書が「発行済み」になったら「ドメインを切り替える」を押します。kurocms.site 側の設定が切り替わります。\n最後に、そのドメインの CNAME を {target} に向けます。プロキシはオン（オレンジの雲）のままで構いません。Cloudflare なら、ルートのドメイン（example.com）にも CNAME を置けます。Cloudflare で管理しているドメインは、CNAME を向けた時点で有効になります（1 分ほど）。\n有効になったら「公開ドメインに入れる」を押して保存し、全ページをビルドします。",
     ownDomainStepsOther:
-      "下にドメイン名（例: blog.example.com など）を入れて「準備する」を押します。\nお使いの DNS の管理画面で、表示された TXT レコード（所有の確認・証明書）を追加します。TXT を足しても、今の表示は変わりません。\n数分後に「状態を確かめる」を押します。証明書が「発行済み」になったら「ドメインを切り替える」を押します。kurocms.site 側の設定が切り替わります。\n最後に、そのドメインの CNAME を {target} に向けます。ルートのドメイン（example.com）には CNAME を置けない DNS が多いので、www などのサブドメインを使い、ルートのドメインは DNS 会社の転送で www へ送ってください。ALIAS・ANAME・CNAME flattening に対応していれば、ルートのドメインにも置けます。\n有効になったら「公開ドメインに入れる」を押して保存し、全ページをビルドします。",
+      "下にドメイン名（例: blog.example.com など）を入れて「準備する」を押します。\n「準備する」を押すと、下の表に TXT レコード（所有の確認・証明書）が出ます。お使いの DNS の管理画面で、それを追加します。TXT を足しても、今の表示は変わりません。\n数分後に「状態を確かめる」を押します。証明書が「発行済み」になったら「ドメインを切り替える」を押します。kurocms.site 側の設定が切り替わります。\n最後に、そのドメインの CNAME を {target} に向けます。ルートのドメイン（example.com）には CNAME を置けない DNS が多いので、www などのサブドメインを使い、ルートのドメインは DNS 会社の転送で www へ送ってください。ALIAS・ANAME・CNAME flattening に対応していれば、ルートのドメインにも置けます。\n有効になったら「公開ドメインに入れる」を押して保存し、全ページをビルドします。",
     ownDomainOverwriteNote:
       "CNAME を書き換えると、そのドメインでそれまで表示していたものは見えなくなります。メール（MX）やほかのレコードには影響しません。",
     ownDomainHostLabel: "ドメイン名",
@@ -2604,6 +2611,13 @@ const i18n = {
     ownDomainUsePublicDone:
       "公開ドメインに入れました。保存して、全ページをビルドしてください。",
     ownDomainRecordsTitle: "DNS に足すレコード",
+    ownDomainColState: "状態",
+    ownDomainRecordsBefore:
+      "TXT レコード（と CNAME）は、「準備する」を押すと、ここに表示されます。",
+    ownDomainRecDone: "済み",
+    ownDomainRecTodo: "まだ",
+    ownDomainTxtGone:
+      "TXT レコードの確かめは済んでいます。Cloudflare が値を返さなくなったので、ここには出ません。",
     ownDomainColType: "種類",
     ownDomainColName: "名前",
     ownDomainColValue: "値",
