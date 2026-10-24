@@ -1786,6 +1786,14 @@ const i18n = {
     revisionLatestBadge: "Latest",
     revisionRestoreBtn: "Copy to latest",
     revisionRestoreBtnWrap: "Copy to\nlatest",
+    revisionDiffBtn: "Diff",
+    revisionDiffDialogTitle: "Changes: Rev.{n} → current",
+    revisionDiffLead:
+      "What changed from Rev.{n} to the current version. Green = added, red = removed. The body is compared paragraph by paragraph (text only).",
+    revisionDiffSame: "No changes.",
+    revisionDiffTitleLabel: "Title",
+    revisionDiffSummaryLabel: "Summary",
+    revisionDiffBodyLabel: "Body",
     revisionRestoreDraftOnly:
       "Only a draft can be restored. Switch the article to draft first.",
     revisionRestoreTitle: "Restore this revision",
@@ -3178,6 +3186,14 @@ const i18n = {
     revisionLatestBadge: "最新",
     revisionRestoreBtn: "コピーして最新に",
     revisionRestoreBtnWrap: "コピーして\n最新に",
+    revisionDiffBtn: "差分",
+    revisionDiffDialogTitle: "変わったところ: Rev.{n} → 現在の版",
+    revisionDiffLead:
+      "Rev.{n} から現在の版までに変わったところです。緑は足した行、赤は消した行。本文は段落ごとの文字で比べます（装飾の違いは出ません）。",
+    revisionDiffSame: "違いはありません。",
+    revisionDiffTitleLabel: "タイトル",
+    revisionDiffSummaryLabel: "概要",
+    revisionDiffBodyLabel: "本文",
     revisionRestoreDraftOnly:
       "復元できるのは下書きのときだけです。先に下書きに切り替えてください。",
     revisionRestoreTitle: "この版に戻す",
