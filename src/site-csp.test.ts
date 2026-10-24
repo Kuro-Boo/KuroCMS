@@ -42,6 +42,12 @@ const directive = (p: string, name: string) =>
   assert.match(plain, /report-uri \/_csp;/, "報告はサイト自身の口へ");
   assert.doesNotMatch(plain, /defects\.entamy\.com/, "Entamy へ直接送らせない");
   assert.match(directive(plain, "frame-src"), /www\.youtube-nocookie\.com/);
+  assert.match(
+    directive(plain, "style-src"),
+    /fonts\.googleapis\.com/,
+    "Google Fonts(フォント設定・テンプレート)はいつも許す",
+  );
+  assert.match(directive(plain, "font-src"), /fonts\.gstatic\.com/);
   assert.doesNotMatch(plain, /googletagmanager|googlesyndication|bsky/);
 
   const full = policyOf(

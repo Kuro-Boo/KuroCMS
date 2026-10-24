@@ -74,6 +74,10 @@ const EMBED_FRAME = [
   "https://maps.google.com",
 ];
 const BLUESKY_CONNECT = ["https://public.api.bsky.app"];
+// Google Fonts。CMS のフォント設定は Google の配信から直接読む(fonts.ts の buildFontHead)。
+// テンプレートが直接読むこともある。スタイルと書体はスクリプトを動かさないので、いつも許す。
+const FONTS_STYLE = ["https://fonts.googleapis.com"];
+const FONTS_FILE = ["https://fonts.gstatic.com"];
 
 /** 応答に付ける見出し(CSP と報告先)。 */
 export function siteCspHeaders(input: SiteCspInput): Record<string, string> {
@@ -91,6 +95,8 @@ export function siteCspHeaders(input: SiteCspInput): Record<string, string> {
       ...(input.adsense ? ADSENSE_CONNECT : []),
       ...(input.bluesky ? BLUESKY_CONNECT : []),
     ],
+    styleSrc: FONTS_STYLE,
+    fontSrc: FONTS_FILE,
     // 取り込んだ記事は外の画像を持つ。画像はスクリプトを動かさない。
     imgSrc: ["https:"],
     frameSrc: [...EMBED_FRAME, ...(input.adsense ? ADSENSE_FRAME : [])],
