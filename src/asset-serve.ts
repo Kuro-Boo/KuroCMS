@@ -17,7 +17,7 @@ import { reportRelease } from "./release-report";
 // Version-pinned release base. NOT `latest/download` — that path is CDN-stale.
 const RELEASE_BASE = `https://github.com/Kuro-Boo/KuroCMS/releases/download/v${KUROCMS_VERSION}`;
 const ASSET_RE =
-  /^(admin-app|ke|ke-content|kuro-links|kuro-code-copy)\.[a-z0-9.]+\.(js|css)$/;
+  /^(admin-app|ke|ke-content|kuro-links|kuro-code-copy|kuro-head|kuro-site)\.[a-z0-9.]+\.(js|css)$/;
 const KV_PREFIX = "admin:asset:";
 const IMMUTABLE = "public, max-age=31536000, immutable";
 

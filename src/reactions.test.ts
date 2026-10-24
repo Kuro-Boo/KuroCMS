@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
-import { Script } from "node:vm";
 import { renderTemplate } from "./templates/html-template.ts";
 import {
   placeReactionSlot,
@@ -89,7 +88,11 @@ assert.equal(
   3,
 );
 const widget = renderReactionWidget("a", "", "ja", "<h2>編集した見出し</h2>");
-new Script(widget.match(/<script>([\s\S]*?)<\/script>/)?.[1] || "");
+// ページにスクリプトを書かない(公開サイトの CSP は自分のファイルだけを動かす)。
+assert.ok(
+  !/<script/i.test(widget),
+  "反応の枠がインラインのスクリプトを持っている",
+);
 const rendered = renderTemplate(
   "<!-- kurocms-template-api:1 -->[[#if page.isArticle]][[html:article.bodyHtml]][[html:content.article-reactions]][[/if]]",
   {
@@ -280,19 +283,26 @@ assert.equal(
   "記事でないページに枠を置いている",
 );
 
-// ── 自分の枠は id で見つけること ────────────────────────────────────────
+// ── 枠は自分の要素の data 属性で動く ────────────────────────────────────
 //
-// 兄弟要素を2つ遡る形は、整形や最適化で並びが変わると**静かに効かなくなる**。
+// kuro-site.js が `.kuro-reactions[data-endpoint]` を探して動かす。文言も枠が持つ
+// (兄弟要素を遡る形は、整形や最適化で並びが変わると**静かに効かなくなる**)。
 {
   const widget = renderReactionWidget("doc-1", "", "ja");
   assert.ok(
     widget.includes('id="kuro-reactions-doc-1"') &&
-      widget.includes('getElementById("kuro-reactions-doc-1")'),
-    "枠を id で見つけていない",
+      widget.includes('data-thanks="ありがとうございます！"') &&
+      widget.includes('data-error="'),
+    "枠が自分の設定を持っていない",
+  );
+  const site = readFileSync(
+    new URL("./site/kuro-site.ts", import.meta.url),
+    "utf8",
   );
   assert.ok(
-    !widget.includes("previousElementSibling"),
-    "兄弟要素を遡って自分を探している",
+    site.includes('".kuro-reactions[data-endpoint]"') &&
+      !site.includes("previousElementSibling"),
+    "kuro-site.js が反応の枠を要素で見つけていない",
   );
   // 口が受け付けない id は、動きようがないので出さない(誤りの札だけが残る)
   assert.equal(renderReactionWidget("bad id!", "", "ja"), "");

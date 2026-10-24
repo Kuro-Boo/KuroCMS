@@ -186,24 +186,23 @@ function localDateTimeHtml(
   );
 }
 
-function localDateHydrationScript(timezone: string): string {
-  // 日付は「サイトの時計」で整形する。ロケール（曜日名・月名・区切り）だけを
-  // 閲覧者に合わせ、どの暦日かは全閲覧者で同じにする。
-  // ⚠ ここを閲覧者のローカル TZ に戻さないこと。月アーカイブの区切りはビルド時
-  //   にサイト TZ で決まっているので、表示だけ動かすと「8 月のアーカイブに 9/1
-  //   の記事」が生まれる（src/timezone.ts の冒頭に経緯）。
-  // Intl が TZ を拒んだ場合は "" を返す = ビルド時に焼いた文字（同じ TZ で
-  // 作ってある）をそのまま残す。
-  const tz = JSON.stringify(timezone || "UTC");
-  return `<script>(function(){var TZ=${tz};function o(x){x.timeZone=TZ;return x}function fmt(iso,kind){var d=new Date(iso);if(!isFinite(d.getTime()))return"";var loc=(navigator.languages&&navigator.languages[0])||navigator.language||document.documentElement.lang||undefined;try{if(kind==="dateDay")return new Intl.DateTimeFormat("en-US",o({day:"numeric"})).format(d);if(kind==="dateYm")return new Intl.DateTimeFormat(loc,o({year:"numeric",month:"long"})).format(d);if(kind==="dateWeekday")return new Intl.DateTimeFormat(loc,o({weekday:"short"})).format(d);return new Intl.DateTimeFormat(loc,o({year:"numeric",month:"2-digit",day:"2-digit"})).format(d)}catch(e){return""}}function run(){document.querySelectorAll("time[data-kuro-local-date]").forEach(function(el){var v=fmt(el.getAttribute("data-kuro-local-date")||"",el.getAttribute("data-kuro-date-format")||"date");if(v)el.textContent=v})}if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",run);else run()})();</script>`;
-}
-
+/**
+ * 日付は「サイトの時計」で整形する。ロケール（曜日名・月名・区切り）だけを
+ * 閲覧者に合わせ、どの暦日かは全閲覧者で同じにする。
+ * ⚠ ここを閲覧者のローカル TZ に戻さないこと。月アーカイブの区切りはビルド時
+ *   にサイト TZ で決まっているので、表示だけ動かすと「8 月のアーカイブに 9/1
+ *   の記事」が生まれる（src/timezone.ts の冒頭に経緯）。
+ *
+ * 整形するのは kuro-site.js（src/site/ の localDates）。ページにはスクリプトを書かず
+ * （公開サイトの CSP は自分のファイルだけを動かす —— cms-cms-security「CSP」）、
+ * サイトの時計だけを印の要素で渡す。
+ */
 function injectLocalDateHydration(html: string, timezone: string): string {
   if (!html.includes("data-kuro-local-date")) return html;
-  const script = localDateHydrationScript(timezone);
+  const mark = `<span hidden data-kuro-tz="${escapeAttr(timezone || "UTC")}"></span>`;
   return html.includes("</body>")
-    ? html.replace("</body>", script + "</body>")
-    : html + script;
+    ? html.replace("</body>", mark + "</body>")
+    : html + mark;
 }
 
 function isTruthy(value: TemplateValue | undefined): boolean {
