@@ -827,6 +827,154 @@ async function newArticle(editDid: Dynamic) {
     );
   }
 
+  /**
+   * 版どうしの差分(課題 8b8ffc20・cms-cms-overview のロードマップ「版間の差分ハイライト」)。
+   * 本文は段落(見出し・項目・セルなど)ごとの文字にして、行の最長共通部分列で比べる。
+   * ⚠ 本文の HTML は DOMParser で読む(画面の要素の innerHTML に入れると <img onerror> が動く)。
+   */
+  function revisionTextLines(html: string): string[] {
+    const doc = new DOMParser().parseFromString(
+      String(html || ""),
+      "text/html",
+    );
+    const blocks = doc.body.querySelectorAll(
+      "p,h1,h2,h3,h4,h5,h6,li,pre,blockquote,td,th,figcaption,dt,dd",
+    );
+    const out: string[] = [];
+    blocks.forEach(function (el) {
+      // 入れ子(li の中の p など)は内側だけを数える。
+      if (el.querySelector("p,h1,h2,h3,h4,h5,h6,li,pre,blockquote,td,th"))
+        return;
+      const text = (el.textContent || "").replace(/\s+/g, " ").trim();
+      if (text) out.push(text);
+    });
+    if (!out.length) {
+      const text = (doc.body.textContent || "").replace(/\s+/g, " ").trim();
+      if (text) out.push(text);
+    }
+    return out;
+  }
+
+  /** 行の差分(最長共通部分列)。same / del(前の版だけ)/ add(今の版だけ)を順に返す。 */
+  function revisionLineDiff(
+    a: string[],
+    b: string[],
+  ): Array<{ op: "same" | "del" | "add"; text: string }> {
+    const n = a.length;
+    const m = b.length;
+    const w = m + 1;
+    const dp = new Int32Array((n + 1) * w);
+    for (let i = n - 1; i >= 0; i--)
+      for (let j = m - 1; j >= 0; j--)
+        dp[i * w + j] =
+          a[i] === b[j]
+            ? dp[(i + 1) * w + j + 1] + 1
+            : Math.max(dp[(i + 1) * w + j], dp[i * w + j + 1]);
+    const out: Array<{ op: "same" | "del" | "add"; text: string }> = [];
+    let i = 0;
+    let j = 0;
+    while (i < n && j < m) {
+      if (a[i] === b[j]) {
+        out.push({ op: "same", text: a[i] });
+        i++;
+        j++;
+      } else if (dp[(i + 1) * w + j] >= dp[i * w + j + 1]) {
+        out.push({ op: "del", text: a[i++] });
+      } else out.push({ op: "add", text: b[j++] });
+    }
+    while (i < n) out.push({ op: "del", text: a[i++] });
+    while (j < m) out.push({ op: "add", text: b[j++] });
+    return out;
+  }
+
+  /** その版と今の版の差分を開く(読むだけ)。 */
+  async function openRevisionDiff(no: number) {
+    let rev: Dynamic;
+    let cur: Dynamic;
+    try {
+      const [r, c] = await Promise.all([
+        api(
+          "/api/documents/" +
+            art.did +
+            "/revisions/" +
+            encodeURIComponent(String(no)) +
+            "?lang=" +
+            encodeURIComponent(art.lang),
+        ),
+        api(
+          "/api/documents/" +
+            art.did +
+            "/translations/" +
+            encodeURIComponent(art.lang),
+        ),
+      ]);
+      rev = r.revision;
+      cur = c.translation;
+    } catch (err) {
+      toast(errorMessage(err), true);
+      return;
+    }
+    if (!rev || !cur) return;
+    const section = (label: string, a: string[], b: string[]) => {
+      const diff = revisionLineDiff(a, b);
+      const changed = diff.some((d) => d.op !== "same");
+      const rows = changed
+        ? diff
+            .map(function (d) {
+              const style =
+                d.op === "add"
+                  ? "background:#22c55e26;border-left:3px solid #22c55e"
+                  : d.op === "del"
+                    ? "background:#ef444426;border-left:3px solid #ef4444;text-decoration:line-through"
+                    : "color:var(--muted);border-left:3px solid transparent";
+              return (
+                "<div style='padding:3px 8px;margin:1px 0;white-space:pre-wrap;word-break:break-word;" +
+                style +
+                "'>" +
+                (d.op === "add" ? "+ " : d.op === "del" ? "− " : "  ") +
+                escapeHtml(d.text) +
+                "</div>"
+              );
+            })
+            .join("")
+        : "<div class='muted' style='padding:3px 8px'>" +
+          escapeHtml(t("revisionDiffSame")) +
+          "</div>";
+      return (
+        "<h4 style='margin:12px 0 4px;font-size:13px'>" +
+        escapeHtml(label) +
+        "</h4>" +
+        rows
+      );
+    };
+    const line = (v: Dynamic) => (v ? [String(v)] : []);
+    const html =
+      "<p class='muted' style='font-size:12px;margin:0'>" +
+      escapeHtml(t("revisionDiffLead").replace("{n}", String(no))) +
+      "</p>" +
+      section(t("revisionDiffTitleLabel"), line(rev.title), line(cur.title)) +
+      section(
+        t("revisionDiffSummaryLabel"),
+        line(rev.summary),
+        line(cur.summary),
+      ) +
+      section(
+        t("revisionDiffBodyLabel"),
+        revisionTextLines(rev.bodyHtml),
+        revisionTextLines(cur.body_html ?? cur.bodyHtml ?? ""),
+      );
+    openEntryDialog(
+      t("revisionDiffDialogTitle").replace("{n}", String(no)),
+      "<div style='max-height:60vh;overflow:auto;font-size:13px'>" +
+        html +
+        "</div>",
+      t("tmplDetailClose"),
+      function (_: Dynamic, close: Dynamic) {
+        close();
+      },
+    );
+  }
+
   function openHistoryDialog() {
     const backdrop = createPopupBackdrop();
     backdrop.innerHTML =
@@ -985,6 +1133,11 @@ async function newArticle(editDid: Dynamic) {
               line1(r.snapshotAt, r.source, r.title, false, r.revisionNo) +
               line2(r.excerpt || "") +
               "</button>" +
+              "<button type='button' class='secondary arHistDiff' data-rev='" +
+              escapeHtml(String(r.revisionNo)) +
+              "' style='flex-shrink:0;font-size:10px;line-height:1.25;padding:3px 8px'>" +
+              escapeHtml(t("revisionDiffBtn")) +
+              "</button>" +
               "<button type='button' class='secondary arHistRestore' data-rev='" +
               escapeHtml(String(r.revisionNo)) +
               "'" +
@@ -1019,6 +1172,14 @@ async function newArticle(editDid: Dynamic) {
               return;
             }
             showRevision(no);
+          });
+        });
+      listEl
+        .querySelectorAll<AdminElement>(".arHistDiff")
+        .forEach(function (btn) {
+          btn.addEventListener("click", function (event) {
+            event.stopPropagation();
+            void openRevisionDiff(Number(btn.getAttribute("data-rev")));
           });
         });
       listEl
