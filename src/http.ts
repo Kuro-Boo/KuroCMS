@@ -93,6 +93,45 @@ export function notFoundPage(
   return html(body, { status: 404 });
 }
 
+/**
+ * 公開サイトの準備中(初期化の後、テンプレートを選ぶまで)。壊れた頁(500)に見せず、
+ * 検索エンジンには一時的な状態だと伝える(503 と Retry-After)。
+ */
+export function preparingPage(
+  request: Request,
+  links: { adminHref: string },
+): Response {
+  const headers = { "Retry-After": "3600", "Cache-Control": "no-store" };
+  const accept = request.headers.get("accept") || "";
+  if (!accept.includes("text/html"))
+    return new Response("Site is being prepared", { status: 503, headers });
+  const body = `<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>準備中 / Coming soon</title>
+<style>
+  body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center; background:#0f172a; color:#f1f5f9; font-family:ui-sans-serif,system-ui,sans-serif; }
+  .box { text-align:center; padding:24px; }
+  h1 { font-size:18px; font-weight:800; margin:0 0 8px; }
+  p { font-size:14px; color:#94a3b8; margin:0 0 6px; line-height:1.6; }
+  a { display:inline-block; margin-top:18px; padding:10px 18px; border-radius:8px; background:#334155; color:#f1f5f9; text-decoration:none; font-weight:700; font-size:14px; }
+</style>
+</head>
+<body>
+  <div class="box">
+    <h1>このサイトは準備中です</h1>
+    <p>This site is being prepared.</p>
+    <p>サイトの管理者は、管理画面でテンプレートを選ぶと公開できます。<br>Site owners: choose a template in the admin to publish.</p>
+    <a href="${links.adminHref}">Admin</a>
+  </div>
+</body>
+</html>`;
+  return html(body, { status: 503, headers });
+}
+
 export function jsonError(
   status: number,
   code: string,
