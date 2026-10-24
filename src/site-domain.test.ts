@@ -1,7 +1,12 @@
 // 委託の独自ドメイン(site-domain.ts・core-offering 14 節)の試験。
 // 確かめるのは —— 委託でなければ頼まない、知らない action は頼まない、頼むときは Worker の名前と
 // 短い証を渡して終わったら証を消す、導入口が断ったら符号のまま返す、届かなければ entamy_unavailable。
-import { siteDomain, type SiteDomainSession } from "./site-domain.ts";
+import {
+  hostOfDomain,
+  ownDomainSaveBlocked,
+  siteDomain,
+  type SiteDomainSession,
+} from "./site-domain.ts";
 import type { Env } from "./types";
 
 let failed = 0;
@@ -128,6 +133,64 @@ console.log("site-domain");
     "届かなければ entamy_unavailable",
     await code(siteDomain(env, "status", undefined, session)),
     "entamy_unavailable",
+  );
+}
+
+// ── 有効になる前の自分のドメインは保存させない(サーバーでも・課題 89b71d8e) ──
+{
+  const base = {
+    fallbackHost: "ab12cd.kurocms.site",
+    savedHost: "ab12cd.kurocms.site",
+  };
+  const active = { hostname: "example.jp", status: "active", switched: true };
+  eq(
+    "ホスト名を取る(https:// でも名前だけでも)",
+    [
+      hostOfDomain("https://Example.JP/"),
+      hostOfDomain("example.jp"),
+      hostOfDomain(""),
+    ],
+    ["example.jp", "example.jp", ""],
+  );
+  eq(
+    "委託のアドレスへ戻すのは止めない",
+    ownDomainSaveBlocked("ab12cd.kurocms.site", { ...base, domain: null }),
+    false,
+  );
+  eq(
+    "いま保存されているアドレスは止めない",
+    ownDomainSaveBlocked("old.example", {
+      ...base,
+      savedHost: "old.example",
+      domain: null,
+    }),
+    false,
+  );
+  eq(
+    "準備しただけ(切り替える前)は止める",
+    ownDomainSaveBlocked("example.jp", {
+      ...base,
+      domain: { ...active, switched: false },
+    }),
+    true,
+  );
+  eq(
+    "証明書がまだ(active でない)は止める",
+    ownDomainSaveBlocked("example.jp", {
+      ...base,
+      domain: { ...active, status: "pending" },
+    }),
+    true,
+  );
+  eq(
+    "別のドメインを準備しているときは止める",
+    ownDomainSaveBlocked("other.jp", { ...base, domain: active }),
+    true,
+  );
+  eq(
+    "有効になった自分のドメインは保存できる",
+    ownDomainSaveBlocked("example.jp", { ...base, domain: active }),
+    false,
   );
 }
 

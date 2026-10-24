@@ -1414,6 +1414,10 @@ const i18n = {
     buildCancelled: "Build cancelled",
     buildPassRetry:
       "Connection dropped ({err}) — retrying ({n}/{max}). Pages already built are skipped.",
+    buildPassShrink:
+      "A pass stopped before finishing (it may have hit the CPU limit of this Cloudflare account). Continuing with {n} page(s) per pass.",
+    buildPassShrinkLangs:
+      "Even one page did not fit in a pass. Continuing with {n} language(s) of a page per pass.",
     buildErrorPrefix: "Build error: ",
     unknownError: "Unknown error",
     mediaLabel: "Media",
@@ -1450,7 +1454,7 @@ const i18n = {
     guardianNoBinding:
       "This installation is not connected to WorkerOps, so it cannot be updated from here.",
     guardianCredsMissing:
-      "The Cloudflare credentials for updates are not set, so WorkerOps cannot be updated from here.",
+      'The Cloudflare credentials for updates are not set, so WorkerOps cannot be updated from here. KuroCMS and WorkerOps also keep two scheduled jobs (cron) instead of one, which on a free Cloudflare account lowers how many installs fit (5 cron jobs per account). To fix: in the Cloudflare dashboard, create an API token with "Workers Scripts: Edit" for this account, and add it to this Worker (Settings → Variables and Secrets) as the secret CF_API_TOKEN, with CF_ACCOUNT_ID (the account ID) and CF_WORKER_NAME (this Worker\'s name). Updates then become available here; once WorkerOps is on a current version, KuroCMS merges the jobs into one by itself.',
     guardianLegacy:
       "This WorkerOps is too old to report its version. Updating it once makes the version visible.",
     guardianLegacyVersion: "an old version",
@@ -2796,6 +2800,10 @@ const i18n = {
     buildCancelled: "ビルドを中止しました",
     buildPassRetry:
       "接続が切れました（{err}）— 再試行します（{n}/{max}）。ビルド済みのページはスキップされます。",
+    buildPassShrink:
+      "1 回の処理が途中で止まりました（この Cloudflare の口座の CPU の上限に当たった可能性があります）。1 回 {n} ページに減らして続けます。",
+    buildPassShrinkLangs:
+      "1 ページでも 1 回に収まりませんでした。1 回にページの {n} 言語ずつ作って続けます。",
     buildErrorPrefix: "ビルドエラー: ",
     unknownError: "不明なエラー",
     mediaLabel: "メディア",
@@ -2832,7 +2840,7 @@ const i18n = {
     guardianNoBinding:
       "この導入は WorkerOps と繋がっていないため、ここからは更新できません。",
     guardianCredsMissing:
-      "更新用の Cloudflare の資格情報が設定されていないため、ここからは WorkerOps を更新できません。",
+      "更新用の Cloudflare の資格情報が設定されていないため、ここからは WorkerOps を更新できません。また、KuroCMS と WorkerOps の定期処理（cron）が 1 本にまとまらず 2 本のままです。無料の Cloudflare の口座では cron が 5 本までなので、入れられる導入の数が減ります。直すには: Cloudflare のダッシュボードで、この口座の「Workers Scripts: 編集」の権限を持つ API トークンを作り、この Worker の「設定 → 変数とシークレット」に、シークレット CF_API_TOKEN（そのトークン）と、CF_ACCOUNT_ID（口座 ID）・CF_WORKER_NAME（この Worker の名前）を入れてください。ここから更新できるようになり、WorkerOps を新しい版へ上げた後は、KuroCMS が定期処理を自分で 1 本にまとめます。",
     guardianLegacy:
       "この WorkerOps は古く、版を名乗れません。一度更新すると版が表示されるようになります。",
     guardianLegacyVersion: "古い版",
@@ -4430,7 +4438,17 @@ async function runBuildWithProgress(force = false) {
     passIndex = 0,
     moreToCome = false,
     fatalError = false,
-    sweptCount = 0;
+    sweptCount = 0,
+    langCount = 0,
+    // 言語を分けて作ったページの進み(partial)。ページは増えなくても前へ進んでいる。
+    partialCount = 0;
+  // 回の量(課題 a408a584)。undefined = サーバーの既定。回が途中で切れたら半分にし、1 ページでも
+  // 切れたら言語の数を半分にする。CPU の時間は測れないので、切れたという出来事で決める。
+  let passBudget: number | undefined;
+  // この回で「終わり」(done)の知らせが届いたか。届かずに切れた回は、CPU の上限で打ち切られた
+  // 可能性がある(課題 a408a584)。回ごとに偽へ戻す。
+  let passDone: boolean;
+  let passLangs: number | undefined;
   // Static Assets registration reported by the last pass (null = not reached).
   // A pass that only registers builds no page, so this — not the page count —
   // tells whether it moved forward.
@@ -4474,6 +4492,7 @@ async function runBuildWithProgress(force = false) {
       // The server re-emits `start` each pass; only take it on the first pass.
       if (passIndex <= 1) {
         total = ev.total;
+        langCount = Number(ev.langs) || 0;
         byId("bpPhase")!.textContent = "0 / " + total;
         appendLog(
           "skipped",
@@ -4507,6 +4526,9 @@ async function runBuildWithProgress(force = false) {
               ev.path +
               (ev.reason ? " — " + ev.reason : ""),
           );
+      } else if (ev.status === "partial") {
+        partialCount++;
+        appendLog("built", "… [" + ev.lang + "] " + ev.path);
       } else if (ev.status === "error") {
         errorCount++;
         byId("bpErrors")!.textContent = fmtNum(errorCount);
@@ -4517,6 +4539,7 @@ async function runBuildWithProgress(force = false) {
       }
       updateCounts();
     } else if (ev.type === "done") {
+      passDone = true;
       // Per-pass completion: `more` true ⇒ budget spent, another pass follows.
       moreToCome = !!ev.more;
       // Orphan pages removed by the final pass's mark-and-sweep.
@@ -4615,6 +4638,8 @@ async function runBuildWithProgress(force = false) {
       const errEl = byId("bpErrors");
       if (errEl) errEl.textContent = "0";
       const prevDone = donePaths.size;
+      const prevPartial = partialCount;
+      passDone = false;
       const buildHeaders = new Headers({ "Content-Type": "application/json" });
       if (token) buildHeaders.set("Authorization", "Bearer " + token);
       try {
@@ -4626,6 +4651,8 @@ async function runBuildWithProgress(force = false) {
           body: JSON.stringify({
             lang: buildLang,
             force: force && passIndex === 1,
+            ...(passBudget ? { budget: passBudget } : {}),
+            ...(passLangs ? { langs: passLangs } : {}),
           }),
           credentials: "include",
           signal: buildAbort.signal,
@@ -4658,9 +4685,35 @@ async function runBuildWithProgress(force = false) {
             // Ignore a malformed trailing build event.
           }
         }
+        // 「終わり」が届かずに閉じた回(CPU の上限で打ち切られると、応答は途中で閉じる)。
+        if (!passDone && !fatalError) throw new Error("pass ended early");
       } catch (passErr) {
         // A user cancel aborts the fetch — stop quietly, not as an error.
         if (cancelled) break;
+        // 回の量を減らして続ける(課題 a408a584)。減らせるうちは再試行の回数に数えない ——
+        // 減らすたびに 1 回で使う CPU が小さくなるので、続ければ前へ進む。
+        if (passBudget === undefined || passBudget > 1) {
+          passBudget =
+            passBudget === undefined ? 25 : Math.floor(passBudget / 2);
+          appendLog(
+            "warn",
+            t("buildPassShrink").replace("{n}", String(passBudget)),
+          );
+          passIndex--;
+          continue;
+        }
+        if (langCount > 1 && (passLangs === undefined || passLangs > 1)) {
+          passLangs =
+            passLangs === undefined
+              ? Math.max(1, Math.floor(langCount / 2))
+              : Math.floor(passLangs / 2);
+          appendLog(
+            "warn",
+            t("buildPassShrinkLangs").replace("{n}", String(passLangs)),
+          );
+          passIndex--;
+          continue;
+        }
         // ⚠ ストリームが途中で切れても致命にしない。ビルドはパス単位で再開でき、
         //   済んだページは次のパスでスキップされるので、やり直せば必ず前へ進む。
         //   ここを throw にしていたため、長いビルドが "network error" 1 回で
@@ -4685,7 +4738,11 @@ async function runBuildWithProgress(force = false) {
       // Guard: if a pass claims "more" but made no progress, stop to avoid a loop.
       // Progress = new pages, OR static assets uploaded on this pass. A guardian
       // busy with another operation is waited for (a few seconds) — it frees up.
-      if (moreToCome && donePaths.size === prevDone) {
+      if (
+        moreToCome &&
+        donePaths.size === prevDone &&
+        partialCount === prevPartial
+      ) {
         const a = currentAssets();
         if (a && a.status === "busy") {
           await new Promise(function (r) {

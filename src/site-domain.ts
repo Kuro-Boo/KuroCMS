@@ -108,3 +108,36 @@ export async function siteDomain(
     await clearSiteProof(env).catch(() => {});
   }
 }
+
+/** 公開ドメインの値(https://… でも、ドメイン名だけでもよい)からホスト名を取る。読めなければ空。 */
+export function hostOfDomain(value: string): string {
+  const v = (value ?? "").trim();
+  if (!v) return "";
+  try {
+    return new URL(
+      /^https?:\/\//i.test(v) ? v : "https://" + v,
+    ).host.toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * 公開ドメインをこの値で保存してはいけないか(委託の独自ドメイン・課題 89b71d8e)。
+ * 委託のアドレスでも、いま保存されているアドレスでも、有効になった自分のドメインでもないとき
+ * (準備しただけ・切り替える前・CNAME を向ける前)は止める —— 保存すると全ページのリンクが
+ * まだ開けないアドレスに向く。画面の ownDomainSaveBlocked(admin/screens/site-domain.ts)と同じ判定。
+ */
+export function ownDomainSaveBlocked(
+  host: string,
+  state: {
+    fallbackHost: string;
+    savedHost: string;
+    domain: { hostname?: string; status?: string; switched?: boolean } | null;
+  },
+): boolean {
+  if (!host || host === state.fallbackHost || host === state.savedHost)
+    return false;
+  const d = state.domain;
+  return !(d && d.hostname === host && d.status === "active" && d.switched);
+}

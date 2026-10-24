@@ -143,7 +143,12 @@ import {
   siteMoveOwner,
   startSiteMove,
 } from "./site-move";
-import { askManagedUpdateCheck, siteDomain } from "./site-domain";
+import {
+  askManagedUpdateCheck,
+  hostOfDomain,
+  ownDomainSaveBlocked,
+  siteDomain,
+} from "./site-domain";
 import {
   currentNetwork,
   handleNetworkConfirm,
@@ -1716,6 +1721,20 @@ async function handleApiDispatch(
       // this ONLY on the first pass; resume passes omit it so chunked resume still
       // skips already-rebuilt pages.
       const force = body2.force === true;
+      // 回の量(課題 a408a584)。画面は、回が途中で切れた(CPU の上限で打ち切られた)ら次の回の
+      // budget を減らし、1 ページでも切れたら langs を減らす。CPU の時間は Worker の中から測れない
+      // ので、切れたという出来事で量を決める。
+      const budget = Math.min(
+        BUILD_MAX_PER_INVOCATION,
+        Math.max(
+          1,
+          Math.floor(Number(body2.budget) || BUILD_MAX_PER_INVOCATION),
+        ),
+      );
+      const maxLangs =
+        Number(body2.langs) >= 1
+          ? Math.floor(Number(body2.langs))
+          : Number.POSITIVE_INFINITY;
       const enc = new TextEncoder();
       const { readable, writable } = new TransformStream<
         Uint8Array,
@@ -1732,8 +1751,13 @@ async function handleApiDispatch(
               const line = JSON.stringify(event) + "\n";
               return writer.write(enc.encode(line));
             },
-            BUILD_MAX_PER_INVOCATION,
+            budget,
             force,
+            maxLangs,
+            // 資産の登録で読むページの数も同じ量で絞る(既定は 100)。
+            budget < BUILD_MAX_PER_INVOCATION
+              ? Math.max(2, budget * 2)
+              : undefined,
           );
         } catch (err) {
           const errLine =
@@ -5303,6 +5327,35 @@ async function settings(
     const siteTimezone = (optionalString(body, "siteTimezone") ?? "").trim();
 
     if (publicDomain) validateDomain(publicDomain, "publicDomain");
+    // 委託: 有効になる前の自分のドメインは保存させない(画面だけでなくサーバーでも・課題 89b71d8e)。
+    if (publicDomain && isManagedHosting(env)) {
+      const host = hostOfDomain(publicDomain);
+      const saved = await env.DB.prepare(
+        "SELECT public_domain FROM site_settings WHERE id = 1",
+      ).first<{ public_domain: string | null }>();
+      const fallbackHost = hostOfDomain(defaultPublicDomain(request, env));
+      const savedHost = hostOfDomain(saved?.public_domain ?? "");
+      if (host && host !== fallbackHost && host !== savedHost) {
+        const { domain } = await siteDomain(env, "status");
+        if (
+          ownDomainSaveBlocked(host, {
+            fallbackHost,
+            savedHost,
+            domain: domain as {
+              hostname?: string;
+              status?: string;
+              switched?: boolean;
+            } | null,
+          })
+        ) {
+          throw new HttpError(
+            409,
+            "own_domain_not_ready",
+            "This domain is not active yet. Finish the steps (TXT, switch, CNAME) before saving it.",
+          );
+        }
+      }
+    }
     if (ga4MeasurementId && !/^G-[A-Z0-9]+$/.test(ga4MeasurementId)) {
       throw new HttpError(
         400,

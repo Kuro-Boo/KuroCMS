@@ -23,6 +23,7 @@ import {
 } from "./templates/static-pages";
 import { KE_VERSION, SITE_HEAD_FILE, SITE_SCRIPT_FILE } from "./admin-assets";
 import { siteCspHeaders, siteHeadersFile } from "./site-csp";
+import { AUTO_BUILD_MAX_PER_INVOCATION, nextAutoBuildSize } from "./build-size";
 import {
   externalizeTemplateScripts,
   templateScriptBody,
@@ -3975,7 +3976,8 @@ export type BuildEvent =
       total: number;
       path: string;
       lang: string;
-      status: "built" | "skipped" | "error";
+      /** partial: 言語を分けて作るページの一部の言語だけ作った(次の回で続ける)。 */
+      status: "built" | "skipped" | "error" | "partial";
       reason?: string;
     }
   | {
@@ -3994,6 +3996,11 @@ export type BuildEvent =
 // the build can stop early and the client can resume in another Worker
 // invocation (each invocation has a ~1000 subrequest ceiling).
 const BUILD_BUDGET_REACHED = { budgetReached: true } as const;
+
+/** 言語を分けて作っているページの途中の分(buildAllPublicPages の maxLangs)。 */
+function buildPartialKey(path: string): string {
+  return `build:partial:${path}`;
+}
 
 // A Worker invocation allows ~1000 subrequests. Budget the build to ~80% of
 // that and let the number of pages built per invocation float with the actual
@@ -4526,6 +4533,14 @@ export async function buildAllPublicPages(
   onEvent?: (event: BuildEvent) => void,
   maxBuilt = Number.POSITIVE_INFINITY,
   force = false,
+  /**
+   * 1 回で作る言語の数の上限(課題 a408a584)。ページの言語がこれより多ければ、言語を分けて
+   * 何回かで作る(途中の分は KV に控える)。1 ページでも CPU の上限で打ち切られる口座のため —
+   * 画面は、回が途中で切れたら次の回の量を減らし、1 ページでも切れたらこれを減らす。
+   */
+  maxLangs = Number.POSITIVE_INFINITY,
+  /** 最後の回の資産の登録で、1 回に読むページの数(publishAssets の maxReads)。 */
+  maxAssetReads?: number,
 ): Promise<{
   built: number;
   skipped: number;
@@ -4912,14 +4927,61 @@ export async function buildAllPublicPages(
       });
       return;
     }
+    // 言語を分けて作る(maxLangs より言語が多いページ)。途中の分は KV に控え、全部そろったら
+    // 1 つの束にする。控えは中身のハッシュ(combined)ごと —— その間に中身が変われば作り直す。
+    const chunked = langs.length > maxLangs;
+    type Partial = {
+      combined: string;
+      bundle: Record<string, string>;
+      done: string[];
+    };
+    let partial: Partial | null = null;
+    let todo = langs;
+    if (chunked) {
+      const raw = await env.PUBLIC_PAGES.get(buildPartialKey(path)).catch(
+        () => null,
+      );
+      try {
+        const p = raw ? (JSON.parse(raw) as Partial) : null;
+        partial = p && p.combined === combined ? p : null;
+      } catch {
+        partial = null;
+      }
+      partial ??= { combined, bundle: {}, done: [] };
+      const doneSet = new Set(partial.done);
+      todo = langs.filter((l) => !doneSet.has(l)).slice(0, maxLangs);
+    }
     // Account for this page's subrequests up front: one generate() per language
     // runs whether the page builds, errors, or yields no content.
-    subreqEstimate += langs.length * SUBREQ_PER_LANG;
+    subreqEstimate += todo.length * SUBREQ_PER_LANG;
     try {
-      const bundle: Record<string, string> = {};
-      for (const lang of langs) {
+      const bundle: Record<string, string> = partial
+        ? { ...partial.bundle }
+        : {};
+      for (const lang of todo) {
         const html = await generate(lang);
         if (html) bundle[lang] = html;
+      }
+      if (partial) {
+        const done = [...new Set([...partial.done, ...todo])];
+        if (done.length < langs.length) {
+          await env.PUBLIC_PAGES.put(
+            buildPartialKey(path),
+            JSON.stringify({ combined, bundle, done }),
+          );
+          subreqEstimate += 1;
+          onEvent?.({
+            type: "page",
+            index,
+            total,
+            path,
+            lang: todo.join(","),
+            status: "partial",
+          });
+          // 残りの言語は次の回で。この回はここで終える(1 ページ分の CPU を超えないため)。
+          throw BUILD_BUDGET_REACHED;
+        }
+        await env.PUBLIC_PAGES.delete(buildPartialKey(path)).catch(() => {});
       }
       const keys = Object.keys(bundle);
       if (keys.length) {
@@ -4959,6 +5021,7 @@ export async function buildAllPublicPages(
         });
       }
     } catch (err) {
+      if (err === BUILD_BUDGET_REACHED) throw err;
       errors++;
       onEvent?.({
         type: "page",
@@ -5177,6 +5240,21 @@ export async function buildAllPublicPages(
     } catch {
       /* non-fatal: retried on the next full build */
     }
+    // 言語を分けて作ったページの途中の控え。最後まで済んだ回には作りかけが無いので、残りは
+    // 中身が変わって作り直した前の控え(maxLangs)。
+    try {
+      let cursor: string | undefined;
+      do {
+        const listed = await env.PUBLIC_PAGES.list({
+          prefix: "build:partial:",
+          cursor,
+        });
+        for (const k of listed.keys) await env.PUBLIC_PAGES.delete(k.name);
+        cursor = listed.list_complete ? undefined : listed.cursor;
+      } while (cursor);
+    } catch {
+      /* 次の全体ビルドで消える */
+    }
   }
 
   // Refresh the shared nav-counts KV value (one write, filled into the nav
@@ -5209,7 +5287,10 @@ export async function buildAllPublicPages(
         "UPDATE site_settings SET site_is_published = 1 WHERE id = 1",
       ).run();
     }
-    assets = await publishSiteAssets(env, { request: true });
+    assets = await publishSiteAssets(env, {
+      request: true,
+      ...(maxAssetReads ? { maxReads: maxAssetReads } : {}),
+    });
     if (!assets.done) more = true;
   }
 
@@ -5239,7 +5320,6 @@ export const BUILD_MODE_KEY = "_cfg/build_schedule_mode";
 // Same per-invocation page budget as the manual build; if a transition affects
 // more pages than this, the next cron tick detects the still-pending mode/live
 // disagreement (live only syncs on a fully drained build) and continues.
-const AUTO_BUILD_MAX_PER_INVOCATION = 50;
 
 /** Read the persisted build mode (defaults to "manual"). */
 export async function getBuildMode(env: Env): Promise<BuildMode> {
@@ -5281,12 +5361,45 @@ export async function runScheduledAutoBuild(env: Env): Promise<void> {
   // finished: run it again (pages skip via the build cache; it registers).
   if ((pending?.cnt ?? 0) === 0 && !(await assetsPending(env))) return;
 
-  await buildAllPublicPages(
+  // 回の量(課題 a408a584)。回を始めるときに「作業中」の印を残し、終わったら消す。次の回で印が
+  // 残っていれば、前の回は CPU の上限で打ち切られた(応答も後始末も無く止まる)—— 量を半分にし、
+  // 1 ページでも切れるなら言語を分ける。ビルドが最後まで済んだら既定に戻す。
+  const size = nextAutoBuildSize(
+    await env.PUBLIC_PAGES.get(AUTO_BUILD_SIZE_KEY).catch(() => null),
+    (await fetchRegisteredLangCount(env)) || 1,
+  );
+  await env.PUBLIC_PAGES.put(
+    AUTO_BUILD_SIZE_KEY,
+    JSON.stringify({ ...size, inflight: true }),
+  );
+  const r = await buildAllPublicPages(
     env,
     env.SITE_DEFAULT_LANG || "en",
     undefined,
-    AUTO_BUILD_MAX_PER_INVOCATION,
+    size.budget,
+    false,
+    size.langs ?? Number.POSITIVE_INFINITY,
+    size.budget < AUTO_BUILD_MAX_PER_INVOCATION
+      ? Math.max(2, size.budget * 2)
+      : undefined,
   );
+  if (r.more)
+    await env.PUBLIC_PAGES.put(
+      AUTO_BUILD_SIZE_KEY,
+      JSON.stringify({ ...size, inflight: false }),
+    );
+  else await env.PUBLIC_PAGES.delete(AUTO_BUILD_SIZE_KEY);
+}
+
+const AUTO_BUILD_SIZE_KEY = "system:auto_build_size";
+
+async function fetchRegisteredLangCount(env: Env): Promise<number> {
+  const row = await env.DB.prepare(
+    "SELECT COUNT(*) AS n FROM taxonomy_items WHERE kind = 'language'",
+  )
+    .first<{ n: number }>()
+    .catch(() => null);
+  return row?.n ?? 0;
 }
 
 // ─── sitemap.xml / RSS / robots.txt ───────────────────────────────────────────

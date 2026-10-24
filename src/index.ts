@@ -10,7 +10,7 @@ import { guardianDeps } from "./guardian-deps";
 import { noteRunningVersion } from "./version-since";
 import { purgeIpGate } from "./ip-gate";
 import { runScheduledThreadsTokenRefresh } from "./threads-token";
-import { html, notFound, notFoundPage } from "./http";
+import { html, notFound, notFoundPage, preparingPage } from "./http";
 import { reactionEndpoint } from "./reactions";
 import { cspReportEndpoint } from "./csp-report";
 import { CSP_REPORT_PATH } from "./site-csp";
@@ -30,6 +30,7 @@ import {
   serveTemplateCss,
   serveTemplateScript,
 } from "./public";
+import { templateNotChosen } from "./site-preparing";
 import { moveFrozen, movedPage, moveRetired, movedTo } from "./move";
 import type { Env } from "./types";
 
@@ -373,7 +374,17 @@ const worker = {
           302,
         );
       }
-      const publicResp = await handlePublicRoute(publicPath, request, env);
+      // テンプレートを選ぶ前は組み立てられない(loadTemplate が投げて 500 になっていた)。
+      // 準備中の頁を返す(課題 ae0d3248)。確かめるのは失敗した時だけ —— 毎回 D1 を引かない。
+      let publicResp: Response | null;
+      try {
+        publicResp = await handlePublicRoute(publicPath, request, env);
+      } catch (e) {
+        if (await templateNotChosen(env)) {
+          return preparingPage(request, { adminHref: adminEntryUrl });
+        }
+        throw e;
+      }
       return (
         publicResp ??
         notFoundPage(request, {
