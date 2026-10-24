@@ -1884,6 +1884,15 @@ const i18n = {
     tmplDetailVersionLabel: "Version",
     tmplDetailDescLabel: "Description",
     tmplDetailDownloadLabel: "Download URL",
+    tmplScriptWarnLabel: "Scripts not loaded",
+    cspReportsTitle:
+      "Security policy (CSP) reports from the public site (what it would block)",
+    tmplScriptWarnExternal:
+      "External script (not loaded on public pages; paste its code into the template instead): ",
+    tmplScriptWarnToken:
+      "Script containing [[…]] (blocked by the site's security policy; pass values through data- attributes): ",
+    tmplScriptWarnToast:
+      "This template has scripts that public pages will not run. See the template detail.",
     tmplDetailClose: "Close",
     tmplDeleteConfirm: "Delete this template?",
     tmplEditorNotSelected: "No template selected",
@@ -3261,6 +3270,14 @@ const i18n = {
     tmplDetailVersionLabel: "バージョン",
     tmplDetailDescLabel: "説明",
     tmplDetailDownloadLabel: "ダウンロード URL",
+    tmplScriptWarnLabel: "読み込まないスクリプト",
+    cspReportsTitle: "公開サイトの守り（CSP）の報告（止めることになるもの）",
+    tmplScriptWarnExternal:
+      "外部の JS（公開ページでは読み込みません。使う時は中身をテンプレートに貼り付けてください）: ",
+    tmplScriptWarnToken:
+      "[[…]] を含むスクリプト（サイトの守り（CSP）で止まります。値は data- 属性で渡してください）: ",
+    tmplScriptWarnToast:
+      "公開ページで動かないスクリプトがあります。テンプレートの詳細をご覧ください。",
     tmplDetailClose: "閉じる",
     tmplDeleteConfirm: "このテンプレートを削除しますか？",
     tmplEditorNotSelected: "テンプレートが選択されていません",

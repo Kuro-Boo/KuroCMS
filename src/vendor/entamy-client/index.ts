@@ -583,3 +583,33 @@ export async function regionReport(
     names: { worker: null, entry: null, d1_region: null, d1_colo: null },
   };
 }
+
+/**
+ * 公開サイトの CSP(本体は entamy-connect の service/src/csp.ts)。公開ミラーでは
+ * 見出しを付けず(空)、報告も読まない。配布する worker.js には本体が入る。
+ */
+export function cspHeaders(_o: {
+  mode: "report" | "enforce";
+  productId: string;
+  nonce?: string;
+  reportUri?: string;
+  scriptSrc?: string[];
+  connectSrc?: string[];
+  imgSrc?: string[];
+  frameSrc?: string[];
+  styleSrc?: string[];
+  fontSrc?: string[];
+  frameAncestors?: string[];
+}): Record<string, string> {
+  return {};
+}
+
+export function parseCspReports(
+  _body: unknown,
+): Array<{
+  directive: string;
+  blocked: string;
+  disposition: "report" | "enforce";
+}> {
+  return [];
+}

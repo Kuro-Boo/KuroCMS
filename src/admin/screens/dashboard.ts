@@ -143,6 +143,8 @@ async function dashboard() {
       // 版を確認できなかったときに出す一行。**空欄のままにしない** ——
       // 「分からない」を黙って隠すと「最新です」と見分けがつかなくなる。
       "<div id='versionNote' style='display:none;font-size:11px;line-height:1.5;color:var(--muted);border-top:1px solid var(--line);padding-top:8px;margin-top:2px'></div>" +
+      // 公開サイトの CSP の違反の報告(cms-cms-security「CSP」)。報告が無ければ出さない。
+      "<div id='cspReports' style='display:none;font-size:11px;line-height:1.5;color:var(--muted);border-top:1px solid var(--line);padding-top:8px;margin-top:2px'></div>" +
       "</div>" +
       "</div>" + // closes version .panel
       guardianPanelHtml() +
@@ -632,6 +634,45 @@ async function dashboard() {
   // Check the version once when the dashboard opens (result is only shown here;
   // background polling would be pointless). Manual re-check via the button.
   checkVersion();
+  showCspReports();
+
+  /**
+   * 公開サイトの CSP の違反の報告(cms-cms-security「CSP」)。いまは報告だけの段で、
+   * 何が止まりうるかを見て、強制にしてよいかを判断するための数。
+   */
+  async function showCspReports() {
+    const box = byId("cspReports");
+    if (!box) return;
+    let d: Dynamic;
+    try {
+      d = await api("/api/system/csp-reports");
+    } catch {
+      return;
+    }
+    const kinds = (d && d.kinds) || [];
+    if (!kinds.length) return;
+    box.innerHTML =
+      "<div style='font-weight:600;margin-bottom:4px'>" +
+      escapeHtml(t("cspReportsTitle")) +
+      "</div><table style='width:100%;border-collapse:collapse'><tbody>" +
+      kinds
+        .map(function (k: Dynamic) {
+          return (
+            "<tr><td style='padding:2px 6px 2px 0;word-break:break-all'><code>" +
+            escapeHtml(String(k.directive)) +
+            "</code> ← <code>" +
+            escapeHtml(String(k.blocked)) +
+            "</code></td><td style='padding:2px 0;text-align:right;white-space:nowrap'>" +
+            escapeHtml(String(k.count)) +
+            "</td><td style='padding:2px 0 2px 8px;white-space:nowrap'>" +
+            escapeHtml(new Date(Number(k.last_at)).toLocaleString()) +
+            "</td></tr>"
+          );
+        })
+        .join("") +
+      "</tbody></table>";
+    box.style.display = "";
+  }
 
   const channelToggle = byId("updateChannelToggle") as HTMLInputElement | null;
   if (channelToggle) {

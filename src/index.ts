@@ -12,6 +12,8 @@ import { purgeIpGate } from "./ip-gate";
 import { runScheduledThreadsTokenRefresh } from "./threads-token";
 import { html, notFound, notFoundPage } from "./http";
 import { reactionEndpoint } from "./reactions";
+import { cspReportEndpoint } from "./csp-report";
+import { CSP_REPORT_PATH } from "./site-csp";
 import {
   buildCountsJs,
   buildLlmsTxt,
@@ -26,6 +28,7 @@ import {
   runScheduledAutoBuild,
   searchEndpoint,
   serveTemplateCss,
+  serveTemplateScript,
 } from "./public";
 import { moveFrozen, movedPage, moveRetired, movedTo } from "./move";
 import type { Env } from "./types";
@@ -298,6 +301,18 @@ const worker = {
       );
       if (twCssMatch) {
         return serveTemplateCss(env, twCssMatch[1], twCssMatch[2]);
+      }
+      // テンプレートの作者が書いたスクリプト: {publicBase}/_tjs/{id}.{hash}.js
+      // (公開サイトの CSP は自分のファイルだけを動かす —— cms-cms-security「CSP」)。
+      const tjsMatch = publicPath.match(
+        new RegExp("^/_tjs/([a-zA-Z0-9_-]+)\\.([a-f0-9]{16})\\.js$"),
+      );
+      if (tjsMatch) {
+        return serveTemplateScript(env, tjsMatch[1], tjsMatch[2]);
+      }
+      // CSP の違反の報告(ブラウザーが送る)。絞ってから Defects へ(csp-report.ts)。
+      if (publicPath === CSP_REPORT_PATH) {
+        return cspReportEndpoint(request, env, ctx);
       }
       if (publicPath === "/rss.xml") {
         return new Response(await buildRssXml(env), { headers: xmlHeaders });

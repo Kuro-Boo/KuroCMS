@@ -151,38 +151,31 @@ export const BOT_UA =
  *   5. それ以外 → 何もしない
  * 2・4 では移る前に印を付け、移った先・続けて見るページで戻されないようにする。
  * 移るのは location.replace(戻るボタンで繰り返さない)。
- *
- * ⚠ テンプレートリテラルの中の JS なので、正規表現リテラルを書かない。
  */
 export function langScript(opts: {
   defaultLang: string;
   current: string;
   pageLangs: string[];
   publicBase: string;
+  /** kuro-head.js の URL。判断の本体はそのファイル(src/site/kuro-head.ts)にある。 */
+  src: string;
 }): string {
+  // ページにスクリプトを書かない(公開サイトの CSP は自分のファイルだけを動かす ——
+  // cms-cms-security「CSP」)。設定は data 属性で渡す。
   const cfg = JSON.stringify({
     d: opts.defaultLang,
     c: opts.current,
     l: opts.pageLangs,
     b: opts.publicBase,
     u: BOT_UA,
-  }).replace(/</g, "\\u003c");
-  return `<script>(function(){try{var K=${cfg};
-if(new RegExp(K.u,"i").test(navigator.userAgent||""))return;
-var CH="kurocms_lang",SEEN="kurocms_lang_seen";
-function has(l){return K.l.indexOf(l)>=0;}
-function bare(){var p=location.pathname.slice(K.b.length)||"/";if(K.c!==K.d&&p.indexOf("/"+K.c)===0)p=p.slice(K.c.length+1)||"/";return p;}
-function href(l,q){return K.b+(l===K.d?"":"/"+l)+bare()+q+location.hash;}
-function query(){var s=new URLSearchParams(location.search);s.delete("lang");var t=s.toString();return t?"?"+t:"";}
-function mark(){try{sessionStorage.setItem(SEEN,"1");}catch(e){}}
-function go(l){if(l!==K.c||location.search.indexOf("lang=")>=0)location.replace(href(l,query()));}
-var q=new URLSearchParams(location.search).get("lang");
-if(q){mark();if(has(q))go(q);return;}
-var pick="";try{pick=localStorage.getItem(CH)||"";}catch(e){}
-if(pick){if(has(pick)&&pick!==K.c)go(pick);return;}
-var seen="";try{seen=sessionStorage.getItem(SEEN)||"";}catch(e){return;}
-if(seen)return;mark();
-var nl=navigator.languages&&navigator.languages.length?navigator.languages:[navigator.language||""];
-for(var i=0;i<nl.length;i++){var c=String(nl[i]||"").slice(0,2).toLowerCase();if(has(c)){if(c!==K.c)go(c);return;}}
-}catch(e){}})();</script>`;
+  });
+  return `<script src="${escAttr(opts.src)}" data-kuro-lang="${escAttr(cfg)}"></script>`;
+}
+
+function escAttr(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }

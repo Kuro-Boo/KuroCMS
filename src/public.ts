@@ -21,7 +21,14 @@ import {
   parseStaticPages,
   type StaticPageDefinition,
 } from "./templates/static-pages";
-import { KE_VERSION } from "./admin-assets";
+import { KE_VERSION, SITE_HEAD_FILE, SITE_SCRIPT_FILE } from "./admin-assets";
+import { siteCspHeaders, siteHeadersFile } from "./site-csp";
+import {
+  externalizeTemplateScripts,
+  templateScriptBody,
+  templateScriptPath,
+  templateScripts,
+} from "./template-scripts";
 import { buildFontHead, type LoadedFont } from "./fonts";
 import { stripInternalIds } from "./strip-internal-ids";
 import { sanitizeContentHtml } from "./kuroeditor/normalize.js";
@@ -533,9 +540,10 @@ function buildBlueskyWidget(handle: string): string {
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;");
-  const uid = "bw_" + handle.replace(/[^a-z0-9]/gi, "_");
-  // Rich, self-contained widget (avatar / text / images / embed / like+repost /
-  // post links). Inline styles only — must render on non-Tailwind templates too.
+  // Rich widget (avatar / text / images / embed / like+repost / post links).
+  // Inline styles only — must render on non-Tailwind templates too. The posts are
+  // fetched and drawn by kuro-site.js (src/site/): the page carries no script
+  // (the site CSP runs only the site's own files — cms-cms-security「CSP」).
   return `<div style="border:1px solid #d3e8ff;background:#f0f8ff;border-radius:16px;padding:14px;max-width:400px">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
     <div style="display:flex;align-items:center;gap:8px">
@@ -544,59 +552,10 @@ function buildBlueskyWidget(handle: string): string {
     </div>
     <a href="https://bsky.app/profile/${esc(handle)}" target="_blank" rel="noopener" style="font-size:11px;color:#0085ff;text-decoration:none">プロフィール →</a>
   </div>
-  <div id="${uid}" style="display:flex;flex-direction:column;gap:8px">
+  <div data-kuro-bsky="${esc(handle)}" style="display:flex;flex-direction:column;gap:8px">
     <p style="font-size:13px;color:#0085ff;opacity:.6;text-align:center;padding:10px 0;margin:0">読み込み中…</p>
   </div>
-</div>
-<script>
-(function(){
-  var H="${esc(handle)}",el=document.getElementById("${uid}");
-  if(!el)return;
-  var e=function(s){return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");};
-  var rt=function(iso){var d=Date.now()-new Date(iso).getTime(),m=Math.floor(d/60000);if(m<1)return"たった今";if(m<60)return m+"分前";var h=Math.floor(m/60);if(h<24)return h+"時間前";var dy=Math.floor(h/24);if(dy<7)return dy+"日前";return new Date(iso).toLocaleDateString("ja-JP",{month:"numeric",day:"numeric"});};
-  fetch("https://public.api.bsky.app/xrpc/app.bsky.feed.getAuthorFeed?actor="+encodeURIComponent(H)+"&limit=10&filter=posts_no_replies",{headers:{accept:"application/json"}})
-    .then(function(r){return r.json();})
-    .then(function(data){
-      if(!el)return;
-      var items=(data.feed||[]).filter(function(f){return f.post&&f.post.record&&f.post.record.text;});
-      if(!items.length){el.innerHTML="<p style='font-size:12px;color:#94a3b8;text-align:center;padding:10px 0;margin:0'>投稿がありません</p>";return;}
-      el.innerHTML=items.map(function(f){
-        var post=f.post,author=post.author||{},record=post.record||{};
-        var rkey=(post.uri||"").split("/").pop();
-        var postUrl="https://bsky.app/profile/"+encodeURIComponent(author.handle||"")+"/post/"+(rkey||"");
-        var avatar=author.avatar
-          ?"<img src='"+e(author.avatar)+"' style='width:40px;height:40px;border-radius:50%;object-fit:cover;flex-shrink:0' alt='' />"
-          :"<div style='width:40px;height:40px;border-radius:50%;background:rgba(0,133,255,.2);flex-shrink:0'></div>";
-        var images=((post.embed&&post.embed.images)||[]).slice(0,4);
-        var imgHtml="";
-        if(images.length){
-          imgHtml="<div style='margin-top:8px;display:grid;grid-template-columns:"+(images.length>1?"1fr 1fr":"1fr")+";gap:4px;border-radius:8px;overflow:hidden'>"
-            +images.map(function(img){var t=img.thumb||img.fullsize||"";return t?"<img src='"+e(t)+"' style='width:100%;object-fit:cover;max-height:150px;border-radius:6px' alt='"+e(img.alt||"")+"' />":"";}).join("")
-            +"</div>";
-        }else if(post.embed&&post.embed.external&&post.embed.external.thumb){
-          imgHtml="<div style='margin-top:8px;border-radius:8px;overflow:hidden;border:1px solid #f1f5f9'><img src='"+e(post.embed.external.thumb)+"' style='width:100%;object-fit:cover;max-height:150px' alt='' />"
-            +(post.embed.external.title?"<div style='padding:6px 8px;background:#f8fafc;font-size:11px;color:#475569;white-space:nowrap;overflow:hidden;text-overflow:ellipsis'>"+e(post.embed.external.title)+"</div>":"")
-            +"</div>";
-        }
-        return "<a href='"+postUrl+"' target='_blank' rel='noopener noreferrer' style='display:block;background:#fff;border-radius:12px;padding:12px;box-shadow:0 1px 2px rgba(0,0,0,.06);text-decoration:none'>"
-          +"<div style='display:flex;align-items:center;gap:8px;margin-bottom:8px'>"+avatar
-          +"<div style='min-width:0;flex:1;display:flex;flex-direction:column'>"
-          +"<span style='font-weight:700;font-size:13px;color:#0f172a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis'>"+e(author.displayName||author.handle||"")+"</span>"
-          +"<div style='display:flex;align-items:center;justify-content:space-between;margin-top:1px'>"
-          +"<span style='font-size:11px;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis'>@"+e(author.handle||"")+"</span>"
-          +"<span style='font-size:11px;color:#94a3b8;white-space:nowrap;margin-left:4px'>"+rt(record.createdAt||"")+"</span>"
-          +"</div></div></div>"
-          +"<p style='font-size:13px;color:#1f2937;line-height:1.6;white-space:pre-wrap;word-break:break-word;margin:0'>"+e(record.text||"")+"</p>"
-          +imgHtml
-          +"<div style='display:flex;align-items:center;gap:16px;margin-top:8px;font-size:11px;color:#64748b'>"
-          +"<span style='display:inline-flex;align-items:center;gap:4px'><svg style='width:14px;height:14px;fill:#0085ff' viewBox='0 0 24 24'><path d='M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z'/></svg>"+(post.likeCount||0)+"</span>"
-          +"<span style='display:inline-flex;align-items:center;gap:4px'><svg style='width:14px;height:14px;fill:#64748b' viewBox='0 0 24 24'><path d='M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z'/></svg>"+(post.repostCount||0)+"</span>"
-          +"</div>"
-          +"</a>";
-      }).join("");
-    }).catch(function(){if(el)el.innerHTML="<p style='font-size:12px;color:#94a3b8;text-align:center;padding:10px 0;margin:0'>読み込めませんでした</p>";});
-})();
-</script>`;
+</div>`;
 }
 
 /**
@@ -645,8 +604,8 @@ function buildAdSenseUnit(client: string, slot: string): string {
   return (
     `<ins class="kuro-ad adsbygoogle" style="display:block" ` +
     `data-ad-client="${c}" data-ad-slot="${s}" ` +
-    `data-ad-format="auto" data-full-width-responsive="true"></ins>` +
-    `<script>(adsbygoogle=window.adsbygoogle||[]).push({});</script>`
+    `data-ad-format="auto" data-full-width-responsive="true" data-kuro-ad></ins>`
+    // The push({}) per unit is done by kuro-site.js (no inline script — site CSP).
   );
 }
 
@@ -699,30 +658,14 @@ function buildLanguageWidget(
       return `<button type="button" data-kl-code="${esc(l.code)}" style="display:flex;align-items:center;gap:8px;width:100%;text-align:start;border:0;background:${on ? "#eef2ff" : "transparent"};color:#0f172a;font-size:12px;padding:6px 10px;border-radius:7px;cursor:pointer;line-height:1.2"><span style="font-weight:700;min-width:20px">${two(l.code)}</span><span style="color:#475569">${esc(l.name)}</span></button>`;
     })
     .join("");
-  return `<div id="${uid}" style="position:relative;display:inline-block">
+  // Behaviour lives in kuro-site.js (src/site/); the page carries no script.
+  return `<div id="${uid}" data-kuro-langsw data-kl-default="${esc(urls.defaultLang)}" data-kl-current="${esc(currentLang)}" data-kl-base="${esc(urls.publicBase)}" style="position:relative;display:inline-block">
   <button type="button" data-kl-toggle aria-label="Language" style="display:inline-flex;align-items:center;gap:4px;border:1px solid #cbd5e1;border-radius:8px;padding:4px 8px;background:#fff;color:#0f172a;font-size:12px;font-weight:700;line-height:1;cursor:pointer">
     <span>${cur}</span>
     <svg viewBox="0 0 20 20" style="width:12px;height:12px;fill:#64748b"><path d="M5 7l5 5 5-5z"/></svg>
   </button>
   <div data-kl-menu style="display:none;position:absolute;inset-inline-end:0;top:calc(100% + 4px);min-width:150px;max-height:60vh;overflow:auto;background:#fff;border:1px solid #e2e8f0;border-radius:10px;box-shadow:0 10px 30px rgba(15,23,42,.15);padding:4px;z-index:1000">${items}</div>
-</div>
-<script>
-(function(){
-  var root=document.getElementById("${uid}");if(!root)return;
-  var btn=root.querySelector("[data-kl-toggle]"),menu=root.querySelector("[data-kl-menu]"),KEY="kurocms_lang";
-  var D=${JSON.stringify(urls.defaultLang)},C=${JSON.stringify(currentLang)},B=${JSON.stringify(urls.publicBase)};
-  // The language is in the path (/en/post/). Remember the choice: every page's
-  // head script (langScript) follows it from now on.
-  function go(code){try{localStorage.setItem(KEY,code);}catch(e){}
-    var p=location.pathname.slice(B.length)||"/";if(C!==D&&p.indexOf("/"+C)===0)p=p.slice(C.length+1)||"/";
-    location.href=B+(code===D?"":"/"+code)+p+location.hash;}
-  if(btn&&menu){
-    btn.addEventListener("click",function(e){e.stopPropagation();menu.style.display=menu.style.display==="block"?"none":"block";});
-    document.addEventListener("click",function(){menu.style.display="none";});
-    menu.querySelectorAll("[data-kl-code]").forEach(function(b){b.addEventListener("click",function(e){e.preventDefault();go(b.getAttribute("data-kl-code"));});});
-  }
-})();
-</script>`;
+</div>`;
 }
 
 /**
@@ -832,26 +775,10 @@ function buildCarouselWidget(urls: string[], opts: CarouselOpts): string {
     `#${uid} .kuro-carousel__dots button{width:9px;height:9px;padding:0;border:0;border-radius:50%;background:#ffffff8c;cursor:pointer}` +
     `#${uid} .kuro-carousel__dots button.is-on{background:#fff}` +
     `@media(prefers-reduced-motion:reduce){#${uid} .kuro-carousel__stage,#${uid} .kuro-carousel__slide{transition:none}}`;
-  // 自動送りは reduced-motion を尊重して止める。JS に正規表現リテラルは書かない。
-  const js =
-    `(function(){var r=document.getElementById(${JSON.stringify(uid)});if(!r)return;` +
-    `var st=r.querySelector(".kuro-carousel__stage"),sl=r.querySelectorAll(".kuro-carousel__slide");` +
-    `if(sl.length<2)return;var dt=r.querySelectorAll("[data-kc-go]"),cur=0,t=null,slide=${isSlide ? "true" : "false"},iv=${opts.intervalMs};` +
-    `function show(n){cur=(n+sl.length)%sl.length;` +
-    `if(slide){st.style.transform="translateX(-"+(cur*100)+"%)";}` +
-    `else{for(var i=0;i<sl.length;i++){if(i===cur)sl[i].classList.add("is-on");else sl[i].classList.remove("is-on");}}` +
-    `for(var k=0;k<dt.length;k++){if(k===cur)dt[k].classList.add("is-on");else dt[k].classList.remove("is-on");}}` +
-    `function stop(){if(t){clearInterval(t);t=null;}}` +
-    `function start(){stop();if(!iv)return;var m=window.matchMedia&&window.matchMedia("(prefers-reduced-motion: reduce)");if(m&&m.matches)return;t=setInterval(function(){show(cur+1);},iv);}` +
-    `var p=r.querySelector("[data-kc-prev]"),n=r.querySelector("[data-kc-next]");` +
-    `if(p)p.addEventListener("click",function(){show(cur-1);start();});` +
-    `if(n)n.addEventListener("click",function(){show(cur+1);start();});` +
-    `for(var j=0;j<dt.length;j++){(function(el){el.addEventListener("click",function(){show(parseInt(el.getAttribute("data-kc-go"),10));start();});})(dt[j]);}` +
-    `r.addEventListener("mouseenter",stop);r.addEventListener("mouseleave",start);start();})();`;
   return (
-    `<div id="${uid}" class="kuro-carousel"><style>${css}</style>` +
-    `<div class="kuro-carousel__stage">${slides}</div>${arrows}${dots}</div>` +
-    `<script>${js}</script>`
+    // 切り替え・自動送りは kuro-site.js(src/site/)が data 属性を読んで動かす。
+    `<div id="${uid}" class="kuro-carousel" data-kc-effect="${opts.effect}" data-kc-interval="${opts.intervalMs}"><style>${css}</style>` +
+    `<div class="kuro-carousel__stage">${slides}</div>${arrows}${dots}</div>`
   );
 }
 
@@ -871,7 +798,8 @@ function buildSearchWidget(publicBase: string, lang: string): string {
   const uid = "ks_" + (lang || "x").replace(/[^a-z0-9]/gi, "_");
   const icon =
     '<svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="9" cy="9" r="6"/><line x1="13.5" y1="13.5" x2="18" y2="18"/></svg>';
-  return `<div id="${uid}" class="kuro-search" style="position:relative;display:inline-flex;align-items:center;vertical-align:middle">
+  // Behaviour lives in kuro-site.js (src/site/); the page carries no script.
+  return `<div id="${uid}" class="kuro-search" data-ks-ep="${esc(base)}/_search" data-ks-lang="${esc(lang)}" data-ks-empty="${esc(noRes)}" data-ks-more="${esc(moreLabel)}" style="position:relative;display:inline-flex;align-items:center;vertical-align:middle">
   <style>
   #${uid} .kuro-search__bar{display:inline-flex;align-items:center;gap:2px;border:1px solid #cbd5e1;border-radius:8px;padding:2px 4px 2px 8px;background:#fff}
   #${uid} .kuro-search__input{border:0;outline:none;background:transparent;font-size:13px;color:#0f172a;width:15ch;padding:2px 0;line-height:1.2}
@@ -907,41 +835,7 @@ function buildSearchWidget(publicBase: string, lang: string): string {
       <div class="kuro-search__dresults" data-ks-dresults></div>
     </div>
   </div>
-</div>
-<script>
-(function(){
-  var root=document.getElementById("${uid}");if(!root)return;
-  var EP=${JSON.stringify(base)}+"/_search",KEY="kurocms_lang",EMPTY=${JSON.stringify(noRes)},MORE=${JSON.stringify(moreLabel)};
-  var input=root.querySelector(".kuro-search__input"),btn=root.querySelector("[data-ks-btn]"),panel=root.querySelector("[data-ks-panel]");
-  var dialog=root.querySelector("[data-ks-dialog]"),dinput=root.querySelector(".kuro-search__dinput"),dres=root.querySelector("[data-ks-dresults]"),dclose=root.querySelector("[data-ks-close]");
-  function lang(){return ${JSON.stringify(lang)};}
-  function isMobile(){return !!(window.matchMedia&&window.matchMedia("(max-width:640px)").matches);}
-  function render(box,items,append){var old=box.querySelector(".kuro-search__more");if(old)old.remove();if(!append)box.textContent="";if(!append&&(!items||!items.length)){var e=document.createElement("div");e.className="kuro-search__empty";e.textContent=EMPTY;box.appendChild(e);return;}
-    items.forEach(function(r){var a=document.createElement("a");a.className="kuro-search__item";a.href=r.url;
-      var t=document.createElement("span");t.className="kuro-search__title";t.textContent=r.title||r.url;a.appendChild(t);
-      if(r.snippet){var s=document.createElement("span");s.className="kuro-search__snip";s.textContent=r.snippet;a.appendChild(s);}
-      box.appendChild(a);});}
-  var seq=0;
-  function run(q,box,show,offset){q=(q||"").trim();if(!q){box.textContent="";if(show)show(false);return;}
-    var my=offset?seq:++seq;
-    fetch(EP+"?q="+encodeURIComponent(q)+"&lang="+encodeURIComponent(lang())+(offset?"&offset="+offset:"")).then(function(r){return r.ok?r.json():{results:[]};}).then(function(d){if(my!==seq)return;render(box,d&&d.results,!!offset);
-      if(d&&typeof d.next_offset==="number"){var m=document.createElement("button");m.type="button";m.className="kuro-search__more";m.textContent=MORE.split("{n}").join(String((d.total||0)-d.next_offset));
-        m.addEventListener("click",function(e){e.preventDefault();e.stopPropagation();run(q,box,null,d.next_offset);});box.appendChild(m);}
-      if(show)show(true);}).catch(function(){if(my!==seq)return;if(!offset)render(box,[]);if(show)show(true);});}
-  function debounce(fn){var t;return function(){var a=arguments,c=this;clearTimeout(t);t=setTimeout(function(){fn.apply(c,a);},220);};}
-  if(input){var showPanel=function(on){panel.style.display=on?"block":"none";};
-    input.addEventListener("input",debounce(function(){run(input.value,panel,showPanel);}));
-    input.addEventListener("focus",function(){if(input.value.trim())showPanel(true);});
-    document.addEventListener("click",function(e){if(!root.contains(e.target))showPanel(false);});}
-  function openDialog(){dialog.style.display="block";dinput.value=input?input.value:"";if(dinput.value.trim())run(dinput.value,dres,null);setTimeout(function(){dinput.focus();},30);}
-  function closeDialog(){dialog.style.display="none";}
-  if(btn)btn.addEventListener("click",function(e){e.preventDefault();if(isMobile()){openDialog();}else if(input){input.focus();run(input.value,panel,function(on){panel.style.display=on?"block":"none";});}});
-  if(dinput)dinput.addEventListener("input",debounce(function(){run(dinput.value,dres,null);}));
-  if(dclose)dclose.addEventListener("click",closeDialog);
-  if(dialog)dialog.addEventListener("click",function(e){if(e.target===dialog)closeDialog();});
-  document.addEventListener("keydown",function(e){if(e.key==="Escape")closeDialog();});
-})();
-</script>`;
+</div>`;
 }
 
 /** Active external SNS connections (Threads / X / Mastodon / Facebook 等). */
@@ -2045,6 +1939,9 @@ function keUrlCard(slug: string, href: string): string {
 //    自サービスの一時障害は簡易表示のまま。取得メタは保存しない（原本は [[url|]]）。
 //  - 壊れメディア: img/vid/aud の src ロード失敗を捕捉し buildBrokenMedia へ差し替え
 //    （エディタの error ハンドラと同一表示）。
+// スクリプトはページに書かない（公開サイトの CSP は自分のファイルだけを動かす ——
+// cms-cms-security「CSP」）。部品を動かすのは kuro-site.js（src/site/）で、**どのページにも**
+// 1 本置く（部品の有無はその JS が要素を探して決める。ファイルは 1 年キャッシュされる）。
 async function injectKuroLinksClient(
   html: string,
   env: Env,
@@ -2058,11 +1955,6 @@ async function injectKuroLinksClient(
     if (u) urls.add(u);
   }
   const hasUnfurl = urls.size > 0;
-  const hasMedia = html.includes("kuro-media-wrap");
-  // Tap-to-zoom applies to EVERY image on the page (media figures, table cells,
-  // cover images, imported HTML), so its gate is "does this page have an <img>"
-  // — not the narrower kuro-media-wrap check the broken-media fixup needs.
-  const hasImg = html.includes("<img");
   // コードブロックのコピーボタン。KuroEditor が保存する <pre data-gutter="…"> が
   // 目印で、行番号は CSS(ke-content) が描き、📋 だけがクライアント JS を要る。
   // ⚠ コードのあるページだけ配る（全ページに配ると、大半のページで使われない
@@ -2070,7 +1962,6 @@ async function injectKuroLinksClient(
   const hasCode = html.includes("data-gutter=");
   // YouTube の facade（サムネイル）。タップでオーバーレイ再生する。
   const hasVideo = html.includes("kuro-video-facade");
-  if (!hasUnfurl && !hasMedia && !hasImg && !hasCode && !hasVideo) return html;
 
   let out = html;
   if (hasUnfurl) {
@@ -2092,61 +1983,13 @@ async function injectKuroLinksClient(
   // THIS worker, so /_unfurl there is reachable. (Same-origin; unfurlEndpoint
   // also sets CORS.)
   const endpoint = `${publicBase.replace(/\/+$/, "")}/_unfurl`;
-  const brokenBlock = hasMedia
-    ? `function fixBroken(el){if(!el||!el.classList||!el.classList.contains("kuro-media"))return;` +
-      `var fig=el.closest(".kuro-media-wrap");if(!fig)return;fig.innerHTML=buildBrokenMedia(el.getAttribute("src")||"");}` +
-      `window.addEventListener("error",function(e){fixBroken(e.target);},true);` +
-      `document.querySelectorAll("img.kuro-media").forEach(function(img){if(img.complete&&img.naturalWidth===0)fixBroken(img);});`
-    : "";
-  // Mobile-only tap-to-zoom for EVERY image on the page: media figures, images
-  // inside tables, article cover images, and images from imported HTML (which
-  // carry no kuro-media class). Tapping an image opens a full-screen overlay;
-  // tapping the overlay (or Esc) returns to normal. Only three exclusions:
-  //   - images inside an <a> (card thumbs, header logo) — the tap must navigate
-  //   - the overlay's own <img> — it would re-open on every tap
-  //   - data-kuro-nozoom opt-out
-  // Desktop is untouched. Uses no regex literals (template-literal safe).
-  // ⚠ 拡大表示は【暗転させない】（記事の上に浮かせる）。動画オーバーレイと
-  //   揃えてある。透明なので当たり判定のためだけに inset:0 の層を置き、
-  //   どこをタップしても閉じる。境界は画像側の影で示す。
-  const zoomBlock = hasImg
-    ? `var _zmq=window.matchMedia?window.matchMedia("(max-width:640px)"):null,_zov=null;` +
-      `function _zClose(){if(_zov){if(_zov.parentNode)_zov.parentNode.removeChild(_zov);_zov=null;document.documentElement.style.overflow="";}}` +
-      `function _zOpen(src){_zClose();_zov=document.createElement("div");_zov.setAttribute("data-kuro-zoom","");_zov.style.cssText="position:fixed;inset:0;z-index:3000;background:transparent;display:flex;align-items:center;justify-content:center;touch-action:none;cursor:zoom-out";var im=document.createElement("img");im.src=src;im.style.cssText="max-width:94vw;max-height:92vh;width:auto;height:auto;object-fit:contain;border-radius:8px;box-shadow:0 12px 44px rgba(0,0,0,.45)";_zov.appendChild(im);_zov.addEventListener("click",_zClose);document.body.appendChild(_zov);document.documentElement.style.overflow="hidden";}` +
-      `function _zAble(img){if(!img||img.tagName!=="IMG"||!img.closest)return false;` +
-      `if(img.getAttribute("data-kuro-nozoom")!==null)return false;` +
-      `if(img.closest("a"))return false;` +
-      `if(img.closest("[data-kuro-zoom]"))return false;return true;}` +
-      `document.addEventListener("click",function(e){if(!_zmq||!_zmq.matches)return;var img=e.target;if(!_zAble(img))return;e.preventDefault();_zOpen(img.currentSrc||img.src);},false);` +
-      `window.addEventListener("keydown",function(e){if(e.key==="Escape")_zClose();});`
-    : "";
-  const unfurlBlock = hasUnfurl
-    ? `var A=${JSON.stringify(endpoint)};` +
-      `function apply(a,d,slug){if(!d)return;var url=a.getAttribute("href")||slug;` +
-      `if(d.ok===false){if(d.reason==="target_404"||d.reason==="target_unreachable"){a.innerHTML=_urlCardErrorInner(slug,url);a.classList.add("kuro-url-card--error");}return;}` +
-      `a.innerHTML=_urlCardInner(slug,url,d.meta||null);a.classList.add("kuro-url-card--rich");}` +
-      `function load(a){var u=a.getAttribute("data-kuro-unfurl"),s=a.getAttribute("data-kuro-sig");if(!u||!s)return;a.removeAttribute("data-kuro-unfurl");` +
-      `var ck="kuf:"+u;try{var c=sessionStorage.getItem(ck);if(c){apply(a,JSON.parse(c),u);return;}}catch(e){}` +
-      `fetch(A+"?url="+encodeURIComponent(u)+"&sig="+encodeURIComponent(s)).then(function(r){return r.ok?r.json():null;}).then(function(d){if(d){try{sessionStorage.setItem(ck,JSON.stringify(d));}catch(e){}}apply(a,d,u);}).catch(function(){});}` +
-      `var cs=[].slice.call(document.querySelectorAll("a.kuro-url-card[data-kuro-sig]"));` +
-      `if(cs.length){if("IntersectionObserver" in window){var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){io.unobserve(e.target);load(e.target);}});},{rootMargin:"200px"});cs.forEach(function(a){io.observe(a);});}else{cs.forEach(load);}}`
-    : "";
-  // Only the broken-media / URL-card blocks need the shared module. A page that
-  // merely has images (zoom only) must NOT import it: a failed import kills the
-  // whole module script, and tap-to-zoom would silently stop working.
-  const needsModule = hasUnfurl || hasMedia;
-  const script =
-    `<script type="module">` +
-    (needsModule
-      ? `import { _urlCardInner, _urlCardErrorInner, buildBrokenMedia } from ${JSON.stringify(moduleUrl)};`
-      : "") +
-    brokenBlock +
-    zoomBlock +
-    unfurlBlock +
-    `</script>`;
+  // 部品を動かす JS。共有モジュール（URL カード・壊れたメディア）と URL カードの口は
+  // data 属性で渡す。
+  const siteScript =
+    `<script src="${escHtml(`${base}/_admin/${SITE_SCRIPT_FILE}`)}" defer ` +
+    `data-kuro-links="${escHtml(moduleUrl)}" data-kuro-unfurl="${escHtml(endpoint)}"></script>`;
   // コピーボタンは KuroEditor が配る単体スクリプト（vendored コピーを持たない＝
-  // エディタ側の実装が単一の正）。module ではないので、上の module script が
-  // 失敗しても影響しない。
+  // エディタ側の実装が単一の正）。
   const codeCopy = hasCode
     ? `<script src="${escHtml(`${base}/_admin/kuro-code-copy.${KE_VERSION}.js`)}" defer></script>`
     : "";
@@ -2166,22 +2009,10 @@ async function injectKuroLinksClient(
       `.kuro-video-ov__box{position:relative;width:min(100%,1200px);aspect-ratio:16/9;box-shadow:0 12px 44px rgba(0,0,0,.45);border-radius:8px}` +
       `.kuro-video-ov iframe{position:absolute;inset:0;width:100%;height:100%;border:0;border-radius:8px}` +
       `.kuro-video-ov__close{position:absolute;top:-36px;right:0;width:32px;height:32px;border:0;border-radius:999px;background:rgba(0,0,0,.72);color:#fff;font-size:15px;line-height:1;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.3)}` +
-      `</style><script>(function(){var ov=null;` +
-      `function close(){if(ov){if(ov.parentNode)ov.parentNode.removeChild(ov);ov=null;document.documentElement.style.overflow="";}}` +
-      `function open(src){close();ov=document.createElement("div");ov.className="kuro-video-ov";` +
-      `var box=document.createElement("div");box.className="kuro-video-ov__box";` +
-      `var f=document.createElement("iframe");f.src=src;f.setAttribute("allowfullscreen","");f.setAttribute("frameborder","0");` +
-      `f.setAttribute("allow","accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture");` +
-      `f.setAttribute("title","埋め込み動画");box.appendChild(f);` +
-      `var b=document.createElement("button");b.type="button";b.className="kuro-video-ov__close";b.setAttribute("aria-label","閉じる");b.textContent="\u2715";` +
-      `b.addEventListener("click",close);box.appendChild(b);ov.appendChild(box);` +
-      `ov.addEventListener("click",function(e){if(e.target===ov)close();});` +
-      `document.body.appendChild(ov);document.documentElement.style.overflow="hidden";}` +
-      `document.addEventListener("click",function(e){var t=e.target;if(!t||!t.closest)return;` +
-      `var btn=t.closest(".kuro-video-facade");if(!btn)return;e.preventDefault();open(btn.getAttribute("data-kuro-embed"));});` +
-      `window.addEventListener("keydown",function(e){if(e.key==="Escape")close();});})();</script>`
+      // 再生のオーバーレイは kuro-site.js が開く。
+      `</style>`
     : "";
-  const tail = `${script}${codeCopy}${videoBlock}`;
+  const tail = `${siteScript}${codeCopy}${videoBlock}`;
   out = out.includes("</body>")
     ? out.replace("</body>", `${tail}</body>`)
     : out + tail;
@@ -2331,8 +2162,8 @@ function buildArchivesWidget(opts: {
     );
   }
   return (
-    `<select class="kuro-archives" aria-label="${escHtml(archiveLatestLabel(lang))}" ` +
-    `onchange="if(this.value)window.location.href=this.value">${options.join("")}</select>`
+    // Navigating on change is done by kuro-site.js (no inline handler — site CSP).
+    `<select class="kuro-archives" aria-label="${escHtml(archiveLatestLabel(lang))}">${options.join("")}</select>`
   );
 }
 
@@ -2869,8 +2700,18 @@ export async function generatePage(
   const extConns =
     prefetch?.externalConnections ?? (await fetchExternalConnections(env));
   const { snsSids, resolveSns } = buildSnsContext(s, extConns);
+  // テンプレートの作者のスクリプトは、サイトのファイル(/_tjs/)として読ませる。外部の JS は
+  // 外す(cms-cms-security「CSP」)。部品を展開する前に掛ける —— 移すのは作者が書いた分だけ。
   let sourceHtml = placeReactionSlot(
-    expandSnsRefs(template.sourceHtml, snsSids, resolveSns),
+    expandSnsRefs(
+      await externalizeTemplateScripts(
+        template.sourceHtml,
+        template.id,
+        s.base_path || "",
+      ),
+      snsSids,
+      resolveSns,
+    ),
     reactionsEnabled,
   );
 
@@ -3077,8 +2918,10 @@ export async function generatePage(
     origin: publicOrigin(s),
     isPage: isPublicPath,
   });
-  html = injectSeoHead(html, s, ctx, pageLangs);
-  html = injectGa4Head(html, s);
+  // 頭で同期に走る部品(言語の判断・GA の設定)。ページにスクリプトを書かない(site-csp.ts)。
+  const headSrc = `${adminBase}/_admin/${SITE_HEAD_FILE}`;
+  html = injectSeoHead(html, s, ctx, pageLangs, headSrc);
+  html = injectGa4Head(html, s, headSrc);
   html = await injectKuroLinksClient(html, env, adminBase, s.base_path || "");
   return html;
 }
@@ -3192,6 +3035,8 @@ function injectSeoHead(
   settings: SettingsMap,
   ctx: RenderContext,
   pageLangs: string[],
+  /** kuro-head.js の URL(言語の判断はそのファイルが data 属性を読んで行う)。 */
+  headSrc: string,
 ): string {
   const siteName = ctx.content["_site-name"] || settings.site_name || "";
   const lang = ctx.lang;
@@ -3379,6 +3224,7 @@ function injectSeoHead(
         current: lang,
         pageLangs,
         publicBase: basePath,
+        src: headSrc,
       }),
     );
   }
@@ -3543,13 +3389,18 @@ function injectSeoHead(
  * configured (admin "Analytics" tab). ID-only (no arbitrary script paste) for
  * safety; emitted only when the ID matches the expected G-XXXX shape.
  */
-function injectGa4Head(html: string, settings: SettingsMap): string {
+function injectGa4Head(
+  html: string,
+  settings: SettingsMap,
+  /** kuro-head.js の URL(gtag の設定はそのファイルが行う —— ページにスクリプトを書かない)。 */
+  headSrc: string,
+): string {
   const id = (settings.ga4_measurement_id || "").trim();
   if (!id || !/^G-[A-Z0-9]+$/.test(id)) return html;
   const e = seoAttr(id);
   const snippet =
     `<script async src="https://www.googletagmanager.com/gtag/js?id=${e}"></script>\n` +
-    `<script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','${e}');</script>\n`;
+    `<script src="${seoAttr(headSrc)}" data-kuro-ga="${e}"></script>\n`;
   // Place right after <head ...> so it loads early.
   const m = html.match(/<head[^>]*>/i);
   if (m) {
@@ -3945,6 +3796,34 @@ function applyCompiledTailwind(
   );
 }
 
+/**
+ * GET {base}/_tjs/{id}.{hash}.js — テンプレートの作者が書いたスクリプト(template-scripts.ts)。
+ * 中身はテンプレートの HTML から引き当てる。ハッシュが合わなければ 404(中身が変わった
+ * テンプレートの古いページは、次のビルドで新しいハッシュを指す)。
+ */
+export async function serveTemplateScript(
+  env: Env,
+  id: string,
+  hash: string,
+): Promise<Response> {
+  const row = await env.DB.prepare(
+    "SELECT source_html FROM page_templates WHERE id = ?",
+  )
+    .bind(id)
+    .first<{ source_html: string | null }>()
+    .catch(() => null);
+  const body = row?.source_html
+    ? await templateScriptBody(row.source_html, hash)
+    : null;
+  if (body === null) return new Response("Not found", { status: 404 });
+  return new Response(body, {
+    headers: {
+      "Content-Type": "text/javascript; charset=utf-8",
+      "Cache-Control": "public, max-age=31536000, immutable",
+    },
+  });
+}
+
 /** GET {base}/_tw/{id}.{hash}.css — the compiled per-template Tailwind CSS. */
 export async function serveTemplateCss(
   env: Env,
@@ -4227,6 +4106,20 @@ export async function publishSiteAssets(
             };
           }
         }
+        // テンプレートの作者のスクリプト(/_tjs/)も資産に置く —— ページが静的資産で返る時、
+        // その JS だけ Worker へ取りに来させない。
+        const scripts: Array<{ path: string; body: string }> = [];
+        for (const t of await templateScripts(template.sourceHtml)) {
+          if (t.kind !== "inline") continue;
+          scripts.push({
+            path: templateScriptPath(
+              settings.base_path || "",
+              template.id,
+              t.hash,
+            ),
+            body: t.body,
+          });
+        }
         return {
           // 委託運用へ引き渡した後は、ページを 1 枚も置かない(静的資産は Worker の手前で
           // 返るので、残すと案内が出ない —— 2026-10-21 に 8210de で見つけた)。
@@ -4236,6 +4129,9 @@ export async function publishSiteAssets(
           defaultLang: settings.default_lang || "en",
           publicBase: settings.base_path || "",
           css,
+          scripts,
+          // 静的資産の応答の CSP(Worker の応答と同じ組み立て・cms-cms-security「CSP」)。
+          headers: siteHeadersFile(await siteCspFor(env, settings, template)),
         };
       },
       readPage: (path) => kvGetAllLangs(env, path),
@@ -5992,6 +5888,34 @@ export async function isSitePublished(env: Env): Promise<boolean> {
   return (await loadSiteContext(env)).published !== false;
 }
 
+/**
+ * 公開サイトの CSP(site-csp.ts)を、このサイトの設定から組み立てる。静的資産の `_headers` と
+ * Worker が返す応答の両方が使う(どちらで返っても同じ方針)。
+ * AdSense はテンプレートが `[[ad]]` を置き、サイト文字 `ad-adsense` に枠がある時だけ許す。
+ */
+export async function siteCspFor(
+  env: Env,
+  settings: SettingsMap,
+  template: StoredTemplate,
+): Promise<Record<string, string>> {
+  let adsense = false;
+  if (template.sourceHtml.includes("[[ad")) {
+    const defaultLang = settings.default_lang || "";
+    const content = await fetchTemplateContent(
+      env,
+      defaultLang,
+      defaultLang,
+    ).catch(() => ({}) as TemplateContent);
+    adsense = !!parseAdSense(content["ad-adsense"])?.slots.length;
+  }
+  return siteCspHeaders({
+    publicBase: settings.base_path || "",
+    ga: /^G-[A-Z0-9]+$/.test((settings.ga4_measurement_id || "").trim()),
+    adsense,
+    bluesky: !!(settings.bluesky_handle || "").trim(),
+  });
+}
+
 export async function handlePublicRoute(
   publicPath: string,
   request: Request,
@@ -6083,8 +6007,11 @@ export async function handlePublicRoute(
     // KV lookup — one bundle per page holds every language variant.
     const { html: cached, kvLangs } = await kvGetPage(env, pathname, lang);
     if (cached) {
+      // CSP は固定(nonce を持たない)なので、端のキャッシュにも見出しごと置いてよい。
+      // 設定が変わればキャッシュの鍵(cache_gen)も変わる。
       const res = new Response(cached, {
         headers: {
+          ...(await siteCspFor(env, settings, template)),
           "Content-Type": "text/html; charset=utf-8",
           // stale-while-revalidate: once the 5-min edge TTL lapses, serve the
           // cached page INSTANTLY while refreshing in the background, so a
@@ -6230,6 +6157,7 @@ export async function handlePublicRoute(
   // Do NOT write to KV here (build is the sole writer). Edge-cache only.
   const res = new Response(html, {
     headers: {
+      ...(await siteCspFor(env, settings, template)),
       "Content-Type": "text/html; charset=utf-8",
       // On-demand pages (categories, un-built fallbacks): short fresh window +
       // a SWR grace so a stale hit serves instantly and refreshes in the

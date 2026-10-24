@@ -11,6 +11,8 @@ import {
   sessionCookieHeader,
   tryAuth,
 } from "./auth";
+import { templateScriptWarnings } from "./template-scripts";
+import { cspReportSummary } from "./csp-report";
 import {
   fetchUpdateArtifact,
   fetchUpdateManifest,
@@ -811,6 +813,14 @@ async function handleApiDispatch(
       requireAdmin(user);
       const refresh = new URL(request.url).searchParams.get("refresh") === "1";
       return withJsonHeaders(await systemVersion(env, refresh));
+    }
+
+    // 公開サイトの CSP の違反の報告の数(cms-cms-security「CSP」)。
+    if (request.method === "GET" && path === "/api/system/csp-reports") {
+      requireAdmin(user);
+      return withJsonHeaders(
+        json((await cspReportSummary(env)) as unknown as JsonValue),
+      );
     }
 
     if (request.method === "POST" && path === "/api/system/update") {
@@ -9629,7 +9639,16 @@ async function siteTemplateDetail(
     .bind(id)
     .first<Record<string, unknown>>();
   if (!row) throw new HttpError(404, "not_found", "Template not found.");
-  return json({ template: serializeTemplateRow(row) } as unknown as JsonValue);
+  const src = await env.DB.prepare(
+    "SELECT source_html FROM page_templates WHERE id = ?",
+  )
+    .bind(id)
+    .first<{ source_html: string | null }>();
+  return json({
+    template: serializeTemplateRow(row),
+    // 公開ページで読み込まないスクリプト(cms-cms-security「CSP」)。
+    scriptWarnings: await templateScriptWarnings(src?.source_html ?? ""),
+  } as unknown as JsonValue);
 }
 
 async function siteTemplateSetCommunity(
@@ -9868,7 +9887,17 @@ async function siteTemplateRegister(
       .run();
   }
   await logActivity(env, user, "template.register", "template", id, { name });
-  return json({ ok: true, id }, { status: 201 });
+  return json(
+    {
+      ok: true,
+      id,
+      // 公開ページで読み込まないスクリプトを知らせる(cms-cms-security「CSP」)。
+      scriptWarnings: (await templateScriptWarnings(
+        sourceHtml ?? "",
+      )) as unknown as JsonValue,
+    },
+    { status: 201 },
+  );
 }
 
 /**
@@ -10511,7 +10540,14 @@ async function siteTemplateSaveSource(
     .bind(html, now, id)
     .run();
   await logActivity(env, user, "template.edit_source", "template", id, {});
-  return json({ ok: true });
+  // 公開ページで読み込まないスクリプト(外部の JS・[[…]] を含むもの)を知らせる
+  // (cms-cms-security「CSP」)。保存は止めない。
+  return json({
+    ok: true,
+    scriptWarnings: (await templateScriptWarnings(
+      html,
+    )) as unknown as JsonValue,
+  });
 }
 
 // ── Static Tailwind CSS (compiled in the admin browser, served at /_tw/) ────

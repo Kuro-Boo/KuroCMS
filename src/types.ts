@@ -21,6 +21,11 @@ export interface Env {
       read: (
         hashes: string[],
       ) => Promise<Array<{ hash: string; base64: string }>>,
+      /**
+       * config: 版の assets.config に足すもの(番人の DEFAULT_ASSETS_CONFIG に重ねる)。
+       * `_headers` に静的資産の応答の見出し(CSP —— cms-cms-security「CSP」)を入れる。
+       */
+      options?: { config?: Record<string, unknown> },
     ): Promise<{
       ok: boolean;
       status: string;

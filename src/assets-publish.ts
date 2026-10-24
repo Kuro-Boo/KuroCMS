@@ -176,6 +176,8 @@ export async function buildManifest(
     defaultLang: string;
     publicBase: string;
     css: { path: string; body: string } | null;
+    /** テンプレートの作者のスクリプト(template-scripts.ts が /_tjs/ へ移したもの)。 */
+    scripts?: Array<{ path: string; body: string }>;
   },
 ): Promise<Manifest> {
   const files: Record<string, ManifestFile> = {};
@@ -203,18 +205,29 @@ export async function buildManifest(
     };
     inline.set(hash, b64);
   }
+  for (const js of site.scripts ?? []) {
+    const hash = await assetHash(js.body);
+    files[js.path] = {
+      hash,
+      size: new TextEncoder().encode(js.body).length,
+      type: "text/javascript; charset=utf-8",
+    };
+    inline.set(hash, toBase64(js.body));
+  }
   return { files, inline, pages };
 }
 
 /** 一覧の指紋(パスとハッシュの組を並べた SHA-256)。前回登録した一覧と同じかを見る。 */
 export async function manifestFingerprint(
   files: Record<string, ManifestFile>,
+  /** `_headers` の中身。空なら前と同じ指紋(見出しを持たなかった版からの続き)。 */
+  headers = "",
 ): Promise<string> {
   const lines = Object.keys(files)
     .sort()
     .map((p) => `${p} ${files[p]!.hash} ${files[p]!.type}`)
     .join("\n");
-  return assetHash(lines);
+  return assetHash(headers ? `${lines}\n_headers ${headers}` : lines);
 }
 
 export function lastFingerprint(result: string): string | null {
@@ -260,7 +273,12 @@ export async function assetsPending(env: Env): Promise<boolean> {
 export async function publishAssets(
   env: Env,
   deps: {
-    site: () => Promise<Parameters<typeof buildManifest>[1]>;
+    site: () => Promise<
+      Parameters<typeof buildManifest>[1] & {
+        /** 静的資産の応答に付ける見出し(`_headers` の中身・site-csp.ts)。 */
+        headers?: string;
+      }
+    >;
     /** Every language of one page (one KV read for a bundled page). */
     readPage: (path: string) => Promise<Record<string, string>>;
   },
@@ -298,11 +316,15 @@ export async function publishAssets(
     if (!opts.force && (!requested || requested === st.published_for))
       return { done: true, status: "current" };
 
-    const manifest = await buildManifest(env, await deps.site());
+    const site = await deps.site();
+    const manifest = await buildManifest(env, site);
+    // 公開していないサイトには見出しも渡さない(資産が無い)。
+    const headers = site.published ? (site.headers ?? "") : "";
     // Nothing changed since the last registration (a rebuild with the same
     // output): don't make a version that is the same as the one serving. It
     // took ~5 s per build and added a version each time (measured 2026-10-16).
-    const fingerprint = await manifestFingerprint(manifest.files);
+    // 見出し(CSP)も指紋に入れる —— 設定(GA・AdSense)だけが変わった時も版を出し直す。
+    const fingerprint = await manifestFingerprint(manifest.files, headers);
     if (!opts.force && lastFingerprint(st.result) === fingerprint) {
       await env.DB.prepare(
         "UPDATE asset_publish SET published_for = ? WHERE id = 1",
@@ -341,7 +363,13 @@ export async function publishAssets(
       }
       return out;
     };
-    const res = await env.WORKEROPS.publish(manifest.files, read);
+    // 見出しは番人の既存の受け口(資産の設定)で渡し、番人が版の assets.config._headers に
+    // 入れる(番人は最初の版からこの口を持つ —— cms-cms-security「CSP」)。
+    const res = await env.WORKEROPS.publish(
+      manifest.files,
+      read,
+      headers ? { config: { _headers: headers } } : undefined,
+    );
     const result = JSON.stringify({
       at,
       status: res.status,

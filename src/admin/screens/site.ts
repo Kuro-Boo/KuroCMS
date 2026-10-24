@@ -977,6 +977,9 @@ async function siteManagement() {
                 body: JSON.stringify(body),
               });
               toast(t("templateSelected"));
+              // 公開ページで動かないスクリプト(外部の JS・[[…]] を含むもの)を知らせる。
+              if (result.scriptWarnings && result.scriptWarnings.length)
+                toast(t("tmplScriptWarnToast"), true);
               // コピー直後はまだ community_id がないためローカル保存
               captureAndSaveThumbnail(result.id || tmplId).catch(() => {});
               loadAll();
@@ -1189,7 +1192,7 @@ async function siteManagement() {
       const htmlChanged = html !== originalHtml;
       const metaChanged = name !== originalName || author !== originalAuthor;
       try {
-        await Promise.all([
+        const [saved] = await Promise.all([
           htmlChanged
             ? api(
                 "/api/v1/templates/" +
@@ -1213,6 +1216,8 @@ async function siteManagement() {
         originalAuthor = author;
         setSaveEnabled(false);
         setEditStatus(t("tmplSaved"), !htmlChanged);
+        if (saved && saved.scriptWarnings && saved.scriptWarnings.length)
+          toast(t("tmplScriptWarnToast"), true);
         if (htmlChanged) {
           ensureTwCss(currentTmplId);
           captureAndSaveThumbnail(currentTmplId)
@@ -1345,6 +1350,40 @@ async function siteManagement() {
       });
   }
 
+  /**
+   * 公開ページで読み込まないスクリプトの行(cms-cms-security「CSP」)。無ければ出さない。
+   * 外部の JS は読み込まない・[[…]] を含むスクリプトはサイトの CSP で止まる。
+   */
+  function scriptWarningsRow(
+    warnings: Array<{ kind: string; detail: string }> | undefined,
+  ): string {
+    if (!warnings || !warnings.length) return "";
+    const items = warnings
+      .map(function (w) {
+        return (
+          "<li style='word-break:break-all'>" +
+          escapeHtml(
+            t(
+              w.kind === "external"
+                ? "tmplScriptWarnExternal"
+                : "tmplScriptWarnToken",
+            ),
+          ) +
+          "<code>" +
+          escapeHtml(w.detail) +
+          "</code></li>"
+        );
+      })
+      .join("");
+    return (
+      "<tr style='border-top:1px solid var(--line)'><th style='padding:8px 10px;text-align:left;white-space:nowrap;background:var(--surface-2);color:var(--danger)'>" +
+      escapeHtml(t("tmplScriptWarnLabel")) +
+      "</th><td style='padding:8px 10px'><ul style='margin:0;padding-left:1.2em'>" +
+      items +
+      "</ul></td></tr>"
+    );
+  }
+
   function showTemplateDetail(id: Dynamic) {
     api("/api/v1/templates/" + id)
       .then(function (d) {
@@ -1380,6 +1419,7 @@ async function siteManagement() {
             "' target='_blank' rel='noopener' style='word-break:break-all'>" +
             escapeHtml(tm.source_url || "—") +
             "</a></td></tr>" +
+            scriptWarningsRow(d.scriptWarnings) +
             "</tbody></table>" +
             "</div>",
           t("tmplDetailClose"),

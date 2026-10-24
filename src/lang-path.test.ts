@@ -1,6 +1,8 @@
 // 契約テスト (node で直接実行: `node src/lang-path.test.ts`)。
 // 言語をパスに入れる形(/en/post/)と、全ページの <head> に置く言語の判断。
 import { runInNewContext } from "node:vm";
+import { readFileSync } from "node:fs";
+import ts from "typescript";
 import {
   legacyLangPath,
   splitLangPath,
@@ -8,6 +10,12 @@ import {
   localizeLinks,
   langScript,
 } from "./lang-path.ts";
+
+// kuro-head.ts を焼く(scripts/build-admin.js と同じく、モジュールにしない普通のスクリプト)。
+const HEAD_JS = ts.transpileModule(
+  readFileSync(new URL("./site/kuro-head.ts", import.meta.url), "utf8"),
+  { compilerOptions: { target: ts.ScriptTarget.ES2020 } },
+).outputText;
 
 let f = 0;
 const eq = (n: string, g: unknown, w: unknown) => {
@@ -150,15 +158,29 @@ function run(o: {
     getItem: (k: string) => m.get(k) ?? null,
     setItem: (k: string, v: string) => void m.set(k, v),
   });
-  const src = langScript({
+  // ページには <script src data-kuro-lang> だけが出る。判断の本体は kuro-head.js
+  // (src/site/kuro-head.ts)なので、それを data 属性付きで走らせる。
+  const tag = langScript({
     defaultLang: "ja",
     current: o.current,
     pageLangs: o.pageLangs ?? ["ja", "en", "fr"],
     publicBase: o.base ?? "",
-  })
-    .replace("<script>", "")
-    .replace("</script>", "");
-  runInNewContext(src, {
+    src: "/_admin/kuro-head.x.js",
+  });
+  const attrs = new Map<string, string>();
+  for (const m of tag.matchAll(/([a-z-]+)="([^"]*)"/g))
+    attrs.set(
+      m[1]!,
+      m[2]!
+        .replace(/&quot;/g, '"')
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .replace(/&amp;/g, "&"),
+    );
+  runInNewContext(HEAD_JS, {
+    document: {
+      currentScript: { getAttribute: (n: string) => attrs.get(n) ?? null },
+    },
     location: {
       pathname: o.path,
       search: o.search ?? "",

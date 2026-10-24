@@ -9,6 +9,7 @@ import {
   forgetPages,
   pageAssetPath,
   publishAssets,
+  manifestFingerprint,
   recordPages,
   toBase64,
 } from "./assets-publish.ts";
@@ -302,6 +303,56 @@ function harness(
     status: "error",
     error: "rpc down",
   });
+}
+
+// ── CSP の見出しとテンプレートのスクリプト(cms-cms-security「CSP」) ──────────
+{
+  const env = { DB: d1() } as unknown as Env;
+  for (const [p, b] of Object.entries(pages)) await recordPages(env, p, b);
+  const withJs = {
+    ...site,
+    scripts: [{ path: "/_tjs/t.0123456789abcdef.js", body: "var a=1;" }],
+  };
+  const m = await buildManifest(env, withJs);
+  eq(
+    "テンプレートのスクリプトも資産に置く(JS の型で)",
+    m.files["/_tjs/t.0123456789abcdef.js"]?.type,
+    "text/javascript; charset=utf-8",
+  );
+  const given: Array<unknown> = [];
+  env.WORKEROPS = {
+    publish: async (_m, _read, options) => {
+      given.push(options);
+      return { ok: true, status: "published" };
+    },
+  };
+  let headers =
+    "/*\n  content-security-policy-report-only: default-src 'self'\n";
+  const deps = {
+    site: async () => ({ ...withJs, headers }),
+    readPage: async (p: string) => pages[p] ?? {},
+  };
+  await publishAssets(env, deps, { request: true });
+  eq("見出しは番人の資産の設定(_headers)で渡す", given[0], {
+    config: { _headers: headers },
+  });
+  eq(
+    "一覧も見出しも同じなら渡さない",
+    (await publishAssets(env, deps, { request: true })).status,
+    "unchanged",
+  );
+  headers =
+    "/*\n  content-security-policy-report-only: default-src 'self'; x\n";
+  eq(
+    "見出しが変わったビルドは版を出し直す",
+    (await publishAssets(env, deps, { request: true })).status,
+    "published",
+  );
+  eq(
+    "見出しの無かった頃の指紋とは同じ(見出しが空なら指紋は変わらない)",
+    await manifestFingerprint(m.files, ""),
+    await manifestFingerprint(m.files),
+  );
 }
 
 if (f) {
