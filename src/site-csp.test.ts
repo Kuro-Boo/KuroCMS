@@ -39,7 +39,11 @@ const directive = (p: string, name: string) =>
   assert.match(plain, /object-src 'none'/);
   assert.match(plain, /base-uri 'self'/);
   assert.match(plain, /frame-ancestors 'self'/);
-  assert.match(plain, /report-uri \/_csp;/, "報告はサイト自身の口へ");
+  assert.match(
+    plain,
+    /report-uri \/_csp$/,
+    "報告はサイト自身の口へ(report-uri だけ)",
+  );
   assert.doesNotMatch(plain, /defects\.entamy\.com/, "Entamy へ直接送らせない");
   assert.match(directive(plain, "frame-src"), /www\.youtube-nocookie\.com/);
   assert.match(
@@ -65,7 +69,7 @@ const directive = (p: string, name: string) =>
   );
   assert.match(directive(full, "connect-src"), /public\.api\.bsky\.app/);
   assert.doesNotMatch(directive(full, "script-src"), /unsafe/);
-  assert.match(full, /report-uri \/blog\/_csp;/);
+  assert.match(full, /report-uri \/blog\/_csp$/);
 
   const file = siteHeadersFile(
     siteCspHeaders({
@@ -76,7 +80,10 @@ const directive = (p: string, name: string) =>
     }),
   );
   assert.ok(file.startsWith("/*\n  content-security-policy-report-only: "));
-  assert.ok(file.includes('\n  reporting-endpoints: entamy-csp="/_csp"\n'));
+  assert.ok(
+    !file.includes("reporting-endpoints"),
+    "報告は report-uri だけ(report-to は届かずに失われた)",
+  );
 }
 
 // ── テンプレートのスクリプトを移す ──────────────────────────────────────

@@ -1581,14 +1581,13 @@ async function settings() {
         escapeHtml(t("addSnsTitle")),
         "<label>" +
           escapeHtml(t("snsServiceLabel")) +
-          "<select id='dialogSnsService'><option value='threads'>Threads</option><option value='x'>X (Twitter)</option><option value='mastodon'>Mastodon</option><option value='facebook'>Facebook</option></select></label>",
+          "<select id='dialogSnsService'><option value='threads'>Threads</option><option value='x'>X (Twitter)</option><option value='facebook'>Facebook</option></select></label>",
         t("addRegister"),
         async (form: Dynamic, close: Dynamic) => {
           const svc = form.querySelector("#dialogSnsService")?.value || "";
           const svcLabels: Record<string, string> = {
             threads: "Threads",
             x: "X (Twitter)",
-            mastodon: "Mastodon",
             facebook: "Facebook",
           };
           const svcLabel = svcLabels[svc] || svc;
@@ -1651,13 +1650,6 @@ async function settings() {
                 "</div><input id='snsToken_" +
                 escapeHtml(svc) +
                 "' type='password' placeholder='API token / App Password' /></label>" +
-                (svc === "mastodon"
-                  ? "<label style='margin-bottom:8px'><div class='muted' style='margin-bottom:4px'>" +
-                    escapeHtml(t("snsInstanceUrl")) +
-                    "</div><input id='snsEndpoint_" +
-                    escapeHtml(svc) +
-                    "' placeholder='https://mastodon.social' /></label>"
-                  : "") +
                 "<p class='muted' style='font-size:11px;margin-top:4px'>" +
                 escapeHtml(t("snsApiComingSoon")) +
                 "</p>");

@@ -839,7 +839,7 @@ function buildSearchWidget(publicBase: string, lang: string): string {
 </div>`;
 }
 
-/** Active external SNS connections (Threads / X / Mastodon / Facebook 等). */
+/** Active external SNS connections (Threads / X / Facebook 等。Mastodon は扱わない・2026-10-25). */
 type ExternalConnection = { id: string; service: string; handle: string };
 
 async function fetchExternalConnections(
