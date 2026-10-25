@@ -157,6 +157,28 @@ async function tryPatUser(
   };
 }
 
+/**
+ * cookie で名乗る変更の要求(GET・HEAD・OPTIONS 以外)は、Origin がこの要求の宛先と同じであること。
+ * Origin が無ければ Sec-Fetch-Site を見る(same-origin・none だけ通す)。どちらも無い要求はブラウザの
+ * 外からのもの(cookie を自分で付けた)なので、通す(CSRF はブラウザに cookie を付けさせる攻撃)。
+ */
+export function requireSameOrigin(request: Request): void {
+  const method = request.method.toUpperCase();
+  if (method === "GET" || method === "HEAD" || method === "OPTIONS") return;
+  const origin = request.headers.get("origin");
+  if (origin !== null) {
+    if (origin === new URL(request.url).origin) return;
+  } else {
+    const site = request.headers.get("sec-fetch-site");
+    if (site === null || site === "same-origin" || site === "none") return;
+  }
+  throw new HttpError(
+    403,
+    "cross_origin_request",
+    "This request did not come from this admin panel.",
+  );
+}
+
 async function trySessionUser(
   env: Env,
   request: Request,
@@ -170,6 +192,10 @@ async function trySessionUser(
   );
   if (cookieMatch) {
     sessionId = cookieMatch[1];
+    // cookie はブラウザが自動で付けるので、変更の要求はこの管理画面自身からのものに限る
+    // (課題 b936bf55)。SameSite=Strict だけでは、同じ登録ドメインの別の origin(委託の別のサイトなど)
+    // からの単純な POST に cookie が付きうる。
+    requireSameOrigin(request);
   }
 
   if (!sessionId) {
