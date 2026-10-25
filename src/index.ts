@@ -2,7 +2,7 @@ import { WorkerEntrypoint } from "cloudflare:workers";
 import { adminHtml } from "./admin-shell";
 import { serveAdminAsset } from "./asset-serve";
 import { serveFont } from "./fonts";
-import { handleApi, unfurlEndpoint } from "./api";
+import { handleApi, sendMail, unfurlEndpoint } from "./api";
 import { reportInstall } from "./entamy";
 import { entamyPort } from "./entamy-port";
 import { adoptGuardianMinute, guardianAutoTick } from "./guardian-update";
@@ -15,6 +15,7 @@ import { reactionEndpoint } from "./reactions";
 import { cspReportEndpoint } from "./csp-report";
 import { mediaIsPublic } from "./assets-publish";
 import { contractLocked } from "./contract-lock";
+import { remindDataDeletion } from "./contract-notice";
 import { tryAuth } from "./auth";
 import { adminCspHeaders, CSP_REPORT_PATH } from "./site-csp";
 import {
@@ -68,6 +69,13 @@ async function runMinute(
   // 引っ越しを終えた移す元は、もうこのサイトの本体ではない。基盤への報告と鍵の更新をしない(moveRetired)。
   const retired = await moveRetired(env).catch(() => false);
   if (!retired) ctx.waitUntil(runScheduledThreadsTokenRefresh(env, at));
+  // 契約の無い委託へ、データを消す 7 日前と前日に知らせる(1 時間に 1 度見る・送った印は KV)。
+  if (!retired && new Date(at).getUTCMinutes() === 7)
+    ctx.waitUntil(
+      remindDataDeletion(env, (msg) => sendMail(env, msg)).catch((err) => {
+        console.error("delete notice failed:", err);
+      }),
+    );
   // 引き渡し済みなら、残っている公開ページを下ろす(済んでいれば 1 回読むだけ)。
   // 1.10.91 までに引き渡した導入も、更新されたこの版がここで下ろす。
   else
