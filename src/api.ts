@@ -81,7 +81,6 @@ import {
   isManagedHosting,
 } from "./media-quota";
 import { nextThreadsTokenRefreshAt } from "./threads-token";
-import { COMMUNITY_SHARED_PAT } from "./community-secret";
 import { verifyRegistration, verifyAuthentication } from "./webauthn";
 // migrations/ を順番どおりに適用した最終形（スキーマの正本）。ビルド時生成。
 import { SCHEMA_MANIFEST } from "./schema-manifest";
@@ -2462,30 +2461,60 @@ async function lookupRecoveryToken(
     .first<{ uid: string; email: string; expires_at: string }>();
 }
 
+/**
+ * 初期設定の鍵を確かめる(使い切らない)。導入口が置いた鍵のハッシュと照らし、期限の中で未使用のときだけ通す。
+ * 鍵が無い導入(導入口の前の版で立てた・まだ初期設定していない)は、初期設定できない —— 誰でも先に
+ * 管理者になれる口を残さないため(導入をやり直す)。
+ */
+async function requireSetupToken(env: Env, token: string): Promise<string> {
+  const hash = token ? await sha256Hex(token) : "";
+  const row = hash
+    ? await env.DB.prepare(
+        "SELECT expires_at FROM setup_tokens WHERE token_hash = ? AND used_at IS NULL",
+      )
+        .bind(hash)
+        .first<{ expires_at: string }>()
+    : null;
+  if (!row || Date.parse(row.expires_at) <= Date.now()) {
+    throw new HttpError(
+      403,
+      "setup_token_invalid",
+      "Open the admin panel from the link shown when the site was installed. The link is valid for 7 days.",
+    );
+  }
+  return hash;
+}
+
+/** パスキー登録を何の証で始めたか(challenge に結び付け、完了で照らす・課題 c4974eea)。 */
+type RegisterAuth = "session" | "invitation" | "recovery" | "setup";
+
 async function passkeyRegisterBegin(
   request: Request,
   env: Env,
 ): Promise<Response> {
   const body = await readJson(request);
-  const uid = optionalString(body, "uid") ?? null;
   const invitationToken = optionalString(body, "invitationToken") ?? null;
   const recoveryToken = optionalString(body, "recoveryToken") ?? null;
+  const setupToken = optionalString(body, "setupToken") ?? null;
 
   let userEmail: string;
   let resolvedUid: string | null;
+  let authKind: RegisterAuth;
+  let authHash: string | null = null;
 
   // Authorization for who a new passkey may be registered to, in priority order:
   //   1. Authenticated session → add a device to MY account (body uid ignored).
   //   2. Valid invitation token → new user (uid created at complete time).
   //   3. Valid recovery token → add a passkey to the existing locked-out account.
-  //   4. Bootstrap: a uid may be used ONLY when no passkeys exist anywhere yet
-  //      (the very first passkey, i.e. initial setup). Once any passkey exists,
-  //      adding to an account requires a session — closing the previous hole
-  //      where an arbitrary uid could be passed unauthenticated.
+  //   4. Initial setup: the setup token placed by the installer (課題 4dea81be). Only the
+  //      first admin, and only while no passkey exists anywhere yet. Knowing a uid is not enough.
+  // PAT(機械の鍵)ではパスキーを足さない —— 漏れた PAT を長く続くログインに変えさせない(課題 ddfefa78)。
   const sessionUser = await tryAuth(env, request);
   if (sessionUser) {
+    requireInteractiveUser(sessionUser);
     resolvedUid = sessionUser.uid;
     userEmail = sessionUser.email;
+    authKind = "session";
   } else if (recoveryToken) {
     const rec = await lookupRecoveryToken(env, recoveryToken);
     if (!rec || Date.parse(rec.expires_at) <= Date.now()) {
@@ -2497,6 +2526,8 @@ async function passkeyRegisterBegin(
     }
     resolvedUid = rec.uid;
     userEmail = rec.email;
+    authKind = "recovery";
+    authHash = await sha256Hex(recoveryToken);
   } else if (invitationToken) {
     const invRow = await lookupInvitationToken(env, invitationToken);
     if (!invRow) {
@@ -2511,27 +2542,34 @@ async function passkeyRegisterBegin(
     }
     userEmail = invRow.email;
     resolvedUid = null; // will be created at complete time
-  } else if (uid) {
+    authKind = "invitation";
+    authHash = await sha256Hex(invitationToken);
+  } else if (setupToken) {
+    authHash = await requireSetupToken(env, setupToken);
     const credCount = await env.DB.prepare(
       "SELECT COUNT(*) AS cnt FROM passkey_credentials",
     ).first<{ cnt: number }>();
     if ((credCount?.cnt ?? 0) > 0) {
       throw new HttpError(
-        403,
-        "registration_not_authorized",
-        "Sign in or use a valid invitation to register a passkey.",
+        409,
+        "setup_completed",
+        "Initial setup has already been completed. Sign in instead.",
       );
     }
+    // 初期設定で作った最初の管理者(setup が作る)。
     const userRow = await env.DB.prepare(
-      "SELECT uid, email FROM users WHERE uid = ?",
-    )
-      .bind(uid)
-      .first<{ uid: string; email: string }>();
+      "SELECT uid, email FROM users WHERE is_admin = 1 ORDER BY created_at LIMIT 1",
+    ).first<{ uid: string; email: string }>();
     if (!userRow) {
-      throw new HttpError(404, "user_not_found", "User was not found.");
+      throw new HttpError(
+        404,
+        "user_not_found",
+        "Run the initial setup first.",
+      );
     }
-    resolvedUid = uid;
+    resolvedUid = userRow.uid;
     userEmail = userRow.email;
+    authKind = "setup";
   } else {
     throw new HttpError(
       401,
@@ -2546,10 +2584,19 @@ async function passkeyRegisterBegin(
   const now = nowIso();
 
   await env.DB.prepare(
-    `INSERT INTO webauthn_challenges (challenge_id, challenge, uid, challenge_type, expires_at, created_at)
-     VALUES (?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO webauthn_challenges (challenge_id, challenge, uid, challenge_type, expires_at, created_at, auth_kind, auth_hash)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
   )
-    .bind(challengeId, challenge, resolvedUid, "register", expiresAt, now)
+    .bind(
+      challengeId,
+      challenge,
+      resolvedUid,
+      "register",
+      expiresAt,
+      now,
+      authKind,
+      authHash,
+    )
     .run();
 
   const rpId = new URL(request.url).hostname;
@@ -2582,6 +2629,7 @@ async function passkeyRegisterComplete(
   const challengeId = requireString(body, "challengeId", { min: 1, max: 80 });
   const invitationToken = optionalString(body, "invitationToken") ?? null;
   const recoveryToken = optionalString(body, "recoveryToken") ?? null;
+  const setupToken = optionalString(body, "setupToken") ?? null;
   // Optional human-friendly device label shown in passkey management.
   const deviceName = (optionalString(body, "deviceName") ?? "").slice(0, 80);
 
@@ -2596,7 +2644,7 @@ async function passkeyRegisterComplete(
   }
 
   const challengeRow = await env.DB.prepare(
-    `SELECT challenge_id, challenge, uid, challenge_type, expires_at
+    `SELECT challenge_id, challenge, uid, challenge_type, expires_at, auth_kind, auth_hash
      FROM webauthn_challenges WHERE challenge_id = ?`,
   )
     .bind(challengeId)
@@ -2606,6 +2654,8 @@ async function passkeyRegisterComplete(
       uid: string | null;
       challenge_type: string;
       expires_at: string;
+      auth_kind: RegisterAuth | null;
+      auth_hash: string | null;
     }>();
 
   if (!challengeRow || challengeRow.challenge_type !== "register") {
@@ -2619,10 +2669,46 @@ async function passkeyRegisterComplete(
     throw new HttpError(400, "challenge_expired", "Challenge has expired.");
   }
 
-  // Delete challenge (one-time use)
-  await env.DB.prepare("DELETE FROM webauthn_challenges WHERE challenge_id = ?")
+  // 始めた証が分からない challenge(前の版が作った)は使わせない。
+  if (!challengeRow.auth_kind) {
+    throw new HttpError(
+      400,
+      "invalid_challenge",
+      "Start the registration again.",
+    );
+  }
+  // 始めた時と同じ証を出すこと(証を残したまま、別の口から完了させない・課題 c4974eea)。
+  const presented =
+    challengeRow.auth_kind === "recovery"
+      ? recoveryToken
+      : challengeRow.auth_kind === "invitation"
+        ? invitationToken
+        : challengeRow.auth_kind === "setup"
+          ? setupToken
+          : null;
+  if (challengeRow.auth_hash !== null) {
+    if (!presented || (await sha256Hex(presented)) !== challengeRow.auth_hash) {
+      throw new HttpError(
+        403,
+        "registration_not_authorized",
+        "The link used to start this registration must be used to finish it.",
+      );
+    }
+  }
+
+  // Delete challenge (one-time use)。消せた 1 回だけが先へ進む(同じ challenge の同時の完了を 1 つにする)。
+  const consumed = await env.DB.prepare(
+    "DELETE FROM webauthn_challenges WHERE challenge_id = ?",
+  )
     .bind(challengeId)
     .run();
+  if ((consumed.meta?.changes ?? 0) !== 1) {
+    throw new HttpError(
+      400,
+      "invalid_challenge",
+      "Challenge not found or invalid.",
+    );
+  }
 
   const rpId = new URL(request.url).hostname;
 
@@ -2641,21 +2727,61 @@ async function passkeyRegisterComplete(
     );
   }
 
+  // 証を使い切る(署名を確かめた後、資格情報を足す前に。使い切れた 1 回だけが登録できる)。
+  const usedAt = nowIso();
+  if (challengeRow.auth_kind === "setup") {
+    const used = await env.DB.prepare(
+      "UPDATE setup_tokens SET used_at = ? WHERE token_hash = ? AND used_at IS NULL",
+    )
+      .bind(usedAt, challengeRow.auth_hash)
+      .run();
+    if ((used.meta?.changes ?? 0) !== 1) {
+      throw new HttpError(
+        409,
+        "setup_completed",
+        "Initial setup has already been completed.",
+      );
+    }
+  } else if (challengeRow.auth_kind === "recovery") {
+    const used = await env.DB.prepare(
+      "UPDATE recovery_tokens SET used_at = ? WHERE token_hash = ? AND used_at IS NULL",
+    )
+      .bind(usedAt, challengeRow.auth_hash)
+      .run();
+    if ((used.meta?.changes ?? 0) !== 1) {
+      throw new HttpError(
+        404,
+        "recover_invalid",
+        "This recovery link is invalid, expired, or already used.",
+      );
+    }
+  } else if (challengeRow.auth_kind === "invitation") {
+    const used = await env.DB.prepare(
+      "UPDATE invitation_tokens SET used_at = ? WHERE token = ? AND used_at IS NULL",
+    )
+      .bind(usedAt, challengeRow.auth_hash)
+      .run();
+    if ((used.meta?.changes ?? 0) !== 1) {
+      throw new HttpError(
+        404,
+        "invite_not_found",
+        "Invitation was not found or already used.",
+      );
+    }
+  }
+
   // Determine uid
   let resolvedUid = challengeRow.uid;
   let resolvedEmail: string;
 
   if (!resolvedUid) {
     // Need to create user from invitation
-    if (!invitationToken) {
-      throw new HttpError(
-        400,
-        "invitation_required",
-        "invitationToken is required for new user registration.",
-      );
-    }
-    const invRow = await lookupInvitationToken(env, invitationToken);
-
+    // 招待は上で使い切った。中身(アドレス・役割)は同じ行から読む。
+    const invRow = await env.DB.prepare(
+      "SELECT token, email, is_admin, is_author, expires_at FROM invitation_tokens WHERE token = ?",
+    )
+      .bind(challengeRow.auth_hash)
+      .first<InvitationRow>();
     if (!invRow) {
       throw new HttpError(
         404,
@@ -2691,14 +2817,6 @@ async function passkeyRegisterComplete(
         now,
         now,
       )
-      .run();
-
-    // Consume by the stored PK value (hash for new invites, legacy plaintext for
-    // old ones) — not the presented plaintext, which won't match a hashed row.
-    await env.DB.prepare(
-      "UPDATE invitation_tokens SET used_at = ? WHERE token = ?",
-    )
-      .bind(now, invRow.token)
       .run();
   } else {
     const userRow = await env.DB.prepare(
@@ -2741,15 +2859,9 @@ async function passkeyRegisterComplete(
     )
     .run();
 
-  // Consume the recovery token (single-use). The guard prevents reuse if the
-  // same link is opened twice concurrently.
-  if (recoveryToken) {
-    const tokenHash = await sha256Hex(recoveryToken);
-    await env.DB.prepare(
-      "UPDATE recovery_tokens SET used_at = ? WHERE token_hash = ? AND used_at IS NULL",
-    )
-      .bind(now, tokenHash)
-      .run();
+  // 回復の証は上で使い切った。
+  if (challengeRow.auth_kind === "recovery") {
+    const tokenHash = challengeRow.auth_hash;
     // 再設定のリンクはそのアドレスに届いたもの。リンクのアドレスが今のアドレスなら確認済みにする。
     await env.DB.prepare(
       `UPDATE users SET email_verified_at = ? WHERE uid = ? AND lower(email) = (
@@ -3112,12 +3224,21 @@ async function deleteUser(
 // Setup
 // ---------------------------------------------------------------------------
 
+async function countPasskeys(env: Env): Promise<number> {
+  const row = await env.DB.prepare(
+    "SELECT COUNT(*) AS cnt FROM passkey_credentials",
+  ).first<{ cnt: number }>();
+  return Number(row?.cnt ?? 0);
+}
+
 async function setupStatus(env: Env): Promise<Response> {
   // 引っ越しの先で写している間は、初期化を出さない(誰かが先に管理者を作るのを防ぐ)。
   const moving = await moveTargetPending(env);
-  const userCount = await countUsers(env);
+  // パスキーが 1 つも無い間は初期設定の続き(管理者を作った後にパスキーの登録で止まった人も、
+  // 同じリンクからやり直せる・初期設定の鍵が要る)。
+  const passkeys = await countPasskeys(env);
   return json({
-    needsSetup: userCount === 0 && !moving,
+    needsSetup: passkeys === 0 && !moving,
     moving,
   });
 }
@@ -3130,7 +3251,8 @@ async function setup(request: Request, env: Env): Promise<Response> {
       "This site is receiving a move. Setup opens when the move finishes.",
     );
   }
-  if ((await countUsers(env)) > 0) {
+  // 済んだかはパスキーで決める(管理者を作った後にパスキーの登録で止まった人が、やり直せる)。
+  if ((await countPasskeys(env)) > 0) {
     throw new HttpError(
       409,
       "setup_completed",
@@ -3139,6 +3261,9 @@ async function setup(request: Request, env: Env): Promise<Response> {
   }
 
   const body = await readJson(request);
+  // 初期設定の鍵(導入口が置いたもの・課題 4dea81be)。持つ人だけが最初の管理者になれる。
+  // ここでは使い切らない —— 最初のパスキーが登録できた時に使い切る(passkeyRegisterComplete)。
+  await requireSetupToken(env, optionalString(body, "setupToken") ?? "");
   const email = requireString(body, "adminEmail", {
     min: 3,
     max: 254,
@@ -3163,7 +3288,20 @@ async function setup(request: Request, env: Env): Promise<Response> {
   }
   if (publicDomain) validateDomain(publicDomain, "publicDomain");
 
-  const result = await bootstrapAdmin(env, { email });
+  // やり直しなら、前に作った最初の管理者のアドレスを直して使う(管理者を 2 人にしない)。
+  const earlier = await env.DB.prepare(
+    "SELECT uid FROM users WHERE is_admin = 1 ORDER BY created_at LIMIT 1",
+  ).first<{ uid: string }>();
+  const result = earlier
+    ? await (async () => {
+        await env.DB.prepare(
+          "UPDATE users SET email = ?, updated_at = ? WHERE uid = ?",
+        )
+          .bind(email, nowIso(), earlier.uid)
+          .run();
+        return { uid: earlier.uid };
+      })()
+    : await bootstrapAdmin(env, { email });
 
   const completedAt = nowIso();
   await saveSettings(env, {
@@ -7198,6 +7336,8 @@ async function meTokens(
   }
 
   if (request.method === "POST") {
+    // 鍵から鍵を作らせない(漏れた PAT で新しい PAT を残させない・課題 ddfefa78)。パスキーで入った画面から。
+    requireInteractiveUser(user);
     const body = await readJson(request);
     const name = optionalString(body, "name") ?? "Personal token";
     const scopes = [
@@ -9733,12 +9873,6 @@ async function siteTemplateDeleteCommunity(
   id: string,
 ): Promise<Response> {
   requireAdmin(user);
-  if (!communityPat(env))
-    throw new HttpError(
-      503,
-      "no_community_pat",
-      "Community PAT is not available (neither the COMMUNITY_PAT Worker Secret nor the built-in shared PAT).",
-    );
 
   const authorProfile = await getTemplateAuthorProfile(env, user);
   const local = await env.DB.prepare(
@@ -9801,7 +9935,11 @@ async function siteTemplateDeleteCommunity(
     `${KUROCMS_COMMUNITY_BASE_URL}/api/v1/delete/${encodeURIComponent(targetId)}`,
     {
       method: "DELETE",
-      headers: { Authorization: `Bearer ${communityPat(env)}` },
+      headers: {
+        Authorization: await communityAuthHeader(env),
+        // 持ち主の決まっていない前からの行は、前の作者 ID で 1 回だけ持ち主を決める(Community 側)。
+        "X-Author-Id": authorProfile.authorId,
+      },
     },
   );
   const res = await (env.COMMUNITY_API
@@ -10152,16 +10290,23 @@ async function siteTemplateServeThumbnail(
 // 叩くと同一ゾーン宛サブリクエストが Routes を経由せず本体サイトを返すため、
 // COMMUNITY_API サービスバインディング経由を優先する。
 /**
- * Community テンプレート API 用の PAT を解決する。
+ * Community テンプレート API で名乗る(課題 e53baed4・cee1f674・2026-10-25)。
  *
- * 優先順位は **Worker Secret `COMMUNITY_PAT` → 埋め込み共有 PAT**。
- * 埋め込みを用意しているのは、Community が「全 KuroCMS が共有する 1 つのライブラリ」
- * であり、インストールごとに鍵を配る UI も API も無いため — 必須にすると新規
- * インストールでは「公開」が常に 503 になる（実際にそうなっていた）。
- * 運用者が自分のトークンを Worker Secret で入れた場合はそちらが勝つ。
+ * この導入の Entamy ID のアクセストークン(aud = cms)で名乗る。Community はトークンを ID の公開鍵で確かめ、
+ * 持ち主(サイトの持ち主の口座、無ければこの導入の口座)ごとに書き換えを許す。
+ * 前は全 KuroCMS に同じ鍵を埋め込んでいた —— 配布物から取り出せば、誰でも全テンプレートの書き換え・
+ * 削除・バックアップまでできた。運営者の鍵(TEMPLATES_PAT)は KuroCMS に入れない。
  */
-function communityPat(env: Env): string {
-  return (env.COMMUNITY_PAT || COMMUNITY_SHARED_PAT || "").trim();
+async function communityAuthHeader(env: Env): Promise<string> {
+  const port = await entamyPort(env);
+  const token = await port.session.accessToken();
+  if (!token.ok)
+    throw new HttpError(
+      503,
+      "community_unavailable",
+      "This site could not sign in to Entamy ID, so it cannot publish to the community library now. Try again later.",
+    );
+  return `Bearer ${token.value}`;
 }
 
 function communityFetch(
@@ -10212,12 +10357,6 @@ async function siteTemplatePublish(
   id: string,
 ): Promise<Response> {
   requireAdmin(user);
-  if (!communityPat(env))
-    throw new HttpError(
-      503,
-      "no_community_pat",
-      "Community PAT is not available (neither the COMMUNITY_PAT Worker Secret nor the built-in shared PAT).",
-    );
   const tpl = await env.DB.prepare(
     `SELECT id, name, author, author_id, version, description, tags_json, bg,
             content_keys_json, api_version, source_html, thumbnail_blob,
@@ -10336,10 +10475,13 @@ async function siteTemplatePublish(
   // 登録されたテンプレートが Community 側にもその形のまま増えていた。
   const contentKeys = parseContentKeys(tpl.content_keys_json);
   const apiVersion = Number(tpl.api_version) || 1;
-  const authHeader = `Bearer ${communityPat(env)}`;
+  const authHeader = await communityAuthHeader(env);
+  // 持ち主の決まっていない前からの行は、前の作者 ID で 1 回だけ持ち主を決める(Community 側)。
+  const ownerHint = { "X-Author-Id": authorIdToSend ?? "" };
   const jsonCt = {
     Authorization: authHeader,
     "Content-Type": "application/json",
+    ...ownerHint,
   };
 
   // 新規なら insert
@@ -10414,6 +10556,7 @@ async function siteTemplatePublish(
       headers: {
         Authorization: authHeader,
         "Content-Type": "text/html; charset=utf-8",
+        ...ownerHint,
       },
       body: tpl.source_html,
     },
@@ -10434,7 +10577,11 @@ async function siteTemplatePublish(
       `update/${encodeURIComponent(targetTid)}/image.jpg`,
       {
         method: "POST",
-        headers: { Authorization: authHeader, "Content-Type": "image/jpeg" },
+        headers: {
+          Authorization: authHeader,
+          "Content-Type": "image/jpeg",
+          ...ownerHint,
+        },
         body: dataUrlToBytes(tpl.thumbnail_blob),
       },
     );

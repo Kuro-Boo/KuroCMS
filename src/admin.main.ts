@@ -812,6 +812,8 @@ const i18n = {
     profile: "Profile",
     help: "Help",
     setupTitle: "Set up your KuroCMS workspace",
+    setupLinkMissing:
+      "Open this page from the link shown when the site was installed (valid for 7 days). Without it, the first administrator cannot be created.",
     setupLead:
       "Create the first administrator. You sign in with a passkey (fingerprint or face recognition) — there is no password.",
     administrator: "Administrator",
@@ -2140,6 +2142,8 @@ const i18n = {
     profile: "プロフィール",
     help: "ヘルプ",
     setupTitle: "KuroCMS ワークスペースを設定",
+    setupLinkMissing:
+      "導入の完了画面に出たリンク（7 日以内）からこの画面を開いてください。リンクが無いと、最初の管理者を作れません。",
     setupLead:
       "最初の管理者を作成します。ログインはパスキー（指紋や顔認証）で行い、パスワードはありません。",
     administrator: "管理者",

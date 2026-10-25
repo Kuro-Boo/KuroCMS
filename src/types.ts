@@ -68,7 +68,6 @@ export interface Env {
   CF_WORKER_NAME?: string;
   /** 委託用ドメイン(kurocms.site など)。無ければ kurocms.site(公開ドメインの既定値に使う)。 */
   HOSTED_DOMAIN?: string;
-  COMMUNITY_PAT?: string;
   COMMUNITY_API?: Fetcher;
   /**
    * Entamy Mailer の送信先。**未設定なら基盤の本番**(mailer.entamy.com)。

@@ -338,8 +338,33 @@ function captureSetupState() {
   return { email: email?.value || "" };
 }
 
+/**
+ * 初期設定の鍵(導入の完了画面のリンクの #setup=…・課題 4dea81be)。# の後ろはサーバーに届かず、ログに残らない。
+ * 読んだらアドレス欄から消し、このタブの間だけ持つ(言語の切り替えなどで描き直しても続けられる)。
+ */
+function takeSetupLinkToken(): string {
+  const key = "kurocms-setup-token";
+  const prefix = "#setup=";
+  if (location.hash.startsWith(prefix)) {
+    const token = decodeURIComponent(location.hash.slice(prefix.length));
+    history.replaceState(null, "", location.pathname + location.search);
+    try {
+      sessionStorage.setItem(key, token);
+    } catch {
+      /* 保存できなくても、この描画の間は使える */
+    }
+    return token;
+  }
+  try {
+    return sessionStorage.getItem(key) ?? "";
+  } catch {
+    return "";
+  }
+}
+
 async function setupScreen(status: Dynamic, preserve: { email?: string } = {}) {
   setSidebarMode("setup");
+  const setupLinkToken = takeSetupLinkToken();
   app.innerHTML =
     "<section class='setup'><div class='setupHero'><h2>" +
     escapeHtml(t("setupTitle")) +
@@ -363,6 +388,16 @@ async function setupScreen(status: Dynamic, preserve: { email?: string } = {}) {
     "</button></div></form></div></section>";
   const email = byId("setupAdminEmail")!;
   const submit = byId("setupSubmit")!;
+  // 初期設定の鍵が無ければ進めない(誰でも先に管理者になれる口を閉じた・課題 4dea81be)。
+  if (!setupLinkToken) {
+    submit.disabled = true;
+    byId("setupForm")?.insertAdjacentHTML(
+      "afterbegin",
+      "<div class='notice error'>" +
+        escapeHtml(t("setupLinkMissing")) +
+        "</div>",
+    );
+  }
   email.value = preserve.email || "";
   const derivedPublicDomain = (() => {
     const path = location.pathname;
@@ -382,9 +417,10 @@ async function setupScreen(status: Dynamic, preserve: { email?: string } = {}) {
     submitBtn.disabled = true;
     try {
       const setupLang = state.uiLang || "en";
-      const setupResult = await api("/api/setup", {
+      await api("/api/setup", {
         method: "POST",
         body: JSON.stringify({
+          setupToken: setupLinkToken,
           adminEmail: email.value,
           publicDomain: derivedPublicDomain,
           defaultLang: setupLang,
@@ -398,7 +434,7 @@ async function setupScreen(status: Dynamic, preserve: { email?: string } = {}) {
       submitBtn.textContent = t("registeringPasskey");
       const beginData = await api("/api/auth/passkey/register/begin", {
         method: "POST",
-        body: JSON.stringify({ uid: setupResult.uid }),
+        body: JSON.stringify({ setupToken: setupLinkToken }),
       });
       const credential = await navigator.credentials.create({
         publicKey: {
@@ -422,9 +458,15 @@ async function setupScreen(status: Dynamic, preserve: { email?: string } = {}) {
           credential: serializeCredentialForRegistration(
             credential as PublicKeyCredential,
           ),
+          setupToken: setupLinkToken,
         }),
       });
       await registerSiblingNetwork();
+      try {
+        sessionStorage.removeItem("kurocms-setup-token");
+      } catch {
+        /* 使えなくてもよい(鍵はもう使い切った) */
+      }
       history.pushState(null, "", adminHref("") + "/");
       render();
     } catch (err) {

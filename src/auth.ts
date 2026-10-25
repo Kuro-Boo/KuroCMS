@@ -24,6 +24,7 @@ interface TokenUserRow {
   disabled_at: string | null;
   revoked_at: string | null;
   expires_at: string | null;
+  scopes_json: string | null;
 }
 
 interface SessionUserRow {
@@ -105,6 +106,7 @@ async function tryPatUser(
       pat.token_id,
       pat.revoked_at,
       pat.expires_at,
+      pat.scopes_json,
       users.uid,
       users.email,
       users.is_admin,
@@ -132,11 +134,24 @@ async function tryPatUser(
     .bind(nowIso(), row.token_id)
     .run();
 
+  // 鍵の範囲(発行の時に選んだ役割)と、利用者のいまの役割の重なった分だけを持つ(課題 ddfefa78)。
+  // 前は範囲を読まず、利用者のいまの役割をそのまま渡していた —— 執筆者だけの鍵が、あとで管理者になった
+  // 人の鍵として管理の口を通った。範囲が読めない鍵は何の役割も持たない(開ける側に倒さない)。
+  let scopes: string[] = [];
+  try {
+    const parsed = JSON.parse(row.scopes_json ?? "[]");
+    if (Array.isArray(parsed))
+      scopes = parsed.filter((x): x is string => typeof x === "string");
+  } catch {
+    scopes = [];
+  }
   return {
     uid: row.uid,
     email: row.email,
-    isAdmin: row.is_admin === 1,
-    isAuthor: row.is_author === 1,
+    isAdmin: row.is_admin === 1 && scopes.includes("admin"),
+    isAuthor:
+      row.is_author === 1 &&
+      (scopes.includes("author") || scopes.includes("admin")),
     tokenId: row.token_id,
     authSource: "pat",
   };
