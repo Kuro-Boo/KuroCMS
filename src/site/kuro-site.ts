@@ -50,6 +50,78 @@
   run("zoom", zoom);
   run("video", video);
   run("links", links);
+  // テンプレートの組み込み部品(cms-cms-template 9.11・template-ui.ts が [[…]] を data 属性に展開する)。
+  run("toggle", toggles);
+  run("tab", tabs);
+  run("linkfrom", linkFrom);
+
+  // ── [[toggle:名前]] / [[panel:名前]] ─────────────────────────────────
+  // 押すと、同じ名前の panel に class open を付け外しし、ボタンの aria-expanded を合わせる。
+  function toggles(): void {
+    all("[data-kuro-toggle]").forEach((btn) => {
+      const name = btn.getAttribute("data-kuro-toggle") || "";
+      btn.addEventListener("click", () => {
+        const panels = all("[data-kuro-panel]").filter(
+          (p) => p.getAttribute("data-kuro-panel") === name,
+        );
+        const open = !panels.some((p) => p.classList.contains("open"));
+        panels.forEach((p) => p.classList.toggle("open", open));
+        all("[data-kuro-toggle]")
+          .filter((b) => b.getAttribute("data-kuro-toggle") === name)
+          .forEach((b) => b.setAttribute("aria-expanded", String(open)));
+      });
+    });
+  }
+
+  // ── [[tab:組]] / [[tabitem:組]] ─────────────────────────────────────
+  // タブの値は data-tab-value(無ければ「すべて」)。押したタブの値を data-tab-values(空白区切り)に
+  // 含む項目だけを見せる。初めは値の無いタブが押された形。
+  function tabs(): void {
+    const tabsAll = all("[data-kuro-tab]");
+    tabsAll.forEach((tab) =>
+      tab.setAttribute(
+        "aria-pressed",
+        String(!(tab.getAttribute("data-tab-value") || "")),
+      ),
+    );
+    tabsAll.forEach((tab) => {
+      const group = tab.getAttribute("data-kuro-tab") || "";
+      tab.addEventListener("click", () => {
+        const value = (tab.getAttribute("data-tab-value") || "").trim();
+        tabsAll
+          .filter((t) => t.getAttribute("data-kuro-tab") === group)
+          .forEach((t) => t.setAttribute("aria-pressed", String(t === tab)));
+        all("[data-kuro-tabitem]")
+          .filter((i) => i.getAttribute("data-kuro-tabitem") === group)
+          .forEach((i) => {
+            const values = (i.getAttribute("data-tab-values") || "")
+              .split(/\s+/)
+              .filter(Boolean);
+            i.hidden = !!value && values.indexOf(value) < 0;
+          });
+      });
+    });
+  }
+
+  // ── [[linkfrom:名前]] ────────────────────────────────────────────────
+  // 頁の中の最初の a[data-名前][href] の href を写す(http・https だけ)。
+  function linkFrom(): void {
+    all<HTMLAnchorElement>("a[data-kuro-linkfrom]").forEach((a) => {
+      const name = a.getAttribute("data-kuro-linkfrom") || "";
+      if (!/^[a-z0-9_-]{1,40}$/.test(name)) return;
+      const from = document.querySelector<HTMLAnchorElement>(
+        `a[data-${name}][href]`,
+      );
+      if (!from) return;
+      try {
+        const url = new URL(from.getAttribute("href") || "", location.href);
+        if (url.protocol === "http:" || url.protocol === "https:")
+          a.setAttribute("href", url.href);
+      } catch {
+        /* 読めない URL は写さない */
+      }
+    });
+  }
 
   // ── Bluesky の投稿 ──────────────────────────────────────────────────
   function bluesky(el: HTMLElement): void {

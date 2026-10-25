@@ -1,4 +1,5 @@
 // Public page renderer. Template HTML comes only from D1.
+import { expandOwnScriptTokens, expandTemplateParts } from "./template-ui";
 import { createStaleFallback } from "./stale-fallback";
 import { expandEntamySubprocessors } from "./entamy-subprocessors";
 import type {
@@ -2703,10 +2704,12 @@ export async function generatePage(
   const { snsSids, resolveSns } = buildSnsContext(s, extConns);
   // テンプレートの作者のスクリプトは、サイトのファイル(/_tjs/)として読ませる。外部の JS は
   // 外す(cms-cms-security「CSP」)。部品を展開する前に掛ける —— 移すのは作者が書いた分だけ。
+  // 当社の組み込み部品の [[…]] を先に展開する(cms-cms-template 9.11)。部品が戻す当社の script は
+  // 次の externalize がそのまま残す(自分のサイトのファイル・Tailwind は静的な CSS に置き換える)。
   let sourceHtml = placeReactionSlot(
     expandSnsRefs(
       await externalizeTemplateScripts(
-        template.sourceHtml,
+        expandTemplateParts(template.sourceHtml),
         template.id,
         s.base_path || "",
       ),
@@ -3751,7 +3754,10 @@ const TW_CDN_SCRIPT_RE =
 
 /** The Tailwind Play-CDN URL a template loads ("" when it doesn't use it). */
 export function findTwCdnUrl(sourceHtml: string): string {
-  const m = String(sourceHtml || "").match(TW_CDN_SCRIPT_RE);
+  // [[tailwind]] は前の書き方(CDN の script)に戻してから見る(cms-cms-template 9.11)。
+  const m = expandOwnScriptTokens(String(sourceHtml || "")).match(
+    TW_CDN_SCRIPT_RE,
+  );
   return m ? m[1] : "";
 }
 

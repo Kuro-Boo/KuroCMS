@@ -10567,7 +10567,13 @@ async function siteTemplatePublish(
       "community_error",
       `src update HTTP ${srcRes.status}: ${(await srcRes.text().catch(() => "")).slice(0, 200)}`,
     );
-  await srcRes.text().catch(() => "");
+  // Community は JS を外して保存する(cms-cms-template 9.11)。外したものを公開した人に知らせる。
+  const srcBody = (await srcRes.json().catch(() => ({}))) as {
+    removed?: unknown;
+  };
+  const jsRemoved = Array.isArray(srcBody.removed)
+    ? srcBody.removed.filter((x): x is string => typeof x === "string")
+    : [];
 
   // image.jpg（D1 thumbnail_blob をデコードして送信）
   let imageSent = false;
@@ -10614,6 +10620,7 @@ async function siteTemplatePublish(
     communityId: targetTid,
     created: !exists,
     imageSent,
+    jsRemoved,
   });
 }
 

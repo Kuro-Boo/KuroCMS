@@ -343,6 +343,13 @@ async function siteManagement() {
         toast(
           isUpdate ? t("communityUpdateSuccess") : t("communityPublishSuccess"),
         );
+        // Community は JS を外して保存する(cms-cms-template 9.11)。外れたものがあれば知らせる。
+        const jsRemoved = (res && res.jsRemoved) || [];
+        if (jsRemoved.length)
+          toast(
+            t("communityJsRemoved").replace("{n}", String(jsRemoved.length)),
+            true,
+          );
       } catch (err) {
         const code = (err as Dynamic) && (err as Dynamic).code;
         toast(

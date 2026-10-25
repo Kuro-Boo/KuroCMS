@@ -1723,6 +1723,8 @@ const i18n = {
     communityNameConflictHint:
       "A community template with the same name already exists, so it cannot be published.",
     communityUpdateConfirm: "Update this template in the community library?",
+    communityJsRemoved:
+      "Community templates cannot contain JavaScript, so {n} script part(s) were removed from the published copy. Use the [[…]] parts (toggle, tab, …) for behaviour. Your own site keeps your template as is.",
     communityUpdateSuccess: "Community template updated!",
     communityDeleteConfirm: "Remove this template from the community library?",
     processing: "Processing…",
@@ -3134,6 +3136,8 @@ const i18n = {
       "同じ名前の公開テンプレートが既に存在するため公開できません。",
     communityUpdateConfirm:
       "このテンプレートで公開テンプレートを更新しますか？",
+    communityJsRemoved:
+      "Community のテンプレートには JS を入れられないため、公開した写しから {n} か所の JS を外しました。動きは [[…]] の部品（toggle・tab など）で付けてください。自分のサイトのテンプレートはそのままです。",
     communityUpdateSuccess: "公開テンプレートを更新しました！",
     communityDeleteConfirm:
       "コミュニティライブラリからこのテンプレートを削除しますか？",
