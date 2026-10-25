@@ -106,6 +106,37 @@ export function siteCspHeaders(input: SiteCspInput): Record<string, string> {
 }
 
 /**
+ * 管理画面の CSP(課題 dffbd3ff・2026-10-25)。管理画面の HTML は要求ごとに Worker が返すので、
+ * 要求ごとの nonce でインラインの script(設定を渡す 1 つ)だけを許す。最初は報告だけ(ADMIN_CSP_MODE)で入れ、
+ * 報告(サイトの /_csp・csp_reports)を見て、壊れる所が無いのを確かめてから強制にする(公開サイトと同じ段取り)。
+ *   - Tailwind の静的 CSS の組み立て(srcdoc の枠で Play CDN を読む・枠は親の CSP を受け継ぐ)
+ *   - Community の一覧(kurocms.entamy.com を画面から直接読む)・Entamy の基盤
+ *   - 記事の外の画像・埋め込み(YouTube など)・プレビューの枠(同じ出どころ・srcdoc)
+ * 管理画面は枠に入れさせない(frame-ancestors 'none')。
+ */
+export const ADMIN_CSP_MODE: "report" | "enforce" = "report";
+
+export function adminCspHeaders(input: {
+  publicBase: string;
+  nonce: string;
+}): Record<string, string> {
+  const base = (input.publicBase || "").replace(/\/+$/, "");
+  return cspHeaders({
+    mode: ADMIN_CSP_MODE,
+    productId: "cms",
+    nonce: input.nonce,
+    reportUri: `${base}${CSP_REPORT_PATH}`,
+    scriptSrc: ["https://cdn.tailwindcss.com"],
+    connectSrc: ["https://kurocms.entamy.com", "https://*.entamy.com"],
+    styleSrc: FONTS_STYLE,
+    fontSrc: FONTS_FILE,
+    imgSrc: ["https:"],
+    frameSrc: ["'self'", "blob:", "data:", ...EMBED_FRAME],
+    frameAncestors: ["'none'"],
+  });
+}
+
+/**
  * 静的資産の `_headers` の中身(番人が版の `assets.config._headers` に入れる)。
  * `_headers` は静的資産の応答にだけ効く(Worker の応答には付かない)ので、`/*` の 1 規則で足りる。
  */

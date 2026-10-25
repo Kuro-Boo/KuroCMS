@@ -588,6 +588,17 @@ export async function regionReport(
  * 公開サイトの CSP(本体は entamy-connect の service/src/csp.ts)。公開ミラーでは
  * 見出しを付けず(空)、報告も読まない。配布する worker.js には本体が入る。
  */
+/** 応答ごとの nonce(16 バイトの乱数を base64)。正本と同じ。 */
+export function cspNonce(): string {
+  const b = crypto.getRandomValues(new Uint8Array(16));
+  return btoa(String.fromCharCode(...b));
+}
+
+/** HTML のインラインの `<script>` に nonce を付ける。正本と同じ。 */
+export function withScriptNonce(html: string, nonce: string): string {
+  return html.replace(/<script(?=[\s>])/g, `<script nonce="${nonce}"`);
+}
+
 export function cspHeaders(_o: {
   mode: "report" | "enforce";
   productId: string;

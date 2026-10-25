@@ -15,7 +15,11 @@ import { reactionEndpoint } from "./reactions";
 import { cspReportEndpoint } from "./csp-report";
 import { mediaIsPublic } from "./assets-publish";
 import { tryAuth } from "./auth";
-import { CSP_REPORT_PATH } from "./site-csp";
+import { adminCspHeaders, CSP_REPORT_PATH } from "./site-csp";
+import {
+  cspNonce,
+  withScriptNonce,
+} from "./vendor/entamy-client/index.ts";
 import {
   buildCountsJs,
   buildLlmsTxt,
@@ -251,12 +255,7 @@ const worker = {
           302,
         );
       }
-      return html(
-        adminHtml({
-          accessAdminUrl: env.ACCESS_ADMIN_URL || "/kurocms/admin",
-          base: basePath,
-        }),
-      );
+      return adminResponse(env, basePath, publicBase);
     }
 
     // Public routes: / /about /blog/* /news/* — relative to publicBase
@@ -451,12 +450,7 @@ const worker = {
           302,
         );
       }
-      return html(
-        adminHtml({
-          accessAdminUrl: env.ACCESS_ADMIN_URL || "/kurocms/admin",
-          base: basePath,
-        }),
-      );
+      return adminResponse(env, basePath, publicBase);
     }
 
     if (!isLegacyAdminPath && pathname.startsWith("/api/admin/")) {
@@ -469,21 +463,11 @@ const worker = {
     }
 
     if (isLegacyAdminPath && pathname.startsWith("/admin")) {
-      return html(
-        adminHtml({
-          accessAdminUrl: env.ACCESS_ADMIN_URL || "/kurocms/admin",
-          base: basePath,
-        }),
-      );
+      return adminResponse(env, basePath, publicBase);
     }
 
     if (!isLegacyAdminPath) {
-      return html(
-        adminHtml({
-          accessAdminUrl: env.ACCESS_ADMIN_URL || "/kurocms/admin",
-          base: basePath,
-        }),
-      );
+      return adminResponse(env, basePath, publicBase);
     }
 
     return notFoundPage(request, {
@@ -498,6 +482,28 @@ const worker = {
  * 束縛からしか呼べない(公開の URL からは届かない)。番人の版が APP_TICK=1 で呼べるようになったら、
  * 顧客導入は cron を番人の 1 本にまとめる(adoptGuardianMinute)。
  */
+/**
+ * 管理画面の HTML。要求ごとの nonce をインラインの script に付け、管理画面の CSP を付ける(課題 dffbd3ff・
+ * 最初は報告だけ・site-csp.ts の ADMIN_CSP_MODE)。
+ */
+function adminResponse(
+  env: Env,
+  basePath: string,
+  publicBase: string,
+): Response {
+  const nonce = cspNonce();
+  return html(
+    withScriptNonce(
+      adminHtml({
+        accessAdminUrl: env.ACCESS_ADMIN_URL || "/kurocms/admin",
+        base: basePath,
+      }),
+      nonce,
+    ),
+    { headers: adminCspHeaders({ publicBase, nonce }) },
+  );
+}
+
 export default class KuroCms extends WorkerEntrypoint<Env> {
   fetch(request: Request): Promise<Response> {
     return worker.fetch(request, this.env, this.ctx);

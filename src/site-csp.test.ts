@@ -4,7 +4,13 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
-import { siteCspHeaders, siteHeadersFile, SITE_CSP_MODE } from "./site-csp.ts";
+import {
+  adminCspHeaders,
+  ADMIN_CSP_MODE,
+  siteCspHeaders,
+  siteHeadersFile,
+  SITE_CSP_MODE,
+} from "./site-csp.ts";
 import {
   externalizeTemplateScripts,
   templateScriptBody,
@@ -274,6 +280,21 @@ const directive = (p: string, name: string) =>
       `${file} がイベント属性を出している`,
     );
   }
+}
+
+// 管理画面の CSP(課題 dffbd3ff)。要求ごとの nonce だけでインラインの script を許し、枠に入れさせない。
+{
+  const h = adminCspHeaders({ publicBase: "/blog", nonce: "n0nce" });
+  const name =
+    ADMIN_CSP_MODE === "enforce"
+      ? "content-security-policy"
+      : "content-security-policy-report-only";
+  const policy = h[name] ?? "";
+  assert.match(policy, /script-src 'self' 'nonce-n0nce'/);
+  assert.doesNotMatch(policy, /script-src[^;]*'unsafe-inline'/);
+  assert.match(policy, /frame-ancestors 'none'/);
+  assert.match(policy, /report-uri \/blog\/_csp/);
+  assert.match(policy, /object-src 'none'/);
 }
 
 console.log("site CSP contract OK");
