@@ -14,6 +14,7 @@
  * Defects へ `csp_violation` を送る(導入の名乗りで送るので、どのサイトかが分かる)。
  * 誰でも送れる口なので、組の数に上限を置き、上限を超えた新しい組は数えない。
  */
+import { readLimitedText } from "./http.ts";
 import { parseCspReports } from "./vendor/entamy-client/index.ts";
 import { entamyPort } from "./entamy-port.ts";
 import type { Env } from "./types.ts";
@@ -30,10 +31,9 @@ export async function cspReportEndpoint(
 ): Promise<Response> {
   if (request.method !== "POST")
     return new Response(null, { status: 405, headers: { allow: "POST" } });
-  const fresh = await recordCspReports(
-    env,
-    await request.text().catch(() => ""),
-  );
+  // 上限まで読んで打ち切る(全部読んでから大きさを見ない・課題 cfaaee70)。超えたら数えない。
+  const body = await readLimitedText(request, MAX_BODY).catch(() => "");
+  const fresh = await recordCspReports(env, body);
   if (fresh.length) {
     ctx.waitUntil(
       (async () => {

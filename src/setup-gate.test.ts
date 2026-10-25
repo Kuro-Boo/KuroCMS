@@ -334,6 +334,166 @@ console.log("setup-gate");
   );
 }
 
+{
+  // 公開の migrate の口(課題 afe5e3fa)。外から来た要求(cf-connecting-ip がある)は通さない。
+  const w = world();
+  eq(
+    "外からの migrate は 404",
+    (
+      await call(w, "POST", "/api/system/migrate", undefined, {
+        "cf-connecting-ip": "203.0.113.9",
+      })
+    ).status,
+    404,
+  );
+  eq(
+    "旧名の口も同じ",
+    (
+      await call(w, "POST", "/api/migrate", undefined, {
+        "cf-connecting-ip": "2001:db8::1",
+      })
+    ).status,
+    404,
+  );
+}
+
+{
+  // cookie で名乗る変更の要求は、この管理画面自身から(課題 b936bf55)。
+  const w = world();
+  const now = new Date().toISOString();
+  w.raw
+    .prepare(
+      "INSERT INTO users (uid, email, author_id, is_admin, is_author, created_at, updated_at) VALUES ('usr_001', 'a@example.com', 'au', 1, 1, ?, ?)",
+    )
+    .run(now, now);
+  w.raw
+    .prepare(
+      "INSERT INTO sessions (session_id, uid, expires_at, created_at, last_active_at) VALUES ('sess_x', 'usr_001', ?, ?, ?)",
+    )
+    .run(new Date(Date.now() + 3_600_000).toISOString(), now, now);
+  const cookie = { cookie: "kurocms_session=sess_x" };
+  eq(
+    "別の origin からの cookie の変更は断る",
+    (
+      await call(
+        w,
+        "POST",
+        "/api/me/tokens",
+        { name: "x" },
+        { ...cookie, origin: "https://other.example" },
+      )
+    ).code,
+    "cross_origin_request",
+  );
+  eq(
+    "Origin が無く、Sec-Fetch-Site が別のサイトなら断る",
+    (
+      await call(
+        w,
+        "POST",
+        "/api/me/tokens",
+        { name: "x" },
+        { ...cookie, "sec-fetch-site": "same-site" },
+      )
+    ).code,
+    "cross_origin_request",
+  );
+  eq(
+    "同じ origin からは通る",
+    (
+      await call(
+        w,
+        "POST",
+        "/api/me/tokens",
+        { name: "x" },
+        { ...cookie, origin: "https://site.example" },
+      )
+    ).status,
+    201,
+  );
+  eq(
+    "読むだけの要求は Origin を見ない",
+    (
+      await call(w, "GET", "/api/me/tokens", undefined, {
+        ...cookie,
+        origin: "https://other.example",
+      })
+    ).status,
+    200,
+  );
+}
+
+{
+  // 本文は読みながら上限を見る(課題 cfaaee70)。
+  const w = world();
+  const big = "x".repeat(25 * 1024 * 1024);
+  eq(
+    "上限を超える JSON は 413(読み切る前に打ち切る)",
+    (await call(w, "POST", "/api/setup", { setupToken: big })).code,
+    "body_too_large",
+  );
+}
+
+{
+  // バックアップに鍵を入れない(課題 ac344ac4)。
+  const w = world();
+  const now = new Date().toISOString();
+  w.raw
+    .prepare(
+      "INSERT INTO users (uid, email, author_id, is_admin, is_author, created_at, updated_at) VALUES ('usr_001', 'a@example.com', 'au', 1, 1, ?, ?)",
+    )
+    .run(now, now);
+  w.raw
+    .prepare(
+      "INSERT INTO sessions (session_id, uid, expires_at, created_at, last_active_at) VALUES ('sess_x', 'usr_001', ?, ?, ?)",
+    )
+    .run(new Date(Date.now() + 3_600_000).toISOString(), now, now);
+  w.raw
+    .prepare(
+      "UPDATE site_settings SET bluesky_token = 'secret-bsky', site_name = 'S' WHERE id = 1",
+    )
+    .run();
+  w.raw
+    .prepare(
+      "INSERT INTO external_connections (id, service, label, access_token, token_secret, is_active, created_at, updated_at) VALUES ('sns-001', 'x', 'X', 'tok', 'sec', 1, ?, ?)",
+    )
+    .run(now, now);
+  const cookie = { cookie: "kurocms_session=sess_x" };
+  const settings = (
+    await call(
+      w,
+      "GET",
+      "/api/system/backup/table/site_settings",
+      undefined,
+      cookie,
+    )
+  ).json.rows as Record<string, unknown>[];
+  eq(
+    "設定の鍵は書き出さない(ほかの値は書き出す)",
+    [settings[0]?.site_name, "bluesky_token" in (settings[0] ?? {})],
+    ["S", false],
+  );
+  const conns = (
+    await call(
+      w,
+      "GET",
+      "/api/system/backup/table/external_connections",
+      undefined,
+      cookie,
+    )
+  ).json.rows as Record<string, unknown>[];
+  eq(
+    "外部の接続は鍵を外し、つながっていないとして書き出す",
+    [
+      conns[0]?.id,
+      "access_token" in (conns[0] ?? {}),
+      "token_secret" in (conns[0] ?? {}),
+      conns[0]?.is_active,
+    ],
+    ["sns-001", false, false, 0],
+  );
+}
+
 if (failed) {
   console.log(`\n${failed} 件 失敗`);
   process.exit(1);

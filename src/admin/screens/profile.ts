@@ -220,6 +220,14 @@ async function profile() {
     }
   }
   byId("logoutBtn")?.addEventListener("click", async () => {
+    // 鍵になるものを手元から消す(課題 78566a3d)。このタブで覚えた鍵と、前の版が置いた鍵。
+    try {
+      sessionStorage.clear();
+      localStorage.removeItem("kurocms_pat");
+      localStorage.removeItem("kurocms_site_move_ops");
+    } catch {
+      /* 使えない環境では、そもそも置いていない */
+    }
     try {
       await api("/api/auth/logout", { method: "POST", body: "{}" });
       render();

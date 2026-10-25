@@ -97,6 +97,7 @@ import {
   splitLangPath,
 } from "./lang-path";
 import {
+  markMediaGateReady,
   type AssetsProgress,
   assetsPending,
   forgetPages,
@@ -4026,13 +4027,18 @@ const SUBREQ_PER_BUILT_PAGE = 2;
 // ─── Build cache helpers ──────────────────────────────────────────────────────
 
 async function loadBuildCache(env: Env): Promise<Map<string, string>> {
+  // メディアを記録し終えていない頁の記録は読まない(作り直して、参照するメディアを記録する・課題 d9968d85)。
   const rows = await env.DB.prepare(
-    `SELECT path, lang, source_hash FROM page_build_cache`,
-  ).all<{
-    path: string;
-    lang: string;
-    source_hash: string;
-  }>();
+    `SELECT c.path, c.lang, c.source_hash FROM page_build_cache c
+      WHERE EXISTS (SELECT 1 FROM page_media_scan s WHERE s.path = c.path)`,
+  )
+    .all<{ path: string; lang: string; source_hash: string }>()
+    // 新しい版が動き出してから migration が当たるまでの間(表がまだ無い)は、前のとおり全部読む。
+    .catch(() =>
+      env.DB.prepare(
+        `SELECT path, lang, source_hash FROM page_build_cache`,
+      ).all<{ path: string; lang: string; source_hash: string }>(),
+    );
   const map = new Map<string, string>();
   for (const r of rows.results ?? [])
     map.set(`${r.path}:${r.lang}`, r.source_hash);
@@ -5293,6 +5299,8 @@ export async function buildAllPublicPages(
         "UPDATE site_settings SET site_is_published = 1 WHERE id = 1",
       ).run();
     }
+    // 公開の頁がすべてメディアを記録し終えたら、公開の前のメディアを配らない形に切り替える。
+    await markMediaGateReady(env);
     assets = await publishSiteAssets(env, {
       request: true,
       ...(maxAssetReads ? { maxReads: maxAssetReads } : {}),

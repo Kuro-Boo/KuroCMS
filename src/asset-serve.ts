@@ -6,6 +6,7 @@
 import { KUROCMS_VERSION } from "./api";
 import type { Env } from "./types";
 import {
+  fetchGithubVerified,
   fetchUpdateArtifact,
   fetchUpdateManifest,
   getReleaseSource,
@@ -34,35 +35,6 @@ function assetResponse(body: BodyInit, filename: string): Response {
       "cache-control": IMMUTABLE,
     },
   });
-}
-
-// Fetch with retry on transient errors (connection/timeout/5xx/429). Respects Retry-After.
-async function fetchWithRetry(url: string, max = 3): Promise<Response | null> {
-  for (let attempt = 0; attempt <= max; attempt++) {
-    if (attempt > 0) {
-      const backoff =
-        Math.min(4000, 500 * 2 ** (attempt - 1)) + Math.random() * 250;
-      await new Promise((r) => setTimeout(r, backoff));
-    }
-    try {
-      const res = await fetch(url, {
-        redirect: "follow",
-        signal: AbortSignal.timeout(20_000),
-      });
-      if (res.ok) return res;
-      // permanent client errors (except 429) → give up
-      if (res.status >= 400 && res.status < 500 && res.status !== 429)
-        return null;
-      // transient (429 / 5xx): honor Retry-After before next attempt
-      const ra = Number(res.headers.get("retry-after"));
-      if (Number.isFinite(ra) && ra > 0) {
-        await new Promise((r) => setTimeout(r, Math.min(8000, ra * 1000)));
-      }
-    } catch {
-      /* network / timeout → retry */
-    }
-  }
-  return null;
 }
 
 export async function serveAdminAsset(
@@ -134,8 +106,20 @@ export async function serveAdminAsset(
     }
   }
 
-  // 5) GitHub release (version-pinned), with retry. Cache into KV on success.
-  const rel = await fetchWithRetry(`${RELEASE_BASE}/${filename}`);
+  // 5) GitHub release (version-pinned). 配布基盤の署名つきの一覧(同じ版)に照らしてから使う
+  //    (課題 7abbf662)。一覧が取れない・合わない時は配らない —— 確かめの通らない管理画面の JS を
+  //    KV に置いて配り続けない。Cache into KV on success.
+  let rel: ArrayBuffer | null = null;
+  try {
+    const signed = await fetchUpdateManifest(version);
+    rel = await fetchGithubVerified(
+      `${RELEASE_BASE}/${filename}`,
+      signed,
+      filename,
+    );
+  } catch (err) {
+    updateFailure ??= reasonOf(err);
+  }
   if (updateFailure) {
     ctx.waitUntil(
       reportRelease(
@@ -146,9 +130,8 @@ export async function serveAdminAsset(
     );
   }
   if (rel) {
-    const buf = await rel.arrayBuffer();
-    ctx.waitUntil(env.PUBLIC_PAGES.put(kvKey, buf));
-    return finalize(assetResponse(buf, filename));
+    ctx.waitUntil(env.PUBLIC_PAGES.put(kvKey, rel));
+    return finalize(assetResponse(rel, filename));
   }
 
   return new Response("Admin asset unavailable", { status: 503 });

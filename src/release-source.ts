@@ -100,14 +100,16 @@ export function reasonOf(err: unknown): string {
   return "other";
 }
 
-const fromB64url = (s: string): Uint8Array => {
+const fromB64url = (s: string): Uint8Array<ArrayBuffer> => {
   const b = atob(
     s
       .replace(/-/g, "+")
       .replace(/_/g, "/")
       .padEnd(Math.ceil(s.length / 4) * 4, "="),
   );
-  return Uint8Array.from(b, (c) => c.charCodeAt(0));
+  const out = new Uint8Array(new ArrayBuffer(b.length));
+  for (let i = 0; i < b.length; i++) out[i] = b.charCodeAt(i);
+  return out;
 };
 
 const hex = (buf: ArrayBuffer): string =>
@@ -208,6 +210,48 @@ export async function fetchUpdateManifest(
   return m;
 }
 
+/** バイト列を、署名つきの一覧の成果物(sha256・大きさ)に照らす。合わなければ投げる。 */
+export async function checkArtifactBytes(
+  manifest: UpdateManifest,
+  name: string,
+  buf: ArrayBuffer,
+): Promise<void> {
+  const a = manifest.artifacts.find((x) => x.name === name);
+  if (!a)
+    throw new ReleaseError(
+      "artifact_missing",
+      `${name} is not in release ${manifest.version}`,
+    );
+  if (buf.byteLength !== a.size)
+    throw new ReleaseError("size_mismatch", `${name} size does not match`);
+  if (hex(await crypto.subtle.digest("SHA-256", buf)) !== a.sha256)
+    throw new ReleaseError("digest_mismatch", `${name} digest does not match`);
+}
+
+/**
+ * GitHub の版固定の成果物を取り、配布基盤の署名つきの一覧(同じ版)に照らしてから返す(課題 7abbf662)。
+ * 一覧が取れない・合わない時は投げる(閉じる側に倒す)—— GitHub は配布基盤が落ちた時の退路だが、
+ * 確かめの通らないコードと migration は入れない。前は GitHub から取ったものをそのまま当てていた。
+ */
+export async function fetchGithubVerified(
+  url: string,
+  manifest: UpdateManifest,
+  name: string,
+): Promise<ArrayBuffer> {
+  const r = await fetch(url, {
+    redirect: "follow",
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!r.ok)
+    throw new ReleaseError(
+      `github_http_${r.status}`,
+      `${name} fetch from GitHub failed: HTTP ${r.status}`,
+    );
+  const buf = await r.arrayBuffer();
+  await checkArtifactBytes(manifest, name, buf);
+  return buf;
+}
+
 /** 成果物の中身。sha256 と大きさを manifest に照らす(圧縮して置かれていれば解く)。 */
 export async function fetchUpdateArtifact(
   manifest: UpdateManifest,
@@ -233,10 +277,7 @@ export async function fetchUpdateArtifact(
       ? r.body.pipeThrough(new DecompressionStream("gzip"))
       : r.body;
   const buf = await new Response(body).arrayBuffer();
-  if (buf.byteLength !== a.size)
-    throw new ReleaseError("size_mismatch", `${name} size does not match`);
-  if (hex(await crypto.subtle.digest("SHA-256", buf)) !== a.sha256)
-    throw new ReleaseError("digest_mismatch", `${name} digest does not match`);
+  await checkArtifactBytes(manifest, name, buf);
   return buf;
 }
 

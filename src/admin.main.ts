@@ -3562,7 +3562,16 @@ type AdminState = {
 };
 
 const state: AdminState = {
-  token: localStorage.getItem(tokenKey) || "",
+  // 管理画面はパスキーのセッション(cookie)で名乗る。前の版は PAT を localStorage に置いて全部の要求に
+  // 付けていた —— ログアウトしても残るので、読まずに消す(課題 78566a3d)。
+  token: (() => {
+    try {
+      localStorage.removeItem(tokenKey);
+    } catch {
+      /* 使えない環境では、そもそも置いていない */
+    }
+    return "";
+  })(),
   themeLoaded: false,
   themeSettings: null,
   currentUser: null,
@@ -4673,7 +4682,7 @@ async function runBuildWithProgress(force = false) {
       return { languages: [] };
     });
     const buildLang = (langData.languages || [])[0]?.lang || "ja";
-    const token = localStorage.getItem("kurocms_pat") || "";
+    const token = state.token;
     const MAX_PASSES = 60; // safety cap against an unexpected non-terminating loop
     // 1 パスの取りこぼし（回線瞬断・プロキシのアイドル切断）を吸収する回数。
     const MAX_PASS_RETRIES = 5;
@@ -5087,7 +5096,7 @@ const helpContent: Record<string, Dynamic> = {
     canDo:
       "記事・翻訳・カテゴリ・タクソノミー・テンプレート・サイトの設定・SNS 連携と、画像・動画・音楽の実ファイルを 1 つの ZIP に保存する / ZIP から、今の中身をすべて置き換えて戻す",
     notes:
-      "利用者・パスキー・PAT は ZIP に入りません。SNS 連携のトークンは入るので、ZIP は大切に保管してください。レストアは、今のコンテンツ・メディア・設定をすべて消してから置き換えます。取り消せません。処理の間はタブを開いたままにしてください。大きなサイトは Chrome か Edge を使ってください。レストアの後はビルドすると、公開ページが作り直されます。別の Cloudflare や委託運用へ移るときは、バックアップではなく「設定 → 契約形式」の引っ越しを使ってください。",
+      "利用者・パスキー・PAT と、SNS・取り込み元の鍵は ZIP に入りません（ZIP は暗号化しないため）。レストアの後は、設定の「SNS 連動」などで接続し直してください。レストアは、今のコンテンツ・メディア・設定をすべて消してから置き換えます。取り消せません。処理の間はタブを開いたままにしてください。大きなサイトは Chrome か Edge を使ってください。レストアの後はビルドすると、公開ページが作り直されます。別の Cloudflare や委託運用へ移るときは、バックアップではなく「設定 → 契約形式」の引っ越しを使ってください。",
   },
   faq: {
     title: "よくある質問 (Q&A)",
@@ -5302,7 +5311,7 @@ const helpContentEn: Record<string, Dynamic> = {
     canDo:
       "Save articles, translations, categories, taxonomy, templates, site settings, social connections, and the image, video and audio files in one ZIP / Restore from a ZIP, replacing everything currently there",
     notes:
-      "Users, passkeys and PATs are not in the ZIP. Social media tokens are, so keep the ZIP safe. Restore deletes all current content, media and settings before replacing them, and it cannot be undone. Keep the tab open while it runs. Use Chrome or Edge for large sites. After a restore, build to regenerate the public pages. To move to another Cloudflare account or to managed hosting, use the move under Settings → Contract rather than a backup.",
+      "Users, passkeys, PATs and the keys for social media and import sources are not in the ZIP (it is not encrypted). After a restore, reconnect them in Settings (SNS and so on). Restore deletes all current content, media and settings before replacing them, and it cannot be undone. Keep the tab open while it runs. Use Chrome or Edge for large sites. After a restore, build to regenerate the public pages. To move to another Cloudflare account or to managed hosting, use the move under Settings → Contract rather than a backup.",
   },
   faq: {
     title: "FAQ",

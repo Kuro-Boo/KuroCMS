@@ -129,9 +129,15 @@ function siteMoveToken(prefix: string): string {
   );
 }
 
+/**
+ * 顧客導入へ移るときの WorkerOps の鍵を、引っ越しの途中で読み込み直しても見せられるように覚える。
+ * **このタブの間だけ**(sessionStorage・課題 78566a3d)。前は localStorage に置き、引っ越しが済んだ後も
+ * ログアウトの後も残っていた。済んだ時・ログアウトの時に消す。前の版が localStorage に置いた鍵も消す。
+ */
 function siteMoveRemembered(): string {
   try {
-    return localStorage.getItem(SITE_MOVE_OPS_KEY) || "";
+    localStorage.removeItem(SITE_MOVE_OPS_KEY);
+    return sessionStorage.getItem(SITE_MOVE_OPS_KEY) || "";
   } catch {
     return "";
   }
@@ -139,8 +145,9 @@ function siteMoveRemembered(): string {
 
 function siteMoveRemember(value: string | null): void {
   try {
-    if (value) localStorage.setItem(SITE_MOVE_OPS_KEY, value);
-    else localStorage.removeItem(SITE_MOVE_OPS_KEY);
+    localStorage.removeItem(SITE_MOVE_OPS_KEY);
+    if (value) sessionStorage.setItem(SITE_MOVE_OPS_KEY, value);
+    else sessionStorage.removeItem(SITE_MOVE_OPS_KEY);
   } catch {
     /* 覚えられなくても、画面に出ている間に控えられる */
   }
@@ -372,6 +379,8 @@ async function mountSiteMove(): Promise<void> {
       return;
     }
     if (job.status === "done" && job.result) {
+      // 済んだ。鍵は画面に出ている間に控えてもらい、覚えておくのはやめる。
+      siteMoveRemember(null);
       const url = String(job.result.publicUrl || "");
       const p = document.createElement("div");
       p.className = "stack";

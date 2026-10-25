@@ -12,11 +12,58 @@ export class HttpError extends Error {
   }
 }
 
+/**
+ * JSON の本文の上限(課題 cfaaee70)。いちばん大きいのはテンプレートの HTML 原本(200 万字・最大 8 MB 前後)と、
+ * 復元の 1 回分の行。これを超える JSON は受けない。
+ */
+export const JSON_BODY_LIMIT = 24 * 1024 * 1024;
+
+/**
+ * 本文を上限まで読む。全部読んでから大きさを見ない —— 大きな本文で Worker のメモリと CPU を先に使わせない。
+ * 宣言された長さで先に断り、宣言が無い・偽っている(chunked など)ときは、読みながら数えて超えた所で打ち切る。
+ */
+export async function readLimitedText(
+  request: Request,
+  limit: number,
+): Promise<string> {
+  const declared = request.headers.get("content-length");
+  if (
+    declared !== null &&
+    /^\d+$/.test(declared.trim()) &&
+    Number(declared) > limit
+  ) {
+    throw new HttpError(413, "body_too_large", "Request body is too large.");
+  }
+  if (!request.body) return "";
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > limit) {
+      await reader.cancel().catch(() => {});
+      throw new HttpError(413, "body_too_large", "Request body is too large.");
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(total);
+  let at = 0;
+  for (const c of chunks) {
+    out.set(c, at);
+    at += c.byteLength;
+  }
+  return new TextDecoder().decode(out);
+}
+
 export async function readJson<T extends Record<string, unknown>>(
   request: Request,
+  limit = JSON_BODY_LIMIT,
 ): Promise<T> {
+  const text = await readLimitedText(request, limit);
   try {
-    const value = await request.json();
+    const value = JSON.parse(text);
     if (!value || typeof value !== "object" || Array.isArray(value)) {
       throw new HttpError(
         400,

@@ -7,6 +7,9 @@ import {
   assetsPending,
   buildManifest,
   forgetPages,
+  markMediaGateReady,
+  mediaIsPublic,
+  mediaKeysOf,
   pageAssetPath,
   publishAssets,
   manifestFingerprint,
@@ -29,12 +32,10 @@ const eq = (n: string, g: unknown, w: unknown) => {
 /** D1 の口を node:sqlite で(この試験で使う分だけ)。 */
 function d1(): D1Database {
   const db = new DatabaseSync(":memory:");
-  db.exec(
-    readFileSync(
-      new URL("../migrations/0073_asset_pages.sql", import.meta.url),
-      "utf8",
-    ),
-  );
+  for (const m of ["0073_asset_pages.sql", "0083_page_media.sql"])
+    db.exec(
+      readFileSync(new URL(`../migrations/${m}`, import.meta.url), "utf8"),
+    );
   const stmt = (sql: string, args: unknown[] = []) => ({
     bind: (...a: unknown[]) => stmt(sql, a),
     first: async () =>
@@ -359,4 +360,58 @@ if (f) {
   console.log(`\n${f} failed`);
   process.exit(1);
 }
+// 公開の頁が参照するメディアだけを配る(課題 d9968d85)。
+{
+  eq(
+    "頁が参照するメディアを拾う(src・srcset・data 属性・url())",
+    mediaKeysOf(
+      '<img src="/blog/images/img-1.jpg?v=2" srcset="/images/img-2.webp 2x"><div data-src="videos/v-1.mp4" style="background:url(/audios/a-1.mp3)"></div><a href="/imagesx/no.jpg">',
+    ).sort(),
+    [
+      "audios/a-1.mp3",
+      "images/img-1.jpg",
+      "images/img-2.webp",
+      "videos/v-1.mp4",
+    ],
+  );
+  const DB = d1();
+  const env = { DB } as unknown as Env;
+  eq(
+    "切り替えの前は、どのメディアも配る",
+    await mediaIsPublic(env, "images/img-9.jpg"),
+    true,
+  );
+  await recordPages(env, "/a/", { ja: '<img src="/images/img-1.jpg">' });
+  await markMediaGateReady(env);
+  eq(
+    "公開の頁が参照するメディアは配る",
+    await mediaIsPublic(env, "images/img-1.jpg"),
+    true,
+  );
+  eq(
+    "参照されていない(下書きだけの)メディアは配らない",
+    await mediaIsPublic(env, "images/img-9.jpg"),
+    false,
+  );
+  await forgetPages(env, ["/a/"]);
+  eq(
+    "頁を消したら、そのメディアも配らない",
+    await mediaIsPublic(env, "images/img-1.jpg"),
+    false,
+  );
+}
+{
+  // 記録の無い頁が残っていれば切り替えない(上げた直後・全体ビルドの前)。
+  const DB = d1();
+  const env = { DB } as unknown as Env;
+  await recordPages(env, "/a/", { ja: "<p>x</p>" });
+  await DB.prepare("DELETE FROM page_media_scan").run();
+  await markMediaGateReady(env);
+  eq(
+    "記録の無い頁があれば、まだ全部配る",
+    await mediaIsPublic(env, "images/img-9.jpg"),
+    true,
+  );
+}
+
 console.log("\nall ok");

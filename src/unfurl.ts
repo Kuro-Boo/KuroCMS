@@ -198,23 +198,45 @@ export function extractUnfurlMeta(html: string, base: URL): UnfurlMeta {
   return meta;
 }
 
+/** 辿る転送の数の上限(行き先はそのたびに unfurlUrlAllowed で確かめる)。 */
+const UNFURL_MAX_REDIRECTS = 5;
+
 // ── fetch + パース（SSRF・タイムアウト・サイズ上限つき）──────────────────
 export async function fetchUnfurl(rawUrl: string): Promise<UnfurlResult> {
   const u = unfurlUrlAllowed(rawUrl);
   if (!u) return { ok: false, reason: "invalid_url" };
+  // 転送は 1 回ずつ自分で辿り、行き先をそのたびに確かめる(課題 11fc50b0)。前は redirect: "follow" で、
+  // 公開のホストから内部の番地へ 30x で送られても、最初の URL しか見ていなかった。
+  let current = u;
   let resp: Response;
-  try {
-    resp = await fetch(u.toString(), {
-      method: "GET",
-      headers: {
-        "User-Agent": "KuroCMS-unfurl/1.0 (+https://kurocms.entamy.com)",
-        Accept: "text/html,application/xhtml+xml",
-      },
-      redirect: "follow",
-      signal: AbortSignal.timeout(5000),
-    });
-  } catch {
-    return { ok: false, reason: "target_unreachable" };
+  const deadline = AbortSignal.timeout(5000);
+  for (let hop = 0; ; hop++) {
+    try {
+      resp = await fetch(current.toString(), {
+        method: "GET",
+        headers: {
+          "User-Agent": "KuroCMS-unfurl/1.0 (+https://kurocms.entamy.com)",
+          Accept: "text/html,application/xhtml+xml",
+        },
+        redirect: "manual",
+        signal: deadline,
+      });
+    } catch {
+      return { ok: false, reason: "target_unreachable" };
+    }
+    if (resp.status < 300 || resp.status >= 400) break;
+    const location = resp.headers.get("location");
+    if (!location || hop >= UNFURL_MAX_REDIRECTS)
+      return { ok: false, reason: "target_unreachable" };
+    let next: URL | null;
+    try {
+      next = unfurlUrlAllowed(new URL(location, current).toString());
+    } catch {
+      next = null;
+    }
+    if (!next) return { ok: false, reason: "invalid_url" };
+    await resp.body?.cancel().catch(() => {});
+    current = next;
   }
   if (resp.status === 404 || resp.status === 410)
     return { ok: false, reason: "target_404" };
@@ -254,6 +276,6 @@ export async function fetchUnfurl(rawUrl: string): Promise<UnfurlResult> {
   const html = new TextDecoder("utf-8").decode(buf);
   return {
     ok: true,
-    meta: extractUnfurlMeta(html, new URL(resp.url || u.toString())),
+    meta: extractUnfurlMeta(html, current),
   };
 }

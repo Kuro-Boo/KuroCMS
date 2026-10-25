@@ -14,12 +14,14 @@ import {
 import { templateScriptWarnings } from "./template-scripts";
 import { cspReportSummary } from "./csp-report";
 import {
+  fetchGithubVerified,
   fetchUpdateArtifact,
   fetchUpdateManifest,
   getReleaseSource,
   lastFallback,
   noteFallback,
   reasonOf,
+  ReleaseError,
   setReleaseSource,
   updateChannelOf,
   updateChannelVersion,
@@ -153,6 +155,7 @@ import {
   handleNetworkConfirm,
   listMyNetworks,
   addMyNetwork,
+  enforceNetwork,
   readIpGateConfig,
   registerLoginNetwork,
   registerSiblingNetwork,
@@ -369,6 +372,12 @@ async function handleApiDispatch(
       request.method === "POST" &&
       (path === "/api/system/migrate" || path === "/api/migrate")
     ) {
+      // 呼べるのは番人(WorkerOps)の Service Binding だけ(課題 afe5e3fa)。外から来た要求には
+      // Cloudflare の入口が必ず cf-connecting-ip を付け、Service Binding の要求には付かない。
+      // 前は誰でも呼べ、重い migration と schema の修復を何度でも起こせた。
+      if (request.headers.get("cf-connecting-ip") !== null) {
+        throw new HttpError(404, "not_found", "Not found.");
+      }
       const last = await env.PUBLIC_PAGES.get(MIGRATE_THROTTLE_KEY);
       if (last && Date.now() - Number(last) < MIGRATE_THROTTLE_MS) {
         return json(
@@ -592,7 +601,7 @@ async function handleApiDispatch(
 
     // Passkey recovery by email (locked-out users). Both endpoints are public.
     if (request.method === "POST" && path === "/api/auth/recover/request") {
-      return withJsonHeaders(await recoverRequest(request, env));
+      return withJsonHeaders(await recoverRequest(request, env, ctx));
     }
     // メールアドレスの確認のリンク(プロフィール → アカウント)。メールから開く公開の口。
     if (request.method === "GET" && path === "/api/auth/email/verify") {
@@ -2037,6 +2046,16 @@ async function authSession(request: Request, env: Env): Promise<Response> {
   if (row.disabled_at) {
     return json({ authenticated: false });
   }
+  // 他の管理の口と同じく、登録した回線からだけ(IP 制限・課題 d3be56b7)。前はこの口だけ IP 制限を
+  // 通らず、未登録の回線から盗んだセッションで、利用者・メール・管理の権限を確かめられた。
+  await enforceNetwork(env, request, {
+    uid: row.uid,
+    email: row.email,
+    isAdmin: row.is_admin === 1,
+    isAuthor: row.is_author === 1,
+    sessionId: row.session_id,
+    authSource: "session",
+  } as AuthUser);
 
   return json({
     authenticated: true,
@@ -2316,7 +2335,14 @@ function deliveryNotice(
   };
 }
 
-async function recoverRequest(request: Request, env: Env): Promise<Response> {
+/** サイト全体で 1 時間に出す回復のメールの上限(宛先を変えて大量に送らせない・課題 db41372c)。 */
+const RECOVERY_SITE_LIMIT_PER_HOUR = 20;
+
+async function recoverRequest(
+  request: Request,
+  env: Env,
+  ctx: ExecutionContext,
+): Promise<Response> {
   const body = await readJson(request);
   const email = (optionalString(body, "email") ?? "").trim().toLowerCase();
   const ok = json({ ok: true });
@@ -2329,29 +2355,31 @@ async function recoverRequest(request: Request, env: Env): Promise<Response> {
     .first<{ uid: string; email: string }>();
   if (!user) return ok; // unknown email — say nothing
 
-  // Throttle: skip if a token was issued for this user very recently.
-  const recent = await env.DB.prepare(
-    "SELECT created_at FROM recovery_tokens WHERE uid = ? ORDER BY created_at DESC LIMIT 1",
-  )
-    .bind(user.uid)
-    .first<{ created_at: string }>();
-  if (
-    recent &&
-    Date.now() - Date.parse(recent.created_at) < RECOVERY_THROTTLE_MS
-  ) {
-    return ok;
-  }
-
+  // 回数の制限は発行の 1 文の条件にする(読んでから書くと、同時の申し込みが両方通る・課題 db41372c):
+  // この人に直近で出していない、かつサイト全体で 1 時間の上限の内。超えても応答は同じ。
   const token = randomToken();
   const tokenHash = await sha256Hex(token);
   const now = nowIso();
   const expiresAt = new Date(Date.now() + RECOVERY_TOKEN_TTL_MS).toISOString();
-  await env.DB.prepare(
+  const issued = await env.DB.prepare(
     `INSERT INTO recovery_tokens (token_hash, uid, email, expires_at, created_at)
-     VALUES (?, ?, ?, ?, ?)`,
+     SELECT ?, ?, ?, ?, ?
+      WHERE NOT EXISTS (SELECT 1 FROM recovery_tokens WHERE uid = ? AND created_at > ?)
+        AND (SELECT COUNT(*) FROM recovery_tokens WHERE created_at > ?) < ?`,
   )
-    .bind(tokenHash, user.uid, user.email, expiresAt, now)
+    .bind(
+      tokenHash,
+      user.uid,
+      user.email,
+      expiresAt,
+      now,
+      user.uid,
+      new Date(Date.now() - RECOVERY_THROTTLE_MS).toISOString(),
+      new Date(Date.now() - 3_600_000).toISOString(),
+      RECOVERY_SITE_LIMIT_PER_HOUR,
+    )
     .run();
+  if ((issued.meta?.changes ?? 0) !== 1) return ok;
 
   const origin = new URL(request.url).origin;
   const link = `${origin}${adminBasePath(env)}/?recover=${encodeURIComponent(token)}`;
@@ -2390,41 +2418,28 @@ async function recoverRequest(request: Request, env: Env): Promise<Response> {
             `<p style="color:#666;font-size:13px">This link is valid for 30 minutes and can be used once. If you did not request this, you can ignore this email.</p>`,
         };
 
-  try {
-    const sent = await sendMail(env, {
+  // 送るのは応答の後(宛先が登録済みかで応答の時間が変わらないように)。応答は宛先の有無でも配送の結果でも
+  // 同じ(課題 db41372c)。前は登録済みの宛先にだけ配送の結果(代送・失敗)を返し、それで登録の有無が分かった。
+  // 送れなかったことは、管理画面のメールの状態(readMailStatus)と記録に残る。
+  ctx.waitUntil(
+    sendMail(env, {
       to: user.email,
       fromName: siteName,
       subject: mail.subject,
       text: mail.text,
       html: mail.html,
       idempotencyKey: `recover-${tokenHash}`,
-    });
-    // 代送された（自ドメインが失敗した）ときは、その旨を画面へ返す。
-    const notice = deliveryNotice(sent);
-    if (notice) {
-      return json({ ok: true, delivery: notice as unknown as JsonValue });
-    }
-  } catch (err) {
-    // ⚠ **握り潰さない。** どちらの経路でも送れなかった場合、利用者は
-    //   「送信しました」とだけ言われて永久に待つことになる。宛先の有無は
-    //   伏せたまま、**配送が失敗している事実と理由**は返す。
-    console.warn(
-      JSON.stringify({
-        event: "recovery_mail_failed",
-        uid: user.uid,
-        error: err instanceof Error ? err.message : String(err),
-      }),
-    );
-    const notice: DeliveryNotice = deliveryNotice(
-      await readMailStatus(env),
-    ) ?? {
-      relayed: false,
-      delivered: false,
-      ownDomainError: null,
-      kuroBooError: err instanceof Error ? err.message : String(err),
-    };
-    return json({ ok: true, delivery: notice as unknown as JsonValue });
-  }
+    }).then(
+      () => undefined,
+      (err) =>
+        console.warn(
+          JSON.stringify({
+            event: "recovery_mail_failed",
+            error: err instanceof Error ? err.message : String(err),
+          }),
+        ),
+    ),
+  );
   return ok;
 }
 
@@ -4756,18 +4771,22 @@ async function ownMigrationsSource(
     return parsed;
   } catch (err) {
     await noteFallback(env, "migrations", err);
-    // 落ちた先(GitHub)で取れたかまでを Defects へ送るため、ここで取る。
+    // 落ちた先(GitHub)で取れたかまでを Defects へ送るため、ここで取る。GitHub の中身は配布基盤の
+    // 署名つきの一覧に照らしてから使う(一覧が取れなければ当てない・課題 7abbf662)。
     const reason = reasonOf(err);
-    const parsed = await fetch(
-      `https://github.com/${KUROCMS_GITHUB_REPO}/releases/download/v${version}/migrations-manifest.json`,
-      { redirect: "follow", signal: AbortSignal.timeout(15_000) },
-    )
-      .then((r) =>
-        r.ok
-          ? (r.json() as Promise<{
-              migrations?: Array<{ name: string; sql: string }>;
-            }>)
-          : null,
+    const parsed = await fetchUpdateManifest(version)
+      .then((signed) =>
+        fetchGithubVerified(
+          `https://github.com/${KUROCMS_GITHUB_REPO}/releases/download/v${version}/migrations-manifest.json`,
+          signed,
+          "migrations-manifest.json",
+        ),
+      )
+      .then(
+        (buf) =>
+          JSON.parse(new TextDecoder().decode(buf)) as {
+            migrations?: Array<{ name: string; sql: string }>;
+          },
       )
       .catch(() => null);
     const ok = Array.isArray(parsed?.migrations);
@@ -4977,36 +4996,43 @@ async function fetchFromGithub(
   const workerUrl = releaseAssetUrl(resolvedTag, "worker.js");
   const manifestUrl = releaseAssetUrl(resolvedTag, "migrations-manifest.json");
 
+  // GitHub の中身は、配布基盤の署名つきの一覧(同じ版)に照らしてから当てる(課題 7abbf662)。
+  // 一覧が取れない・合わない時は何も当てない(閉じる側に倒す)。migration は Worker より先に当たるので、
+  // 両方を確かめてから当てる。
+  const version = resolvedTag.replace(/^v/, "");
+  let workerBuf: ArrayBuffer;
+  let migrations: { migrations: Array<{ name: string; sql: string }> };
+  try {
+    const signed = await fetchUpdateManifest(version);
+    workerBuf = await fetchGithubVerified(workerUrl, signed, "worker.js");
+    migrations = JSON.parse(
+      new TextDecoder().decode(
+        await fetchGithubVerified(
+          manifestUrl,
+          signed,
+          "migrations-manifest.json",
+        ),
+      ),
+    ) as { migrations: Array<{ name: string; sql: string }> };
+  } catch (err) {
+    throw new HttpError(
+      502,
+      requestedTag &&
+        err instanceof ReleaseError &&
+        err.reason === "github_http_404"
+        ? "release_not_found"
+        : "release_unverified",
+      `The ${resolvedTag} release could not be verified against the signed release list (${reasonOf(err)}). Nothing was applied.`,
+    );
+  }
+
   // Apply pending migrations directly via D1 binding (run-once, additive-only).
-  // Use the immutable, version-pinned manifest asset URL — NOT the CDN-cached
-  // latest/download redirect, which the Worker's fetch() can serve stale,
-  // skipping freshly-released migrations, AND which always resolves to GitHub's
-  // true latest regardless of channel. (資産が無い古いリリースでも
-  // applyPendingMigrations は 0 件で素通しするので安全。)
-  const migrationsApplied = await applyPendingMigrations(env, manifestUrl);
+  const migrationsApplied = await applyPendingMigrations(env, migrations);
   // ⚠ migration の後に必ずスキーマを突き合わせる。履歴（d1_migrations）は
   //   復元で失われうるので、履歴ではなく現物を正とする。
   const schemaDrift = await reconcileSchema(env, true);
 
-  // Download the compiled Worker script from the version-pinned asset URL —
-  // NOT /latest/download/, which always resolves to GitHub's true latest
-  // release regardless of which channel was selected above.
-  const scriptRes = await fetch(workerUrl, {
-    redirect: "follow",
-    signal: AbortSignal.timeout(30_000),
-  });
-  if (!scriptRes.ok)
-    throw new HttpError(
-      502,
-      // 版固定 URL が 404 = そのタグのリリース（か worker.js 資産）が無い。
-      // タグ指名で呼ばれたときは「指定が悪い」と分かる形で返す（リリース
-      // パイプラインが直後に叩くので、取り違えでなく不在だと判別できること）。
-      requestedTag && scriptRes.status === 404
-        ? "release_not_found"
-        : "download_failed",
-      `Failed to download worker.js from ${workerUrl} (HTTP ${scriptRes.status}).`,
-    );
-  const scriptContent = await scriptRes.text();
+  const scriptContent = new TextDecoder().decode(workerBuf);
   return { resolvedTag, migrationsApplied, schemaDrift, scriptContent };
 }
 
@@ -11217,6 +11243,19 @@ async function uploadMediaFile(
       "メディアの保存先（R2）が接続されていません。管理画面の「設定 → 基本 → R2 ストレージ」から接続してください。Cloudflare で R2 をまだ有効にしていない場合は、ダッシュボードで有効化してから同じボタンを押してください。",
     );
   }
+  // 本文を読む前に、宣言された長さで断る(全部読んでから 300 MB を見ない・課題 cfaaee70)。
+  // 種類は本文の中なので、ここではいちばん大きい種類の上限 + 送りの枠の余白で見る。
+  const declared = Number(request.headers.get("content-length") ?? "NaN");
+  const ceiling = Math.max(...Object.values(MAX_MEDIA_BYTES)) + 1024 * 1024;
+  if (!Number.isFinite(declared) || declared > ceiling) {
+    throw new HttpError(
+      Number.isFinite(declared) ? 413 : 411,
+      Number.isFinite(declared) ? "file_too_large" : "length_required",
+      Number.isFinite(declared)
+        ? "The upload is larger than the largest allowed media."
+        : "Send the upload with a Content-Length.",
+    );
+  }
   const formData = await request.formData();
   const fileEntry = formData.get("file");
   if (!fileEntry || typeof fileEntry === "string")
@@ -11443,6 +11482,28 @@ const BACKUP_TABLES_INSERT_ORDER = [
   "article_reactions",
 ];
 const BACKUP_TABLE_SET = new Set(BACKUP_TABLES_INSERT_ORDER);
+
+/**
+ * バックアップに入れない鍵の列(課題 ac344ac4・2026-10-25 利用者の決定)。ZIP は暗号化しないので、
+ * SNS・取り込み元の鍵は書き出さない。復元の後は設定の画面で接続し直す。外部の接続は「つながっていない」
+ * (is_active = 0)として書き出す(鍵の無い接続を有効のまま戻さない)。引っ越しの先が外す鍵と同じ一覧
+ * (settleMoveTarget・受付の move-diff.ts の MOVE_EXCLUDE)。
+ */
+const BACKUP_SECRET_COLUMNS: Readonly<Record<string, readonly string[]>> = {
+  site_settings: [
+    "strapi_token",
+    "kurocms_import_pat",
+    "bluesky_token",
+    "x_api_key",
+    "x_api_secret",
+    "x_access_token",
+    "x_access_secret",
+    "threads_token",
+    "threads_token_updated_at",
+    "threads_token_refresh_attempted_at",
+  ],
+  external_connections: ["access_token", "token_secret", "token_expires_at"],
+};
 const BACKUP_PAGE_SIZE = 500;
 const RESTORE_KV_WIPE_PAGE = 500; // each KV delete is a subrequest — stay < 1000
 
@@ -11902,6 +11963,12 @@ async function backupTable(
   const rows = (res.results ?? []) as Record<string, unknown>[];
   const hasMore = rows.length > BACKUP_PAGE_SIZE;
   if (hasMore) rows.pop();
+  const secret = BACKUP_SECRET_COLUMNS[name] ?? [];
+  for (const row of rows) {
+    for (const c of secret) delete row[c];
+    if (name === "external_connections" && "is_active" in row)
+      row.is_active = 0;
+  }
   return json({
     rows: rows as unknown as JsonValue,
     nextCursor: hasMore ? cursor + BACKUP_PAGE_SIZE : null,
@@ -12106,8 +12173,11 @@ async function restoreTable(
   if (!BACKUP_TABLE_SET.has(name)) {
     throw new HttpError(400, "bad_table", `Unknown table: ${name}`);
   }
-  const body = (await request.json()) as { rows?: Record<string, unknown>[] };
-  return json(await restoreRows(env, name, body.rows ?? []));
+  // 上限まで読んで打ち切る(課題 cfaaee70)。
+  const body = await readJson<{ rows?: Record<string, unknown>[] }>(request);
+  return json(
+    await restoreRows(env, name, Array.isArray(body.rows) ? body.rows : []),
+  );
 }
 
 /**
@@ -12943,15 +13013,6 @@ function isSensitiveDebugKey(key: string): boolean {
     normalized.includes("password") ||
     normalized.includes("secret")
   );
-}
-
-async function countUsers(env: Env): Promise<number> {
-  const row = await env.DB.prepare(
-    "SELECT COUNT(*) AS count FROM users",
-  ).first<{
-    count: number;
-  }>();
-  return row?.count ?? 0;
 }
 
 const SETTINGS_COLS = new Set([

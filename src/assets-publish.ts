@@ -103,6 +103,19 @@ export async function recordPages(
  * 1 回ごとに D1 のある地域まで行くので、別の往復にすると全ページにその待ちが乗る
  * (2026-10-16 に測った: 1 ページあたり 100〜150ms 遅くなっていた)。
  */
+/**
+ * 頁の HTML が参照するメディアの R2 のキー(`images/img-163.jpg` など・課題 d9968d85)。公開の頁が参照する
+ * メディアだけを配るために、頁を書くたびに記録する。src・srcset・data 属性・CSS の url() のどれでも拾う。
+ */
+export function mediaKeysOf(html: string): string[] {
+  const keys = new Set<string>();
+  for (const m of html.matchAll(
+    /(?:^|[^A-Za-z0-9_-])(images|videos|audios)\/([A-Za-z0-9._-]{1,200})/g,
+  ))
+    keys.add(`${m[1]}/${m[2]}`);
+  return [...keys];
+}
+
 export async function pageRecordStatements(
   env: Env,
   path: string,
@@ -115,6 +128,24 @@ export async function pageRecordStatements(
       `DELETE FROM asset_pages WHERE path = ? AND lang NOT IN (${langs.map(() => "?").join(",") || "''"})`,
     ).bind(path, ...langs),
   ];
+  // 頁が参照するメディア(公開の頁が参照するものだけを配る・課題 d9968d85)。言語の版を合わせて 1 組。
+  const media = new Set<string>();
+  for (const lang of langs)
+    for (const k of mediaKeysOf(bundle[lang]!)) media.add(k);
+  stmts.push(
+    env.DB.prepare("DELETE FROM page_media WHERE path = ?").bind(path),
+  );
+  for (const k of media)
+    stmts.push(
+      env.DB.prepare(
+        "INSERT OR IGNORE INTO page_media (path, media_key) VALUES (?, ?)",
+      ).bind(path, k),
+    );
+  stmts.push(
+    env.DB.prepare(
+      "INSERT OR IGNORE INTO page_media_scan (path) VALUES (?)",
+    ).bind(path),
+  );
   for (const lang of langs) {
     const html = bundle[lang]!;
     const hash = await assetHash(html);
@@ -134,20 +165,59 @@ export async function forgetPages(
   paths: string[] | null,
 ): Promise<void> {
   if (paths === null) {
-    await env.DB.prepare("DELETE FROM asset_pages")
-      .run()
-      .catch(() => {});
+    await env.DB.batch([
+      env.DB.prepare("DELETE FROM asset_pages"),
+      env.DB.prepare("DELETE FROM page_media"),
+      env.DB.prepare("DELETE FROM page_media_scan"),
+    ]).catch(() => {});
     return;
   }
   for (let i = 0; i < paths.length; i += 50) {
     const chunk = paths.slice(i, i + 50);
-    await env.DB.prepare(
-      `DELETE FROM asset_pages WHERE path IN (${chunk.map(() => "?").join(",")})`,
-    )
-      .bind(...chunk)
-      .run()
-      .catch(() => {});
+    const marks = chunk.map(() => "?").join(",");
+    await env.DB.batch([
+      env.DB.prepare(`DELETE FROM asset_pages WHERE path IN (${marks})`).bind(
+        ...chunk,
+      ),
+      env.DB.prepare(`DELETE FROM page_media WHERE path IN (${marks})`).bind(
+        ...chunk,
+      ),
+      env.DB.prepare(
+        `DELETE FROM page_media_scan WHERE path IN (${marks})`,
+      ).bind(...chunk),
+    ]).catch(() => {});
   }
+}
+
+/**
+ * 公開の頁がすべてメディアを記録し終えたら、公開の前のメディアを配らない形に切り替える
+ * (全体ビルドの最後まで済んだ回が呼ぶ)。記録の無い頁が残っていれば切り替えない。
+ */
+export async function markMediaGateReady(env: Env): Promise<void> {
+  await env.DB.prepare(
+    `INSERT INTO page_media_state (id, ready)
+       SELECT 1, 1 WHERE NOT EXISTS (
+         SELECT 1 FROM asset_pages a WHERE NOT EXISTS (SELECT 1 FROM page_media_scan s WHERE s.path = a.path))
+     ON CONFLICT(id) DO UPDATE SET ready = 1`,
+  )
+    .run()
+    .catch(() => {});
+}
+
+/**
+ * このメディアを誰にでも配ってよいか。切り替えの前(記録の無い頁が残る間)は前のとおり配る。
+ * 切り替えた後は、公開の頁が参照するものだけ。表の無い前の版の D1 では配る。
+ */
+export async function mediaIsPublic(env: Env, key: string): Promise<boolean> {
+  const row = await env.DB.prepare(
+    `SELECT COALESCE((SELECT ready FROM page_media_state WHERE id = 1), 0) AS ready,
+            EXISTS(SELECT 1 FROM page_media WHERE media_key = ?) AS pub`,
+  )
+    .bind(key)
+    .first<{ ready: number; pub: number }>()
+    .catch(() => null);
+  if (!row) return true;
+  return row.ready !== 1 || row.pub === 1;
 }
 
 export interface ManifestFile {

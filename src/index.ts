@@ -13,6 +13,8 @@ import { runScheduledThreadsTokenRefresh } from "./threads-token";
 import { html, notFound, notFoundPage, preparingPage } from "./http";
 import { reactionEndpoint } from "./reactions";
 import { cspReportEndpoint } from "./csp-report";
+import { mediaIsPublic } from "./assets-publish";
+import { tryAuth } from "./auth";
 import { CSP_REPORT_PATH } from "./site-csp";
 import {
   buildCountsJs,
@@ -180,8 +182,17 @@ const worker = {
         ? mediaRawPath.slice(publicBase.length)
         : mediaRawPath;
     if (new RegExp("^/(images|videos|audios)/").test(mediaStrippedPath)) {
+      // 公開の頁が参照していないメディア(下書きにだけ貼った画像など)は、管理画面にログインしている
+      // 人にだけ配る(課題 d9968d85)。番号を推して取らせない。
+      const mediaKey = mediaStrippedPath.replace(/^\//, "").split("?")[0];
+      let privateMedia = false;
+      if (!(await mediaIsPublic(env, mediaKey))) {
+        const viewer = await tryAuth(env, request).catch(() => null);
+        if (!viewer) return new Response("Not found", { status: 404 });
+        privateMedia = true;
+      }
       if (env.MEDIA_BUCKET) {
-        const r2Key = mediaStrippedPath.replace(/^\//, "").split("?")[0];
+        const r2Key = mediaKey;
         // The binding stays present even after the R2 subscription is cancelled
         // or the bucket is deleted; in that state .get() throws. Catch it so we
         // fall through to ASSETS instead of returning a 500.
@@ -193,7 +204,12 @@ const worker = {
               "content-type",
               obj.httpMetadata?.contentType || "application/octet-stream",
             );
-            headers.set("cache-control", "public, max-age=31536000, immutable");
+            headers.set(
+              "cache-control",
+              privateMedia
+                ? "private, no-store"
+                : "public, max-age=31536000, immutable",
+            );
             headers.set("etag", obj.etag);
             headers.set("access-control-allow-origin", "*");
             return new Response(obj.body, { headers });
