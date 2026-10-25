@@ -1,5 +1,11 @@
 // KuroCMS admin screen module. Concatenated by scripts/build-admin.js.
 
+/**
+ * 委託契約の頁(申し込み・契約の表示・解約・billing-library 4節・cms-pricing「契約形式のタブ」)。
+ * 宣伝ページの正の置き場(kurocms.entamy.com)にあり、サイトの持ち主の Entamy ID でログインして使う。
+ */
+const CONTRACT_PAGE = "https://kurocms.entamy.com/contract/";
+
 async function settings() {
   // Import article-list sort order (shared by the Strapi / KuroCMS lists).
   // Default: publish date, newest first.
@@ -163,7 +169,8 @@ async function settings() {
     "domain",
     // 表示(基本言語・時計・筆者)。「基本」が長く、下の項目を見落とすので分けた。
     "display",
-    // 運用の形(委託運用 ⇄ 顧客導入の引っ越し)。「基本」の下では見落とすので専用のタブにする。
+    // 契約形式(2026-10-25 に「運用の形」から改名し、「契約情報」のタブをまとめた・cms-pricing「契約形式のタブ」)。
+    // 委託の契約の状態・申し込みと解約への入口・無料期間、持ち主、委託運用 ⇄ 顧客導入の引っ越し。
     "hosting",
     // メール送信(サイト全体の設定・管理者だけ)。2026-10-21 にプロフィールから移した。
     "mail",
@@ -172,7 +179,6 @@ async function settings() {
     "import",
     "ipgate",
     "region",
-    "contract",
   ]
     .map((id) => {
       const labels: Record<string, string> = {
@@ -186,7 +192,6 @@ async function settings() {
         import: t("settingsTabImport"),
         ipgate: t("settingsTabIpGate"),
         region: t("settingsTabRegion"),
-        contract: t("settingsTabContract"),
       };
       return (
         "<button type='button' class='settingsTab" +
@@ -194,8 +199,6 @@ async function settings() {
         "' data-tab='" +
         id +
         "'" +
-        // 契約情報は委託だけ(設定を読んでから出す)。
-        (id === "contract" ? " id='contractTabBtn' style='display:none'" : "") +
         (id === "hosting" ? " id='siteMoveTabBtn'" : "") +
         (id === "basic" ? " id='basicTabBtn'" : "") +
         (id === "mail" ? " id='mailTabBtn'" : "") +
@@ -884,12 +887,14 @@ async function settings() {
   }
   byId("regionMeasureBtn")?.addEventListener("click", () => void loadRegion());
 
-  // ── 契約情報(委託だけ・/api/system/contract・cms-pricing「契約情報」) ──
-  // 受付が毎時 Entamy(Admin の導入の記録・Entamy ID)から引いて書いた 1 行を出す。
+  // ── 委託の契約(委託だけ・/api/system/contract・cms-pricing「契約情報」「契約形式のタブ」) ──
+  // 契約形式のタブの上に置く。受付が毎時 Entamy(Admin の導入の記録・Entamy ID)から引いて書いた 1 行を出す。
+  // 申し込み・解約は Entamy の契約の頁(CONTRACT_PAGE)で行う —— この管理画面は Entamy ID のログインを持たず、
+  // お金の要求は契約の頁から Billing へ直接送る(billing-architecture 2.1節)。
   // 無料期間が終わった後(契約なし)は、データを消すまでの待機期間・最終日・消す日を足す。
-  byId("panel-region")?.insertAdjacentHTML(
-    "afterend",
-    "<div id='panel-contract' class='settingsPanel' style='display:none'>" +
+  byId("panel-hosting")?.insertAdjacentHTML(
+    "afterbegin",
+    "<div id='contractSection' style='display:none;margin-bottom:16px'>" +
       "<div class='panel stack' style='gap:12px'>" +
       "<div class='panelHead'><h3>" +
       escapeHtml(t("contractTitle")) +
@@ -899,15 +904,23 @@ async function settings() {
       "</div>" +
       "<div id='contractRows' style='display:grid;grid-template-columns:max-content 1fr;gap:6px 16px;font-size:14px'></div>" +
       "<div id='contractNote' class='readonlyBanner' style='display:none;margin:0;flex-wrap:wrap'></div>" +
+      "<div id='contractActions' style='display:flex;gap:8px;flex-wrap:wrap;align-items:center'></div>" +
+      "<div class='muted' style='font-size:12px;line-height:1.7'>" +
+      escapeHtml(t("contractPageNote")) +
+      "</div>" +
       "<div id='contractSynced' class='muted' style='font-size:12px'></div>" +
       "</div></div>",
   );
   let contractLoaded = false;
+  // 委託運用か(設定を読んでから決まる)。契約の節は委託だけ。
+  let managedHosting = false;
   async function loadContract() {
     const rows = byId("contractRows");
     const note = byId("contractNote");
     const synced = byId("contractSynced");
-    if (!rows || !note || !synced) return;
+    const actions = byId("contractActions");
+    if (!rows || !note || !synced || !actions) return;
+    actions.textContent = "";
     rows.innerHTML = "<span class='muted'>…</span>";
     note.textContent = "";
     note.style.display = "none";
@@ -940,15 +953,23 @@ async function settings() {
         ">" +
         escapeHtml(value) +
         "</span>";
+      // 次の更新日・契約の終わる日は、払った期間の終わり(subscription_period_end)から出す。
+      // subscription_until は更新の猶予を含むので、日付には使わない(ID 11.5)。期間の終わりは
+      // 「その日の 0 時まで」なので、契約の終わる日(最後に使える日)は前の日。
+      const periodEnd: number | null = c.subscription_period_end ?? null;
       const sub =
         c.subscription === "active"
-          ? t("contractSubActive").replace("{date}", date(c.subscription_until))
+          ? t("contractSubActive")
           : c.subscription === "cancelled"
             ? t("contractSubCancelled").replace(
                 "{date}",
-                date(c.subscription_until),
+                date(
+                  periodEnd != null ? periodEnd - DAY : c.subscription_until,
+                ),
               )
             : t("contractSubNone");
+      const subscribed =
+        c.subscription === "active" || c.subscription === "cancelled";
       let html =
         line(t("contractAt"), date(c.contract_at)) +
         line(t("contractTrialEnds"), date(c.trial_ends_at)) +
@@ -960,7 +981,44 @@ async function settings() {
             : t("contractTrialExtendedNone"),
         ) +
         line(t("contractTrialFinal"), date(c.trial_final_at), true) +
-        line(t("contractSubscription"), sub);
+        line(t("contractSubscription"), sub, subscribed);
+      if (subscribed) {
+        if (c.subscription_period)
+          html += line(
+            t("contractPlan"),
+            c.subscription_period === "year"
+              ? t("contractPlanYear")
+              : t("contractPlanMonth"),
+          );
+        if (c.subscription_started_at)
+          html += line(t("contractStarted"), date(c.subscription_started_at));
+        if (periodEnd != null)
+          html +=
+            c.subscription === "active"
+              ? line(t("contractRenew"), date(periodEnd))
+              : line(t("contractEnds"), date(periodEnd - DAY), true);
+      }
+      // 申し込み・解約は Entamy の契約の頁で(新しいタブ)。契約が有れば「解約する」、無ければ「申し込む」。
+      const link = (label: string, primary: boolean) => {
+        const a = document.createElement("a");
+        a.href = CONTRACT_PAGE;
+        a.target = "_blank";
+        a.rel = "noopener";
+        a.className = primary ? "button" : "button secondary";
+        a.textContent = label;
+        return a;
+      };
+      if (c.subscription === "active") {
+        actions.append(link(t("contractCancel"), false));
+      } else if (c.subscription === "cancelled") {
+        actions.append(link(t("contractOpenPage"), false));
+      } else {
+        const lead = document.createElement("div");
+        lead.className = "muted";
+        lead.style.cssText = "flex-basis:100%;font-size:13px";
+        lead.textContent = t("contractApplyLead");
+        actions.append(lead, link(t("contractApply"), true));
+      }
       // 無料期間が終わり、契約が無い: データを消すまでの日付を足す。
       const ended =
         c.delete_at != null &&
@@ -985,13 +1043,13 @@ async function settings() {
           );
         note.style.display = "";
         note.textContent = t("contractEndedNote") + " ";
-        // 顧客導入への引っ越しは「運用の形」のタブから(この画面の中で進める)。
+        // 顧客導入への引っ越しは、同じタブの下の引っ越しの節から(この画面の中で進める)。
         const move = document.createElement("a");
         move.href = "#";
         move.textContent = t("siteMoveToSelf") + " →";
         move.addEventListener("click", (e) => {
           e.preventDefault();
-          switchTab("hosting");
+          byId("siteMoveSection")?.scrollIntoView({ behavior: "smooth" });
         });
         note.appendChild(move);
       }
@@ -1193,7 +1251,7 @@ async function settings() {
     btn.addEventListener("click", () => {
       switchTab(btn.dataset.tab);
       if (btn.dataset.tab === "region" && !regionMeasured) void loadRegion();
-      if (btn.dataset.tab === "contract" && !contractLoaded)
+      if (btn.dataset.tab === "hosting" && managedHosting && !contractLoaded)
         void loadContract();
     });
   });
@@ -1281,8 +1339,9 @@ async function settings() {
     }
 
     if (s.managedHosting) {
-      const contractTab = byId("contractTabBtn");
-      if (contractTab) contractTab.style.display = "";
+      managedHosting = true;
+      const contractSection = byId("contractSection");
+      if (contractSection) contractSection.style.display = "";
       const help = byId("publicDomainHelpText");
       if (help) help.textContent = t("publicDomainManagedHelp");
       // 委託は鍵を持たない: workers.dev・Cloudflare の Custom Domain・R2 の枠は出さず、

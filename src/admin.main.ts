@@ -851,7 +851,7 @@ const i18n = {
     legalAgreed: "Agreed version",
     legalTitle: "Terms have been updated",
     legalFirstTitle: "Before you start",
-    siteMoveTitle: "Hosting",
+    siteMoveTitle: "Contract",
     siteMoveNowManaged:
       "This site runs on Entamy managed hosting (Entamy's Cloudflare account).",
     siteMoveNowSelf:
@@ -877,7 +877,7 @@ const i18n = {
     siteMoveShow: "Show progress",
     siteMoveStepsTitle: "Steps",
     siteMoveCloseNote:
-      "Closing this window does not stop the move. You can reopen it from Settings → Hosting.",
+      "Closing this window does not stop the move. You can reopen it from Settings → Contract.",
     siteMoveFailed: "The move stopped. What was copied so far is kept.",
     siteMoveResume: "Resume from where it stopped",
     siteMoveAgain: "Try again",
@@ -910,7 +910,7 @@ const i18n = {
     siteMoveStep_move_finish:
       "Send passkey emails and point this address to a notice",
     err_owner_unknown:
-      "The owner of this site is not known yet. Register the owner first (Settings → Hosting).",
+      "The owner of this site is not known yet. Register the owner first (Settings → Contract).",
     err_wrong_direction: "This site cannot move in that direction.",
     err_move_in_progress: "A move is already in progress.",
     err_move_ticket_invalid:
@@ -1030,7 +1030,7 @@ const i18n = {
       "The email address was changed after the link was sent. Send the confirmation email again.",
     err_email_verify_too_soon: "Please wait a minute before sending again.",
     profileEmailHelp:
-      "Your address on this CMS (passkey recovery emails and similar are sent here). The site owner (Entamy ID) is shown in Settings → Hosting.",
+      "Your address on this CMS (passkey recovery emails and similar are sent here). The site owner (Entamy ID) is shown in Settings → Contract.",
     mailDeliveryVerified: "verified",
     mailDeliveryUnverified: "not verified",
     mailDeliveryUnavailable: "Cloudflare settings could not be read",
@@ -1114,17 +1114,29 @@ const i18n = {
     settingsTabImport: "Import",
     settingsTabIpGate: "IP restriction",
     settingsTabRegion: "Region",
-    settingsTabContract: "Contract",
-    contractTitle: "Contract",
+    contractTitle: "Managed hosting contract",
     contractHelp:
-      "Your hosted plan's dates, as recorded by Entamy. Updated about once an hour.",
-    contractAt: "Contract date",
+      "Your managed hosting contract and dates, as recorded by Entamy. Updated about once an hour.",
+    contractAt: "Hosting started",
+    contractPlan: "Billing",
+    contractPlanMonth: "Monthly",
+    contractPlanYear: "Yearly",
+    contractStarted: "Subscribed on",
+    contractRenew: "Next renewal",
+    contractEnds: "Contract ends on",
+    contractApply: "Subscribe to managed hosting",
+    contractApplyLead:
+      "There is no managed hosting contract yet. To keep using this site after the free period, subscribe on Entamy's contract page.",
+    contractCancel: "Cancel the contract",
+    contractOpenPage: "Open the contract page",
+    contractPageNote:
+      "Subscribing and cancelling happen on Entamy's contract page (a new tab), signed in with the site owner's Entamy ID. It can take up to an hour to show here.",
     contractTrialEnds: "Free period ends",
     contractTrialExtended: "Free period extended by campaign",
     contractTrialExtendedNone: "None",
     contractTrialFinal: "Final free period ends",
     contractSubscription: "Subscription",
-    contractSubActive: "Active (next renewal {date})",
+    contractSubActive: "Active (renews automatically)",
     contractSubCancelled: "Cancelled (usable until {date})",
     contractSubNone: "None",
     contractGrace: "Waiting before data deletion",
@@ -2162,14 +2174,14 @@ const i18n = {
     languageManagerLead: "データ登録で利用する言語を登録します。",
     typesLead: "news、blog、research などの記事タイプを管理します。",
     settingsLead:
-      "公開ドメイン、表示（基本言語・時刻・筆者）、運用の形、メール送信、SNS 連動、スマホ、インポート、IP 制限を設定し、稼働地域と契約情報を確かめます。",
+      "公開ドメイン、表示（基本言語・時刻・筆者）、契約形式（委託の契約・持ち主・引っ越し）、メール送信、SNS 連動、スマホ、インポート、IP 制限を設定し、稼働地域を確かめます。",
     profileLead: "自分のアカウント、表示、PAT、パスキー、IP 制限を設定します。",
     noLanguages: "言語が登録されていません",
     profileIdentity: "アカウント情報",
     legalAgreed: "同意した版",
     legalTitle: "規約が更新されました",
     legalFirstTitle: "はじめに",
-    siteMoveTitle: "運用の形",
+    siteMoveTitle: "契約形式",
     siteMoveNowManaged:
       "いまは Entamy の委託運用で動いています（Entamy の Cloudflare アカウント）。",
     siteMoveNowSelf:
@@ -2195,7 +2207,7 @@ const i18n = {
     siteMoveShow: "進み具合を見る",
     siteMoveStepsTitle: "作業の工程",
     siteMoveCloseNote:
-      "閉じても引っ越しは止まりません。「設定 → 運用の形」からいつでも開き直せます。",
+      "閉じても引っ越しは止まりません。「設定 → 契約形式」からいつでも開き直せます。",
     siteMoveFailed: "引っ越しが止まりました。写した分は残っています。",
     siteMoveResume: "途中から再開",
     siteMoveAgain: "やり直す",
@@ -2228,7 +2240,7 @@ const i18n = {
     siteMoveStep_move_finish:
       "パスキーの登録のメールを送り、このアドレスを案内に替える",
     err_owner_unknown:
-      "このサイトの持ち主がまだ分かりません。先に持ち主を登録してください（設定 → 運用の形）。",
+      "このサイトの持ち主がまだ分かりません。先に持ち主を登録してください（設定 → 契約形式）。",
     err_wrong_direction: "このサイトはその向きには引っ越せません。",
     err_move_in_progress: "引っ越しはもう始まっています。",
     err_move_ticket_invalid:
@@ -2346,7 +2358,7 @@ const i18n = {
       "リンクを送った後にメールアドレスが変わりました。確認メールを送り直してください。",
     err_email_verify_too_soon: "1 分ほど待ってから、もう一度送ってください。",
     profileEmailHelp:
-      "この CMS で使うあなたのアドレスです（パスキーを失くしたときの復旧メールなどが届きます）。サイトの持ち主（Entamy ID）は「設定 → 運用の形」で確かめます。",
+      "この CMS で使うあなたのアドレスです（パスキーを失くしたときの復旧メールなどが届きます）。サイトの持ち主（Entamy ID）は「設定 → 契約形式」で確かめます。",
     mailDeliveryVerified: "検証済み",
     mailDeliveryUnverified: "未検証",
     mailDeliveryUnavailable: "Cloudflareの設定を取得できません",
@@ -2505,17 +2517,29 @@ const i18n = {
     settingsTabImport: "インポート",
     settingsTabIpGate: "IP 制限",
     settingsTabRegion: "稼働地域",
-    settingsTabContract: "契約情報",
-    contractTitle: "契約情報",
+    contractTitle: "委託の契約",
     contractHelp:
-      "Entamy に記録されている委託の契約の日付です。1 時間ほどごとに更新されます。",
-    contractAt: "契約日",
+      "Entamy に記録されている委託の契約と日付です。1 時間ほどごとに更新されます。",
+    contractAt: "委託を始めた日",
+    contractPlan: "契約形式",
+    contractPlanMonth: "月払い",
+    contractPlanYear: "年払い",
+    contractStarted: "契約日",
+    contractRenew: "次の更新日",
+    contractEnds: "契約の終わる日",
+    contractApply: "委託契約を申し込む",
+    contractApplyLead:
+      "委託の契約はまだありません。無料期間の後も使い続けるには、Entamy の契約の頁で申し込んでください。",
+    contractCancel: "解約する",
+    contractOpenPage: "契約の頁を開く",
+    contractPageNote:
+      "申し込み・解約は Entamy の契約の頁（新しいタブ）で、サイトの持ち主の Entamy ID でログインして行います。ここに出るまで最長 1 時間かかります。",
     contractTrialEnds: "無料期間の終わり",
     contractTrialExtended: "キャンペーンで延ばした無料期間",
     contractTrialExtendedNone: "なし",
     contractTrialFinal: "最後の無料期間の終わり",
     contractSubscription: "契約",
-    contractSubActive: "契約中（次の更新 {date}）",
+    contractSubActive: "契約中（自動で更新）",
     contractSubCancelled: "解約済み（{date} まで使えます）",
     contractSubNone: "なし",
     contractGrace: "データ削除の待機期間",
@@ -4892,7 +4916,7 @@ function makePieChart(
 const helpContent: Record<string, Dynamic> = {
   basic: {
     title: "KuroCMS の基本",
-    role: "KuroCMS は Cloudflare の上で動く記事管理システムです。記事・メディア・サイトの見た目を管理画面で整え、ビルドすると公開ページができます。動かし方は 2 つあり、Entamy の Cloudflare アカウントで動く「委託運用」と、ご自身の Cloudflare アカウントで動く「顧客導入」です。いまどちらで動いているかは「設定 → 運用の形」で確かめられます。",
+    role: "KuroCMS は Cloudflare の上で動く記事管理システムです。記事・メディア・サイトの見た目を管理画面で整え、ビルドすると公開ページができます。動かし方は 2 つあり、Entamy の Cloudflare アカウントで動く「委託運用」と、ご自身の Cloudflare アカウントで動く「顧客導入」です。いまどちらで動いているかは「設定 → 契約形式」で確かめられます。",
     canDo:
       "記事を書く（多言語・修正履歴・自動保存） / 画像・動画・音楽を置き、記事やサイト文字に貼る / テンプレート・サイト文字・フォント・計測で公開サイトを整える / ビルドして公開ページを作る（手動・予定公開に合わせた自動ビルドなど） / SNS（Bluesky・X・Threads）へ記事を投稿する / 利用者を招待し、管理者と投稿者に分ける / バックアップと復元 / REST API と MCP で、AI から記事を扱う（PAT） / 委託運用と顧客導入のあいだで引っ越す",
     notes:
@@ -4981,7 +5005,7 @@ const helpContent: Record<string, Dynamic> = {
     title: "設定",
     role: "サイト全体の設定をまとめた画面です。タブごとに分かれています。開いているタブのくわしい説明は、そのタブでヘルプを押すと出ます。",
     canDo:
-      "基本：R2 メディアストレージ（顧客導入だけ） / ドメイン：公開ドメインと既定値に戻す・Worker の URL・独自ドメイン（委託運用は Cloudflare for SaaS で自分のドメインを付ける） / 表示：基本言語・サイトのタイムゾーン・記事の末尾に筆者を出すか / 運用の形：持ち主の登録と、委託運用と顧客導入のあいだの引っ越し / メール送信：この CMS のメールをどこから送るか（顧客導入だけ） / SNS連動：Bluesky・X・Threads の接続と、投稿済みの印の一括操作 / スマホ設定：狭い画面で記事のメディアを全幅にする / インポート：Strapi や別の KuroCMS から記事を取り込む / IP 制限：管理画面を使える回線を絞る / 稼働地域：データベースと KuroCMS が動いている場所を確かめる / 契約情報：委託の契約と無料期間の日付（委託運用だけ）",
+      "基本：R2 メディアストレージ（顧客導入だけ） / ドメイン：公開ドメインと既定値に戻す・Worker の URL・独自ドメイン（委託運用は Cloudflare for SaaS で自分のドメインを付ける） / 表示：基本言語・サイトのタイムゾーン・記事の末尾に筆者を出すか / 契約形式：委託の契約の状態と日付・申し込みと解約への入口・無料期間（委託運用だけ）、持ち主の登録、委託運用と顧客導入のあいだの引っ越し / メール送信：この CMS のメールをどこから送るか（顧客導入だけ） / SNS連動：Bluesky・X・Threads の接続と、投稿済みの印の一括操作 / スマホ設定：狭い画面で記事のメディアを全幅にする / インポート：Strapi や別の KuroCMS から記事を取り込む / IP 制限：管理画面を使える回線を絞る / 稼働地域：データベースと KuroCMS が動いている場所を確かめる",
     notes:
       "表示とスマホ設定の変更は、ビルド（全ページ）を実行するまで公開ページに出ません。公開ページ内のリンクは、ドメインのタブの一番上の公開ドメインから作ります。データベースの地域は作ったときに決まり、後から変えられません。契約情報は 1 時間ほどごとに更新されます。",
   },
@@ -4994,10 +5018,10 @@ const helpContent: Record<string, Dynamic> = {
       "公開ページ内のリンク（記事の URL・canonical・サイトマップなど）は、一番上の公開ドメインから作ります。変えたら保存して、全ページをビルドしてください。委託運用で自分のドメインを使うときは、ドメイン名を入れて「準備する」を押し、表示された TXT レコードを DNS に足します。証明書が発行済みになったら「ドメインを切り替える」を押し、最後に CNAME を 導入 ID.kurocms.site に向けます。Cloudflare で管理しているドメインは、CNAME を向けた時点で有効になります。ほかの DNS では、ルートのドメインに CNAME を置けないことが多いので、www などを使います。CNAME を書き換えると、そのドメインでそれまで表示していたものは見えなくなります。Cloudflare for SaaS は KuroCMS 側で契約しているので、お客様の追加の費用はありません。",
   },
   hosting: {
-    title: "運用の形と引っ越し",
+    title: "契約形式と引っ越し",
     role: "このサイトがどこで動いているか（委託運用か顧客導入か）と、持ち主を確かめるタブです。もう一方の形への引っ越しもここで行います。",
     canDo:
-      "持ち主（Entamy ID）のメールアドレスを登録・変更・取り消す / いまの運用の形を確かめる / 委託運用から、ご自身の Cloudflare アカウントへ引っ越す（顧客導入・無料） / 顧客導入から、Entamy の委託運用へ引っ越す（有料・最初に無料期間がある） / 引っ越しの工程と進み具合をダイアログで見る / 止まった引っ越しを「途中から再開」で続ける",
+      "委託の契約の状態・契約形式（月払い・年払い）・契約日・次の更新日を見る / 委託契約の申し込み・解約は、Entamy の契約の頁（新しいタブ・サイトの持ち主の Entamy ID でログイン）で行う / 持ち主（Entamy ID）のメールアドレスを登録・変更・取り消す / いまの運用の形を確かめる / 委託運用から、ご自身の Cloudflare アカウントへ引っ越す（顧客導入・無料） / 顧客導入から、Entamy の委託運用へ引っ越す（有料・最初に無料期間がある） / 引っ越しの工程と進み具合をダイアログで見る / 止まった引っ越しを「途中から再開」で続ける",
     notes:
       "導入口で入れたサイトは、そのときログインした Entamy ID が持ち主です。それより前に入れたサイトは、先に持ち主のメールアドレスを登録します。確認のメールが 1 通届きます。引っ越すには、KuroCMS を新しい版へ更新しておく必要があります。足りないときは画面が知らせます。写している間もサイトはそのまま使えます。止まるのは最後の突き合わせの数分だけです。ダイアログを閉じても引っ越しは止まりません。終わると、古いアドレスは新しいアドレスへの案内に替わり、管理者全員に、新しいアドレスでパスキーを登録するリンクがメールで届きます。持っていかないものは、パスキー・ログインの状態・登録した回線・PAT・SNS の連携の鍵・操作の記録です。更新の方式と IP 制限は、引っ越し先では既定に戻ります。委託運用の無料期間は、登録メールアカウントごとに 1 回です。委託運用へ移った後も、ご自身の Cloudflare に入れた KuroCMS は消しません。要らなければご自身で消してください。",
   },
@@ -5029,7 +5053,7 @@ const helpContent: Record<string, Dynamic> = {
     title: "お知らせと持ち主",
     role: "Entamy と KuroCMS からのお知らせを受け取る仕組みです。お知らせはダッシュボードに出ます。",
     canDo:
-      "お知らせを読み、「確認した」で閉じる / 「あとで読む」で後回しにする / ほかの Entamy の製品のお知らせも受け取るかを選ぶ / 持ち主のメールアドレスを登録して、重要なお知らせを受け取る（設定 → 運用の形）",
+      "お知らせを読み、「確認した」で閉じる / 「あとで読む」で後回しにする / ほかの Entamy の製品のお知らせも受け取るかを選ぶ / 持ち主のメールアドレスを登録して、重要なお知らせを受け取る（設定 → 契約形式）",
     notes:
       "緊急・重要なお知らせは、ログインしたときにダイアログでも出ます。新しいお知らせを確かめられなかったときは、前に受け取ったものを出し、その旨を表示します。持ち主のメールアドレスは、重要なお知らせと、委託運用の契約の持ち主のためだけに使います。同じ持ち主の複数のサイトでは、1 か所で確認したお知らせは、ほかのサイトでも確認済みになります。規約が更新されると、次に開いたときに同意を求めます。",
   },
@@ -5039,7 +5063,7 @@ const helpContent: Record<string, Dynamic> = {
     canDo:
       "アカウント：ユーザー名とメールアドレスを変える / 表示：管理画面の言語とダークモードを切り替える / PAT：REST API と MCP（AI 連携）で使うトークンを作る・取り消す / パスキー：このデバイスを追加し、名前を変え、要らないものを消す / IP 制限：自分の登録した回線を確かめ、外す",
     notes:
-      "プロフィールのメールアドレスは、パスキーの再設定などが届くあなたのアドレスです。サイトの持ち主（Entamy ID）とは別で、持ち主は「設定 → 運用の形」で確かめます。PAT の権限は、あなたの権限と同じです。漏れると不正に使われるので、要らない PAT はすぐ取り消してください。REST API の使い方は /api/help に出ます。最後のパスキーは消せません。",
+      "プロフィールのメールアドレスは、パスキーの再設定などが届くあなたのアドレスです。サイトの持ち主（Entamy ID）とは別で、持ち主は「設定 → 契約形式」で確かめます。PAT の権限は、あなたの権限と同じです。漏れると不正に使われるので、要らない PAT はすぐ取り消してください。REST API の使い方は /api/help に出ます。最後のパスキーは消せません。",
   },
   users: {
     title: "ユーザー管理",
@@ -5055,14 +5079,14 @@ const helpContent: Record<string, Dynamic> = {
     canDo:
       "記事・翻訳・カテゴリ・タクソノミー・テンプレート・サイトの設定・SNS 連携と、画像・動画・音楽の実ファイルを 1 つの ZIP に保存する / ZIP から、今の中身をすべて置き換えて戻す",
     notes:
-      "利用者・パスキー・PAT は ZIP に入りません。SNS 連携のトークンは入るので、ZIP は大切に保管してください。レストアは、今のコンテンツ・メディア・設定をすべて消してから置き換えます。取り消せません。処理の間はタブを開いたままにしてください。大きなサイトは Chrome か Edge を使ってください。レストアの後はビルドすると、公開ページが作り直されます。別の Cloudflare や委託運用へ移るときは、バックアップではなく「設定 → 運用の形」の引っ越しを使ってください。",
+      "利用者・パスキー・PAT は ZIP に入りません。SNS 連携のトークンは入るので、ZIP は大切に保管してください。レストアは、今のコンテンツ・メディア・設定をすべて消してから置き換えます。取り消せません。処理の間はタブを開いたままにしてください。大きなサイトは Chrome か Edge を使ってください。レストアの後はビルドすると、公開ページが作り直されます。別の Cloudflare や委託運用へ移るときは、バックアップではなく「設定 → 契約形式」の引っ越しを使ってください。",
   },
   faq: {
     title: "よくある質問 (Q&A)",
     faqs: [
       {
         q: "委託運用からご自身の Cloudflare へ（または逆へ）移りたい",
-        a: "「設定 → 運用の形」の引っ越しを使ってください。記事・メディア・設定・利用者を写し、終わると古いアドレスは新しいアドレスへの案内に替わります。パスキーは持っていけないので、新しいアドレスで登録し直すリンクがメールで届きます。",
+        a: "「設定 → 契約形式」の引っ越しを使ってください。記事・メディア・設定・利用者を写し、終わると古いアドレスは新しいアドレスへの案内に替わります。パスキーは持っていけないので、新しいアドレスで登録し直すリンクがメールで届きます。",
       },
       {
         q: "パスキーを登録したデバイスを失くしたら？",
@@ -5078,7 +5102,7 @@ const helpContent: Record<string, Dynamic> = {
       },
       {
         q: "持ち主（Entamy ID）とは何ですか？",
-        a: "このサイトの持ち主として Entamy に記録されているアカウントです。重要なお知らせが届き、委託運用の契約の持ち主になります。導入口で入れたサイトは、そのときログインした Entamy ID です。それより前のサイトは「設定 → 運用の形」で登録します。プロフィールのメールアドレスとは別のものです。",
+        a: "このサイトの持ち主として Entamy に記録されているアカウントです。重要なお知らせが届き、委託運用の契約の持ち主になります。導入口で入れたサイトは、そのときログインした Entamy ID です。それより前のサイトは「設定 → 契約形式」で登録します。プロフィールのメールアドレスとは別のものです。",
       },
       {
         q: "使用量が上限を超えるとどうなりますか？",
@@ -5107,7 +5131,7 @@ const helpContent: Record<string, Dynamic> = {
 const helpContentEn: Record<string, Dynamic> = {
   basic: {
     title: "KuroCMS basics",
-    role: "KuroCMS is a content management system that runs on Cloudflare. You shape articles, media and the look of the site in this admin panel, and a build turns them into public pages. It runs in one of two ways: managed hosting on Entamy's Cloudflare account, or self-hosting on your own Cloudflare account. Settings → Hosting shows which one this site uses.",
+    role: "KuroCMS is a content management system that runs on Cloudflare. You shape articles, media and the look of the site in this admin panel, and a build turns them into public pages. It runs in one of two ways: managed hosting on Entamy's Cloudflare account, or self-hosting on your own Cloudflare account. Settings → Contract shows which one this site uses.",
     canDo:
       "Write articles (multilingual, revision history, autosave) / Upload images, video and audio and place them in articles and site text / Shape the public site with templates, site text, fonts and analytics / Build public pages (manually, or automatically at scheduled publish times) / Post articles to Bluesky, X and Threads / Invite users as administrators or authors / Back up and restore / Work with articles from AI through the REST API and MCP (PAT) / Move between managed hosting and self-hosting",
     notes:
@@ -5196,7 +5220,7 @@ const helpContentEn: Record<string, Dynamic> = {
     title: "Settings",
     role: "Site-wide settings, split into tabs. Press Help while a tab is open to see help for that tab.",
     canDo:
-      "Basic: R2 media storage (self-hosting only) / Domain: public domain and reset to default, Worker URL, custom domain (on managed hosting, attach your own domain with Cloudflare for SaaS) / Display: base language, site time zone, author line at the end of articles / Hosting: register the owner, and move between managed hosting and self-hosting / Email: where this CMS sends its mail from (self-hosting only) / SNS: connect Bluesky, X and Threads, and set or clear posted marks in bulk / Mobile: make article media full width on narrow screens / Import: bring in articles from Strapi or another KuroCMS / IP restriction: limit the networks that can use the admin panel / Region: see where the database and KuroCMS run / Contract: dates of the managed contract and free period (managed hosting only)",
+      "Basic: R2 media storage (self-hosting only) / Domain: public domain and reset to default, Worker URL, custom domain (on managed hosting, attach your own domain with Cloudflare for SaaS) / Display: base language, site time zone, author line at the end of articles / Contract: the managed contract's status and dates, the way to subscribe or cancel, and the free period (managed hosting only); register the owner; move between managed hosting and self-hosting / Email: where this CMS sends its mail from (self-hosting only) / SNS: connect Bluesky, X and Threads, and set or clear posted marks in bulk / Mobile: make article media full width on narrow screens / Import: bring in articles from Strapi or another KuroCMS / IP restriction: limit the networks that can use the admin panel / Region: see where the database and KuroCMS run",
     notes:
       "Display and Mobile changes reach the public pages only after a full build. Links in your public pages are built from the public domain at the top of the Domain tab. The database region is fixed when the database is created. Contract information refreshes about once an hour.",
   },
@@ -5209,7 +5233,7 @@ const helpContentEn: Record<string, Dynamic> = {
       'Links in your public pages (article URLs, canonical, sitemap and so on) are built from the public domain at the top. After changing it, save and rebuild all pages. To use your own domain on managed hosting, enter the domain name, press "Prepare" and add the TXT records shown to your DNS. When the certificate is issued, press "Switch domain", then point the CNAME to installation-id.kurocms.site. A domain on Cloudflare becomes active when the CNAME points here. Many other DNS providers cannot put a CNAME on the root domain, so use www or similar. When you change the CNAME, whatever the domain showed before is no longer shown. KuroCMS already has the Cloudflare for SaaS contract, so there is no extra cost for you.',
   },
   hosting: {
-    title: "Hosting and moving",
+    title: "Contract and moving",
     role: "This tab shows where the site runs (managed hosting or self-hosting) and who owns it. You also move to the other form here.",
     canDo:
       'Register, change or remove the owner\'s email address (Entamy ID) / See the current hosting form / Move from managed hosting to your own Cloudflare account (self-hosting, free) / Move from self-hosting to Entamy managed hosting (paid, with a free period at first) / Watch the steps and progress of a move in a dialog / Continue a stopped move with "Resume from where it stopped"',
@@ -5244,7 +5268,7 @@ const helpContentEn: Record<string, Dynamic> = {
     title: "Notices and the owner",
     role: "How notices from Entamy and KuroCMS reach you. Notices appear on the dashboard.",
     canDo:
-      'Read a notice and close it with "Got it" / Put it off with "Read later" / Choose whether to receive notices from other Entamy products / Register the owner\'s email address to receive important notices (Settings → Hosting)',
+      'Read a notice and close it with "Got it" / Put it off with "Read later" / Choose whether to receive notices from other Entamy products / Register the owner\'s email address to receive important notices (Settings → Contract)',
     notes:
       "Urgent and important notices also appear in a dialog when you sign in. If new notices cannot be checked, the ones received earlier are shown with a note saying so. The owner's email address is used only for important notices and as the owner of a managed contract. On several sites with the same owner, a notice acknowledged on one site is acknowledged on the others too. When the terms are updated, you are asked to agree the next time you open the admin panel.",
   },
@@ -5254,7 +5278,7 @@ const helpContentEn: Record<string, Dynamic> = {
     canDo:
       "Account: change your user name and email address / Display: switch the admin panel language and dark mode / PAT: create and revoke tokens for the REST API and MCP (AI) / Passkeys: add this device, rename passkeys and delete ones you no longer need / IP restriction: see and remove your registered networks",
     notes:
-      "The email address in your profile is where passkey resets and similar mail reach you. It is separate from the site owner (Entamy ID), which you check under Settings → Hosting. A PAT has the same permissions as you. A leaked PAT can be misused, so revoke any you no longer need right away. How to use the REST API is shown at /api/help. Your last passkey cannot be deleted.",
+      "The email address in your profile is where passkey resets and similar mail reach you. It is separate from the site owner (Entamy ID), which you check under Settings → Contract. A PAT has the same permissions as you. A leaked PAT can be misused, so revoke any you no longer need right away. How to use the REST API is shown at /api/help. Your last passkey cannot be deleted.",
   },
   users: {
     title: "Users",
@@ -5270,14 +5294,14 @@ const helpContentEn: Record<string, Dynamic> = {
     canDo:
       "Save articles, translations, categories, taxonomy, templates, site settings, social connections, and the image, video and audio files in one ZIP / Restore from a ZIP, replacing everything currently there",
     notes:
-      "Users, passkeys and PATs are not in the ZIP. Social media tokens are, so keep the ZIP safe. Restore deletes all current content, media and settings before replacing them, and it cannot be undone. Keep the tab open while it runs. Use Chrome or Edge for large sites. After a restore, build to regenerate the public pages. To move to another Cloudflare account or to managed hosting, use the move under Settings → Hosting rather than a backup.",
+      "Users, passkeys and PATs are not in the ZIP. Social media tokens are, so keep the ZIP safe. Restore deletes all current content, media and settings before replacing them, and it cannot be undone. Keep the tab open while it runs. Use Chrome or Edge for large sites. After a restore, build to regenerate the public pages. To move to another Cloudflare account or to managed hosting, use the move under Settings → Contract rather than a backup.",
   },
   faq: {
     title: "FAQ",
     faqs: [
       {
         q: "I want to move from managed hosting to my own Cloudflare (or the other way)",
-        a: "Use the move under Settings → Hosting. It copies articles, media, settings and users, and when it finishes the old address points visitors to the new one. Passkeys cannot be carried over, so you receive an email with a link to register one at the new address.",
+        a: "Use the move under Settings → Contract. It copies articles, media, settings and users, and when it finishes the old address points visitors to the new one. Passkeys cannot be carried over, so you receive an email with a link to register one at the new address.",
       },
       {
         q: "What if I lose the device with my passkey?",
@@ -5293,7 +5317,7 @@ const helpContentEn: Record<string, Dynamic> = {
       },
       {
         q: "What is the owner (Entamy ID)?",
-        a: "The account Entamy records as the owner of this site. It receives important notices and becomes the owner of a managed contract. For a site installed through the installer, it is the Entamy ID that signed in at the time; for older sites, register it under Settings → Hosting. It is separate from the email address in your profile.",
+        a: "The account Entamy records as the owner of this site. It receives important notices and becomes the owner of a managed contract. For a site installed through the installer, it is the Entamy ID that signed in at the time; for older sites, register it under Settings → Contract. It is separate from the email address in your profile.",
       },
       {
         q: "What happens if usage goes over the limit?",
