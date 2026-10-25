@@ -14,6 +14,7 @@ import { html, notFound, notFoundPage, preparingPage } from "./http";
 import { reactionEndpoint } from "./reactions";
 import { cspReportEndpoint } from "./csp-report";
 import { mediaIsPublic } from "./assets-publish";
+import { contractLocked } from "./contract-lock";
 import { tryAuth } from "./auth";
 import { adminCspHeaders, CSP_REPORT_PATH } from "./site-csp";
 import {
@@ -54,7 +55,8 @@ async function runMinute(
   ctx.waitUntil(
     (async () => {
       if (await moveFrozen(env)) return;
-      await runScheduledAutoBuild(env);
+      // 無料期間が終わり契約の無い委託は、公開ページを変えない(読み取りだけ・課題 8396f3b7)。
+      if (!(await contractLocked(env))) await runScheduledAutoBuild(env);
     })().catch((err) => {
       console.error("scheduled auto-build failed:", err);
     }),

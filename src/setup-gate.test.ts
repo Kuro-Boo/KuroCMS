@@ -494,6 +494,61 @@ console.log("setup-gate");
   );
 }
 
+{
+  // 無料期間が終わり契約の無い委託は読み取りだけ(課題 8396f3b7)。
+  const w = world();
+  (w.env as Record<string, unknown>).MEDIA_QUOTA_BYTES = String(10 * 1024 ** 3);
+  const now = new Date().toISOString();
+  w.raw
+    .prepare(
+      "INSERT INTO users (uid, email, author_id, is_admin, is_author, created_at, updated_at) VALUES ('usr_001', 'a@example.com', 'au', 1, 1, ?, ?)",
+    )
+    .run(now, now);
+  w.raw
+    .prepare(
+      "INSERT INTO sessions (session_id, uid, expires_at, created_at, last_active_at) VALUES ('sess_x', 'usr_001', ?, ?, ?)",
+    )
+    .run(new Date(Date.now() + 3_600_000).toISOString(), now, now);
+  const cookie = {
+    cookie: "kurocms_session=sess_x",
+    origin: "https://site.example",
+  };
+  const setContract = (subscription: string, finalAt: number) =>
+    w.raw
+      .prepare(
+        `INSERT INTO contract_info (id, contract_at, trial_final_at, subscription, delete_after_days, synced_at)
+      VALUES (1, 0, ?, ?, 30, 0) ON CONFLICT(id) DO UPDATE SET trial_final_at = excluded.trial_final_at, subscription = excluded.subscription`,
+      )
+      .run(finalAt, subscription);
+  const post = () => call(w, "POST", "/api/me/tokens", { name: "x" }, cookie);
+  const write = () =>
+    call(w, "POST", "/api/categories", { name: "c", slug: "c" }, cookie);
+  setContract("none", Date.now() + 86_400_000);
+  eq(
+    "無料期間の中は書ける",
+    (await write()).code === "contract_required",
+    false,
+  );
+  setContract("none", Date.now() - 1000);
+  eq(
+    "無料期間が終わり契約が無ければ、変更は 402",
+    (await write()).code,
+    "contract_required",
+  );
+  eq(
+    "読むのは通る",
+    (await call(w, "GET", "/api/categories", undefined, cookie)).status,
+    200,
+  );
+  eq("自分のこと(PAT など)は通る", (await post()).status, 201);
+  setContract("active", Date.now() - 1000);
+  eq(
+    "契約していれば書ける",
+    (await write()).code === "contract_required",
+    false,
+  );
+}
+
 if (failed) {
   console.log(`\n${failed} 件 失敗`);
   process.exit(1);

@@ -1358,6 +1358,14 @@ async function settings() {
     // 運用の形(委託運用なら顧客導入へ、顧客導入なら委託運用へ)。引っ越しはこの画面の中で進める。
     void mountSiteMove();
     void mountMailSettings();
+    // ?tab=… で開くタブを選べる(契約の窓の「自分の Cloudflare へ引っ越す」が hosting を開く)。
+    {
+      const want = new URLSearchParams(location.search).get("tab") || "";
+      const btn = document.querySelector<HTMLElement>(
+        `.settingsTab[data-tab="${want.replace(/[^a-z]/g, "")}"]`,
+      );
+      if (want && btn && btn.style.display !== "none") btn.click();
+    }
 
     // Worker origin URL + CNAME guide
     (function () {

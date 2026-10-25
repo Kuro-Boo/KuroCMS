@@ -13,6 +13,7 @@ import {
 } from "./auth";
 import { templateScriptWarnings } from "./template-scripts";
 import { cspReportSummary } from "./csp-report";
+import { contractLocked, lockAllows } from "./contract-lock";
 import {
   fetchGithubVerified,
   fetchUpdateArtifact,
@@ -682,6 +683,15 @@ async function handleApiDispatch(
 
     const user = await requireAuth(env, request);
     actor = user;
+
+    // 無料期間が終わり、契約の無い委託は読み取りだけ(cms-pricing「無料期間が切れたとき」・課題 8396f3b7)。
+    if (!lockAllows(request.method, path) && (await contractLocked(env))) {
+      throw new HttpError(
+        402,
+        "contract_required",
+        "The free period has ended. Until you subscribe, the site is read-only (you can still read, back up, and move to your own Cloudflare).",
+      );
+    }
 
     if (request.method === "GET" && path === "/api/system/storage") {
       requireAdmin(user);
