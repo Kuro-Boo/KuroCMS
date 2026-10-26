@@ -13,6 +13,7 @@
 
 import {
   entamyPort,
+  hardenEntamyConnection,
   hardenInstallId,
   resolveInstallId,
   __resetEntamyPortCacheForTest,
@@ -209,7 +210,7 @@ const run = async () => {
       secret: SECRET,
       storeKey: STORE_KEY,
     });
-    eq("付け替えた", await hardenInstallId(env10), "done");
+    eq("付け替えた", (await hardenInstallId(env10)).outcome, "done");
     const rekey = calls.find((c) => c.path === "/v1/installs/rekey");
     eq("今の名乗りと秘密入りの名乗りを送る", rekey?.body, {
       product_id: "cms",
@@ -218,7 +219,11 @@ const run = async () => {
     });
     eq("D1 の名乗りも替わる", env10._row(), hardened);
     eq("以後は秘密入りで名乗る", await resolveInstallId(env10), hardened);
-    eq("付け替え済みなら何もしない", await hardenInstallId(env10), "skipped");
+    eq(
+      "付け替え済みなら何もしない",
+      (await hardenInstallId(env10)).outcome,
+      "hardened",
+    );
     // 保管庫は封じて置く: KV のリフレッシュトークンは平文で残らない。
     const stored = env10._kv.get("entamy.cms.refresh_token") ?? "";
     ok(
@@ -233,10 +238,29 @@ const run = async () => {
     calls.length = 0;
     eq(
       "乱数の名乗りはそのまま",
-      await hardenInstallId(fakeEnv({ row: legacy, secret: SECRET })),
-      "skipped",
+      (await hardenInstallId(fakeEnv({ row: legacy, secret: SECRET }))).outcome,
+      "random",
     );
     eq("ID を呼ばない", calls.length, 0);
+
+    // 毎分の処理: 付け替えたことを Defects へ 1 度だけ知らせる(cron の中は誰の画面にも出ない)。
+    __resetEntamyPortCacheForTest();
+    calls.length = 0;
+    const env11 = fakeEnv({
+      row: derived,
+      secret: SECRET,
+      storeKey: STORE_KEY,
+    });
+    (
+      env11 as unknown as { ENTAMY_INSTALL_SECRET: string }
+    ).ENTAMY_INSTALL_SECRET = SECRET;
+    await hardenEntamyConnection(env11);
+    await hardenEntamyConnection(env11);
+    await new Promise((r) => setTimeout(r, 20));
+    const reported = calls
+      .filter((c) => c.path === "/v1/defects")
+      .map((c) => c.body.code);
+    eq("付け替えを 1 度だけ知らせる", reported, ["install_rekeyed"]);
   } finally {
     globalThis.fetch = realFetch;
   }

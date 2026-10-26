@@ -20,7 +20,7 @@ import {
   type EntamySecrets,
 } from "./vendor/entamy-client/index.ts";
 import { sealedSecrets } from "./vendor/entamy-client/index.ts";
-import { entamySecret } from "./entamy-secrets.ts";
+import { ensureEntamySecrets, entamySecret } from "./entamy-secrets.ts";
 import { KUROCMS_VERSION } from "./version.ts";
 import type { Env } from "./types.ts";
 
@@ -162,6 +162,7 @@ export function __resetEntamyPortCacheForTest(): void {
   cachedPort = null;
   notices.clear();
   hardenRetryAt = 0;
+  checkedReported = false;
 }
 
 export async function resolveInstallId(env: Env): Promise<string> {
@@ -284,15 +285,34 @@ let hardenRetryAt = 0;
  * 旧 KV から引き継いだ名乗り(旧実装の乱数)は推測できないので、そのままにする。
  * ID で付け替えたのに D1 を書けなかったときは、次の回にもう一度送る —— ID は送り直しを成功で返す。
  */
+/**
+ * done 付け替えた / failed ID に断られた(1 時間空ける) / skipped 秘密がまだ無い・空けている最中 /
+ * hardened 既に秘密入り / random 旧実装の乱数(推測できないので付け替えない) /
+ * unknown D1 が読めず、今の名乗りが判らない(次の回に)。
+ */
+export type HardenOutcome =
+  | "done"
+  | "failed"
+  | "skipped"
+  | "hardened"
+  | "random"
+  | "unknown";
+
 export async function hardenInstallId(
   env: Env,
   now = Date.now(),
-): Promise<"done" | "skipped" | "failed"> {
+): Promise<{
+  outcome: HardenOutcome;
+  failure?: { kind: string; status: number };
+}> {
   const secret = env.ENTAMY_INSTALL_SECRET?.trim();
-  if (!secret || now < hardenRetryAt) return "skipped";
+  if (!secret || now < hardenRetryAt) return { outcome: "skipped" };
   const current = await resolveInstallId(env);
-  if (current !== (await derivedInstallId(env))) return "skipped";
+  // D1 が読めなかったときの値(控えていない)では決めない。
+  if (cachedInstallId !== current) return { outcome: "unknown" };
   const next = await secretInstallId(env, secret);
+  if (current === next) return { outcome: "hardened" };
+  if (current !== (await derivedInstallId(env))) return { outcome: "random" };
   const port = await entamyPort(env);
   const r = await port.session.rekeyInstall(next);
   if (!r.ok) {
@@ -303,7 +323,10 @@ export async function hardenInstallId(
       r.failure.status ?? "",
       r.failure.message ?? "",
     );
-    return "failed";
+    return {
+      outcome: "failed",
+      failure: { kind: r.failure.kind, status: r.failure.status ?? 0 },
+    };
   }
   await env.DB.prepare(
     "UPDATE install_identity SET install_id = ?1 WHERE id = 1 AND install_id = ?2",
@@ -312,7 +335,71 @@ export async function hardenInstallId(
     .run();
   cachedInstallId = next;
   resetEntamyPort();
-  return "done";
+  return { outcome: "done" };
+}
+
+/** 名乗りを確かめ終えた印(KV)。確かめた結果の知らせを 1 度だけにする。 */
+const CHECKED_KEY = "system:entamy_install_checked";
+let checkedReported = false;
+
+/**
+ * 毎分の処理から呼ぶ(課題 5be5b80e)。Secret を置き、名乗りを付け替え、**結果を Defects へ送る** ——
+ * cron の中で起きたことは誰の画面にも出ないので、置けたか・付け替えたかを外から読めるようにする。
+ * 失敗の知らせは 1 時間に 1 度まで(どちらも失敗したら 1 時間空ける)、確かめた結果は導入ごとに 1 度。
+ */
+export async function hardenEntamyConnection(env: Env): Promise<void> {
+  const report = async (
+    code: string,
+    detail: Record<string, string | number>,
+  ) => {
+    try {
+      await (await entamyPort(env)).defects.report(code, { detail });
+    } catch {
+      /* 知らせが届かないことは、知らせたい出来事より軽い */
+    }
+  };
+  const secrets = await ensureEntamySecrets(env).catch((err) => {
+    console.warn("entamy secret provision failed:", err);
+    return { outcome: "busy" as const };
+  });
+  if (secrets.outcome === "provisioned") {
+    resetEntamyPort();
+    await report("entamy_secret_provisioned", {});
+  } else if (
+    secrets.outcome === "failed" &&
+    "failed" in secrets &&
+    secrets.failed
+  ) {
+    await report("entamy_secret_provision_failed", { ...secrets.failed });
+  }
+
+  const h = await hardenInstallId(env).catch((err) => {
+    console.warn("entamy install rekey failed:", err);
+    return { outcome: "unknown" as const };
+  });
+  if (h.outcome === "failed" && "failure" in h && h.failure) {
+    await report("install_rekey_failed", { ...h.failure });
+    return;
+  }
+  const kind = h.outcome === "done" ? "rekeyed" : h.outcome;
+  if (
+    (kind !== "rekeyed" && kind !== "hardened" && kind !== "random") ||
+    checkedReported
+  )
+    return;
+  checkedReported = true;
+  if (
+    kind !== "rekeyed" &&
+    (await env.PUBLIC_PAGES.get(CHECKED_KEY).catch(() => null)) === kind
+  )
+    return;
+  await report(kind === "rekeyed" ? "install_rekeyed" : "install_id_checked", {
+    kind,
+  });
+  await env.PUBLIC_PAGES.put(
+    CHECKED_KEY,
+    kind === "rekeyed" ? "hardened" : kind,
+  ).catch(() => {});
 }
 
 /** 移行の見届け用。旧 KV に口座が残っているか（消してよいかの判断材料）。 */

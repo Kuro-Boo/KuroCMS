@@ -67,7 +67,8 @@ const run = async () => {
   const cf = fakeCf();
   eq(
     "無いものだけ置く",
-    await ensureEntamySecrets(env, { fetch: cf.fetch, now: () => NOW }),
+    (await ensureEntamySecrets(env, { fetch: cf.fetch, now: () => NOW }))
+      .outcome,
     "provisioned",
   );
   eq("置いたのは名乗りの秘密だけ", cf.puts, ["ENTAMY_INSTALL_SECRET"]);
@@ -82,10 +83,12 @@ const run = async () => {
   const cf2 = fakeCf();
   eq(
     "置き終えた印があれば待つ",
-    await ensureEntamySecrets(env, {
-      fetch: cf2.fetch,
-      now: () => NOW + 60_000,
-    }),
+    (
+      await ensureEntamySecrets(env, {
+        fetch: cf2.fetch,
+        now: () => NOW + 60_000,
+      })
+    ).outcome,
     "busy",
   );
   eq("作り直さない", cf2.puts, []);
@@ -104,24 +107,49 @@ const run = async () => {
   const managed = fakeEnv({ CF_API_TOKEN: undefined } as Partial<Env>);
   eq(
     "鍵の無い導入(委託)は置かない",
-    await ensureEntamySecrets(managed, {
-      fetch: fakeCf().fetch,
-      now: () => NOW,
-    }),
+    (
+      await ensureEntamySecrets(managed, {
+        fetch: fakeCf().fetch,
+        now: () => NOW,
+      })
+    ).outcome,
     "unavailable",
   );
 
   __resetEntamySecretsForTest();
   const refused = fakeEnv();
   eq(
-    "断られたら置けない",
+    "断られたら、どれが何で断られたかを返す",
     await ensureEntamySecrets(refused, {
       fetch: fakeCf(false).fetch,
       now: () => NOW,
     }),
-    "unavailable",
+    { outcome: "failed", failed: { name: "ENTAMY_STORE_KEY", status: 403 } },
   );
-  eq("断られたら印を残さない(次の回に試す)", refused._kv.size, 0);
+  const cf5 = fakeCf();
+  eq(
+    "断られたら 1 時間は試さない(毎分 Cloudflare を叩かない)",
+    [
+      (
+        await ensureEntamySecrets(refused, {
+          fetch: cf5.fetch,
+          now: () => NOW + 30 * 60_000,
+        })
+      ).outcome,
+      cf5.puts,
+    ],
+    ["busy", []],
+  );
+  eq(
+    "1 時間たてば試し直す",
+    (
+      await ensureEntamySecrets(refused, {
+        fetch: cf5.fetch,
+        now: () => NOW + 61 * 60_000,
+      })
+    ).outcome,
+    "provisioned",
+  );
 
   __resetEntamySecretsForTest();
   const ready = fakeEnv({
@@ -132,7 +160,8 @@ const run = async () => {
   eq(
     "揃っていれば何もしない",
     [
-      await ensureEntamySecrets(ready, { fetch: cf4.fetch, now: () => NOW }),
+      (await ensureEntamySecrets(ready, { fetch: cf4.fetch, now: () => NOW }))
+        .outcome,
       cf4.puts,
       ready._kv.size,
     ],

@@ -4,8 +4,7 @@ import { serveAdminAsset } from "./asset-serve";
 import { serveFont } from "./fonts";
 import { handleApi, sendMail, unfurlEndpoint } from "./api";
 import { reportInstall } from "./entamy";
-import { entamyPort, hardenInstallId, resetEntamyPort } from "./entamy-port";
-import { ensureEntamySecrets } from "./entamy-secrets";
+import { entamyPort, hardenEntamyConnection } from "./entamy-port";
 import { adoptGuardianMinute, guardianAutoTick } from "./guardian-update";
 import { guardianDeps } from "./guardian-deps";
 import { noteRunningVersion } from "./version-since";
@@ -119,14 +118,7 @@ async function runMinute(
     (async () => {
       // 保管庫の鍵と名乗りの秘密(課題 5be5b80e・entamy-secrets.ts)。無ければ自分の Secret に置き、
       // 推測できる名乗りは秘密入りへ付け替える。どちらも済んでいれば通信しない。
-      const secrets = await ensureEntamySecrets(env).catch((err) => {
-        console.warn("entamy secret provision failed:", err);
-        return "unavailable" as const;
-      });
-      if (secrets === "provisioned") resetEntamyPort();
-      await hardenInstallId(env).catch((err) =>
-        console.warn("entamy install rekey failed:", err),
-      );
+      await hardenEntamyConnection(env);
       await reportInstall(env);
       const port = await entamyPort(env);
       const cred = await port.mailer.credential();

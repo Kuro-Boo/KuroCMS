@@ -36,6 +36,8 @@ const PROVISION_KEY = "system:entamy_secret_provision";
 const RUNNING_STALE_MS = 10 * 60_000;
 /** 置き終えたのに env に現れないとみなすまで(古い版の isolate が入れ替わるのを待つ)。 */
 const DONE_STALE_MS = 60 * 60_000;
+/** 断られたら、次に試すまで空ける(毎分 Cloudflare を叩かず、知らせも毎分にしない)。 */
+const FAILED_RETRY_MS = 60 * 60_000;
 
 /**
  * この isolate で置いた値。Secret を置いても、**動いている isolate の env は変わらない**
@@ -50,7 +52,21 @@ export function entamySecret(
   return env[name]?.trim() || provided[name];
 }
 
-export type ProvisionOutcome = "ready" | "provisioned" | "unavailable" | "busy";
+/**
+ * ready 揃っている / provisioned 置いた / unavailable 鍵の無い導入(委託) / busy 置いている最中か、
+ * 置き終えて env に現れるのを待っている / failed Cloudflare に断られた(`failed` に名前と HTTP の状態)。
+ */
+export type ProvisionOutcome =
+  | "ready"
+  | "provisioned"
+  | "unavailable"
+  | "busy"
+  | "failed";
+
+export interface ProvisionResult {
+  outcome: ProvisionOutcome;
+  failed?: { name: EntamySecretName; status: number };
+}
 
 export interface ProvisionDeps {
   fetch: typeof fetch;
@@ -71,24 +87,29 @@ export async function ensureEntamySecrets(
     fetch: (i, init) => fetch(i, init),
     now: () => Date.now(),
   },
-): Promise<ProvisionOutcome> {
+): Promise<ProvisionResult> {
   const missing = SECRET_NAMES.filter((n) => !entamySecret(env, n));
-  if (!missing.length) return "ready";
+  if (!missing.length) return { outcome: "ready" };
   if (!env.CF_API_TOKEN || !env.CF_ACCOUNT_ID || !env.CF_WORKER_NAME)
-    return "unavailable";
+    return { outcome: "unavailable" };
 
   const mark = await readMark(env);
   if (mark) {
     const age = deps.now() - mark.at;
-    if (mark.state === "running" ? age < RUNNING_STALE_MS : age < DONE_STALE_MS)
-      return "busy";
+    const wait =
+      mark.state === "running"
+        ? RUNNING_STALE_MS
+        : mark.state === "done"
+          ? DONE_STALE_MS
+          : FAILED_RETRY_MS;
+    if (age < wait) return { outcome: "busy" };
   }
   await env.PUBLIC_PAGES.put(
     PROVISION_KEY,
     JSON.stringify({ state: "running", at: deps.now() }),
   );
 
-  let done = false;
+  let failed: ProvisionResult["failed"];
   try {
     for (const name of missing) {
       const value = btoa(
@@ -110,32 +131,40 @@ export async function ensureEntamySecrets(
       } | null;
       if (!res.ok || !data?.success) {
         console.warn("entamy secret provision failed:", name, res.status);
-        return "unavailable";
+        failed = { name, status: res.status };
+        return { outcome: "failed", failed };
       }
       provided[name] = value;
     }
-    done = true;
-    return "provisioned";
+    return { outcome: "provisioned" };
   } finally {
+    // 途中で落ちたとき(投げた)は印を消し、次の回にすぐ試す。
     await (
-      done
+      failed
         ? env.PUBLIC_PAGES.put(
             PROVISION_KEY,
-            JSON.stringify({ state: "done", at: deps.now() }),
+            JSON.stringify({ state: "failed", at: deps.now() }),
           )
-        : env.PUBLIC_PAGES.delete(PROVISION_KEY)
+        : missing.every((n) => provided[n])
+          ? env.PUBLIC_PAGES.put(
+              PROVISION_KEY,
+              JSON.stringify({ state: "done", at: deps.now() }),
+            )
+          : env.PUBLIC_PAGES.delete(PROVISION_KEY)
     ).catch(() => {});
   }
 }
 
 async function readMark(
   env: Env,
-): Promise<{ state: "running" | "done"; at: number } | null> {
+): Promise<{ state: "running" | "done" | "failed"; at: number } | null> {
   try {
     const raw = await env.PUBLIC_PAGES.get(PROVISION_KEY);
     if (!raw) return null;
     const m = JSON.parse(raw) as { state?: string; at?: number };
-    return (m.state === "running" || m.state === "done") &&
+    return (m.state === "running" ||
+      m.state === "done" ||
+      m.state === "failed") &&
       typeof m.at === "number"
       ? { state: m.state, at: m.at }
       : null;
