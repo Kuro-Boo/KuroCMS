@@ -190,6 +190,32 @@ export async function forgetPages(
 }
 
 /**
+ * 全体ビルドが読むビルドの記録(page_build_cache)。メディアを記録し終えていない頁の記録は読まない
+ * (作り直して、参照するメディアを記録する・課題 d9968d85)。表がまだ無い(移行前)ときは全部読む。
+ * ⚠ ビルドの記録のパスは末尾 / あり(`/blog/`)、page_media_scan は末尾 / なし(`/blog`)。
+ *   そろえずに比べると `/` 以外のどの頁も読まれず、全体ビルドは回のたびに頭から作り直し、
+ *   1 回で終わらないサイトは最後まで進まなかった(2026-10-26)。
+ */
+export async function loadRecordedBuildCache(
+  env: Env,
+): Promise<{ path: string; lang: string; source_hash: string }[]> {
+  type Row = { path: string; lang: string; source_hash: string };
+  const rows = await env.DB.prepare(
+    `SELECT c.path, c.lang, c.source_hash FROM page_build_cache c
+      WHERE EXISTS (SELECT 1 FROM page_media_scan s WHERE s.path =
+        CASE WHEN c.path <> '/' AND c.path LIKE '%/'
+             THEN substr(c.path, 1, length(c.path) - 1) ELSE c.path END)`,
+  )
+    .all<Row>()
+    .catch(() =>
+      env.DB.prepare(
+        `SELECT path, lang, source_hash FROM page_build_cache`,
+      ).all<Row>(),
+    );
+  return rows.results ?? [];
+}
+
+/**
  * 公開の頁がすべてメディアを記録し終えたら、公開の前のメディアを配らない形に切り替える
  * (全体ビルドの最後まで済んだ回が呼ぶ)。記録の無い頁が残っていれば切り替えない。
  */

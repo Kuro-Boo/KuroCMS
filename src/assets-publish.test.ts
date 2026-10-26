@@ -7,6 +7,7 @@ import {
   assetsPending,
   buildManifest,
   forgetPages,
+  loadRecordedBuildCache,
   markMediaGateReady,
   mediaIsPublic,
   mediaKeysOf,
@@ -32,7 +33,11 @@ const eq = (n: string, g: unknown, w: unknown) => {
 /** D1 の口を node:sqlite で(この試験で使う分だけ)。 */
 function d1(): D1Database {
   const db = new DatabaseSync(":memory:");
-  for (const m of ["0073_asset_pages.sql", "0083_page_media.sql"])
+  for (const m of [
+    "0018_page_build_cache.sql",
+    "0073_asset_pages.sql",
+    "0083_page_media.sql",
+  ])
     db.exec(
       readFileSync(new URL(`../migrations/${m}`, import.meta.url), "utf8"),
     );
@@ -411,6 +416,29 @@ if (f) {
     "記録の無い頁があれば、まだ全部配る",
     await mediaIsPublic(env, "images/img-9.jpg"),
     true,
+  );
+}
+
+{
+  // 全体ビルドの続きの回は、前の回に作った頁を飛ばす(2026-10-26 に回のたびに頭から作り直していた)。
+  // ビルドの記録は末尾 / あり、メディアの記録は末尾 / なし(kvPutBundle が normPath して渡す)。
+  const DB = d1();
+  const env = { DB } as unknown as Env;
+  const put = (path: string) =>
+    DB.prepare(
+      "INSERT INTO page_build_cache (path, lang, source_hash, built_at) VALUES (?, '*', 'h', 'now')",
+    )
+      .bind(path)
+      .run();
+  for (const p of ["/", "/blog/", "/blog/monthly/2026/04/", "/news/a/"])
+    await put(p);
+  await recordPages(env, "/", { ja: "<p>x</p>" });
+  await recordPages(env, "/blog", { ja: "<p>x</p>" });
+  await recordPages(env, "/blog/monthly/2026/04", { ja: "<p>x</p>" });
+  eq(
+    "メディアを記録した頁の記録は、末尾 / の違いを越えて読む",
+    (await loadRecordedBuildCache(env)).map((r) => r.path).sort(),
+    ["/", "/blog/", "/blog/monthly/2026/04/"],
   );
 }
 
