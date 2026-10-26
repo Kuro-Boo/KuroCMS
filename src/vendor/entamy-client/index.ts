@@ -206,6 +206,17 @@ export class EntamySession {
   removeOwnerLink(): Promise<EntamyResult<{ removed: boolean }>> {
     return refuse<{ removed: boolean }>();
   }
+  rekeyInstall(_newInstallId: string): Promise<EntamyResult<{ rekeyed: boolean }>> {
+    return refuse<{ rekeyed: boolean }>();
+  }
+}
+
+/**
+ * 保管庫を封じる(本体は entamy-connect の service/src/sealed-secrets.ts)。公開ミラーでは
+ * 基盤へ繋がず、控える資格も無いので、封じずにそのまま渡す。配布する worker.js には本体が入る。
+ */
+export function sealedSecrets(inner: EntamySecrets, _keySpec: string | undefined): EntamySecrets {
+  return inner;
 }
 
 export interface EntamyOwnerState {

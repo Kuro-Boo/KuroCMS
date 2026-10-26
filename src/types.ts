@@ -80,6 +80,10 @@ export interface Env {
    *   名前を読んだ人は「まだ KuroMailer へ送っている」と受け取る。
    *   旧名も読むので、設定済みの環境はそのまま動く。
    */
+  /** 保管庫(KV)の控えを封じる鍵(32 byte の base64・Worker の Secret・entamy-secrets.ts)。 */
+  ENTAMY_STORE_KEY?: string;
+  /** 導入の名乗り(install_id)に混ぜる秘密(32 byte の base64・Worker の Secret・entamy-secrets.ts)。 */
+  ENTAMY_INSTALL_SECRET?: string;
   ENTAMY_MAILER_URL?: string;
   /** @deprecated 旧名。`ENTAMY_MAILER_URL` を使うこと。 */
   KUROMAILER_URL?: string;

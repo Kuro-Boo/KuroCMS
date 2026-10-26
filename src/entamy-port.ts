@@ -19,6 +19,8 @@ import {
   EntamyStore,
   type EntamySecrets,
 } from "./vendor/entamy-client/index.ts";
+import { sealedSecrets } from "./vendor/entamy-client/index.ts";
+import { entamySecret } from "./entamy-secrets.ts";
 import { KUROCMS_VERSION } from "./version.ts";
 import type { Env } from "./types.ts";
 
@@ -40,7 +42,16 @@ const LEGACY_ACCOUNT_KEY = "system:entamy_account";
  * ⚠ `install_id` だけはここに置かない。KV は
  *   `siteUnpublish()` / `restoreWipePages()` に全消しされるので、
  *   **消えると別の導入として数え直される**（→ `resolveInstallId`）。
+ *
+ * **封じて置く**(課題 5be5b80e)。KV を読めるだけで送れる資格の組が手に入らないように、
+ * Worker の Secret `ENTAMY_STORE_KEY` で封じる(entamy-secrets.ts)。鍵がまだ無い導入
+ * (委託で導入口が置く前の版に立てたもの)は、封じずに動き続ける —— メールを止めない。
  */
+function storeSecrets(env: Env): EntamySecrets {
+  const key = entamySecret(env, "ENTAMY_STORE_KEY");
+  return key ? sealedSecrets(kvSecrets(env), key) : kvSecrets(env);
+}
+
 function kvSecrets(env: Env): EntamySecrets {
   return {
     async read(key) {
@@ -77,30 +88,66 @@ function kvSecrets(env: Env): EntamySecrets {
  *
  *   1. D1 `install_identity` に入っている値
  *   2. 旧実装の KV 値（移行期。あれば種として採用し、以後は D1 が正）
- *   3. 導出値 —— `SHA-256(product:CF_ACCOUNT_ID:CF_WORKER_NAME)`
+ *   3. 導出値 —— `HMAC-SHA256(ENTAMY_INSTALL_SECRET, product:CF_ACCOUNT_ID:CF_WORKER_NAME)`
+ *      (秘密がまだ無い導入だけ、旧来の `SHA-256(product:CF_ACCOUNT_ID:CF_WORKER_NAME)`)
  *
  * 3 が「床」として効くのが要点である。KV が全消しされても、D1 が空でも、
  * バックアップから戻しても、**行き着く先は必ず同じ 1 つの値**になる。
  * 単独案はどれも、自分の弱点を踏むと黙って新しい乱数を作ってしまう ——
  * それが最悪の壊れ方で、後から直せない。
  *
- * ⚠ 導出は決定的なので、D1 の読み取りが失敗しても代替できる。
- *   ここを乱数の種に変えるなら、読み取り失敗時は代替せず再試行に変えること
- *   （保存値と食い違う値で名乗ってしまう）。
+ * ⚠ **D1 が読めないときの値は控えない**(次の呼び出しで D1 を読み直す)。導出の材料に秘密を
+ *   足したので、D1 に入っている値(秘密を足す前の導出値・旧 KV 値)と床が食い違うことがある ——
+ *   食い違う値を isolate に残すと、セッションを取り直すたびに知らない導入として名乗ってしまう。
+ *   止めはしない(D1 の過負荷で実際に止まりかけた)。
+ *
+ * ⚠ 秘密の無い導出値は**推測できる**(アカウント ID と Worker 名を知れば作れる・課題 5be5b80e)。
+ *   それで名乗れば導入の口座へ入り、送信鍵を取り直せた。秘密が置かれた導入は
+ *   `hardenInstallId` で、口座を変えずに秘密入りの名乗りへ付け替える。
  */
-async function derivedInstallId(env: Env): Promise<string> {
-  const material = [
+async function floorInstallId(env: Env): Promise<string> {
+  // 名乗りの秘密は **Secret に置かれたものだけ**を使う(この isolate で置いたばかりの値は使わない) ——
+  // 置いた値が別の isolate に上書きされると、床が D1 の値と食い違う。
+  const secret = env.ENTAMY_INSTALL_SECRET?.trim();
+  return secret ? secretInstallId(env, secret) : derivedInstallId(env);
+}
+
+function material(env: Env): string {
+  return [
     PRODUCT_ID,
     (env.CF_ACCOUNT_ID ?? "").trim(),
     (env.CF_WORKER_NAME ?? "").trim(),
   ].join(":");
-  const digest = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(material),
+}
+
+const hex = (buf: ArrayBuffer) =>
+  [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+
+async function secretInstallId(env: Env, secret: string): Promise<string> {
+  const raw = Uint8Array.from(atob(secret), (c) => c.charCodeAt(0));
+  const key = await crypto.subtle.importKey(
+    "raw",
+    raw,
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
   );
-  return [...new Uint8Array(digest)]
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
+  return hex(
+    await crypto.subtle.sign(
+      "HMAC",
+      key,
+      new TextEncoder().encode(material(env)),
+    ),
+  );
+}
+
+async function derivedInstallId(env: Env): Promise<string> {
+  return hex(
+    await crypto.subtle.digest(
+      "SHA-256",
+      new TextEncoder().encode(material(env)),
+    ),
+  );
 }
 
 /** isolate 内の控え。決定的な値なので、一度決まれば引き直す理由が無い。 */
@@ -113,11 +160,14 @@ let cachedInstallId: string | null = null;
 export function __resetEntamyPortCacheForTest(): void {
   cachedInstallId = null;
   cachedPort = null;
+  notices.clear();
+  hardenRetryAt = 0;
 }
 
 export async function resolveInstallId(env: Env): Promise<string> {
   if (cachedInstallId) return cachedInstallId;
 
+  let dbReadable = true;
   try {
     const row = await env.DB.prepare(
       "SELECT install_id FROM install_identity WHERE id = 1",
@@ -127,8 +177,8 @@ export async function resolveInstallId(env: Env): Promise<string> {
       return cachedInstallId;
     }
   } catch {
-    // 表がまだ無い（migration 前）か、D1 が詰まっている。どちらでも導出値に
-    // 落ちる —— 決定的なので、後から D1 が読めるようになっても同じ値である。
+    // 表がまだ無い（migration 前）か、D1 が詰まっている。床の値で進むが、控えない(上の ⚠)。
+    dbReadable = false;
   }
 
   // 種を決める。旧 KV 値があればそれ（既存導入の継続性）、無ければ導出値。
@@ -138,7 +188,8 @@ export async function resolveInstallId(env: Env): Promise<string> {
   } catch {
     /* 読めなければ導出値でよい */
   }
-  if (seed.length < 16) seed = await derivedInstallId(env);
+  if (seed.length < 16) seed = await floorInstallId(env);
+  if (!dbReadable) return seed;
 
   try {
     await env.DB.prepare(
@@ -179,7 +230,6 @@ let cachedPort: EntamyPort | null = null;
 
 export async function entamyPort(env: Env): Promise<EntamyPort> {
   if (cachedPort) return cachedPort;
-  const installId = await resolveInstallId(env);
   const config = {
     productId: PRODUCT_ID,
     appVersion: KUROCMS_VERSION,
@@ -197,11 +247,12 @@ export async function entamyPort(env: Env): Promise<EntamyPort> {
         }
       : {}),
   };
-  const store = new EntamyStore(NAMESPACE, kvSecrets(env));
+  const store = new EntamyStore(NAMESPACE, storeSecrets(env));
   const session = new EntamySession(config, {
     store,
     // Worker 自身が導入の主体なので、保管庫ではなく外から与える（§0.3.1）。
-    installId,
+    // **関数で渡す** —— D1 が読めなかった時の値を窓口に固定しない(resolveInstallId の ⚠)。
+    installId: () => resolveInstallId(env),
     // 基盤の語彙は ios / android / web。Worker は web に含める。
     platform: "web",
   });
@@ -212,6 +263,56 @@ export async function entamyPort(env: Env): Promise<EntamyPort> {
   const defects = new EntamyDefects(config, session);
   cachedPort = { session, sat, mailer, legal, defects };
   return cachedPort;
+}
+
+/**
+ * 窓口を作り直させる(保管庫の鍵をこの isolate で置いたとき —— 次からは封じて置く)。
+ */
+export function resetEntamyPort(): void {
+  cachedPort = null;
+  notices.clear();
+}
+
+/** 付け替えに失敗したら、次に試すまで空ける(毎分 ID を叩かない)。 */
+const HARDEN_RETRY_MS = 60 * 60_000;
+let hardenRetryAt = 0;
+
+/**
+ * 推測できる名乗り(秘密の無い導出値)を、秘密入りの名乗りへ付け替える(課題 5be5b80e)。
+ * **口座は変えない**(ID `POST /v1/installs/rekey`)。付け替えたら D1 の名乗りも替える。
+ *
+ * 旧 KV から引き継いだ名乗り(旧実装の乱数)は推測できないので、そのままにする。
+ * ID で付け替えたのに D1 を書けなかったときは、次の回にもう一度送る —— ID は送り直しを成功で返す。
+ */
+export async function hardenInstallId(
+  env: Env,
+  now = Date.now(),
+): Promise<"done" | "skipped" | "failed"> {
+  const secret = env.ENTAMY_INSTALL_SECRET?.trim();
+  if (!secret || now < hardenRetryAt) return "skipped";
+  const current = await resolveInstallId(env);
+  if (current !== (await derivedInstallId(env))) return "skipped";
+  const next = await secretInstallId(env, secret);
+  const port = await entamyPort(env);
+  const r = await port.session.rekeyInstall(next);
+  if (!r.ok) {
+    hardenRetryAt = now + HARDEN_RETRY_MS;
+    console.warn(
+      "entamy install rekey failed:",
+      r.failure.kind,
+      r.failure.status ?? "",
+      r.failure.message ?? "",
+    );
+    return "failed";
+  }
+  await env.DB.prepare(
+    "UPDATE install_identity SET install_id = ?1 WHERE id = 1 AND install_id = ?2",
+  )
+    .bind(next, current)
+    .run();
+  cachedInstallId = next;
+  resetEntamyPort();
+  return "done";
 }
 
 /** 移行の見届け用。旧 KV に口座が残っているか（消してよいかの判断材料）。 */
@@ -242,7 +343,7 @@ export async function entamyNoticeFor(
   const n = new EntamyNotice(
     port.session.config,
     port.session,
-    new EntamyStore(NAMESPACE, kvSecrets(env)),
+    new EntamyStore(NAMESPACE, storeSecrets(env)),
     {
       version: KUROCMS_VERSION,
       platform: "web",
