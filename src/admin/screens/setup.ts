@@ -374,11 +374,12 @@ async function setupScreen(status: Dynamic, preserve: { email?: string } = {}) {
     escapeHtml(t("selectLanguage")) +
     "</span></div>" +
     localeSelectHtml() +
-    "<div><span class='sectionLabel'>" +
+    // 管理者の欄は、持ち主のアドレスが取れなかった時だけ出す(下の /api/setup/owner)。
+    "<div id='setupAdminBlock' hidden><div><span class='sectionLabel'>" +
     escapeHtml(t("administrator")) +
     "</span></div><label>" +
     escapeHtml(t("adminEmail")) +
-    "<input id='setupAdminEmail' required type='email' autocomplete='username' placeholder='admin@example.com' /></label><div style='margin-top:12px'><span class='sectionLabel'>" +
+    "<input id='setupAdminEmail' type='email' autocomplete='username' placeholder='admin@example.com' /></label></div><div style='margin-top:12px'><span class='sectionLabel'>" +
     escapeHtml(t("adminUrlLabel")) +
     "</span><div class='muted' style='margin:6px 0 4px;font-size:13px'>" +
     escapeHtml(t("adminUrlDerivedFromBootstrap")) +
@@ -399,6 +400,31 @@ async function setupScreen(status: Dynamic, preserve: { email?: string } = {}) {
     );
   }
   email.value = preserve.email || "";
+  /**
+   * 導入口で入れた導入は、持ち主が導入口でメールを確かめ済み(2026-10-26・利用者の指示)。そのアドレスを
+   * 管理者にして、ここでは聞かない。取れなければ(顧客導入で持ち主が結ばれていない・訊けない)欄を出す。
+   */
+  const adminBlock = byId("setupAdminBlock")!;
+  const askEmail = () => {
+    adminBlock.hidden = false;
+    email.setAttribute("required", "");
+  };
+  if (setupLinkToken) {
+    submit.disabled = true;
+    try {
+      const owner = (await api("/api/setup/owner", {
+        method: "POST",
+        body: JSON.stringify({ setupToken: setupLinkToken }),
+      })) as { email?: string | null };
+      if (!owner?.email) askEmail();
+    } catch {
+      askEmail();
+    } finally {
+      submit.disabled = false;
+    }
+  } else {
+    askEmail();
+  }
   const derivedPublicDomain = (() => {
     const path = location.pathname;
     const idx = path.lastIndexOf("/kurocms/");
@@ -421,7 +447,8 @@ async function setupScreen(status: Dynamic, preserve: { email?: string } = {}) {
         method: "POST",
         body: JSON.stringify({
           setupToken: setupLinkToken,
-          adminEmail: email.value,
+          // 欄を出していなければ送らない(サーバーが持ち主のアドレスを使う)。
+          ...(adminBlock.hidden ? {} : { adminEmail: email.value }),
           publicDomain: derivedPublicDomain,
           defaultLang: setupLang,
           initialLang: setupLang,

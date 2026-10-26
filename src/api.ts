@@ -71,6 +71,7 @@ import {
   CONTACT_CONSENT_VERSION,
   contactState,
   declineContact,
+  ownerEmail,
   removeContact,
   startContact,
 } from "./owner-contact";
@@ -426,7 +427,11 @@ async function handleApiDispatch(
           },
           endpoints: {
             public: ["GET /api/health", "GET /api/help"],
-            setup: ["GET /api/setup/status", "POST /api/setup"],
+            setup: [
+              "GET /api/setup/status",
+              "POST /api/setup",
+              "POST /api/setup/owner",
+            ],
             auth: [
               "GET /api/auth/session",
               "GET /api/auth/invite/:token",
@@ -591,6 +596,10 @@ async function handleApiDispatch(
       return withJsonHeaders(await setup(request, env));
     }
 
+    if (request.method === "POST" && path === "/api/setup/owner") {
+      return withJsonHeaders(await setupOwner(request, env));
+    }
+
     if (request.method === "GET" && path === "/api/auth/session") {
       return withJsonHeaders(await authSession(request, env));
     }
@@ -736,7 +745,8 @@ async function handleApiDispatch(
     // 規約の同意状態。**認証必須**（誰が同意したかを問う画面で使う）。
     if (request.method === "GET" && path === "/api/system/legal") {
       requireAdmin(user);
-      return json((await legalState(env)) as unknown as JsonValue);
+      const lang = new URL(request.url).searchParams.get("lang") ?? "ja";
+      return json((await legalState(env, lang)) as unknown as JsonValue);
     }
 
     // 同意の記録。**版を受け取り、こちらで現在版と突き合わせる** ——
@@ -3268,6 +3278,20 @@ async function setupStatus(env: Env): Promise<Response> {
   });
 }
 
+/**
+ * 初期設定で、管理者のアドレスを聞かずに済むか(2026-10-26)。導入口で入れた導入なら、持ち主の確かめ済みの
+ * アドレスを返す。**初期設定の鍵を持つ人にだけ返す** —— 状態の口(/api/setup/status)は誰でも読めるので、
+ * そこには載せない。
+ */
+async function setupOwner(request: Request, env: Env): Promise<Response> {
+  if ((await countPasskeys(env)) > 0 || (await moveTargetPending(env))) {
+    return json({ email: null });
+  }
+  const body = await readJson(request);
+  await requireSetupToken(env, optionalString(body, "setupToken") ?? "");
+  return json({ email: await ownerEmail(env).catch(() => null) });
+}
+
 async function setup(request: Request, env: Env): Promise<Response> {
   if (await moveTargetPending(env)) {
     throw new HttpError(
@@ -3289,10 +3313,12 @@ async function setup(request: Request, env: Env): Promise<Response> {
   // 初期設定の鍵(導入口が置いたもの・課題 4dea81be)。持つ人だけが最初の管理者になれる。
   // ここでは使い切らない —— 最初のパスキーが登録できた時に使い切る(passkeyRegisterComplete)。
   await requireSetupToken(env, optionalString(body, "setupToken") ?? "");
-  const email = requireString(body, "adminEmail", {
-    min: 3,
-    max: 254,
-  }).toLowerCase();
+  // 欄が空なら、持ち主の確かめ済みのアドレス(導入口で入れた導入・画面は欄を出さない)。
+  const given = (optionalString(body, "adminEmail") ?? "").trim().toLowerCase();
+  const email = given || ((await ownerEmail(env).catch(() => null)) ?? "");
+  if (email.length > 254) {
+    throw new HttpError(400, "invalid_email", "adminEmail is too long.");
+  }
   const publicDomain = optionalString(body, "publicDomain") ?? "";
   const defaultLang =
     optionalString(body, "defaultLang") ?? env.SITE_DEFAULT_LANG ?? "en";

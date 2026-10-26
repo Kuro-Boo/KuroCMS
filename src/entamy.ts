@@ -27,7 +27,11 @@
 
 import type { Env } from "./types";
 import { entamyNoticeFor, entamyPort } from "./entamy-port.ts";
-import { needsAgreement } from "./vendor/entamy-client/index.ts";
+import {
+  needsAgreement,
+  parseLegalBody,
+  type LegalBlock,
+} from "./vendor/entamy-client/index.ts";
 import { KUROCMS_VERSION } from "./version.ts";
 import { guardianVersion } from "./guardian-update.ts";
 
@@ -228,6 +232,20 @@ export interface LegalState {
   termsUrl: string;
   privacyUrl: string;
   summary: string | null;
+  /**
+   * 同意を求める文書(規約・プライバシー・特商法の表記・GDPR 追補 …)。並びと中身は共通の部品
+   * (EntamyLegal.fetchDocuments)が決める。同意が要るときだけ入れる。本文は見出し・段落・箇条書きの
+   * かたまりに解いて渡す(parseLegalBody)—— 画面は文字として置くだけで、HTML を素通しにしない。
+   */
+  documents: LegalDocumentView[];
+}
+
+export interface LegalDocumentView {
+  docType: string;
+  version: string | null;
+  isTranslation: boolean;
+  canonicalLang: string | null;
+  blocks: LegalBlock[];
 }
 
 /**
@@ -243,27 +261,41 @@ export interface LegalState {
  * 何に同意したのかが記録できず、同意そのものが無意味になる。
  * 管理画面の障害で CMS が使えなくなるのも困る。
  */
-export async function legalState(env: Env): Promise<LegalState> {
+export async function legalState(env: Env, lang = "ja"): Promise<LegalState> {
   const port = await entamyPort(env);
   // 試験対象に指定された導入先だけが同意を求められるよう、口座番号を添える
   // （全体が停止中でも、指定した先では確認できるようにするため）。
   const accountId = (await port.session.accountId()) ?? undefined;
-  const status = await port.legal.fetchStatus(
-    "terms",
-    "ja",
-    accountId ? { accountId } : {},
-  );
+  const opts = accountId ? { accountId } : {};
+  const status = await port.legal.fetchStatus("terms", lang, opts);
   const [acceptedVersion, acceptedAt] = await Promise.all([
     port.legal.agreedVersion(),
     port.legal.agreedAt(),
   ]);
+  // `requires_reconsent` が立っていない改定（誤字修正など）では聞かない。
+  // 版の一致だけで判定していた頃は、直しのたびに全員へ聞いていた。
+  let needsConsent = needsAgreement(status, acceptedVersion);
+  let documents: LegalDocumentView[] = [];
+  if (needsConsent) {
+    // 共通の関門(entamyLegalGate)と同じ取り方: 訳が無い言語では正文で出し、**提示できない文面に同意させない**。
+    let docs = await port.legal.fetchDocuments(undefined, lang, opts);
+    if (docs.length === 0 && lang !== "ja")
+      docs = await port.legal.fetchDocuments(undefined, "ja", opts);
+    documents = docs.map((d) => ({
+      docType: d.docType,
+      version: d.version ?? null,
+      isTranslation: d.isTranslation,
+      canonicalLang: d.canonicalLang ?? null,
+      blocks: parseLegalBody(d.body, d.format),
+    }));
+    if (documents.length === 0) needsConsent = false;
+  }
   return {
     currentVersion: status.version ?? null,
     acceptedVersion,
     acceptedAt: acceptedAt ? acceptedAt.toISOString() : null,
-    // `requires_reconsent` が立っていない改定（誤字修正など）では聞かない。
-    // 版の一致だけで判定していた頃は、直しのたびに全員へ聞いていた。
-    needsConsent: needsAgreement(status, acceptedVersion),
+    needsConsent,
+    documents,
     termsUrl: status.termsUrl ?? "https://kuro.boo/terms/",
     privacyUrl: status.privacyUrl ?? "https://kuro.boo/privacy/",
     summary: status.summary ?? null,

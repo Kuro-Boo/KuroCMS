@@ -282,6 +282,35 @@ export class EntamyLegal {
     await this.options.store?.write("terms_version", version);
     await this.options.store?.write("terms_agreed_at", at.toISOString());
   }
+  /** 取れないので空(**提示できない文面に同意させない**)。 */
+  fetchDocuments(
+    _docTypes: readonly string[] = [],
+    _lang = "ja",
+    _options: { accountId?: string } = {},
+  ): Promise<LegalDocument[]> {
+    return Promise.resolve([]);
+  }
+}
+
+export interface LegalDocument {
+  docType: string;
+  version?: string;
+  body: string;
+  format: string;
+  canonicalLang?: string;
+  isTranslation: boolean;
+  requiresReconsent: boolean;
+}
+
+/** 規約の本文のかたまり(正本は entamy-connect/web/ui の document.ts)。 */
+export type LegalBlock =
+  | { kind: "heading"; level: number; text: string }
+  | { kind: "paragraph"; text: string }
+  | { kind: "list"; items: string[] };
+
+/** 本文を解かずに 1 段落として返す(スタブでは文書が取れないので使われない)。 */
+export function parseLegalBody(body: string, _format = "markdown"): LegalBlock[] {
+  return body.trim() ? [{ kind: "paragraph", text: body.trim() }] : [];
 }
 
 /** 同意を求める必要があるか。取得できていなければ求めない。 */

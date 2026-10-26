@@ -940,6 +940,13 @@ const i18n = {
       "Your articles and media are being copied from Entamy hosting. When it finishes, every administrator of this site gets an email with a link to register a passkey for this address.",
     legalTerms: "Terms of Service",
     legalPrivacy: "Privacy Policy",
+    legalTokushoho: "Legal notice (Specified Commercial Transactions Act)",
+    legalGdpr: "GDPR addendum",
+    legalDocVersion: "Version {version}",
+    legalTranslationNote:
+      "This is a reference translation. The authoritative text is in {lang}.",
+    legalCheckAll: "Check all",
+    legalClose: "Close",
     legalAgreeButton: "Agree and continue",
     contactTitle: "Register the owner's email address",
     contactLead:
@@ -2282,6 +2289,12 @@ const i18n = {
       "Entamy の委託から、記事とメディアを写しています。終わると、このサイトの管理者全員に、このアドレスでパスキーを登録するリンクがメールで届きます。",
     legalTerms: "利用規約",
     legalPrivacy: "プライバシーポリシー",
+    legalTokushoho: "特定商取引法に基づく表記",
+    legalGdpr: "GDPR 追補",
+    legalDocVersion: "版 {version}",
+    legalTranslationNote: "この表示は参考訳です。正文は {lang} です。",
+    legalCheckAll: "すべてにチェック",
+    legalClose: "閉じる",
     legalAgreeButton: "同意して続ける",
     contactTitle: "持ち主のメールアドレスの登録",
     contactLead:
@@ -5500,6 +5513,121 @@ async function checkContractWindowOnce() {
 }
 
 let legalChecked = false;
+type LegalBlockView =
+  | { kind: "heading"; level: number; text: string }
+  | { kind: "paragraph"; text: string }
+  | { kind: "list"; items: string[] };
+type LegalDocView = {
+  docType: string;
+  version: string | null;
+  isTranslation: boolean;
+  canonicalLang: string | null;
+  blocks: LegalBlockView[];
+};
+
+/**
+ * 規約の同意(起動時の関門)。**共通の同意の窓(entamy-connect/web/ui の consent.ts)と同じ形** ——
+ * 文書ごとのチェック欄を並べ、名前を押すと条文を開き、全部にチェックしてから同意する(2026-10-26・利用者の指示)。
+ * どの文書を出すか・並び・要否は、サーバーが共通の部品(EntamyLegal.fetchDocuments)で決めて返す。
+ * 管理画面から entamy-connect を取り込まないのは、公開ミラーが組み立てられなくなるため(notice.ts と同じ)。
+ * 窓は閉じられない(取り消しも Esc も無い)。本文は文字として置き、HTML を素通しにしない。
+ */
+function legalDocTitle(docType: string): string {
+  const key = (
+    {
+      terms: "legalTerms",
+      privacy: "legalPrivacy",
+      tokushoho: "legalTokushoho",
+      gdpr: "legalGdpr",
+    } as Record<string, string>
+  )[docType];
+  return key ? t(key) : docType;
+}
+
+function legalBodyView(blocks: LegalBlockView[]): HTMLElement {
+  const root = document.createElement("div");
+  for (const block of blocks) {
+    if (block.kind === "heading") {
+      const h = document.createElement(
+        `h${Math.min(Math.max(block.level, 3), 6)}`,
+      );
+      h.textContent = block.text;
+      h.style.cssText = "margin:14px 0 6px;font-size:14px";
+      root.append(h);
+    } else if (block.kind === "list") {
+      const ul = document.createElement("ul");
+      ul.style.cssText = "margin:6px 0;padding-left:20px";
+      for (const item of block.items) {
+        const li = document.createElement("li");
+        li.textContent = item;
+        ul.append(li);
+      }
+      root.append(ul);
+    } else {
+      const p = document.createElement("p");
+      p.style.cssText = "margin:6px 0";
+      block.text.split("\n").forEach((line, i) => {
+        if (i) p.append(document.createElement("br"));
+        p.append(document.createTextNode(line));
+      });
+      root.append(p);
+    }
+  }
+  return root;
+}
+
+const legalOverlayCss =
+  "position:fixed;inset:0;background:rgba(8,12,22,.72);display:flex;align-items:center;justify-content:center;padding:20px";
+const legalCardCss =
+  "background:var(--surface,#1e293b);color:var(--ink,#f1f5f9);border:1px solid var(--line,#334155);border-radius:14px;" +
+  "box-shadow:0 18px 50px rgba(0,0,0,.5);display:flex;flex-direction:column;max-height:calc(100dvh - 40px)";
+
+/** 1つの文書の条文を、関門の上に開く。 */
+function openLegalDocument(doc: LegalDocView) {
+  const ov = document.createElement("div");
+  ov.setAttribute("role", "dialog");
+  ov.setAttribute("aria-modal", "true");
+  ov.style.cssText = legalOverlayCss + ";z-index:3001";
+  const card = document.createElement("div");
+  card.style.cssText = legalCardCss + ";width:min(640px,100%)";
+  const h = document.createElement("h3");
+  h.textContent = legalDocTitle(doc.docType);
+  h.style.cssText = "margin:0;padding:18px 22px 6px;font-size:16px";
+  const body = document.createElement("div");
+  body.tabIndex = 0;
+  body.style.cssText =
+    "overflow:auto;padding:0 22px 12px;font-size:13px;line-height:1.7;flex:1 1 auto;min-height:0";
+  if (doc.version) {
+    const v = document.createElement("p");
+    v.textContent = t("legalDocVersion").replace("{version}", doc.version);
+    v.style.cssText =
+      "margin:0 0 8px;color:var(--muted,#94a3b8);font-size:12px";
+    body.append(v);
+  }
+  // 正文以外は参考訳である旨を出す(§3.2)。
+  if (doc.isTranslation) {
+    const n = document.createElement("p");
+    n.textContent = t("legalTranslationNote").replace(
+      "{lang}",
+      doc.canonicalLang ?? "",
+    );
+    n.style.cssText =
+      "margin:0 0 8px;color:var(--muted,#94a3b8);font-size:12px";
+    body.append(n);
+  }
+  body.append(legalBodyView(doc.blocks));
+  const close = document.createElement("button");
+  close.type = "button";
+  close.textContent = t("legalClose");
+  close.style.cssText =
+    "margin:10px 22px 16px;align-self:flex-end;border:0;border-radius:9px;padding:8px 16px;font:inherit;font-weight:700";
+  close.onclick = () => ov.remove();
+  card.append(h, body, close);
+  ov.append(card);
+  document.body.append(ov);
+  close.focus();
+}
+
 async function checkLegalConsentOnce() {
   if (legalChecked) return;
   legalChecked = true;
@@ -5507,105 +5635,112 @@ async function checkLegalConsentOnce() {
     needsConsent?: boolean;
     currentVersion?: string | null;
     acceptedVersion?: string | null;
-    termsUrl?: string;
-    privacyUrl?: string;
     summary?: string | null;
+    documents?: LegalDocView[];
   };
   try {
-    info = await api("/api/system/legal");
+    info = await api(
+      "/api/system/legal?lang=" + encodeURIComponent(state.uiLang || "ja"),
+    );
   } catch {
     return; // 取れなければ求めない
   }
-  if (!info.needsConsent || !info.currentVersion) return;
+  const documents = info.documents ?? [];
+  // **提示できない文面に同意させない**(§3.2)。
+  if (!info.needsConsent || !info.currentVersion || documents.length === 0)
+    return;
 
-  // **共有ダイアログに載せない。**
-  //
-  // openEntryDialog は記事エディタ等と CSS を共有しており、全画面用の指定
-  // (.popupCard.kuroDlg の popupBody { display:flex }) を拾って崩れた。
-  // この画面は「チェックボックス・リンク・ボタン」の3つだけで中身が変わらないので、
-  // 自前で組む方が確実。**壊れようがない形にしておく。**
   const ov = document.createElement("div");
   ov.setAttribute("role", "dialog");
   ov.setAttribute("aria-modal", "true");
-  ov.style.cssText =
-    "position:fixed;inset:0;z-index:3000;background:rgba(8,12,22,.72);" +
-    "display:flex;align-items:center;justify-content:center;padding:20px";
-
+  ov.style.cssText = legalOverlayCss + ";z-index:3000";
   const card = document.createElement("div");
   card.style.cssText =
-    "width:min(520px,100%);background:var(--panel,#141f35);color:var(--ink,#e9eefc);" +
-    "border:1px solid var(--line,#293b5d);border-radius:14px;padding:22px;" +
-    "font-size:14px;line-height:1.8;box-shadow:0 18px 50px rgba(0,0,0,.5)";
+    legalCardCss + ";width:min(460px,100%);font-size:14px;line-height:1.7";
 
   // 初めての同意(記録が無い)は「更新」ではない。改定の要約(差分)も、前の版を知らない人には意味が無い。
   const first = !info.acceptedVersion;
   const h = document.createElement("h3");
   h.textContent = t(first ? "legalFirstTitle" : "legalTitle");
-  h.style.cssText = "margin:0 0 10px;font-size:18px";
-  card.appendChild(h);
+  h.style.cssText = "margin:0;padding:20px 22px 8px;font-size:18px";
+  card.append(h);
 
+  const list = document.createElement("div");
+  list.style.cssText =
+    "overflow:auto;padding:0 22px 8px;flex:1 1 auto;min-height:0";
   if (info.summary && !first) {
     const sum = document.createElement("p");
     sum.textContent = info.summary;
     sum.style.cssText =
-      "margin:0 0 12px;color:var(--muted,#91a0c3);font-size:13px";
-    card.appendChild(sum);
+      "margin:0 0 10px;color:var(--muted,#94a3b8);font-size:13px";
+    list.append(sum);
   }
 
-  const label = document.createElement("label");
-  label.style.cssText =
-    "display:flex;align-items:flex-start;gap:10px;cursor:pointer;margin:0 0 18px";
-  const box = document.createElement("input");
-  box.type = "checkbox";
-  box.style.cssText = "margin-top:5px;flex:0 0 auto;width:16px;height:16px";
-  const text = document.createElement("span");
-
-  const a = (href: string, labelText: string) => {
-    const el = document.createElement("a");
-    el.href = href;
-    el.target = "_blank";
-    el.rel = "noopener";
-    el.textContent = labelText;
-    el.style.cssText = "font-weight:700;text-decoration:underline";
-    return el;
-  };
-  text.appendChild(
-    a(info.termsUrl ?? "https://kuro.boo/terms/", t("legalTerms")),
-  );
-  text.appendChild(document.createTextNode(" と "));
-  text.appendChild(
-    a(info.privacyUrl ?? "https://kuro.boo/privacy/", t("legalPrivacy")),
-  );
-  text.appendChild(document.createTextNode(" に同意します。"));
-  label.appendChild(box);
-  label.appendChild(text);
-  card.appendChild(label);
-
-  const msg = document.createElement("div");
-  msg.style.cssText =
-    "color:var(--danger,#ff9aa5);font-size:12px;min-height:16px;margin-bottom:8px";
-  card.appendChild(msg);
-
-  const row = document.createElement("div");
-  row.style.cssText = "display:flex;justify-content:flex-end";
   const go = document.createElement("button");
+  const checks: HTMLInputElement[] = [];
+  const all = document.createElement("input");
+  // 全部にチェックが付くまで押せない。**押せない理由は見た目で分かるようにする。**
+  const sync = () => {
+    const ok = checks.length > 0 && checks.every((c) => c.checked);
+    all.checked = ok;
+    go.disabled = !ok;
+    go.style.opacity = ok ? "1" : ".45";
+    go.style.cursor = ok ? "pointer" : "not-allowed";
+  };
+  const row = (input: HTMLInputElement, label: HTMLElement) => {
+    const line = document.createElement("div");
+    line.style.cssText =
+      "display:flex;align-items:center;gap:10px;padding:5px 0";
+    input.type = "checkbox";
+    input.style.cssText = "width:16px;height:16px;margin:0;flex:none";
+    line.append(input, label);
+    return line;
+  };
+  for (const doc of documents) {
+    const input = document.createElement("input");
+    input.setAttribute("aria-label", legalDocTitle(doc.docType));
+    input.addEventListener("change", sync);
+    checks.push(input);
+    // 名前はリンク。**押すと条文を開く**(チェックは付けない)。
+    const link = document.createElement("a");
+    link.href = "#";
+    link.textContent = legalDocTitle(doc.docType);
+    link.style.cssText = "font-weight:700;text-decoration:underline";
+    link.addEventListener("click", (event) => {
+      event.preventDefault();
+      openLegalDocument(doc);
+    });
+    list.append(row(input, link));
+  }
+  const hr = document.createElement("hr");
+  hr.style.cssText =
+    "border:0;border-top:1px solid var(--line,#334155);margin:6px 0";
+  list.append(hr);
+  all.id = "legalCheckAll";
+  const allLabel = document.createElement("label");
+  allLabel.htmlFor = all.id;
+  allLabel.textContent = t("legalCheckAll");
+  allLabel.style.fontWeight = "600";
+  all.addEventListener("change", () => {
+    for (const c of checks) c.checked = all.checked;
+    sync();
+  });
+  list.append(row(all, allLabel));
+  card.append(list);
+
+  const foot = document.createElement("div");
+  foot.style.cssText =
+    "display:flex;justify-content:flex-end;padding:10px 22px 20px";
   go.type = "button";
   go.textContent = t("legalAgreeButton");
-  // チェックするまで押せない。**押せない理由は見た目で分かるようにする。**
-  const sync = () => {
-    go.disabled = !box.checked;
-    go.style.opacity = box.checked ? "1" : ".45";
-    go.style.cursor = box.checked ? "pointer" : "not-allowed";
-  };
   go.style.cssText =
     "border:0;border-radius:9px;padding:10px 18px;font:inherit;font-weight:700;" +
     "background:var(--accent,#2f7d6b);color:#fff";
-  box.addEventListener("change", sync);
   sync();
 
   const version = info.currentVersion;
   go.onclick = () => {
-    if (!box.checked) return;
+    if (go.disabled) return;
     // **押したらすぐ閉じる。** 通信の結果を待たせない ——
     // 待たされると押せていないと思って何度も押すことになる。
     ov.remove();
@@ -5630,10 +5765,10 @@ async function checkLegalConsentOnce() {
       }
     })();
   };
-  row.appendChild(go);
-  card.appendChild(row);
-  ov.appendChild(card);
-  document.body.appendChild(ov);
+  foot.append(go);
+  card.append(foot);
+  ov.append(card);
+  document.body.append(ov);
 }
 
 /**

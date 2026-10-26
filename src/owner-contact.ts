@@ -86,6 +86,19 @@ export async function contactState(env: Env): Promise<ContactState> {
   }
 }
 
+/**
+ * 持ち主の確かめ済みのアドレス(初期設定の管理者・2026-10-26 の利用者の指示)。
+ *
+ * 導入口で入れた導入は、持ち主が導入口でメールを確かめてからパスキーを作っている。初期設定でもう一度
+ * 聞くと二度手間で、打ち間違えれば消す日の知らせなどが届かない。導入口の記録しか無い(installer)ときは、
+ * 訊いたこの時に ID へ結ばれるので、もう一度訊けば linked で読める。取れなければ null(画面が聞く)。
+ */
+export async function ownerEmail(env: Env): Promise<string | null> {
+  let s = await contactState(env);
+  if (s.state === "installer") s = await contactState(env);
+  return s.state === "linked" && s.email ? s.email.toLowerCase() : null;
+}
+
 const WORDING = {
   ja: {
     subject: "KuroCMS 連絡先メールアドレスの確認",

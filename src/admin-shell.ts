@@ -50,9 +50,14 @@ export function adminHtml(
         --field-bg: #ffffff;
         --field-ink: #1e293b;
         --nav-link: #64748b;
+        /* 本文の中の code。地と字のコントラストを 4.5 以上に保つ(2026-10-26・ダークで CSP の報告が読めなかった)。 */
+        --code-bg: #e0f2fe;
+        --code-ink: #075985;
         font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       }
       [data-theme="dark"] {
+        --code-bg: #0b2537;
+        --code-ink: #7dd3fc;
         --bg: #0f172a;
         --surface: #1e293b;
         --surface-2: #334155;
@@ -503,7 +508,7 @@ export function adminHtml(
       .setupAside li { margin: 8px 0; }
       .setupOtpNotice { border: 2px solid var(--danger); border-radius: 10px; padding: 12px; background: color-mix(in srgb, var(--danger) 8%, transparent); color: var(--danger); font-size: 13px; line-height: 1.6; font-weight: 600; }
       .sectionLabel { color: var(--accent-2); font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.1em; }
-      code { padding: 2px 6px; border-radius: 6px; background: var(--surface-3); color: var(--accent-2); font-family: ui-monospace, monospace; font-size: 0.9em; }
+      code { padding: 2px 6px; border-radius: 6px; background: var(--code-bg); color: var(--code-ink); font-family: ui-monospace, monospace; font-size: 0.9em; }
       .tableScroll code {
         color: var(--ink);
         background: color-mix(in srgb, var(--surface-2) 78%, var(--accent) 22%);
