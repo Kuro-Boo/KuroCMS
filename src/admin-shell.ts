@@ -213,6 +213,27 @@ export function adminHtml(
       .settingsTabBar { display: flex; gap: 2px; border-bottom: 2px solid var(--accent); padding-bottom: 0; margin-bottom: 0; }
       .settingsTab { background: rgba(21,122,110,.10); border: 1.5px solid var(--accent); border-bottom: none; color: var(--accent); padding: 8px 18px; font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; border-radius: 8px 8px 0 0; opacity: .45; transition: opacity .15s; }
       .settingsTab:hover { opacity: .7; }
+      /* 設定の「契約」タブ(左: いまの契約・右: 契約の形態と料金)。狭い画面では 1 列。 */
+      .contractGrid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; margin-bottom: 16px; }
+      .contractBadge { display: inline-flex; align-items: center; padding: 4px 12px; border-radius: 999px; font-size: 13px; font-weight: 700; background: var(--accent-soft); color: var(--accent); }
+      .contractBadge.warn { background: rgba(245,158,11,.14); color: #b45309; }
+      .contractBadge.danger { background: rgba(239,68,68,.12); color: var(--danger); }
+      .contractBadge.muted { background: var(--surface-2); color: var(--muted); }
+      [data-theme="dark"] .contractBadge.warn { color: #fbbf24; }
+      .contractBar { position: relative; height: 10px; border-radius: 5px; background: var(--surface-2); overflow: hidden; }
+      .contractBar > span { position: absolute; top: 0; bottom: 0; left: 0; background: var(--accent); border-radius: 5px; }
+      .contractBar.ended > span { background: var(--danger); }
+      .contractBarScale { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; color: var(--muted); }
+      .contractRows { display: grid; grid-template-columns: max-content 1fr; gap: 8px 16px; font-size: 14px; }
+      .contractRows:empty { display: none; }
+      .contractRegion { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+      .contractRegion select { width: auto; }
+      .contractPrices { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+      .contractPrice { border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; display: grid; gap: 4px; }
+      .contractPrice.best { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+      .contractAmount { font-size: 22px; font-weight: 800; color: var(--ink); }
+      @media(max-width:1100px){ .contractGrid { grid-template-columns: minmax(0, 1fr); } }
+      .contractRules { margin: 0; padding-left: 18px; display: grid; gap: 6px; font-size: 13px; line-height: 1.7; color: var(--muted); }
       .settingsTab.active { background: var(--accent); color: #fff; opacity: 1; margin-bottom: -2px; border-bottom: 2px solid var(--accent); }
       .settingsPanel { animation: fadeIn 0.15s ease; width:100%; box-sizing:border-box; }
       .importSwitcher { display:flex; background:var(--surface-3); border:1px solid var(--line); border-radius:10px; padding:4px; gap:4px; }

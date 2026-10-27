@@ -1123,9 +1123,6 @@ const i18n = {
     settingsTabImport: "Import",
     settingsTabIpGate: "IP restriction",
     settingsTabRegion: "Region",
-    contractTitle: "Managed hosting contract",
-    contractHelp:
-      "Your managed hosting contract and dates, as recorded by Entamy. Updated about once an hour.",
     contractAt: "Hosting started",
     contractPlan: "Billing",
     contractPlanMonth: "Monthly",
@@ -1140,13 +1137,8 @@ const i18n = {
     contractOpenPage: "Open the contract page",
     contractPageNote:
       "Subscribing and cancelling happen on Entamy's contract page (a new tab), signed in with the site owner's Entamy ID. It can take up to an hour to show here.",
-    contractTrialEnds: "Free period ends",
-    contractTrialExtended: "Free period extended by campaign",
-    contractTrialExtendedNone: "None",
     contractTrialFinal: "Final free period ends",
-    contractSubscription: "Subscription",
     contractSubActive: "Active (renews automatically)",
-    contractSubCancelled: "Cancelled (usable until {date})",
     contractWindowTitle: "Your free period has ended",
     contractWindowLocked:
       "Until you subscribe, you cannot add articles or build (publish) at all. You can still read and back up.",
@@ -1155,7 +1147,6 @@ const i18n = {
     contractWindowClose: "Close",
     contractWindowMoveHelp:
       "Moving to your own Cloudflare account (self-hosting) is free: open Settings → Contract and start the move. Articles, media and settings are copied, and the old address redirects to the new one.",
-    contractSubNone: "None",
     contractGrace: "Waiting before data deletion",
     contractLastDay: "Last day",
     contractDeleteAt: "Data deletion date",
@@ -1167,6 +1158,54 @@ const i18n = {
     contractPending:
       "Contract details have not arrived yet. They appear within about an hour.",
     contractSynced: "Updated {date}.",
+    contractNowTitle: "Your contract",
+    contractPlansTitle: "Plans and prices",
+    contractFormManaged:
+      "Runs on Entamy managed hosting (Entamy's Cloudflare account).",
+    contractFormSelf: "Runs on your own Cloudflare account (self-hosting).",
+    contractBadgeSelf: "Free · no contract needed",
+    contractBadgePending: "Checking",
+    contractBadgeActive: "Subscribed · {plan}",
+    contractBadgeCancelled: "Cancelled · usable until {date}",
+    contractBadgeTrial: "Free period · {n} days left",
+    contractBadgeEnded: "Free period ended · read-only",
+    contractBadgeNone: "No contract",
+    contractSelfNote:
+      "Self-hosting is free and needs no contract. If you move to Entamy managed hosting, it becomes paid (prices on the right).",
+    contractBarUntil: "until {date}",
+    contractTrialExtendedTo: "Extended by campaign to {date}",
+    contractAfterTrial:
+      "From {date}, managed hosting is paid. To keep using this site, subscribe before the free period ends (prices on the right). If the free period ends without a subscription, adding articles and building stop, and the data is deleted on {delete}.",
+    contractPaidFrom: "Paid from",
+    contractApplyLeadTrial:
+      "You can subscribe during the free period. Your first payment is due when the free period ends ({date}).",
+    contractPlansLead:
+      "Managed hosting runs this site on Entamy's Cloudflare account, and Entamy takes care of the Cloudflare setup and updates. It is paid. Self-hosting on your own Cloudflare account is free.",
+    contractRegion: "Country or region",
+    contractRegionJp: "Japan (JPY)",
+    contractRegionUs: "United States and others (USD)",
+    contractRegionEu: "Europe (EUR)",
+    contractRegionDetected:
+      "Chosen from the country of your connection ({country}). The price you pay is set on the contract page.",
+    contractPerMonth: "{amount} / month",
+    contractPerYear: "{amount} / year",
+    contractYearPerMonth: "{amount} per month",
+    contractYearSaving: "about {n}% less than monthly",
+    contractTaxIncluded: "tax included",
+    contractPricesNotYet:
+      "Prices for this region are not published yet. Subscriptions are not open in this region.",
+    contractPricesUnavailable:
+      "Prices could not be read. Please check them on the contract page.",
+    contractRuleRenew:
+      "Your subscription renews automatically on the day you subscribed (every month or every year). If that day does not exist in a month (29th–31st), the last day of that month is used.",
+    contractRuleCancel:
+      "If you cancel, a monthly plan stays usable until the end of the month you paid for, with no refund. A yearly plan is refunded by the month: it stays usable until the end of the contract month that includes the cancellation day, and the remaining months are refunded.",
+    contractRuleTrial:
+      "The free period is given once, the first time an Entamy ID uses managed hosting. If you subscribe during the free period, your first payment is due when it ends.",
+    contractRuleUnpaid:
+      "If the free period ends without a subscription, adding articles and building (publishing) stop, and the data is deleted {n} days later. Published pages stay online until then.",
+    contractRuleSelf:
+      "Self-hosting on your own Cloudflare account is free. You can move there from managed hosting with the move below.",
     regionTitle: "Where this site runs",
     regionHelp:
       "Where this KuroCMS's database (D1) and KuroCMS itself are running now. The database region is fixed when it is created and cannot be changed later; Cloudflare picks the location within the region.",
@@ -2195,14 +2234,14 @@ const i18n = {
     languageManagerLead: "データ登録で利用する言語を登録します。",
     typesLead: "news、blog、research などの記事タイプを管理します。",
     settingsLead:
-      "公開ドメイン、表示（基本言語・時刻・筆者）、契約形式（委託の契約・持ち主・引っ越し）、メール送信、SNS 連動、スマホ、インポート、IP 制限を設定し、稼働地域を確かめます。",
+      "公開ドメイン、表示（基本言語・時刻・筆者）、契約（いまの契約・無料期間・料金・持ち主・引っ越し）、メール送信、SNS 連動、スマホ、インポート、IP 制限を設定し、稼働地域を確かめます。",
     profileLead: "自分のアカウント、表示、PAT、パスキー、IP 制限を設定します。",
     noLanguages: "言語が登録されていません",
     profileIdentity: "アカウント情報",
     legalAgreed: "同意した版",
     legalTitle: "規約が更新されました",
     legalFirstTitle: "はじめに",
-    siteMoveTitle: "契約形式",
+    siteMoveTitle: "契約",
     siteMoveNowManaged:
       "いまは Entamy の委託運用で動いています（Entamy の Cloudflare アカウント）。",
     siteMoveNowSelf:
@@ -2228,7 +2267,7 @@ const i18n = {
     siteMoveShow: "進み具合を見る",
     siteMoveStepsTitle: "作業の工程",
     siteMoveCloseNote:
-      "閉じても引っ越しは止まりません。「設定 → 契約形式」からいつでも開き直せます。",
+      "閉じても引っ越しは止まりません。「設定 → 契約」からいつでも開き直せます。",
     siteMoveFailed: "引っ越しが止まりました。写した分は残っています。",
     siteMoveResume: "途中から再開",
     siteMoveAgain: "やり直す",
@@ -2261,7 +2300,7 @@ const i18n = {
     siteMoveStep_move_finish:
       "パスキーの登録のメールを送り、このアドレスを案内に替える",
     err_owner_unknown:
-      "このサイトの持ち主がまだ分かりません。先に持ち主を登録してください（設定 → 契約形式）。",
+      "このサイトの持ち主がまだ分かりません。先に持ち主を登録してください（設定 → 契約）。",
     err_wrong_direction: "このサイトはその向きには引っ越せません。",
     err_move_in_progress: "引っ越しはもう始まっています。",
     err_move_ticket_invalid:
@@ -2385,7 +2424,7 @@ const i18n = {
       "リンクを送った後にメールアドレスが変わりました。確認メールを送り直してください。",
     err_email_verify_too_soon: "1 分ほど待ってから、もう一度送ってください。",
     profileEmailHelp:
-      "この CMS で使うあなたのアドレスです（パスキーを失くしたときの復旧メールなどが届きます）。サイトの持ち主（Entamy ID）は「設定 → 契約形式」で確かめます。",
+      "この CMS で使うあなたのアドレスです（パスキーを失くしたときの復旧メールなどが届きます）。サイトの持ち主（Entamy ID）は「設定 → 契約」で確かめます。",
     mailDeliveryVerified: "検証済み",
     mailDeliveryUnverified: "未検証",
     mailDeliveryUnavailable: "Cloudflareの設定を取得できません",
@@ -2544,11 +2583,8 @@ const i18n = {
     settingsTabImport: "インポート",
     settingsTabIpGate: "IP 制限",
     settingsTabRegion: "稼働地域",
-    contractTitle: "委託の契約",
-    contractHelp:
-      "Entamy に記録されている委託の契約と日付です。1 時間ほどごとに更新されます。",
     contractAt: "委託を始めた日",
-    contractPlan: "契約形式",
+    contractPlan: "払い方",
     contractPlanMonth: "月払い",
     contractPlanYear: "年払い",
     contractStarted: "契約日",
@@ -2561,13 +2597,8 @@ const i18n = {
     contractOpenPage: "契約の頁を開く",
     contractPageNote:
       "申し込み・解約は Entamy の契約の頁（新しいタブ）で、サイトの持ち主の Entamy ID でログインして行います。ここに出るまで最長 1 時間かかります。",
-    contractTrialEnds: "無料期間の終わり",
-    contractTrialExtended: "キャンペーンで延ばした無料期間",
-    contractTrialExtendedNone: "なし",
     contractTrialFinal: "最後の無料期間の終わり",
-    contractSubscription: "契約",
     contractSubActive: "契約中（自動で更新）",
-    contractSubCancelled: "解約済み（{date} まで使えます）",
     contractWindowTitle: "無料期間が終わりました",
     contractWindowLocked:
       "契約するまで、記事の追加とビルド（公開）は一切できません。読む・バックアップは続けられます。",
@@ -2575,8 +2606,7 @@ const i18n = {
       "契約しない場合、このサイトのデータは {date} に消えます（無料期間の終わりから 30 日）。それまで公開済みのページは出し続けます。",
     contractWindowClose: "閉じる",
     contractWindowMoveHelp:
-      "ご自身の Cloudflare アカウントへの引っ越し（顧客導入）は無料です。「設定 → 契約形式」から引っ越しを始めると、記事・メディア・設定を写し、古いアドレスは新しいアドレスへ案内します。",
-    contractSubNone: "なし",
+      "ご自身の Cloudflare アカウントへの引っ越し（顧客導入）は無料です。「設定 → 契約」から引っ越しを始めると、記事・メディア・設定を写し、古いアドレスは新しいアドレスへ案内します。",
     contractGrace: "データ削除の待機期間",
     contractLastDay: "最終日",
     contractDeleteAt: "データを消す日",
@@ -2587,6 +2617,55 @@ const i18n = {
       "無料期間が終わりました。契約しない場合、データは上の日に消えます。",
     contractPending: "契約情報はまだ届いていません。1 時間ほどで出ます。",
     contractSynced: "{date} に更新。",
+    contractNowTitle: "いまの契約",
+    contractPlansTitle: "契約の形態と料金",
+    contractFormManaged:
+      "Entamy の委託運用で動いています（Entamy の Cloudflare アカウント）。",
+    contractFormSelf:
+      "ご自身の Cloudflare アカウントで動いています（顧客導入）。",
+    contractBadgeSelf: "無料・契約は要りません",
+    contractBadgePending: "確かめ中",
+    contractBadgeActive: "契約中・{plan}",
+    contractBadgeCancelled: "解約済み・{date} まで使えます",
+    contractBadgeTrial: "無料期間中・残り {n} 日",
+    contractBadgeEnded: "無料期間終了・読み取りだけ",
+    contractBadgeNone: "契約なし",
+    contractSelfNote:
+      "顧客導入は無料で、契約は要りません。Entamy の委託運用へ引っ越すと有料になります（料金は右）。",
+    contractBarUntil: "{date} まで",
+    contractTrialExtendedTo: "キャンペーンで {date} まで延長",
+    contractAfterTrial:
+      "{date} から委託運用は有料です。使い続けるには、無料期間のうちに委託契約を申し込んでください（料金は右）。申し込まないまま無料期間が終わると、記事の追加とビルドが止まり、{delete} にデータが消えます。",
+    contractPaidFrom: "有料になる日",
+    contractApplyLeadTrial:
+      "無料期間中でも申し込めます。最初のお支払いは無料期間が終わったとき（{date}）です。",
+    contractPlansLead:
+      "委託運用は、Entamy の Cloudflare アカウントでこのサイトを動かす有料の形です。Cloudflare の手続きと更新は Entamy が受け持ちます。ご自身の Cloudflare アカウントで動かす顧客導入は無料です。",
+    contractRegion: "国・地域",
+    contractRegionJp: "日本（円）",
+    contractRegionUs: "米国ほか（米ドル）",
+    contractRegionEu: "欧州（ユーロ）",
+    contractRegionDetected:
+      "回線の国（{country}）から選びました。お支払いの額は契約の頁で決まります。",
+    contractPerMonth: "{amount} / 月",
+    contractPerYear: "{amount} / 年",
+    contractYearPerMonth: "月あたり {amount}",
+    contractYearSaving: "月払いより約 {n}% お得",
+    contractTaxIncluded: "税込",
+    contractPricesNotYet:
+      "この地域の料金はまだ公開していません。この地域ではまだ申し込めません。",
+    contractPricesUnavailable:
+      "料金を読めませんでした。契約の頁でご確認ください。",
+    contractRuleRenew:
+      "契約した日が更新日で、自動で更新します（月払いは毎月、年払いは毎年）。29〜31 日で、その日が無い月は月末です。",
+    contractRuleCancel:
+      "途中で解約すると、月払いは払った 1 か月の終わりまで使え、返金はありません。年払いは月割りで、解約した日を含む契約月の終わりまで使え、残りの月の分を返金します。",
+    contractRuleTrial:
+      "無料期間は、Entamy ID で委託運用を初めて使うときに 1 回だけ付きます。無料期間中に申し込んでも、最初のお支払いは無料期間が終わったときです。",
+    contractRuleUnpaid:
+      "契約しないまま無料期間が終わると、記事の追加とビルド（公開）が止まり、{n} 日後にデータが消えます。公開済みのページはそれまで出し続けます。",
+    contractRuleSelf:
+      "ご自身の Cloudflare アカウントで動かす顧客導入は無料です。委託運用からは、下の引っ越しで移れます。",
     regionTitle: "稼働地域",
     regionHelp:
       "この KuroCMS のデータベース（D1）と KuroCMS 本体が、いまどこで動いているかです。データベースの地域は作ったときに決まり、後から変えられません。地域の中のどの拠点に置くかは Cloudflare が選びます。",
@@ -4962,7 +5041,7 @@ function makePieChart(
 const helpContent: Record<string, Dynamic> = {
   basic: {
     title: "KuroCMS の基本",
-    role: "KuroCMS は Cloudflare の上で動く記事管理システムです。記事・メディア・サイトの見た目を管理画面で整え、ビルドすると公開ページができます。動かし方は 2 つあり、Entamy の Cloudflare アカウントで動く「委託運用」と、ご自身の Cloudflare アカウントで動く「顧客導入」です。いまどちらで動いているかは「設定 → 契約形式」で確かめられます。",
+    role: "KuroCMS は Cloudflare の上で動く記事管理システムです。記事・メディア・サイトの見た目を管理画面で整え、ビルドすると公開ページができます。動かし方は 2 つあり、Entamy の Cloudflare アカウントで動く「委託運用」と、ご自身の Cloudflare アカウントで動く「顧客導入」です。いまどちらで動いているかは「設定 → 契約」で確かめられます。",
     canDo:
       "記事を書く（多言語・修正履歴・自動保存） / 画像・動画・音楽を置き、記事やサイト文字に貼る / テンプレート・サイト文字・フォント・計測で公開サイトを整える / ビルドして公開ページを作る（手動・予定公開に合わせた自動ビルドなど） / SNS（Bluesky・X・Threads）へ記事を投稿する / 利用者を招待し、管理者と投稿者に分ける / バックアップと復元 / REST API と MCP で、AI から記事を扱う（PAT） / 委託運用と顧客導入のあいだで引っ越す",
     notes:
@@ -5051,7 +5130,7 @@ const helpContent: Record<string, Dynamic> = {
     title: "設定",
     role: "サイト全体の設定をまとめた画面です。タブごとに分かれています。開いているタブのくわしい説明は、そのタブでヘルプを押すと出ます。",
     canDo:
-      "基本：R2 メディアストレージ（顧客導入だけ） / ドメイン：公開ドメインと既定値に戻す・Worker の URL・独自ドメイン（委託運用は Cloudflare for SaaS で自分のドメインを付ける） / 表示：基本言語・サイトのタイムゾーン・記事の末尾に筆者を出すか / 契約形式：委託の契約の状態と日付・申し込みと解約への入口・無料期間（委託運用だけ）、持ち主の登録、委託運用と顧客導入のあいだの引っ越し / メール送信：この CMS のメールをどこから送るか（顧客導入だけ） / SNS連動：Bluesky・X・Threads の接続と、投稿済みの印の一括操作 / スマホ設定：狭い画面で記事のメディアを全幅にする / インポート：Strapi や別の KuroCMS から記事を取り込む / IP 制限：管理画面を使える回線を絞る / 稼働地域：データベースと KuroCMS が動いている場所を確かめる",
+      "基本：R2 メディアストレージ（顧客導入だけ） / ドメイン：公開ドメインと既定値に戻す・Worker の URL・独自ドメイン（委託運用は Cloudflare for SaaS で自分のドメインを付ける） / 表示：基本言語・サイトのタイムゾーン・記事の末尾に筆者を出すか / 契約：いまの運用の形と契約の状態・無料期間の残り・国ごとの料金・申し込みと解約への入口（委託運用だけ）、持ち主の登録、委託運用と顧客導入のあいだの引っ越し / メール送信：この CMS のメールをどこから送るか（顧客導入だけ） / SNS連動：Bluesky・X・Threads の接続と、投稿済みの印の一括操作 / スマホ設定：狭い画面で記事のメディアを全幅にする / インポート：Strapi や別の KuroCMS から記事を取り込む / IP 制限：管理画面を使える回線を絞る / 稼働地域：データベースと KuroCMS が動いている場所を確かめる",
     notes:
       "表示とスマホ設定の変更は、ビルド（全ページ）を実行するまで公開ページに出ません。公開ページ内のリンクは、ドメインのタブの一番上の公開ドメインから作ります。データベースの地域は作ったときに決まり、後から変えられません。契約情報は 1 時間ほどごとに更新されます。",
   },
@@ -5064,10 +5143,10 @@ const helpContent: Record<string, Dynamic> = {
       "公開ページ内のリンク（記事の URL・canonical・サイトマップなど）は、一番上の公開ドメインから作ります。変えたら保存して、全ページをビルドしてください。委託運用で自分のドメインを使うときは、ドメイン名を入れて「準備する」を押し、表示された TXT レコードを DNS に足します。証明書が発行済みになったら「ドメインを切り替える」を押し、最後に CNAME を 導入 ID.kurocms.site に向けます。Cloudflare で管理しているドメインは、CNAME を向けた時点で有効になります。ほかの DNS では、ルートのドメインに CNAME を置けないことが多いので、www などを使います。CNAME を書き換えると、そのドメインでそれまで表示していたものは見えなくなります。Cloudflare for SaaS は KuroCMS 側で契約しているので、お客様の追加の費用はありません。",
   },
   hosting: {
-    title: "契約形式と引っ越し",
+    title: "契約と引っ越し",
     role: "このサイトがどこで動いているか（委託運用か顧客導入か）と、持ち主を確かめるタブです。もう一方の形への引っ越しもここで行います。",
     canDo:
-      "委託の契約の状態・契約形式（月払い・年払い）・契約日・次の更新日を見る / 委託契約の申し込み・解約は、Entamy の契約の頁（新しいタブ・サイトの持ち主の Entamy ID でログイン）で行う / 持ち主（Entamy ID）のメールアドレスを登録・変更・取り消す / いまの運用の形を確かめる / 委託運用から、ご自身の Cloudflare アカウントへ引っ越す（顧客導入・無料） / 顧客導入から、Entamy の委託運用へ引っ越す（有料・最初に無料期間がある） / 引っ越しの工程と進み具合をダイアログで見る / 止まった引っ越しを「途中から再開」で続ける",
+      "いまの運用の形と委託の契約の状態・払い方（月払い・年払い）・契約日・次の更新日を見る / 無料期間の残りを棒で見る / 国（日本・米国・欧州）を選んで料金を見る（初めは回線の国） / 委託契約の申し込み・解約は、Entamy の契約の頁（新しいタブ・サイトの持ち主の Entamy ID でログイン）で行う / 持ち主（Entamy ID）のメールアドレスを登録・変更・取り消す / いまの運用の形を確かめる / 委託運用から、ご自身の Cloudflare アカウントへ引っ越す（顧客導入・無料） / 顧客導入から、Entamy の委託運用へ引っ越す（有料・最初に無料期間がある） / 引っ越しの工程と進み具合をダイアログで見る / 止まった引っ越しを「途中から再開」で続ける",
     notes:
       "導入口で入れたサイトは、そのときログインした Entamy ID が持ち主です。それより前に入れたサイトは、先に持ち主のメールアドレスを登録します。確認のメールが 1 通届きます。引っ越すには、KuroCMS を新しい版へ更新しておく必要があります。足りないときは画面が知らせます。写している間もサイトはそのまま使えます。止まるのは最後の突き合わせの数分だけです。ダイアログを閉じても引っ越しは止まりません。終わると、古いアドレスは新しいアドレスへの案内に替わり、管理者全員に、新しいアドレスでパスキーを登録するリンクがメールで届きます。持っていかないものは、パスキー・ログインの状態・登録した回線・PAT・SNS の連携の鍵・操作の記録です。更新の方式と IP 制限は、引っ越し先では既定に戻ります。委託運用の無料期間は、登録メールアカウントごとに 1 回です。委託運用へ移った後も、ご自身の Cloudflare に入れた KuroCMS は消しません。要らなければご自身で消してください。",
   },
@@ -5099,7 +5178,7 @@ const helpContent: Record<string, Dynamic> = {
     title: "お知らせと持ち主",
     role: "Entamy と KuroCMS からのお知らせを受け取る仕組みです。お知らせはダッシュボードに出ます。",
     canDo:
-      "お知らせを読み、「確認した」で閉じる / 「あとで読む」で後回しにする / ほかの Entamy の製品のお知らせも受け取るかを選ぶ / 持ち主のメールアドレスを登録して、重要なお知らせを受け取る（設定 → 契約形式）",
+      "お知らせを読み、「確認した」で閉じる / 「あとで読む」で後回しにする / ほかの Entamy の製品のお知らせも受け取るかを選ぶ / 持ち主のメールアドレスを登録して、重要なお知らせを受け取る（設定 → 契約）",
     notes:
       "緊急・重要なお知らせは、ログインしたときにダイアログでも出ます。新しいお知らせを確かめられなかったときは、前に受け取ったものを出し、その旨を表示します。持ち主のメールアドレスは、重要なお知らせと、委託運用の契約の持ち主のためだけに使います。同じ持ち主の複数のサイトでは、1 か所で確認したお知らせは、ほかのサイトでも確認済みになります。規約が更新されると、次に開いたときに同意を求めます。",
   },
@@ -5109,7 +5188,7 @@ const helpContent: Record<string, Dynamic> = {
     canDo:
       "アカウント：ユーザー名とメールアドレスを変える / 表示：管理画面の言語とダークモードを切り替える / PAT：REST API と MCP（AI 連携）で使うトークンを作る・取り消す / パスキー：このデバイスを追加し、名前を変え、要らないものを消す / IP 制限：自分の登録した回線を確かめ、外す",
     notes:
-      "プロフィールのメールアドレスは、パスキーの再設定などが届くあなたのアドレスです。サイトの持ち主（Entamy ID）とは別で、持ち主は「設定 → 契約形式」で確かめます。PAT の権限は、あなたの権限と同じです。漏れると不正に使われるので、要らない PAT はすぐ取り消してください。REST API の使い方は /api/help に出ます。最後のパスキーは消せません。",
+      "プロフィールのメールアドレスは、パスキーの再設定などが届くあなたのアドレスです。サイトの持ち主（Entamy ID）とは別で、持ち主は「設定 → 契約」で確かめます。PAT の権限は、あなたの権限と同じです。漏れると不正に使われるので、要らない PAT はすぐ取り消してください。REST API の使い方は /api/help に出ます。最後のパスキーは消せません。",
   },
   users: {
     title: "ユーザー管理",
@@ -5125,14 +5204,14 @@ const helpContent: Record<string, Dynamic> = {
     canDo:
       "記事・翻訳・カテゴリ・タクソノミー・テンプレート・サイトの設定・SNS 連携と、画像・動画・音楽の実ファイルを 1 つの ZIP に保存する / ZIP から、今の中身をすべて置き換えて戻す",
     notes:
-      "利用者・パスキー・PAT と、SNS・取り込み元の鍵は ZIP に入りません（ZIP は暗号化しないため）。レストアの後は、設定の「SNS 連動」などで接続し直してください。レストアは、今のコンテンツ・メディア・設定をすべて消してから置き換えます。取り消せません。処理の間はタブを開いたままにしてください。大きなサイトは Chrome か Edge を使ってください。レストアの後はビルドすると、公開ページが作り直されます。別の Cloudflare や委託運用へ移るときは、バックアップではなく「設定 → 契約形式」の引っ越しを使ってください。",
+      "利用者・パスキー・PAT と、SNS・取り込み元の鍵は ZIP に入りません（ZIP は暗号化しないため）。レストアの後は、設定の「SNS 連動」などで接続し直してください。レストアは、今のコンテンツ・メディア・設定をすべて消してから置き換えます。取り消せません。処理の間はタブを開いたままにしてください。大きなサイトは Chrome か Edge を使ってください。レストアの後はビルドすると、公開ページが作り直されます。別の Cloudflare や委託運用へ移るときは、バックアップではなく「設定 → 契約」の引っ越しを使ってください。",
   },
   faq: {
     title: "よくある質問 (Q&A)",
     faqs: [
       {
         q: "委託運用からご自身の Cloudflare へ（または逆へ）移りたい",
-        a: "「設定 → 契約形式」の引っ越しを使ってください。記事・メディア・設定・利用者を写し、終わると古いアドレスは新しいアドレスへの案内に替わります。パスキーは持っていけないので、新しいアドレスで登録し直すリンクがメールで届きます。",
+        a: "「設定 → 契約」の引っ越しを使ってください。記事・メディア・設定・利用者を写し、終わると古いアドレスは新しいアドレスへの案内に替わります。パスキーは持っていけないので、新しいアドレスで登録し直すリンクがメールで届きます。",
       },
       {
         q: "パスキーを登録したデバイスを失くしたら？",
@@ -5148,7 +5227,7 @@ const helpContent: Record<string, Dynamic> = {
       },
       {
         q: "持ち主（Entamy ID）とは何ですか？",
-        a: "このサイトの持ち主として Entamy に記録されているアカウントです。重要なお知らせが届き、委託運用の契約の持ち主になります。導入口で入れたサイトは、そのときログインした Entamy ID です。それより前のサイトは「設定 → 契約形式」で登録します。プロフィールのメールアドレスとは別のものです。",
+        a: "このサイトの持ち主として Entamy に記録されているアカウントです。重要なお知らせが届き、委託運用の契約の持ち主になります。導入口で入れたサイトは、そのときログインした Entamy ID です。それより前のサイトは「設定 → 契約」で登録します。プロフィールのメールアドレスとは別のものです。",
       },
       {
         q: "使用量が上限を超えるとどうなりますか？",
@@ -5266,7 +5345,7 @@ const helpContentEn: Record<string, Dynamic> = {
     title: "Settings",
     role: "Site-wide settings, split into tabs. Press Help while a tab is open to see help for that tab.",
     canDo:
-      "Basic: R2 media storage (self-hosting only) / Domain: public domain and reset to default, Worker URL, custom domain (on managed hosting, attach your own domain with Cloudflare for SaaS) / Display: base language, site time zone, author line at the end of articles / Contract: the managed contract's status and dates, the way to subscribe or cancel, and the free period (managed hosting only); register the owner; move between managed hosting and self-hosting / Email: where this CMS sends its mail from (self-hosting only) / SNS: connect Bluesky, X and Threads, and set or clear posted marks in bulk / Mobile: make article media full width on narrow screens / Import: bring in articles from Strapi or another KuroCMS / IP restriction: limit the networks that can use the admin panel / Region: see where the database and KuroCMS run",
+      "Basic: R2 media storage (self-hosting only) / Domain: public domain and reset to default, Worker URL, custom domain (on managed hosting, attach your own domain with Cloudflare for SaaS) / Display: base language, site time zone, author line at the end of articles / Contract: the hosting form and contract status, the free period left, prices by country, and the way to subscribe or cancel (managed hosting only); register the owner; move between managed hosting and self-hosting / Email: where this CMS sends its mail from (self-hosting only) / SNS: connect Bluesky, X and Threads, and set or clear posted marks in bulk / Mobile: make article media full width on narrow screens / Import: bring in articles from Strapi or another KuroCMS / IP restriction: limit the networks that can use the admin panel / Region: see where the database and KuroCMS run",
     notes:
       "Display and Mobile changes reach the public pages only after a full build. Links in your public pages are built from the public domain at the top of the Domain tab. The database region is fixed when the database is created. Contract information refreshes about once an hour.",
   },
@@ -5282,7 +5361,7 @@ const helpContentEn: Record<string, Dynamic> = {
     title: "Contract and moving",
     role: "This tab shows where the site runs (managed hosting or self-hosting) and who owns it. You also move to the other form here.",
     canDo:
-      'Register, change or remove the owner\'s email address (Entamy ID) / See the current hosting form / Move from managed hosting to your own Cloudflare account (self-hosting, free) / Move from self-hosting to Entamy managed hosting (paid, with a free period at first) / Watch the steps and progress of a move in a dialog / Continue a stopped move with "Resume from where it stopped"',
+      'See the hosting form and the contract status, plan (monthly or yearly), subscription date and next renewal / See the free period left as a bar / Choose a country (Japan, United States, Europe) to see its prices (first chosen from your connection) / Register, change or remove the owner\'s email address (Entamy ID) / Move from managed hosting to your own Cloudflare account (self-hosting, free) / Move from self-hosting to Entamy managed hosting (paid, with a free period at first) / Watch the steps and progress of a move in a dialog / Continue a stopped move with "Resume from where it stopped"',
     notes:
       "For a site installed through the installer, the owner is the Entamy ID that signed in at the time. For a site installed before that, register the owner's email address first; you receive one confirmation email. Moving requires a recent KuroCMS version, and the screen tells you if yours is too old. The site keeps working while it copies and pauses only for a few minutes at the final check. Closing the dialog does not stop the move. When it finishes, the old address shows a notice that points to the new one, and every administrator gets an email with a link to register a passkey at the new address. Passkeys, sign-in state, registered networks, PATs, social media keys and the activity log are not carried over. The update settings and IP restriction return to their defaults at the new site. The managed free period is given once per registered email account. After moving to managed hosting, the KuroCMS in your own Cloudflare account is not deleted; delete it yourself if you no longer need it.",
   },

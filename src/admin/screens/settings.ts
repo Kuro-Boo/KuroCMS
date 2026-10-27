@@ -1,7 +1,7 @@
 // KuroCMS admin screen module. Concatenated by scripts/build-admin.js.
 
 /**
- * 委託契約の頁(申し込み・契約の表示・解約・billing-library 4節・cms-pricing「契約形式のタブ」)。
+ * 委託契約の頁(申し込み・契約の表示・解約・billing-library 4節・cms-pricing「契約のタブ」)。
  * 宣伝ページの正の置き場(kurocms.entamy.com)にあり、サイトの持ち主の Entamy ID でログインして使う。
  */
 const CONTRACT_PAGE = "https://kurocms.entamy.com/contract/";
@@ -169,8 +169,8 @@ async function settings() {
     "domain",
     // 表示(基本言語・時計・筆者)。「基本」が長く、下の項目を見落とすので分けた。
     "display",
-    // 契約形式(2026-10-25 に「運用の形」から改名し、「契約情報」のタブをまとめた・cms-pricing「契約形式のタブ」)。
-    // 委託の契約の状態・申し込みと解約への入口・無料期間、持ち主、委託運用 ⇄ 顧客導入の引っ越し。
+    // 契約(2026-10-25 に「運用の形」から「契約形式」へ、2026-10-27 に「契約」へ改名・cms-pricing「契約のタブ」)。
+    // いまの契約・無料期間・国ごとの料金・申し込みと解約への入口、持ち主、委託運用 ⇄ 顧客導入の引っ越し。
     "hosting",
     // メール送信(サイト全体の設定・管理者だけ)。2026-10-21 にプロフィールから移した。
     "mail",
@@ -887,64 +887,250 @@ async function settings() {
   }
   byId("regionMeasureBtn")?.addEventListener("click", () => void loadRegion());
 
-  // ── 委託の契約(委託だけ・/api/system/contract・cms-pricing「契約情報」「契約形式のタブ」) ──
-  // 契約形式のタブの上に置く。受付が毎時 Entamy(Admin の導入の記録・Entamy ID)から引いて書いた 1 行を出す。
+  // ── 契約(cms-pricing「契約のタブ」・2026-10-27 に左右 2 列へ組み直した) ──
+  // 左: いまの契約 —— 運用の形・契約の状態・無料期間の棒と、その後の有料の説明・申し込みと解約への入口・日付。
+  // 右: 契約の形態と料金 —— 国(日本・米国・欧州)を選ぶと、その通貨の料金に替わる。初めは回線の国(request.cf.country)。
+  // 契約の状態は、受付が毎時 Entamy(Admin の導入の記録・Entamy ID)から引いて書いた 1 行(委託だけ)。料金は Billing の価格表。
   // 申し込み・解約は Entamy の契約の頁(CONTRACT_PAGE)で行う —— この管理画面は Entamy ID のログインを持たず、
   // お金の要求は契約の頁から Billing へ直接送る(billing-architecture 2.1節)。
-  // 無料期間が終わった後(契約なし)は、データを消すまでの待機期間・最終日・消す日を足す。
   byId("panel-hosting")?.insertAdjacentHTML(
     "afterbegin",
-    "<div id='contractSection' style='display:none;margin-bottom:16px'>" +
-      "<div class='panel stack' style='gap:12px'>" +
+    "<div id='contractSection' class='contractGrid'>" +
+      "<div class='panel stack' style='gap:14px'>" +
       "<div class='panelHead'><h3>" +
-      escapeHtml(t("contractTitle")) +
+      escapeHtml(t("contractNowTitle")) +
       "</h3></div>" +
-      "<div class='muted' style='font-size:13px;line-height:1.7'>" +
-      escapeHtml(t("contractHelp")) +
-      "</div>" +
-      "<div id='contractRows' style='display:grid;grid-template-columns:max-content 1fr;gap:6px 16px;font-size:14px'></div>" +
+      "<div id='contractForm' style='font-weight:700'></div>" +
+      "<div><span id='contractBadge' class='contractBadge'>…</span></div>" +
+      "<div id='contractTrial' class='stack' style='display:none;gap:6px'></div>" +
+      "<div id='contractRows' class='contractRows'></div>" +
       "<div id='contractNote' class='readonlyBanner' style='display:none;margin:0;flex-wrap:wrap'></div>" +
       "<div id='contractActions' style='display:flex;gap:8px;flex-wrap:wrap;align-items:center'></div>" +
-      "<div class='muted' style='font-size:12px;line-height:1.7'>" +
+      "<div id='contractPageNote' class='muted' style='font-size:12px;line-height:1.7;display:none'>" +
       escapeHtml(t("contractPageNote")) +
       "</div>" +
       "<div id='contractSynced' class='muted' style='font-size:12px'></div>" +
-      "</div></div>",
+      "</div>" +
+      "<div class='panel stack' style='gap:14px'>" +
+      "<div class='panelHead'><h3>" +
+      escapeHtml(t("contractPlansTitle")) +
+      "</h3></div>" +
+      "<div class='muted' style='font-size:13px;line-height:1.7'>" +
+      escapeHtml(t("contractPlansLead")) +
+      "</div>" +
+      "<label class='contractRegion'><span class='fieldLabel' style='margin:0'>" +
+      escapeHtml(t("contractRegion")) +
+      "</span><select id='contractRegion'>" +
+      (["jp", "us", "eu"] as const)
+        .map(
+          (r) =>
+            "<option value='" +
+            r +
+            "'>" +
+            escapeHtml(
+              t(
+                r === "jp"
+                  ? "contractRegionJp"
+                  : r === "eu"
+                    ? "contractRegionEu"
+                    : "contractRegionUs",
+              ),
+            ) +
+            "</option>",
+        )
+        .join("") +
+      "</select></label>" +
+      "<div id='contractRegionNote' class='muted' style='font-size:12px;margin-top:-6px'></div>" +
+      "<div id='contractPrices' class='contractPrices'></div>" +
+      "<ul id='contractRules' class='contractRules'></ul>" +
+      "</div>" +
+      "</div>",
   );
   let contractLoaded = false;
-  // 委託運用か(設定を読んでから決まる)。契約の節は委託だけ。
+  // 委託運用か(設定を読んでから決まる)。契約の状態の行は委託だけ。
   let managedHosting = false;
+  const DAY = 86_400_000;
+  // 期限は Entamy ID が「その日の終わり(UTC)」で持つ。手元の時刻帯で出すと、日本では
+  // 3 月 31 日までの延長が「4 月 1 日」に見える(23:59 UTC = 翌朝 8:59 JST)。日は UTC で出す。
+  const contractDate = (ms: number | null) =>
+    ms == null
+      ? "—"
+      : new Date(ms).toLocaleDateString(state.uiLang, {
+          year: "numeric",
+          month: "long",
+          day: "numeric",
+          timeZone: "UTC",
+        });
+  // 額は通貨の最小単位の整数・税込み(Billing の価格表)。
+  const money = (minor: number, currency: string) => {
+    const digits =
+      new Intl.NumberFormat("en", {
+        style: "currency",
+        currency,
+      }).resolvedOptions().maximumFractionDigits ?? 0;
+    return new Intl.NumberFormat(state.uiLang, {
+      style: "currency",
+      currency,
+      maximumFractionDigits: digits,
+    }).format(minor / 10 ** digits);
+  };
+  type PlanPrice = {
+    period: "month" | "year";
+    currency: string;
+    amount_minor: number;
+  };
+  const REGION_CURRENCY: Record<string, string> = {
+    jp: "JPY",
+    us: "USD",
+    eu: "EUR",
+  };
+  let contractPrices: PlanPrice[] | null = null;
+  function renderPrices() {
+    const box = byId("contractPrices");
+    const sel = byId("contractRegion") as HTMLSelectElement | null;
+    if (!box || !sel) return;
+    const currency = REGION_CURRENCY[sel.value] || "JPY";
+    if (contractPrices === null) {
+      box.innerHTML =
+        "<div class='muted' style='grid-column:1/-1;font-size:13px'>" +
+        escapeHtml(t("contractPricesUnavailable")) +
+        "</div>";
+      return;
+    }
+    const month = contractPrices.find(
+      (p) => p.period === "month" && p.currency === currency,
+    );
+    const year = contractPrices.find(
+      (p) => p.period === "year" && p.currency === currency,
+    );
+    if (!month && !year) {
+      box.innerHTML =
+        "<div class='muted' style='grid-column:1/-1;font-size:13px'>" +
+        escapeHtml(t("contractPricesNotYet")) +
+        "</div>";
+      return;
+    }
+    const card = (title: string, amount: string, sub: string, best: boolean) =>
+      "<div class='contractPrice" +
+      (best ? " best" : "") +
+      "'><div class='fieldLabel' style='margin:0'>" +
+      escapeHtml(title) +
+      "</div><div class='contractAmount'>" +
+      escapeHtml(amount) +
+      "</div><div class='muted' style='font-size:12px;line-height:1.6'>" +
+      escapeHtml(sub) +
+      "</div></div>";
+    let html = "";
+    if (month)
+      html += card(
+        t("contractPlanMonth"),
+        t("contractPerMonth").replace(
+          "{amount}",
+          money(month.amount_minor, currency),
+        ),
+        t("contractTaxIncluded"),
+        false,
+      );
+    if (year) {
+      let sub = t("contractYearPerMonth").replace(
+        "{amount}",
+        money(Math.floor(year.amount_minor / 12), currency),
+      );
+      if (month && month.amount_minor > 0) {
+        const off = Math.round(
+          (1 - year.amount_minor / (month.amount_minor * 12)) * 100,
+        );
+        if (off > 0)
+          sub += " · " + t("contractYearSaving").replace("{n}", String(off));
+      }
+      html += card(
+        t("contractPlanYear"),
+        t("contractPerYear").replace(
+          "{amount}",
+          money(year.amount_minor, currency),
+        ),
+        sub + " · " + t("contractTaxIncluded"),
+        true,
+      );
+    }
+    box.innerHTML = html;
+  }
+  byId("contractRegion")?.addEventListener("change", renderPrices);
+  function renderRules(deleteAfterDays: number) {
+    const ul = byId("contractRules");
+    if (!ul) return;
+    ul.innerHTML = [
+      t("contractRuleRenew"),
+      t("contractRuleCancel"),
+      t("contractRuleTrial"),
+      t("contractRuleUnpaid").replace("{n}", String(deleteAfterDays)),
+      t("contractRuleSelf"),
+    ]
+      .map((x) => "<li>" + escapeHtml(x) + "</li>")
+      .join("");
+  }
   async function loadContract() {
     const rows = byId("contractRows");
     const note = byId("contractNote");
     const synced = byId("contractSynced");
     const actions = byId("contractActions");
-    if (!rows || !note || !synced || !actions) return;
+    const badge = byId("contractBadge");
+    const trialBox = byId("contractTrial");
+    const form = byId("contractForm");
+    const pageNote = byId("contractPageNote");
+    if (
+      !rows ||
+      !note ||
+      !synced ||
+      !actions ||
+      !badge ||
+      !trialBox ||
+      !form ||
+      !pageNote
+    )
+      return;
     actions.textContent = "";
-    rows.innerHTML = "<span class='muted'>…</span>";
+    rows.innerHTML = "";
     note.textContent = "";
     note.style.display = "none";
+    trialBox.style.display = "none";
+    trialBox.innerHTML = "";
     synced.textContent = "";
+    pageNote.style.display = managedHosting ? "" : "none";
+    const setBadge = (text: string, tone: "" | "warn" | "danger" | "muted") => {
+      badge.className = "contractBadge" + (tone ? " " + tone : "");
+      badge.textContent = text;
+    };
+    form.textContent = t(
+      managedHosting ? "contractFormManaged" : "contractFormSelf",
+    );
     try {
       const r: Dynamic = await api("/api/system/contract");
+      contractPrices = Array.isArray(r.prices) ? r.prices : null;
+      const sel = byId("contractRegion") as HTMLSelectElement | null;
+      if (sel && !contractLoaded && r.region) sel.value = r.region;
+      const regionNote = byId("contractRegionNote");
+      if (regionNote)
+        regionNote.textContent = r.country
+          ? t("contractRegionDetected").replace("{country}", String(r.country))
+          : "";
+      renderPrices();
       const c: Dynamic = r.contract;
+      renderRules(Number(c?.delete_after_days) || 30);
+      contractLoaded = true;
+      if (!r.managed) {
+        setBadge(t("contractBadgeSelf"), "");
+        rows.innerHTML =
+          "<span class='muted' style='grid-column:1/-1;font-size:13px;line-height:1.7'>" +
+          escapeHtml(t("contractSelfNote")) +
+          "</span>";
+        return;
+      }
       if (!c) {
-        rows.innerHTML = "";
+        setBadge(t("contractBadgePending"), "muted");
         synced.textContent = t("contractPending");
         return;
       }
-      const DAY = 86_400_000;
-      // 期限は Entamy ID が「その日の終わり(UTC)」で持つ。手元の時刻帯で出すと、日本では
-      // 3 月 31 日までの延長が「4 月 1 日」に見える(23:59 UTC = 翌朝 8:59 JST)。日は UTC で出す。
-      const date = (ms: number | null) =>
-        ms == null
-          ? "—"
-          : new Date(ms).toLocaleDateString(state.uiLang, {
-              year: "numeric",
-              month: "long",
-              day: "numeric",
-              timeZone: "UTC",
-            });
       const line = (label: string, value: string, strong = false) =>
         "<span class='fieldLabel' style='margin:0'>" +
         escapeHtml(label) +
@@ -957,48 +1143,111 @@ async function settings() {
       // subscription_until は更新の猶予を含むので、日付には使わない(ID 11.5)。期間の終わりは
       // 「その日の 0 時まで」なので、契約の終わる日(最後に使える日)は前の日。
       const periodEnd: number | null = c.subscription_period_end ?? null;
-      const sub =
-        c.subscription === "active"
-          ? t("contractSubActive")
-          : c.subscription === "cancelled"
-            ? t("contractSubCancelled").replace(
-                "{date}",
-                date(
-                  periodEnd != null ? periodEnd - DAY : c.subscription_until,
-                ),
-              )
-            : t("contractSubNone");
       const subscribed =
         c.subscription === "active" || c.subscription === "cancelled";
-      let html =
-        line(t("contractAt"), date(c.contract_at)) +
-        line(t("contractTrialEnds"), date(c.trial_ends_at)) +
-        line(
-          t("contractTrialExtended"),
-          c.trial_extended_until
-            ? date(c.trial_extended_until) +
-                (c.trial_extension_note ? " · " + c.trial_extension_note : "")
-            : t("contractTrialExtendedNone"),
-        ) +
-        line(t("contractTrialFinal"), date(c.trial_final_at), true) +
-        line(t("contractSubscription"), sub, subscribed);
+      const plan =
+        c.subscription_period === "year"
+          ? t("contractPlanYear")
+          : c.subscription_period === "month"
+            ? t("contractPlanMonth")
+            : "";
+      const finalAt: number | null = c.trial_final_at ?? null;
+      // 無料期間の終わりは「その日の終わり(UTC)」。有料はその次の日から。
+      const paidFrom = finalAt != null ? contractDate(finalAt + 60_000) : "—";
+      const inTrial = !subscribed && finalAt != null && r.now <= finalAt;
+      const ended = !subscribed && finalAt != null && r.now > finalAt;
+      if (c.subscription === "active")
+        setBadge(
+          t("contractBadgeActive").replace(
+            "{plan}",
+            plan || t("contractSubActive"),
+          ),
+          "",
+        );
+      else if (c.subscription === "cancelled")
+        setBadge(
+          t("contractBadgeCancelled").replace(
+            "{date}",
+            contractDate(
+              periodEnd != null ? periodEnd - DAY : c.subscription_until,
+            ),
+          ),
+          "warn",
+        );
+      else if (inTrial)
+        setBadge(
+          t("contractBadgeTrial").replace(
+            "{n}",
+            String(Math.max(0, Math.ceil((finalAt! - r.now) / DAY))),
+          ),
+          "",
+        );
+      else if (ended) setBadge(t("contractBadgeEnded"), "danger");
+      else setBadge(t("contractBadgeNone"), "danger");
+
+      // 無料期間の棒(契約が無い間)。左端は無料期間を始めた日、右端は最後の無料期間の終わり。
+      if (!subscribed && finalAt != null) {
+        const start: number = c.trial_started_at ?? c.contract_at;
+        const span = Math.max(1, finalAt - start);
+        const pct = Math.min(100, Math.max(0, ((r.now - start) / span) * 100));
+        let html =
+          "<div class='contractBar" +
+          (ended ? " ended" : "") +
+          "' role='progressbar' aria-valuemin='0' aria-valuemax='100' aria-valuenow='" +
+          Math.round(pct) +
+          "'><span style='width:" +
+          pct.toFixed(1) +
+          "%'></span></div>" +
+          "<div class='contractBarScale'><span>" +
+          escapeHtml(contractDate(start)) +
+          "</span><span>" +
+          escapeHtml(
+            t("contractBarUntil").replace("{date}", contractDate(finalAt)),
+          ) +
+          "</span></div>";
+        if (c.trial_extended_until)
+          html +=
+            "<div class='muted' style='font-size:12px'>" +
+            escapeHtml(
+              t("contractTrialExtendedTo").replace(
+                "{date}",
+                contractDate(c.trial_extended_until),
+              ) +
+                (c.trial_extension_note ? " · " + c.trial_extension_note : ""),
+            ) +
+            "</div>";
+        if (inTrial)
+          html +=
+            "<div style='font-size:13px;line-height:1.7'>" +
+            escapeHtml(
+              t("contractAfterTrial")
+                .replace("{date}", paidFrom)
+                .replace("{delete}", contractDate(c.delete_at)),
+            ) +
+            "</div>";
+        trialBox.innerHTML = html;
+        trialBox.style.display = "";
+      }
+
+      let html = line(t("contractAt"), contractDate(c.contract_at));
       if (subscribed) {
-        if (c.subscription_period)
-          html += line(
-            t("contractPlan"),
-            c.subscription_period === "year"
-              ? t("contractPlanYear")
-              : t("contractPlanMonth"),
-          );
+        if (plan) html += line(t("contractPlan"), plan, true);
         if (c.subscription_started_at)
-          html += line(t("contractStarted"), date(c.subscription_started_at));
+          html += line(
+            t("contractStarted"),
+            contractDate(c.subscription_started_at),
+          );
         if (periodEnd != null)
           html +=
             c.subscription === "active"
-              ? line(t("contractRenew"), date(periodEnd))
-              : line(t("contractEnds"), date(periodEnd - DAY), true);
+              ? line(t("contractRenew"), contractDate(periodEnd))
+              : line(t("contractEnds"), contractDate(periodEnd - DAY), true);
+      } else if (finalAt != null) {
+        html += line(t("contractTrialFinal"), contractDate(finalAt), true);
+        html += line(t("contractPaidFrom"), paidFrom);
       }
-      // 申し込み・解約は Entamy の契約の頁で(新しいタブ)。契約が有れば「解約する」、無ければ「申し込む」。
+      // 申し込み・解約は Entamy の契約の頁で(新しいタブ)。契約が有れば「解約する」、無ければ「申し込む」
+      // (無料期間中も申し込める。最初の請求は無料期間の終わり —— Billing の申し込みが試用の終わりまで待つ)。
       const link = (label: string, primary: boolean) => {
         const a = document.createElement("a");
         a.href = CONTRACT_PAGE;
@@ -1015,27 +1264,25 @@ async function settings() {
       } else {
         const lead = document.createElement("div");
         lead.className = "muted";
-        lead.style.cssText = "flex-basis:100%;font-size:13px";
-        lead.textContent = t("contractApplyLead");
+        lead.style.cssText = "flex-basis:100%;font-size:13px;line-height:1.7";
+        lead.textContent = inTrial
+          ? t("contractApplyLeadTrial").replace("{date}", paidFrom)
+          : t("contractApplyLead");
         actions.append(lead, link(t("contractApply"), true));
       }
       // 無料期間が終わり、契約が無い: データを消すまでの日付を足す。
-      const ended =
-        c.delete_at != null &&
-        c.trial_final_at != null &&
-        r.now > c.trial_final_at;
-      if (ended) {
+      if (ended && c.delete_at != null) {
         const left = Math.max(0, Math.ceil((c.delete_at - r.now) / DAY));
         html +=
           line(
             t("contractGrace"),
             t("contractRange")
-              .replace("{from}", date(c.trial_final_at))
-              .replace("{to}", date(c.delete_at))
+              .replace("{from}", contractDate(finalAt))
+              .replace("{to}", contractDate(c.delete_at))
               .replace("{n}", String(c.delete_after_days)),
           ) +
-          line(t("contractLastDay"), date(c.delete_at - DAY), true) +
-          line(t("contractDeleteAt"), date(c.delete_at)) +
+          line(t("contractLastDay"), contractDate(c.delete_at - DAY), true) +
+          line(t("contractDeleteAt"), contractDate(c.delete_at)) +
           line(
             t("contractDaysLeft"),
             t("contractDays").replace("{n}", String(left)),
@@ -1059,9 +1306,8 @@ async function settings() {
           "{date}",
           new Date(c.synced_at).toLocaleString(state.uiLang),
         );
-      contractLoaded = true;
     } catch (err) {
-      rows.innerHTML = "";
+      setBadge("—", "muted");
       toast(errorMessage(err), true);
     }
   }
@@ -1251,8 +1497,7 @@ async function settings() {
     btn.addEventListener("click", () => {
       switchTab(btn.dataset.tab);
       if (btn.dataset.tab === "region" && !regionMeasured) void loadRegion();
-      if (btn.dataset.tab === "hosting" && managedHosting && !contractLoaded)
-        void loadContract();
+      if (btn.dataset.tab === "hosting" && !contractLoaded) void loadContract();
     });
   });
 
@@ -1340,8 +1585,6 @@ async function settings() {
 
     if (s.managedHosting) {
       managedHosting = true;
-      const contractSection = byId("contractSection");
-      if (contractSection) contractSection.style.display = "";
       const help = byId("publicDomainHelpText");
       if (help) help.textContent = t("publicDomainManagedHelp");
       // 委託は鍵を持たない: workers.dev・Cloudflare の Custom Domain・R2 の枠は出さず、

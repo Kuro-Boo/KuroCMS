@@ -1,3 +1,4 @@
+import { catalogPrices, regionOf } from "./contract-prices.ts";
 import {
   SESSION_COOKIE,
   bootstrapAdmin,
@@ -998,18 +999,36 @@ async function handleApiDispatch(
       }
       throw new HttpError(405, "method_not_allowed", "Method not allowed.");
     }
-    // 契約情報(委託だけ・cms-pricing「契約情報」)。受付が毎時書く contract_info の 1 行をそのまま返す。
+    // 契約(cms-pricing「契約のタブ」)。委託なら受付が毎時書く contract_info の 1 行と、料金と国を返す。
     // 表が無い(古い版から上げたて)・行が無い(受付がまだ書いていない)ときは contract: null。
     if (request.method === "GET" && path === "/api/system/contract") {
       requireAdmin(user);
+      // 料金(Billing の価格表)と、初めに出す地域(要求の国)。顧客導入でも出す —— 委託へ引っ越す人が見る。
+      const country =
+        (request as { cf?: { country?: string } }).cf?.country ?? null;
+      const pricing = {
+        country,
+        region: regionOf(country),
+        prices: (await catalogPrices()) as unknown as JsonValue,
+      };
       if (!isManagedHosting(env))
-        return json({ managed: false, contract: null });
+        return json({
+          managed: false,
+          contract: null,
+          now: Date.now(),
+          ...pricing,
+        });
       const row = await env.DB.prepare(
         "SELECT * FROM contract_info WHERE id = 1",
       )
         .first<Record<string, JsonValue>>()
         .catch(() => null);
-      return json({ managed: true, contract: row ?? null, now: Date.now() });
+      return json({
+        managed: true,
+        contract: row ?? null,
+        now: Date.now(),
+        ...pricing,
+      });
     }
     if (request.method === "GET" && path === "/api/system/ip-gate") {
       requireAdmin(user);

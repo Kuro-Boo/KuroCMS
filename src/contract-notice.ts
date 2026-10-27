@@ -73,7 +73,7 @@ export async function remindDataDeletion(
       : `[${name}] Your site's data will be deleted ${when} (${day})`,
     text: ja
       ? `${name} の無料期間が終わり、委託の契約がありません。このままでは ${day}（UTC）にサイトのデータ（記事・メディア・設定）が消え、取り戻せません。\n\n` +
-        `続けるには、管理画面の「設定 → 契約形式」から委託契約を申し込むか、ご自身の Cloudflare アカウントへ引っ越してください（引っ越しは無料です）。\n` +
+        `続けるには、管理画面の「設定 → 契約」から委託契約を申し込むか、ご自身の Cloudflare アカウントへ引っ越してください（引っ越しは無料です）。\n` +
         `データを手元に残すには、管理画面の「バックアップ」から ZIP を書き出してください。\n`
       : `The free period of ${name} has ended and there is no managed hosting contract. On ${day} (UTC) the site's data (articles, media and settings) will be deleted and cannot be recovered.\n\n` +
         `To keep the site, subscribe from Settings → Contract in the admin panel, or move it to your own Cloudflare account (free).\n` +

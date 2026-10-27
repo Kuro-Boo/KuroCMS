@@ -24,7 +24,7 @@ import { ensureEntamySecrets, entamySecret } from "./entamy-secrets.ts";
 import { KUROCMS_VERSION } from "./version.ts";
 import type { Env } from "./types.ts";
 
-const PRODUCT_ID = "cms";
+export const PRODUCT_ID = "cms";
 /** 保管庫の接頭辞。旧実装の `system:entamy_*` とは別空間に置く。 */
 const NAMESPACE = "entamy.cms";
 

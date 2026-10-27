@@ -104,6 +104,11 @@ export interface EntamyConfig {
   storageNamespace?: string;
 }
 
+/** 宛先の解決。スタブは基盤へ繋がないので、Billing の宛先は空(料金は出さない)。 */
+export function resolveConfig(_config: EntamyConfig): { billingBaseUrl: string } {
+  return { billingBaseUrl: "" };
+}
+
 // ── セッション ──────────────────────────────────────────────────────────
 export interface SessionOptions {
   store?: EntamyStore;
