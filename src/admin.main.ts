@@ -965,7 +965,7 @@ const i18n = {
       "Too many emails were sent. Please try again in an hour.",
     contactUnavailable:
       "The registration service is not reachable right now. Please try again later.",
-    contactPanelTitle: "Owner (contact email)",
+    contactPanelTitle: "Site owner (Entamy ID)",
     contactInstaller:
       "The Entamy ID used to install this site with the Entamy installer is its owner.",
     siteMoveNeedOwner:
@@ -976,7 +976,7 @@ const i18n = {
     siteMoveOwnerUnavailable:
       "Could not check the owner right now. Please try again in a moment.",
     contactPanelHelp:
-      "Important notices about this CMS (security, updates, backup reminders) are sent here, and this Entamy ID holds the contract if the site moves to Entamy managed hosting. It is not used for anything else.",
+      "One per site, separate from the sign-in addresses of the people who use this CMS (each person changes their own in Profile). Important notices about this CMS (security, updates, backup reminders) are sent here, and this Entamy ID holds the managed hosting contract. It is not used for anything else.",
     contactLinked: "Registered: {email} (confirmed {date})",
     contactPending: "Waiting for confirmation: {email}",
     contactNone: "Not registered",
@@ -2352,7 +2352,7 @@ const i18n = {
       "送った回数が多すぎます。1時間ほどおいてから試してください。",
     contactUnavailable:
       "いまは登録の窓口につながりません。しばらくしてから試してください。",
-    contactPanelTitle: "持ち主（連絡先のメールアドレス）",
+    contactPanelTitle: "サイトの持ち主（Entamy ID）",
     contactInstaller:
       "このサイトを導入口で入れたときの Entamy ID が持ち主です。",
     siteMoveNeedOwner:
@@ -2363,7 +2363,7 @@ const i18n = {
     siteMoveOwnerUnavailable:
       "いまは持ち主を確かめられません。少し待ってからもう一度お試しください。",
     contactPanelHelp:
-      "この CMS の重要なお知らせ（セキュリティ・更新・バックアップのお願いなど）が届き、Entamy の委託運用へ引っ越すときは、この Entamy ID が契約の持ち主になります。それ以外には使いません。",
+      "サイトに 1 つだけの宛先です。この CMS を使う人のログイン用のアドレス（各自がプロフィールで変えます）とは別です。この CMS の重要なお知らせ（セキュリティ・更新・バックアップのお願いなど）が届き、この Entamy ID が委託運用の契約の持ち主になります。それ以外には使いません。",
     contactLinked: "登録済み: {email}(確認 {date})",
     contactPending: "確認待ち: {email}",
     contactNone: "未登録",
