@@ -22,7 +22,12 @@ import {
   parseStaticPages,
   type StaticPageDefinition,
 } from "./templates/static-pages";
-import { KE_VERSION, SITE_HEAD_FILE, SITE_SCRIPT_FILE } from "./admin-assets";
+import {
+  KE_VERSION,
+  RENDER_FINGERPRINT,
+  SITE_HEAD_FILE,
+  SITE_SCRIPT_FILE,
+} from "./admin-assets";
 import { siteCspHeaders, siteHeadersFile } from "./site-csp";
 import { AUTO_BUILD_MAX_PER_INVOCATION, nextAutoBuildSize } from "./build-size";
 import {
@@ -109,17 +114,6 @@ import {
   recordPages,
 } from "./assets-publish";
 import { movedTo } from "./move";
-
-// Bump when the page-rendering OUTPUT changes in a way the per-page source_hash
-// can't see (e.g. the <head> content-CSS <link>, template-model shape). The
-// build salts every page hash with this, so cached builds are invalidated and
-// all pages regenerate even when their underlying content is unchanged.
-// 30: 反応ウィジェットに id を足し、枠の置き方をトークンの綴り(空白可)に
-//     合わせた。**出力が変わるのに、記事の中身は変わっていない** ——
-//     塩を振り直さないと、既に焼いたページがそのまま出続ける。
-// 31: 言語をパスに入れた(/en/post/)。リンク・hreflang・<head> の言語の JS が
-//     変わる。古いページは ?lang= のリンクのまま残ってしまう(2026-10-16)。
-const RENDER_FORMAT_VERSION = "31";
 
 /** Cheap, synchronous string hash (FNV-1a, base36) for cache keys. Not crypto. */
 /**
@@ -4910,8 +4904,9 @@ export async function buildAllPublicPages(
         .sort()
         .map((l) => `${l}=${hashFor(l)}`)
         .join("|") +
-      "|" +
-      RENDER_FORMAT_VERSION +
+      // 組み立てのコードの指紋(render-sources.ts)。コードを変えても記事の中身は変わらないので、
+      // 混ぜておかないと既に焼いたページがそのまま出続ける。
+      `|render=${RENDER_FINGERPRINT}` +
       // サイトの時計は全ページの日付表記と hydration スクリプトに焼き込まれる
       // のに、どのページの内容ハッシュにも現れない。混ぜておかないと TZ を
       // 変えた次のビルドが「変更なし」と判断して全ページを読み飛ばす。
