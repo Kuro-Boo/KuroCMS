@@ -2656,7 +2656,7 @@ async function passkeyRegisterBegin(
 
   const rpId = new URL(request.url).hostname;
   const userIdForResponse = resolvedUid ?? "pending";
-  // Entamy ID のパスキー(「Entamy ID(契約者)」)と見分けがつく名前(passkey-name.ts)。
+  // Entamy ID のパスキー(「Entamy ID(KuroCMS 契約)」)と見分けがつく名前(passkey-name.ts)。
   const site = await env.DB.prepare(
     "SELECT site_name FROM site_settings WHERE id = 1",
   ).first<{ site_name: string | null }>();
