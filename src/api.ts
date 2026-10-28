@@ -860,6 +860,7 @@ async function handleApiDispatch(
 
     if (request.method === "POST" && path === "/api/system/update") {
       requireAdmin(user);
+      refuseOnManagedHosting(env);
       return withJsonHeaders(await systemUpdate(request, env, user));
     }
 
@@ -872,6 +873,7 @@ async function handleApiDispatch(
     // 番人は /api/health の update_policy でこの選択を読む。
     if (request.method === "PUT" && path === "/api/system/auto-update") {
       requireAdmin(user);
+      refuseOnManagedHosting(env);
       const body = await readJson(request);
       if (typeof body.enabled !== "boolean") {
         throw new HttpError(
@@ -1070,6 +1072,7 @@ async function handleApiDispatch(
     }
     if (request.method === "PUT" && path === "/api/system/guardian/channel") {
       requireAdmin(user);
+      refuseOnManagedHosting(env);
       const body = await readJson(request);
       if (body.channel !== "stable" && body.channel !== "latest") {
         throw new HttpError(
@@ -1088,6 +1091,7 @@ async function handleApiDispatch(
       path === "/api/system/guardian/auto-update"
     ) {
       requireAdmin(user);
+      refuseOnManagedHosting(env);
       const body = await readJson(request);
       if (typeof body.enabled !== "boolean") {
         throw new HttpError(
@@ -1101,6 +1105,7 @@ async function handleApiDispatch(
     }
     if (request.method === "POST" && path === "/api/system/guardian/update") {
       requireAdmin(user);
+      refuseOnManagedHosting(env);
       const result = await guardianUpdate(env, guardianDeps(env), "manual");
       await logActivity(
         env,
@@ -2542,6 +2547,20 @@ async function requireSetupToken(env: Env, token: string): Promise<string> {
 
 /** パスキー登録を何の証で始めたか(challenge に結び付け、完了で照らす・課題 c4974eea)。 */
 type RegisterAuth = "session" | "invitation" | "recovery" | "setup";
+
+/**
+ * 委託では、版の更新と番人の操作を断る。版は番人が入れ、利用者は番人を操作しない(画面も出さない・
+ * dashboard.ts の applyManagedUpdates)。口を開けたままだと、Worker の鍵が無いという意味の通らない
+ * 失敗(cf_creds_missing)が返る。
+ */
+function refuseOnManagedHosting(env: Env): void {
+  if (isManagedHosting(env))
+    throw new HttpError(
+      403,
+      "managed_hosting",
+      "Not available on Entamy hosting.",
+    );
+}
 
 async function passkeyRegisterBegin(
   request: Request,
