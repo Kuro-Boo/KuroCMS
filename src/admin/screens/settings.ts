@@ -1145,6 +1145,9 @@ async function settings() {
       const periodEnd: number | null = c.subscription_period_end ?? null;
       const subscribed =
         c.subscription === "active" || c.subscription === "cancelled";
+      // 無料期間中の申し込み(課題 35853010)。権利はまだ無いが、無料期間の終わりに最初のお支払いをして
+      // そのまま契約になる。日付は subscription_period_end(最初の請求日)。読み取りだけ・消す日にはならない。
+      const scheduled = c.subscription === "scheduled";
       const plan =
         c.subscription_period === "year"
           ? t("contractPlanYear")
@@ -1154,8 +1157,12 @@ async function settings() {
       const finalAt: number | null = c.trial_final_at ?? null;
       // 無料期間の終わりは「その日の終わり(UTC)」。有料はその次の日から。
       const paidFrom = finalAt != null ? contractDate(finalAt + 60_000) : "—";
-      const inTrial = !subscribed && finalAt != null && r.now <= finalAt;
-      const ended = !subscribed && finalAt != null && r.now > finalAt;
+      const inTrial =
+        !subscribed && !scheduled && finalAt != null && r.now <= finalAt;
+      const ended =
+        !subscribed && !scheduled && finalAt != null && r.now > finalAt;
+      const firstCharge =
+        periodEnd != null ? contractDate(periodEnd) : paidFrom;
       if (c.subscription === "active")
         setBadge(
           t("contractBadgeActive").replace(
@@ -1173,6 +1180,11 @@ async function settings() {
             ),
           ),
           "warn",
+        );
+      else if (scheduled)
+        setBadge(
+          t("contractBadgeScheduled").replace("{date}", firstCharge),
+          "",
         );
       else if (inTrial)
         setBadge(
@@ -1225,6 +1237,13 @@ async function settings() {
                 .replace("{delete}", contractDate(c.delete_at)),
             ) +
             "</div>";
+        if (scheduled)
+          html +=
+            "<div style='font-size:13px;line-height:1.7'>" +
+            escapeHtml(
+              t("contractScheduledNote").replace("{date}", firstCharge),
+            ) +
+            "</div>";
         trialBox.innerHTML = html;
         trialBox.style.display = "";
       }
@@ -1242,6 +1261,14 @@ async function settings() {
             c.subscription === "active"
               ? line(t("contractRenew"), contractDate(periodEnd))
               : line(t("contractEnds"), contractDate(periodEnd - DAY), true);
+      } else if (scheduled) {
+        if (plan) html += line(t("contractPlan"), plan, true);
+        if (c.subscription_started_at)
+          html += line(
+            t("contractApplied"),
+            contractDate(c.subscription_started_at),
+          );
+        html += line(t("contractFirstCharge"), firstCharge, true);
       } else if (finalAt != null) {
         html += line(t("contractTrialFinal"), contractDate(finalAt), true);
         html += line(t("contractPaidFrom"), paidFrom);
@@ -1259,7 +1286,7 @@ async function settings() {
       };
       if (c.subscription === "active") {
         actions.append(link(t("contractCancel"), false));
-      } else if (c.subscription === "cancelled") {
+      } else if (c.subscription === "cancelled" || scheduled) {
         actions.append(link(t("contractOpenPage"), false));
       } else {
         const lead = document.createElement("div");

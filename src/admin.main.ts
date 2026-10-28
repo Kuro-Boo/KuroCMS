@@ -1170,6 +1170,11 @@ const i18n = {
     contractBadgeTrial: "Free period · {n} days left",
     contractBadgeEnded: "Free period ended · read-only",
     contractBadgeNone: "No contract",
+    contractBadgeScheduled: "Subscribed · paid from {date}",
+    contractScheduledNote:
+      "You have subscribed to managed hosting. The first payment is made when the free period ends ({date}), and you can keep using the site without interruption. To cancel or check payments, use the Entamy contract page.",
+    contractApplied: "Subscribed on",
+    contractFirstCharge: "First payment",
     contractSelfNote:
       "Self-hosting is free and needs no contract. If you move to Entamy managed hosting, it becomes paid (prices on the right).",
     contractBarUntil: "until {date}",
@@ -2630,6 +2635,11 @@ const i18n = {
     contractBadgeTrial: "無料期間中・残り {n} 日",
     contractBadgeEnded: "無料期間終了・読み取りだけ",
     contractBadgeNone: "契約なし",
+    contractBadgeScheduled: "申し込み済み・{date} から有料",
+    contractScheduledNote:
+      "委託契約を申し込み済みです。無料期間が終わる {date} に最初のお支払いをし、そのまま使い続けられます。解約や支払いの確認は、Entamy の契約の頁で行います。",
+    contractApplied: "申し込んだ日",
+    contractFirstCharge: "最初のお支払い",
     contractSelfNote:
       "顧客導入は無料で、契約は要りません。Entamy の委託運用へ引っ越すと有料になります（料金は右）。",
     contractBarUntil: "{date} まで",
