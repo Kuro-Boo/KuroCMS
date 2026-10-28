@@ -1148,6 +1148,9 @@ async function settings() {
       // 無料期間中の申し込み(課題 35853010)。権利はまだ無いが、無料期間の終わりに最初のお支払いをして
       // そのまま契約になる。日付は subscription_period_end(最初の請求日)。読み取りだけ・消す日にはならない。
       const scheduled = c.subscription === "scheduled";
+      // 前の契約から引き継いだ期間(entamy_id-id-s20 3.1節)。使えるのは subscription_until まで。
+      // subscription_period_end と subscription_period は予約した次の契約の最初の請求日と周期(予約が無ければ null)。
+      const inherited = c.subscription === "inherited";
       const plan =
         c.subscription_period === "year"
           ? t("contractPlanYear")
@@ -1158,9 +1161,17 @@ async function settings() {
       // 無料期間の終わりは「その日の終わり(UTC)」。有料はその次の日から。
       const paidFrom = finalAt != null ? contractDate(finalAt + 60_000) : "—";
       const inTrial =
-        !subscribed && !scheduled && finalAt != null && r.now <= finalAt;
+        !subscribed &&
+        !scheduled &&
+        !inherited &&
+        finalAt != null &&
+        r.now <= finalAt;
       const ended =
-        !subscribed && !scheduled && finalAt != null && r.now > finalAt;
+        !subscribed &&
+        !scheduled &&
+        !inherited &&
+        finalAt != null &&
+        r.now > finalAt;
       const firstCharge =
         periodEnd != null ? contractDate(periodEnd) : paidFrom;
       if (c.subscription === "active")
@@ -1186,6 +1197,16 @@ async function settings() {
           t("contractBadgeScheduled").replace("{date}", firstCharge),
           "",
         );
+      else if (inherited)
+        setBadge(
+          t("contractBadgeInherited").replace(
+            "{date}",
+            contractDate(
+              c.subscription_until != null ? c.subscription_until - DAY : null,
+            ),
+          ),
+          periodEnd != null ? "" : "warn",
+        );
       else if (inTrial)
         setBadge(
           t("contractBadgeTrial").replace(
@@ -1198,7 +1219,7 @@ async function settings() {
       else setBadge(t("contractBadgeNone"), "danger");
 
       // 無料期間の棒(契約が無い間)。左端は無料期間を始めた日、右端は最後の無料期間の終わり。
-      if (!subscribed && finalAt != null) {
+      if (!subscribed && !inherited && finalAt != null) {
         const start: number = c.trial_started_at ?? c.contract_at;
         const span = Math.max(1, finalAt - start);
         const pct = Math.min(100, Math.max(0, ((r.now - start) / span) * 100));
@@ -1269,6 +1290,17 @@ async function settings() {
             contractDate(c.subscription_started_at),
           );
         html += line(t("contractFirstCharge"), firstCharge, true);
+      } else if (inherited) {
+        if (c.subscription_until != null)
+          html += line(
+            t("contractInheritedUntil"),
+            contractDate(c.subscription_until - DAY),
+            true,
+          );
+        if (periodEnd != null) {
+          if (plan) html += line(t("contractNextPlan"), plan);
+          html += line(t("contractFirstCharge"), firstCharge, true);
+        }
       } else if (finalAt != null) {
         html += line(t("contractTrialFinal"), contractDate(finalAt), true);
         html += line(t("contractPaidFrom"), paidFrom);
@@ -1286,8 +1318,24 @@ async function settings() {
       };
       if (c.subscription === "active") {
         actions.append(link(t("contractCancel"), false));
-      } else if (c.subscription === "cancelled" || scheduled) {
+      } else if (
+        c.subscription === "cancelled" ||
+        scheduled ||
+        (inherited && periodEnd != null)
+      ) {
         actions.append(link(t("contractOpenPage"), false));
+      } else if (inherited) {
+        // 引き継いだ期間だけで、次の契約の予約が無い: 期間の後も使うには申し込みが要る。
+        const lead = document.createElement("div");
+        lead.className = "muted";
+        lead.style.cssText = "flex-basis:100%;font-size:13px;line-height:1.7";
+        lead.textContent = t("contractInheritedApplyLead").replace(
+          "{date}",
+          contractDate(
+            c.subscription_until != null ? c.subscription_until - DAY : null,
+          ),
+        );
+        actions.append(lead, link(t("contractApply"), true));
       } else {
         const lead = document.createElement("div");
         lead.className = "muted";

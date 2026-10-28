@@ -1175,6 +1175,12 @@ const i18n = {
       "You have subscribed to managed hosting. The first payment is made when the free period ends ({date}), and you can keep using the site without interruption. To cancel or check payments, use the Entamy contract page.",
     contractApplied: "Subscribed on",
     contractFirstCharge: "First payment",
+    contractBadgeInherited:
+      "Inherited from the previous contract · until {date}",
+    contractInheritedUntil: "Inherited period ends",
+    contractNextPlan: "Your next contract",
+    contractInheritedApplyLead:
+      "This site uses the period paid under the previous owner's contract. To keep using it after {date}, please subscribe.",
     contractSelfNote:
       "Self-hosting is free and needs no contract. If you move to Entamy managed hosting, it becomes paid (prices on the right).",
     contractBarUntil: "until {date}",
@@ -2640,6 +2646,11 @@ const i18n = {
       "委託契約を申し込み済みです。無料期間が終わる {date} に最初のお支払いをし、そのまま使い続けられます。解約や支払いの確認は、Entamy の契約の頁で行います。",
     contractApplied: "申し込んだ日",
     contractFirstCharge: "最初のお支払い",
+    contractBadgeInherited: "前の契約から引き継いだ期間・{date} まで",
+    contractInheritedUntil: "引き継いだ期間の終わり",
+    contractNextPlan: "次の契約",
+    contractInheritedApplyLead:
+      "前の持ち主の契約で払われた期間を使っています。{date} の後も使うには、契約のお申し込みが要ります。",
     contractSelfNote:
       "顧客導入は無料で、契約は要りません。Entamy の委託運用へ引っ越すと有料になります（料金は右）。",
     contractBarUntil: "{date} まで",
