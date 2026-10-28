@@ -109,6 +109,7 @@ import {
   requireString,
   optionalString,
 } from "./http";
+import { adminPasskeyRpName } from "./passkey-name";
 import { isKuroCmsHtmlTemplate } from "./templates/html-template";
 import {
   chooseTemplateSourceOrigin,
@@ -2655,11 +2656,15 @@ async function passkeyRegisterBegin(
 
   const rpId = new URL(request.url).hostname;
   const userIdForResponse = resolvedUid ?? "pending";
+  // Entamy ID のパスキー(「Entamy ID(契約者)」)と見分けがつく名前(passkey-name.ts)。
+  const site = await env.DB.prepare(
+    "SELECT site_name FROM site_settings WHERE id = 1",
+  ).first<{ site_name: string | null }>();
 
   return json({
     challengeId,
     challenge,
-    rp: { id: rpId, name: "KuroCMS" },
+    rp: { id: rpId, name: adminPasskeyRpName(site?.site_name) },
     user: {
       id: userIdForResponse,
       name: userEmail,

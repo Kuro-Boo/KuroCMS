@@ -816,6 +816,11 @@ const i18n = {
       "Open this page from the link shown when the site was installed (valid for 7 days). Without it, the first administrator cannot be created.",
     setupLead:
       "Create the first administrator. You sign in with a passkey (fingerprint or face recognition) — there is no password.",
+    setupPasskeyNext:
+      'Next, you will create the passkey for signing in to this site\'s admin. The window that opens next shows it as "{name}".',
+    setupPasskeyTwo:
+      'It is separate from the "Entamy ID（契約者）" passkey you created during installation. Use this passkey to write articles and change settings. Applying for or cancelling the contract and changing the owner\'s address are important steps, so they are confirmed with your Entamy ID passkey in a separate window.',
+    setupPasskeyGo: "Continue and create the passkey",
     administrator: "Administrator",
     adminEmail: "Admin Email",
     completeSetup: "Complete Setup",
@@ -2213,6 +2218,11 @@ const i18n = {
       "導入の完了画面に出たリンク（7 日以内）からこの画面を開いてください。リンクが無いと、最初の管理者を作れません。",
     setupLead:
       "最初の管理者を作成します。ログインはパスキー（指紋や顔認証）で行い、パスワードはありません。",
+    setupPasskeyNext:
+      "次に、このサイトの管理画面に入るためのパスキーを作ります。このあと出る窓には「{name}」と表示されます。",
+    setupPasskeyTwo:
+      "導入のときに作った「Entamy ID（契約者）」のパスキーとは別のものです。記事を書く・設定を変えるときは、こちらのパスキーを使います。契約の申し込み・解約・持ち主のアドレスの変更は大事な手続きなので、別の窓で Entamy ID のパスキーで確かめます。",
+    setupPasskeyGo: "確認して、パスキーを作る",
     administrator: "管理者",
     adminEmail: "管理者メール",
     completeSetup: "初期設定を完了",

@@ -409,6 +409,8 @@ async function setupScreen(status: Dynamic, preserve: { email?: string } = {}) {
     adminBlock.hidden = false;
     email.setAttribute("required", "");
   };
+  // 導入口で入れた導入(持ち主が Entamy ID のパスキーを作り済み)。パスキーを作る前に、2 つ目である理由を言う。
+  let fromInstaller = false;
   if (setupLinkToken) {
     submit.disabled = true;
     try {
@@ -417,6 +419,7 @@ async function setupScreen(status: Dynamic, preserve: { email?: string } = {}) {
         body: JSON.stringify({ setupToken: setupLinkToken }),
       })) as { email?: string | null };
       if (!owner?.email) askEmail();
+      else fromInstaller = true;
     } catch {
       askEmail();
     } finally {
@@ -459,43 +462,70 @@ async function setupScreen(status: Dynamic, preserve: { email?: string } = {}) {
         }),
       });
       submitBtn.textContent = t("registeringPasskey");
-      const beginData = await api("/api/auth/passkey/register/begin", {
-        method: "POST",
-        body: JSON.stringify({ setupToken: setupLinkToken }),
+      const beginPasskey = () =>
+        api("/api/auth/passkey/register/begin", {
+          method: "POST",
+          body: JSON.stringify({ setupToken: setupLinkToken }),
+        });
+      let beginData = await beginPasskey();
+      // OS のパスキーの窓を出す前に、何を作るかを言い、押させる(cms-cms-auth「パスキーの名前」)。
+      // 窓はこの押下の直後に出す —— 待ちを挟むと、押した直後と見なさずに断るブラウザがある。
+      byId("setupForm")!.outerHTML =
+        "<div class='stack panel' id='setupPasskeyConfirm'><p>" +
+        escapeHtml(
+          t("setupPasskeyNext").replace("{name}", String(beginData.rp.name)),
+        ) +
+        "</p>" +
+        (fromInstaller
+          ? "<p>" + escapeHtml(t("setupPasskeyTwo")) + "</p>"
+          : "") +
+        "<div class='toolbar'><button id='setupPasskeyGo' type='button'>" +
+        escapeHtml(t("setupPasskeyGo")) +
+        "</button></div></div>";
+      const go = byId("setupPasskeyGo")!;
+      go.addEventListener("click", async () => {
+        go.disabled = true;
+        try {
+          const credential = await navigator.credentials.create({
+            publicKey: {
+              challenge: b64uDecode(beginData.challenge),
+              rp: beginData.rp,
+              user: {
+                id: b64uDecode(beginData.user.id),
+                name: beginData.user.name,
+                displayName: beginData.user.displayName,
+              },
+              pubKeyCredParams: beginData.pubKeyCredParams,
+              timeout: beginData.timeout,
+              attestation: beginData.attestation,
+              authenticatorSelection: beginData.authenticatorSelection,
+            },
+          });
+          await api("/api/auth/passkey/register/complete", {
+            method: "POST",
+            body: JSON.stringify({
+              challengeId: beginData.challengeId,
+              credential: serializeCredentialForRegistration(
+                credential as PublicKeyCredential,
+              ),
+              setupToken: setupLinkToken,
+            }),
+          });
+          await registerSiblingNetwork();
+          try {
+            sessionStorage.removeItem("kurocms-setup-token");
+          } catch {
+            /* 使えなくてもよい(鍵はもう使い切った) */
+          }
+          history.pushState(null, "", adminHref("") + "/");
+          render();
+        } catch (err) {
+          toast(errorMessage(err) || t("apiFailed"), true);
+          // 押し直せるように、使った challenge を取り替えておく(1 回きり)。
+          beginData = await beginPasskey().catch(() => beginData);
+          go.disabled = false;
+        }
       });
-      const credential = await navigator.credentials.create({
-        publicKey: {
-          challenge: b64uDecode(beginData.challenge),
-          rp: beginData.rp,
-          user: {
-            id: b64uDecode(beginData.user.id),
-            name: beginData.user.name,
-            displayName: beginData.user.displayName,
-          },
-          pubKeyCredParams: beginData.pubKeyCredParams,
-          timeout: beginData.timeout,
-          attestation: beginData.attestation,
-          authenticatorSelection: beginData.authenticatorSelection,
-        },
-      });
-      await api("/api/auth/passkey/register/complete", {
-        method: "POST",
-        body: JSON.stringify({
-          challengeId: beginData.challengeId,
-          credential: serializeCredentialForRegistration(
-            credential as PublicKeyCredential,
-          ),
-          setupToken: setupLinkToken,
-        }),
-      });
-      await registerSiblingNetwork();
-      try {
-        sessionStorage.removeItem("kurocms-setup-token");
-      } catch {
-        /* 使えなくてもよい(鍵はもう使い切った) */
-      }
-      history.pushState(null, "", adminHref("") + "/");
-      render();
     } catch (err) {
       submitBtn.disabled = false;
       submitBtn.textContent = originalText;
