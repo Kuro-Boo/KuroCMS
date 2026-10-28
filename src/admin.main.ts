@@ -819,7 +819,7 @@ const i18n = {
     setupPasskeyNext:
       'Next, you will create the passkey for signing in to this site\'s admin. The window that opens next shows it as "{name}".',
     setupPasskeyTwo:
-      'It is separate from the "Entamy ID（KuroCMS 契約）" passkey you created during installation. Use this passkey to write articles and change settings. Applying for or cancelling the contract and changing the owner\'s address are important steps, so they are confirmed with your Entamy ID passkey in a separate window.',
+      'It is separate from the "Entamy ID（KuroCMS契約）" passkey you created during installation. Use this passkey to write articles and change settings. Applying for or cancelling the contract and changing the owner\'s address are important steps, so they are confirmed with your Entamy ID passkey in a separate window.',
     setupPasskeyGo: "Continue and create the passkey",
     administrator: "Administrator",
     adminEmail: "Admin Email",
@@ -2221,7 +2221,7 @@ const i18n = {
     setupPasskeyNext:
       "次に、このサイトの管理画面に入るためのパスキーを作ります。このあと出る窓には「{name}」と表示されます。",
     setupPasskeyTwo:
-      "導入のときに作った「Entamy ID（KuroCMS 契約）」のパスキーとは別のものです。記事を書く・設定を変えるときは、こちらのパスキーを使います。契約の申し込み・解約・持ち主のアドレスの変更は大事な手続きなので、別の窓で Entamy ID のパスキーで確かめます。",
+      "導入のときに作った「Entamy ID（KuroCMS契約）」のパスキーとは別のものです。記事を書く・設定を変えるときは、こちらのパスキーを使います。契約の申し込み・解約・持ち主のアドレスの変更は大事な手続きなので、別の窓で Entamy ID のパスキーで確かめます。",
     setupPasskeyGo: "確認して、パスキーを作る",
     administrator: "管理者",
     adminEmail: "管理者メール",
