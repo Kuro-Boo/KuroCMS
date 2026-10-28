@@ -47,8 +47,8 @@ let ownDomainWatch: {
   /** いま保存されている公開ドメイン。 */
   savedHost: string;
   domain: OwnDomain | null;
-  /** 保存したあとに枠を描き直す(5 段目を済みにする)。 */
-  onSaved: (host: string) => void;
+  /** 保存したあとに枠を描き直す(5 段目を済みにする)。値は欄に入っていたまま。 */
+  onSaved: (value: string) => void;
 } | null = null;
 
 /**
@@ -70,7 +70,7 @@ function ownDomainSaveBlocked(value: string): boolean {
 
 /** 設定を保存したあとに呼ぶ(保存した公開ドメインを覚え、枠を描き直す)。 */
 function ownDomainSaved(value: string): void {
-  ownDomainWatch?.onSaved(hostOfDomainInput(value));
+  ownDomainWatch?.onSaved(value);
 }
 
 function ownDomainPanelHtml(): string {
@@ -111,6 +111,7 @@ async function mountOwnDomain(
   panel.style.display = "";
   // 向け先は導入口が返す。準備する前は、委託のアドレス({導入ID}.kurocms.site)のホスト名を出す。
   const fallbackTarget = hostOfDomainInput(defaultDomain);
+  let savedValue = savedDomain;
   let savedHost = hostOfDomainInput(savedDomain);
   let dns: "cloudflare" | "other" = "cloudflare";
   let domain: OwnDomain | null = null;
@@ -120,8 +121,9 @@ async function mountOwnDomain(
       fallbackHost: fallbackTarget,
       savedHost,
       domain,
-      onSaved: (host) => {
-        savedHost = host;
+      onSaved: (value) => {
+        savedValue = value;
+        savedHost = hostOfDomainInput(value);
         render();
       },
     };
@@ -162,6 +164,36 @@ async function mountOwnDomain(
     );
   }
 
+  /** 欄に入れるときの形(上の公開ドメインの欄と同じ https://…/)。 */
+  const asUrl = (host: string) => "https://" + host + "/";
+
+  /**
+   * 上の公開ドメインの欄と「サイト設定を保存」を、準備したドメインに合わせる(2026-10-29 利用者の指示)。
+   * 準備した後は欄をそのドメインで読み取りだけにし、保存は 5 段目(有効になって、まだ保存していない)の
+   * 間だけ押せる。取り消すと元に戻す —— 欄が 2 つの値を持たないように。
+   */
+  function syncField(locked: boolean, saveOpen: boolean) {
+    const input = byId("publicDomain") as HTMLInputElement | null;
+    const save = byId("saveSiteBtn") as HTMLButtonElement | null;
+    const reset = byId("resetPublicDomainBtn");
+    const help = byId("publicDomainHelpText");
+    if (!input) return;
+    const want = locked && domain ? asUrl(domain.hostname) : null;
+    if (want !== null && input.value !== want) {
+      input.value = want;
+      input.dispatchEvent(new Event("input"));
+    }
+    input.readOnly = locked;
+    if (save) save.disabled = locked && !saveOpen;
+    // 既定値に戻すのボタンは、戻す先が分かるとき(settings.ts が data-available を付ける)だけ出す。
+    if (reset)
+      reset.style.display = !locked && reset.dataset.available ? "" : "none";
+    if (help)
+      help.textContent = locked
+        ? t("publicDomainLockedHelp").replace("{url}", asUrl(fallbackTarget))
+        : t("publicDomainManagedHelp");
+  }
+
   function render() {
     watch();
     const target = domain?.target || fallbackTarget;
@@ -175,6 +207,7 @@ async function mountOwnDomain(
     // どの段が済んだか。最初の済んでいない段が「今ここ」。
     const done = [!!d, certOk, switched, hostOk, pubOk];
     const cur = done.indexOf(false);
+    syncField(!!d, cur === 4);
     const st = (k: number) =>
       done[k] ? "done" : k === cur ? "current" : "todo";
     const purpose: Record<string, string> = {
@@ -189,7 +222,7 @@ async function mountOwnDomain(
     // 1. ドメイン名
     const step1 = d
       ? "<div style='display:flex;flex-wrap:wrap;align-items:center;gap:10px'><b style='font-size:15px'>" +
-        escapeHtml(d.hostname) +
+        escapeHtml(asUrl(d.hostname)) +
         "</b><button type='button' class='secondary' id='ownDomainRemoveBtn' style='font-size:12px;padding:4px 10px'>" +
         escapeHtml(t("ownDomainRemove")) +
         "</button></div>"
@@ -334,8 +367,25 @@ async function mountOwnDomain(
       const res = (await api("/api/system/site-domain", {
         method: "POST",
         body: JSON.stringify({ action, ...(hostname ? { hostname } : {}) }),
-      })) as { domain: OwnDomain | null };
+      })) as { domain: OwnDomain | null; publicDomain?: string };
       domain = res.domain;
+      if (action === "remove") {
+        // 取り消したドメインが公開ドメインなら、サーバーが既定へ戻している。欄は保存した値へ戻す。
+        if (res.publicDomain) {
+          savedValue = res.publicDomain;
+          savedHost = hostOfDomainInput(res.publicDomain);
+          toast(
+            t("ownDomainRemovedReset").replace("{url}", res.publicDomain),
+            false,
+            btn || undefined,
+          );
+        }
+        const input = byId("publicDomain") as HTMLInputElement | null;
+        if (input) {
+          input.value = savedValue;
+          input.dispatchEvent(new Event("input"));
+        }
+      }
       render();
     } catch (error) {
       toast(errorMessage(error), true, btn || undefined);
