@@ -992,13 +992,41 @@ async function handleApiDispatch(
         // 公開のアドレスを動かすので、画面でログインした人だけ(漏れた PAT で動かさない)。
         requireInteractiveUser(user);
         const body = await readJson(request);
-        return json(
-          (await siteDomain(
-            env,
-            String(body.action ?? ""),
-            typeof body.hostname === "string" ? body.hostname : undefined,
-          )) as unknown as JsonValue,
+        const action = String(body.action ?? "");
+        // 取り消すドメインが公開ドメインなら、同じ操作で既定(委託のアドレス)へ戻す。戻さないと、
+        // 全ページのリンクがもう表示されないドメインを指したまま残る(2026-10-29 利用者の指摘)。
+        const removing =
+          action === "remove"
+            ? ((
+                (await siteDomain(env, "status")).domain as {
+                  hostname?: string;
+                } | null
+              )?.hostname ?? "")
+            : "";
+        const res = await siteDomain(
+          env,
+          action,
+          typeof body.hostname === "string" ? body.hostname : undefined,
         );
+        if (!removing) return json(res as unknown as JsonValue);
+        const saved = await env.DB.prepare(
+          "SELECT public_domain FROM site_settings WHERE id = 1",
+        ).first<{ public_domain: string | null }>();
+        const fallback = defaultPublicDomain(request, env);
+        if (
+          !fallback ||
+          hostOfDomain(saved?.public_domain ?? "") !== removing.toLowerCase()
+        )
+          return json(res as unknown as JsonValue);
+        await saveSettings(env, { public_domain: fallback });
+        await logActivity(env, user, "settings.update", "settings", "site", {
+          publicDomain: fallback,
+          reason: "own_domain_removed",
+        });
+        return json({
+          ...res,
+          publicDomain: fallback,
+        } as unknown as JsonValue);
       }
       throw new HttpError(405, "method_not_allowed", "Method not allowed.");
     }

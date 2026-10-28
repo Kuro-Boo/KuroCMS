@@ -245,7 +245,7 @@ async function settings() {
       "<div class='muted' style='font-size:12px'>" +
       escapeHtml(t("publicDomainLinksNote")) +
       "</div>" +
-      "<button>" +
+      "<button id='saveSiteBtn'>" +
       escapeHtml(t("saveSiteSettings")) +
       "</button>" +
       "</form>" +
@@ -1647,6 +1647,7 @@ async function settings() {
     const defaultPublicDomain = String(s.defaultPublicDomain || "");
     if (resetBtn && defaultPublicDomain) {
       resetBtn.style.display = "";
+      resetBtn.dataset.available = "1";
       resetBtn.addEventListener("click", (e: Dynamic) => {
         publicDomainInput.value = defaultPublicDomain;
         syncPublicDomainOpenButton();

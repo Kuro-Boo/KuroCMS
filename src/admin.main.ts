@@ -1361,7 +1361,9 @@ const i18n = {
     ownDomainSwitch: "Switch domain",
     ownDomainRemove: "Cancel this domain",
     ownDomainRemoveConfirm:
-      "Remove this domain from KuroCMS? If the CNAME already points here, the domain will stop showing your site.",
+      "Remove this domain from KuroCMS? If the CNAME already points here, the domain will stop showing your site. If it is your public domain, it goes back to the default address; build all pages afterwards.",
+    ownDomainRemovedReset:
+      "Removed the domain and set the public domain back to the default ({url}). Build all pages.",
     ownDomainColState: "Status",
     ownDomainRecDone: "Done",
     ownDomainRecTodo: "Not yet",
@@ -1386,6 +1388,8 @@ const i18n = {
       "Entamy cannot change the domain settings right now. Please contact Entamy.",
     err_domain_failed:
       "Could not change the domain settings. Please try again later.",
+    publicDomainLockedHelp:
+      'This is the domain you prepared below, so it cannot be edited here. To use another address, press "Cancel this domain" below. Cancelling sets the public domain back to the default address ({url}) automatically.',
     publicDomainManagedHelp:
       'The address used for links in your public pages. By default it is your Entamy hosting address (installation-id.kurocms.site). To publish under your own domain, enter it here and press "Prepare" below. Save it once it is active.',
     r2SetupDashboard: "Open R2 in Cloudflare",
@@ -2837,7 +2841,9 @@ const i18n = {
     ownDomainSwitch: "ドメインを切り替える",
     ownDomainRemove: "取り消す",
     ownDomainRemoveConfirm:
-      "このドメインを KuroCMS から外しますか？ すでに CNAME をこちらへ向けている場合、そのドメインではサイトが表示されなくなります。",
+      "このドメインを KuroCMS から外しますか？ すでに CNAME をこちらへ向けている場合、そのドメインではサイトが表示されなくなります。公開ドメインがこのドメインなら既定のアドレスに戻るので、そのあと全ページをビルドしてください。",
+    ownDomainRemovedReset:
+      "ドメインを取り消し、公開ドメインを既定（{url}）に戻しました。全ページをビルドしてください。",
     ownDomainColState: "状態",
     ownDomainRecDone: "済み",
     ownDomainRecTodo: "まだ",
@@ -2863,6 +2869,8 @@ const i18n = {
       "いま Entamy がドメインの設定を変えられません。Entamy にお問い合わせください。",
     err_domain_failed:
       "ドメインの設定を変えられませんでした。しばらくしてから、もう一度押してください。",
+    publicDomainLockedHelp:
+      "下の手順で準備したドメインです。ここでは変えられません。別のアドレスにするときは、下の「取り消す」を押してください。取り消すと、公開ドメインは自動で既定のアドレス（{url}）に戻ります。",
     publicDomainManagedHelp:
       "公開ページのリンクに使うアドレスです。既定は委託のアドレス（導入 ID.kurocms.site）です。自分のドメインで公開するときは、ここにドメイン名を入れて、下の「準備する」を押してください。保存するのは有効になってからです。",
     r2SetupDashboard: "Cloudflare で R2 を確認",
