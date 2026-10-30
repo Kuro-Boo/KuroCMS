@@ -1,4 +1,5 @@
 import { catalogPrices, regionOf } from "./contract-prices.ts";
+import { siteDeletePreview } from "./site-delete.ts";
 import {
   SESSION_COOKIE,
   bootstrapAdmin,
@@ -705,6 +706,12 @@ async function handleApiDispatch(
         "contract_required",
         "The free period has ended. Until you subscribe, the site is read-only (you can still read, back up, and move to your own Cloudflare).",
       );
+    }
+
+    // サイトの削除の確認(消えるものの件数)。見せるだけで、消すのは導入口(site-delete.ts)。管理者だけ。
+    if (request.method === "GET" && path === "/api/system/site-delete") {
+      requireAdmin(user);
+      return json((await siteDeletePreview(env)) as unknown as JsonValue);
     }
 
     if (request.method === "GET" && path === "/api/system/storage") {

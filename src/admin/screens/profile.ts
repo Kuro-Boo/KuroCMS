@@ -190,6 +190,25 @@ async function profile() {
       escapeHtml(t("myNetworksLead")) +
       "</p><div id='networkList' class='tokenList'></div></div></div>",
   );
+  // サイトの削除(管理者だけ)。知らせの「このサイトを削除する」と同じ確認の窓を開く(site-delete.ts)。
+  if (state.isAdmin) {
+    const panel = document.createElement("div");
+    panel.className = "panel stack";
+    const h = document.createElement("h3");
+    h.textContent = t("siteDeleteTitle");
+    const lead = document.createElement("p");
+    lead.className = "muted";
+    lead.style.margin = "-4px 0 2px";
+    lead.textContent = t("siteDeleteProfileLead");
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "danger";
+    b.textContent = t("siteDeleteOpen");
+    b.style.alignSelf = "flex-start";
+    b.onclick = () => void siteDeleteDialog();
+    panel.append(h, lead, b);
+    document.getElementById("panel-account")?.appendChild(panel);
+  }
   document.querySelectorAll<AdminElement>(".settingsTab").forEach((btn) => {
     btn.addEventListener("click", () => {
       const id = btn.dataset.tab;

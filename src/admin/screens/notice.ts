@@ -93,6 +93,9 @@ async function noticeAnswer(n: NoticeItemView, answer: string) {
     location.href = adminHref("/settings") + "?tab=hosting";
     return;
   }
+  // 公開中のページ(このサイトの頭)を別タブで。削除はプロフィールと同じ確認の窓(site-delete.ts)。
+  if (answer === "view_site") noticeOpenUrl(location.origin + "/");
+  if (answer === "delete_site") void siteDeleteDialog();
   void loadNotices();
 }
 

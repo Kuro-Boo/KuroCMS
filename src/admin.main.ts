@@ -717,6 +717,25 @@ const i18n = {
     noticeSectionOther: "From Entamy apps",
     noticeAck: "Got it",
     noticeLater: "Read later",
+    siteDeleteTitle: "Delete this site",
+    siteDeleteLead: "Deleting removes everything below. It cannot be undone.",
+    siteDeleteDocuments: "Articles: {n}",
+    siteDeleteMedia: "Media: {n} ({size})",
+    siteDeleteUsers: "Users: {n}",
+    siteDeleteCategories: "Categories: {n}",
+    siteDeleteSettings: "Settings, templates, fonts and build history",
+    siteDeleteAddress: "The address {host} (and any custom domain)",
+    siteDeleteHow:
+      "Deletion is done on the Entamy subscription page. Sign in with the site owner's Entamy ID and type the site identifier to delete it.",
+    siteDeleteGo: "Sign in with Entamy ID to delete",
+    siteDeleteContract:
+      "This site has a subscription, so it cannot be deleted. Cancel it on the subscription page first.",
+    siteDeleteSelf:
+      "This site runs on your own Cloudflare account. Delete it from Entamy's site management page.",
+    siteDeleteOpenManage: "Open site management",
+    siteDeleteProfileLead:
+      "Delete this site with its articles, media, settings and address. Only the site owner can delete it, after signing in with Entamy ID.",
+    siteDeleteOpen: "Delete this site…",
     noticeTabAlert: "Urgent",
     noticeDetail: "Details",
     noticeTabInfo: "Notices",
@@ -2206,6 +2225,25 @@ const i18n = {
     noticeSectionOther: "Entamy の製品から",
     noticeAck: "確認した",
     noticeLater: "あとで読む",
+    siteDeleteTitle: "このサイトを削除する",
+    siteDeleteLead: "削除すると、次のものがすべて消えます。元に戻せません。",
+    siteDeleteDocuments: "記事 {n} 件",
+    siteDeleteMedia: "メディア {n} 件（{size}）",
+    siteDeleteUsers: "利用者 {n} 人",
+    siteDeleteCategories: "カテゴリ {n} 件",
+    siteDeleteSettings: "設定・テンプレート・フォント・ビルドの記録",
+    siteDeleteAddress: "アドレス {host}（独自ドメインを結んでいればそれも）",
+    siteDeleteHow:
+      "削除は Entamy の契約の頁で行います。サイトの持ち主の Entamy ID でログインし、サイトの識別名を入れると消せます。",
+    siteDeleteGo: "Entamy ID でログインして削除する",
+    siteDeleteContract:
+      "契約があるため削除できません。先に契約の頁で解約してください。",
+    siteDeleteSelf:
+      "このサイトはご自身の Cloudflare アカウントで動いています。Entamy の「サイト管理」から削除してください。",
+    siteDeleteOpenManage: "サイト管理を開く",
+    siteDeleteProfileLead:
+      "記事・メディア・設定・アドレスごと、このサイトを削除します。削除できるのは、Entamy ID でログインしたサイトの持ち主だけです。",
+    siteDeleteOpen: "サイトの削除…",
     noticeTabAlert: "緊急の連絡",
     noticeDetail: "詳細",
     noticeTabInfo: "お知らせ",
