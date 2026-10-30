@@ -261,6 +261,31 @@ export interface LegalDocumentView {
  * 何に同意したのかが記録できず、同意そのものが無意味になる。
  * 管理画面の障害で CMS が使えなくなるのも困る。
  */
+/** 設定の「規約とポリシー」の1行。並べる文書は基盤の目録が決める(共有ライブラリーの fetchIndex)。 */
+export interface LegalLinkView {
+  docType: string;
+  label: string;
+  url: string | null;
+  kind: string;
+}
+
+/**
+ * 設定に並べる規約とポリシー(2026-10-30・KuroNote などの設定と同じ中身)。**取り方は共有ライブラリー**
+ * (EntamyLegal.fetchIndex)が持つ —— CDN の置き場・控え・取れないときの扱いを、ここに書かない。
+ */
+export async function legalLinks(
+  env: Env,
+  lang = "ja",
+): Promise<LegalLinkView[]> {
+  const port = await entamyPort(env);
+  return (await port.legal.fetchIndex(lang)).map((x) => ({
+    docType: x.docType,
+    label: x.label,
+    url: x.url ?? null,
+    kind: x.kind,
+  }));
+}
+
 export async function legalState(env: Env, lang = "ja"): Promise<LegalState> {
   const port = await entamyPort(env);
   // 試験対象に指定された導入先だけが同意を求められるよう、口座番号を添える

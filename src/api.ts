@@ -252,6 +252,7 @@ interface ManagedLanguageRow {
 
 import {
   installIdentity,
+  legalLinks,
   legalState,
   noticeAck,
   noticeAnswer,
@@ -801,6 +802,15 @@ async function handleApiDispatch(
           noticeTz,
         )) as unknown as JsonValue,
       );
+    }
+
+    // 設定の「規約とポリシー」(並べる文書は基盤の目録・共有ライブラリーの fetchIndex)。
+    if (request.method === "GET" && path === "/api/system/legal/links") {
+      requireAdmin(user);
+      const lang = new URL(request.url).searchParams.get("lang") ?? "ja";
+      return json({
+        items: await legalLinks(env, lang),
+      } as unknown as JsonValue);
     }
 
     // 規約の同意状態。**認証必須**（誰が同意したかを問う画面で使う）。

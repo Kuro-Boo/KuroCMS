@@ -957,6 +957,7 @@ const i18n = {
     legalPrivacy: "Privacy Policy",
     legalTokushoho: "Legal notice (Specified Commercial Transactions Act)",
     legalGdpr: "GDPR addendum",
+    legalSubprocessors: "List of subprocessors",
     legalDocVersion: "Version {version}",
     legalTranslationNote:
       "This is a reference translation. The authoritative text is in {lang}.",
@@ -1138,6 +1139,11 @@ const i18n = {
     settingsTabImport: "Import",
     settingsTabIpGate: "IP restriction",
     settingsTabRegion: "Region",
+    settingsTabLegal: "Terms",
+    legalLinksTitle: "KuroCMS terms and policies",
+    legalLinksHelp:
+      "The Entamy terms that apply to using KuroCMS. Each opens in a new tab.",
+    legalLinksEmpty: "The list could not be loaded.",
     contractAt: "Hosting started",
     contractPlan: "Billing",
     contractPlanMonth: "Monthly",
@@ -2369,6 +2375,7 @@ const i18n = {
     legalPrivacy: "プライバシーポリシー",
     legalTokushoho: "特定商取引法に基づく表記",
     legalGdpr: "GDPR 追補",
+    legalSubprocessors: "サブプロセッサー一覧",
     legalDocVersion: "版 {version}",
     legalTranslationNote: "この表示は参考訳です。正文は {lang} です。",
     legalCheckAll: "すべてにチェック",
@@ -2622,6 +2629,11 @@ const i18n = {
     settingsTabImport: "インポート",
     settingsTabIpGate: "IP 制限",
     settingsTabRegion: "稼働地域",
+    settingsTabLegal: "規約",
+    legalLinksTitle: "KuroCMS の規約とポリシー",
+    legalLinksHelp:
+      "KuroCMS を使うにあたって適用される Entamy の規約です。押すと別のタブで開きます。",
+    legalLinksEmpty: "一覧を取得できませんでした。",
     contractAt: "委託を始めた日",
     contractPlan: "払い方",
     contractPlanMonth: "月払い",
@@ -5576,6 +5588,7 @@ function legalDocTitle(docType: string): string {
       privacy: "legalPrivacy",
       tokushoho: "legalTokushoho",
       gdpr: "legalGdpr",
+      subprocessors: "legalSubprocessors",
     } as Record<string, string>
   )[docType];
   return key ? t(key) : docType;

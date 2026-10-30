@@ -179,6 +179,7 @@ async function settings() {
     "import",
     "ipgate",
     "region",
+    "legal",
   ]
     .map((id) => {
       const labels: Record<string, string> = {
@@ -192,6 +193,7 @@ async function settings() {
         import: t("settingsTabImport"),
         ipgate: t("settingsTabIpGate"),
         region: t("settingsTabRegion"),
+        legal: t("settingsTabLegal"),
       };
       return (
         "<button type='button' class='settingsTab" +
@@ -887,6 +889,64 @@ async function settings() {
   }
   byId("regionMeasureBtn")?.addEventListener("click", () => void loadRegion());
 
+  // ── 規約とポリシー(KuroNote などの設定と同じ中身・2026-10-30) ──
+  // 並べる文書は基盤の目録が決める(サーバーが共有ライブラリーの EntamyLegal.fetchIndex で取る)。
+  // 押すと公開の頁を別のタブで開く —— 頁の中で読む共有部品(@entamy/ui)は、公開ミラーの都合で管理画面に取り込めない。
+  byId("panel-region")?.insertAdjacentHTML(
+    "afterend",
+    "<div id='panel-legal' class='settingsPanel' style='display:none'>" +
+      "<div class='panel stack' style='gap:12px'>" +
+      "<div class='panelHead'><h3>" +
+      escapeHtml(t("legalLinksTitle")) +
+      "</h3></div>" +
+      "<div class='muted' style='font-size:13px;line-height:1.7'>" +
+      escapeHtml(t("legalLinksHelp")) +
+      "</div>" +
+      "<div id='legalLinkRows' style='border:1px solid var(--line);border-radius:10px;overflow:hidden'></div>" +
+      "</div></div>",
+  );
+  let legalLoaded = false;
+  async function loadLegalLinks() {
+    const rows = byId("legalLinkRows");
+    if (!rows) return;
+    rows.innerHTML = "<div class='muted' style='padding:12px 16px'>…</div>";
+    try {
+      const r: Dynamic = await api(
+        "/api/system/legal/links?lang=" +
+          encodeURIComponent(state.uiLang || "ja"),
+      );
+      const items: Dynamic[] = Array.isArray(r.items) ? r.items : [];
+      rows.innerHTML =
+        items
+          .filter((x) => typeof x.url === "string" && /^https:\/\//.test(x.url))
+          .map((x, i) => {
+            const title = legalDocTitle(String(x.docType));
+            const label =
+              title !== x.docType ? title : String(x.label || x.docType);
+            return (
+              "<a href='" +
+              escapeHtml(x.url) +
+              "' target='_blank' rel='noopener' " +
+              "style='display:flex;justify-content:space-between;align-items:center;padding:12px 16px;" +
+              "color:inherit;text-decoration:none;font-size:14px" +
+              (i > 0 ? ";border-top:1px solid var(--line)" : "") +
+              "'>" +
+              "<span>" +
+              escapeHtml(label) +
+              "</span><span aria-hidden='true'>↗</span></a>"
+            );
+          })
+          .join("") ||
+        "<div class='muted' style='padding:12px 16px'>" +
+          escapeHtml(t("legalLinksEmpty")) +
+          "</div>";
+      legalLoaded = true;
+    } catch (err) {
+      rows.innerHTML = "";
+      toast(errorMessage(err), true);
+    }
+  }
+
   // ── 契約(cms-pricing「契約のタブ」・2026-10-27 に左右 2 列へ組み直した) ──
   // 左: いまの契約 —— 運用の形・契約の状態・無料期間の棒と、その後の有料の説明・申し込みと解約への入口・日付。
   // 右: 契約の形態と料金 —— 国(日本・米国・欧州)を選ぶと、その通貨の料金に替わる。初めは回線の国(request.cf.country)。
@@ -1572,6 +1632,7 @@ async function settings() {
     btn.addEventListener("click", () => {
       switchTab(btn.dataset.tab);
       if (btn.dataset.tab === "region" && !regionMeasured) void loadRegion();
+      if (btn.dataset.tab === "legal" && !legalLoaded) void loadLegalLinks();
       if (btn.dataset.tab === "hosting" && !contractLoaded) void loadContract();
     });
   });

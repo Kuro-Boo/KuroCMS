@@ -292,6 +292,10 @@ export class EntamyLegal {
     await this.options.store?.write("terms_version", version);
     await this.options.store?.write("terms_agreed_at", at.toISOString());
   }
+  /** 製品に出す文書の一覧。取れないので空(設定の一覧は何も並べない)。 */
+  fetchIndex(_lang = "ja"): Promise<LegalIndexEntry[]> {
+    return Promise.resolve([]);
+  }
   /** 取れないので空(**提示できない文面に同意させない**)。 */
   fetchDocuments(
     _docTypes: readonly string[] = [],
@@ -300,6 +304,14 @@ export class EntamyLegal {
   ): Promise<LegalDocument[]> {
     return Promise.resolve([]);
   }
+}
+
+/** 製品に出す文書の一覧の1行(本体の legal.ts と同じ形)。 */
+export interface LegalIndexEntry {
+  docType: string;
+  label: string;
+  url?: string;
+  kind: string;
 }
 
 export interface LegalDocument {
