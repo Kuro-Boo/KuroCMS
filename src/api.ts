@@ -254,6 +254,8 @@ import {
   installIdentity,
   legalState,
   noticeAck,
+  noticeAnswer,
+  noticeHistory,
   noticeSetOther,
   noticeState,
   recordConsent,
@@ -711,18 +713,65 @@ async function handleApiDispatch(
 
     // お知らせ(Entamy Notice)。見る・既読は誰でも(投稿者にも出す)、「ほかの製品」の設定は管理者だけ。
     // 基盤へは Worker がこの導入の口座でつなぐ(管理画面は描くだけ・entamy-port の entamyNoticeFor)。
+    // 時間帯(tz)は画面から受ける —— 口座宛ての知らせの文面の日時を、見ている人の時間帯で書くため。
+    const noticeQ = new URL(request.url).searchParams;
+    const noticeLang = noticeQ.get("lang") ?? "ja";
+    const noticeTz = noticeQ.get("tz") ?? undefined;
     if (path === "/api/system/notices" && request.method === "GET") {
-      const lang = new URL(request.url).searchParams.get("lang") ?? "ja";
-      return json((await noticeState(env, lang)) as unknown as JsonValue);
+      return json(
+        (await noticeState(env, noticeLang, noticeTz)) as unknown as JsonValue,
+      );
     }
     {
       const m = /^\/api\/system\/notices\/([0-9a-f-]{36})\/ack$/.exec(path);
       if (m && request.method === "POST") {
-        const lang = new URL(request.url).searchParams.get("lang") ?? "ja";
         return json(
-          (await noticeAck(env, lang, m[1]!)) as unknown as JsonValue,
+          (await noticeAck(
+            env,
+            noticeLang,
+            m[1]!,
+            noticeTz,
+          )) as unknown as JsonValue,
         );
       }
+    }
+    // 口座宛ての知らせ(無料期間の終わりなど)の答え。契約の窓と同じく管理者だけ(契約を決めるのは管理者)。
+    {
+      const m = /^\/api\/system\/notices\/([0-9a-f-]{36})\/answer$/.exec(path);
+      if (m && request.method === "POST") {
+        requireAdmin(user);
+        const body = await readJson(request);
+        if (
+          typeof body.answer !== "string" ||
+          !/^[a-z_]{1,32}$/.test(body.answer)
+        ) {
+          throw new HttpError(400, "invalid_request", "answer is required.");
+        }
+        return json(
+          (await noticeAnswer(
+            env,
+            noticeLang,
+            m[1]!,
+            body.answer,
+            noticeTz,
+          )) as unknown as JsonValue,
+        );
+      }
+    }
+    // 読んだものの一覧(5 件ずつ)。引けなければ 503(「無い」と言わない)。
+    if (path === "/api/system/notices/history" && request.method === "GET") {
+      const page = Math.max(
+        1,
+        Number.parseInt(noticeQ.get("page") ?? "1", 10) || 1,
+      );
+      const h = await noticeHistory(env, noticeLang, page, noticeTz);
+      if (!h)
+        throw new HttpError(
+          503,
+          "notice_unavailable",
+          "Could not read the notice history.",
+        );
+      return json(h as unknown as JsonValue);
     }
     if (path === "/api/system/notices/prefs" && request.method === "PUT") {
       requireAdmin(user);
@@ -734,12 +783,12 @@ async function handleApiDispatch(
           "otherEnabled must be a boolean.",
         );
       }
-      const lang = new URL(request.url).searchParams.get("lang") ?? "ja";
       return json(
         (await noticeSetOther(
           env,
-          lang,
+          noticeLang,
           body.otherEnabled,
+          noticeTz,
         )) as unknown as JsonValue,
       );
     }

@@ -259,7 +259,8 @@ export async function entamyPort(env: Env): Promise<EntamyPort> {
   });
   const sat = new EntamySat(config, session, store);
   const mailer = new EntamyMailer(config, session, sat, store);
-  const legal = new EntamyLegal(config, { store });
+  // 同意は基盤(ID)にも残す(2026-10-30)。ID が記録すると、持ち主のお知らせの「読んだもの」に日時と版が残る(notice-delivery 7.2)。
+  const legal = new EntamyLegal(config, { store, agreements: session });
   // 段は既定(符号だけ)のまま。配布する束なので素の言い分は送らない —— 理由は符号で detail に載せる。
   const defects = new EntamyDefects(config, session);
   cachedPort = { session, sat, mailer, legal, defects };
@@ -422,8 +423,12 @@ const notices = new Map<string, EntamyNotice>();
 export async function entamyNoticeFor(
   env: Env,
   lang: string,
+  tz = "UTC",
 ): Promise<EntamyNotice> {
-  const key = /^[a-z]{2,3}(-[A-Za-z0-9]{2,8})?$/.test(lang) ? lang : "ja";
+  const key0 = /^[a-z]{2,3}(-[A-Za-z0-9]{2,8})?$/.test(lang) ? lang : "ja";
+  // 文面の日時は画面(ブラウザ)の時間帯で書く(口座宛ての知らせ・notice-delivery 7節)。Worker は UTC で動くので渡す。
+  const zone = /^[A-Za-z_+\-/0-9:]{1,64}$/.test(tz) ? tz : "UTC";
+  const key = `${key0} ${zone}`;
   const hit = notices.get(key);
   if (hit) return hit;
   const port = await entamyPort(env);
@@ -434,7 +439,8 @@ export async function entamyNoticeFor(
     {
       version: KUROCMS_VERSION,
       platform: "web",
-      lang: key,
+      lang: key0,
+      timeZone: zone,
     },
   );
   notices.set(key, n);

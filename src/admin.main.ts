@@ -717,6 +717,11 @@ const i18n = {
     noticeSectionOther: "From Entamy apps",
     noticeAck: "Got it",
     noticeLater: "Read later",
+    noticeHistory: "Past notices",
+    noticeHistoryEmpty: "Nothing yet",
+    noticeHistoryFailed: "Could not load. This does not mean there are none.",
+    noticePrev: "Previous",
+    noticeNext: "Next",
     noticeOpen: "Open",
     noticeCritical: "Urgent notice",
     noticeImportant: "Important notice",
@@ -1144,14 +1149,7 @@ const i18n = {
       "Subscribing and cancelling happen on Entamy's contract page (a new tab), signed in with the site owner's Entamy ID. It can take up to an hour to show here.",
     contractTrialFinal: "Final free period ends",
     contractSubActive: "Active (renews automatically)",
-    contractWindowTitle: "Your free period has ended",
-    contractWindowLocked:
-      "Until you subscribe, you cannot add articles or build (publish) at all. You can still read and back up.",
-    contractWindowDelete:
-      "Without a subscription, this site's data will be deleted on {date} (30 days after the free period ended). Published pages stay online until then.",
     contractWindowClose: "Close",
-    contractWindowMoveHelp:
-      "Moving to your own Cloudflare account (self-hosting) is free: open Settings → Contract and start the move. Articles, media and settings are copied, and the old address redirects to the new one.",
     contractGrace: "Waiting before data deletion",
     contractLastDay: "Last day",
     contractDeleteAt: "Data deletion date",
@@ -2197,6 +2195,12 @@ const i18n = {
     noticeSectionOther: "Entamy の製品から",
     noticeAck: "確認した",
     noticeLater: "あとで読む",
+    noticeHistory: "これまでのお知らせ",
+    noticeHistoryEmpty: "まだありません",
+    noticeHistoryFailed:
+      "読めませんでした。これは「無い」という意味ではありません。",
+    noticePrev: "前へ",
+    noticeNext: "次へ",
     noticeOpen: "開く",
     noticeCritical: "緊急のお知らせ",
     noticeImportant: "重要なお知らせ",
@@ -2624,14 +2628,7 @@ const i18n = {
       "申し込み・解約は Entamy の契約の頁（新しいタブ）で、サイトの持ち主の Entamy ID でログインして行います。ここに出るまで最長 1 時間かかります。",
     contractTrialFinal: "最後の無料期間の終わり",
     contractSubActive: "契約中（自動で更新）",
-    contractWindowTitle: "無料期間が終わりました",
-    contractWindowLocked:
-      "契約するまで、記事の追加とビルド（公開）は一切できません。読む・バックアップは続けられます。",
-    contractWindowDelete:
-      "契約しない場合、このサイトのデータは {date} に消えます（無料期間の終わりから 30 日）。それまで公開済みのページは出し続けます。",
     contractWindowClose: "閉じる",
-    contractWindowMoveHelp:
-      "ご自身の Cloudflare アカウントへの引っ越し（顧客導入）は無料です。「設定 → 契約」から引っ越しを始めると、記事・メディア・設定を写し、古いアドレスは新しいアドレスへ案内します。",
     contractGrace: "データ削除の待機期間",
     contractLastDay: "最終日",
     contractDeleteAt: "データを消す日",
@@ -5542,94 +5539,6 @@ function escapeHtml(value: Dynamic) {
  * 版を取得できないときは何も出さない —— 何に同意したのか記録できないまま
  * 同意させても意味が無く、管理画面の障害で CMS が使えなくなるのも困る。
  */
-/**
- * 無料期間が終わり、契約の無い委託(cms-pricing「無料期間が切れたとき」・課題 8396f3b7)。
- * ログインのたびに 1 回(このタブの間・ログアウトで消える sessionStorage)、契約を結ぶかを確かめる窓を出す。
- * 窓は「契約するまで記事の追加とビルドは一切できない」「データは無料期間の終わりから 30 日で消える」と、
- * 委託契約の申し込み(Entamy の契約の頁)と、自分の Cloudflare へ引っ越す道(無料)を出す。
- * 判定は API と同じ(サーバーが変更の要求を 402 で断る・contract-lock.ts)。管理者だけが契約を読める。
- */
-async function checkContractWindowOnce() {
-  const KEY = "kurocms-contract-window";
-  try {
-    if (sessionStorage.getItem(KEY)) return;
-  } catch {
-    /* 使えなければ毎回出す */
-  }
-  let r: Dynamic;
-  try {
-    r = await api("/api/system/contract");
-  } catch {
-    return; // 管理者でない・取れない時は出さない(変更はサーバーが断る)
-  }
-  const c = r && r.contract;
-  if (!r?.managed || !c || c.subscription !== "none" || !c.trial_final_at)
-    return;
-  if (Number(r.now) <= Number(c.trial_final_at)) return;
-  try {
-    sessionStorage.setItem(KEY, "1");
-  } catch {
-    /* 覚えられなくても出す */
-  }
-  const date = (ms: number | null) =>
-    ms == null
-      ? "—"
-      : new Date(ms).toLocaleDateString(state.uiLang, {
-          year: "numeric",
-          month: "long",
-          day: "numeric",
-          timeZone: "UTC",
-        });
-  const ov = document.createElement("div");
-  ov.setAttribute("role", "dialog");
-  ov.setAttribute("aria-modal", "true");
-  ov.style.cssText =
-    "position:fixed;inset:0;z-index:2900;background:rgba(8,12,22,.72);" +
-    "display:flex;align-items:center;justify-content:center;padding:20px";
-  const card = document.createElement("div");
-  card.style.cssText =
-    "width:min(560px,100%);background:var(--panel,#141f35);color:var(--ink,#e9eefc);" +
-    "border:1px solid var(--line,#293b5d);border-radius:14px;padding:22px;" +
-    "font-size:14px;line-height:1.8;box-shadow:0 18px 50px rgba(0,0,0,.5)";
-  const h = document.createElement("h3");
-  h.textContent = t("contractWindowTitle");
-  h.style.cssText = "margin:0 0 10px;font-size:18px";
-  const p1 = document.createElement("p");
-  p1.textContent = t("contractWindowLocked");
-  p1.style.cssText = "margin:0 0 8px;font-weight:700";
-  const p2 = document.createElement("p");
-  p2.textContent = t("contractWindowDelete").replace(
-    "{date}",
-    date(c.delete_at),
-  );
-  p2.style.cssText = "margin:0 0 16px";
-  const row = document.createElement("div");
-  row.style.cssText = "display:flex;gap:8px;flex-wrap:wrap;margin:0 0 14px";
-  const apply = document.createElement("a");
-  apply.href = CONTRACT_PAGE;
-  apply.target = "_blank";
-  apply.rel = "noopener";
-  apply.className = "button";
-  apply.textContent = t("contractApply");
-  const move = document.createElement("a");
-  move.href = adminHref("/settings") + "?tab=hosting";
-  move.className = "button secondary";
-  move.textContent = t("siteMoveToSelf");
-  const close = document.createElement("button");
-  close.type = "button";
-  close.className = "secondary";
-  close.textContent = t("contractWindowClose");
-  close.addEventListener("click", () => ov.remove());
-  move.addEventListener("click", () => ov.remove());
-  row.append(apply, move, close);
-  const p3 = document.createElement("p");
-  p3.textContent = t("contractWindowMoveHelp");
-  p3.style.cssText = "margin:0;color:var(--muted,#91a0c3);font-size:13px";
-  card.append(h, p1, p2, row, p3);
-  ov.appendChild(card);
-  document.body.appendChild(ov);
-}
-
 let legalChecked = false;
 type LegalBlockView =
   | { kind: "heading"; level: number; text: string }
@@ -6197,8 +6106,7 @@ async function render() {
     setTimeout(noticeGateOnce, 0);
     // 持ち主の連絡先(古い導入)。描画は止めない(外部への問い合わせで決まるため)。
     setTimeout(checkContactOnce, 0);
-    // 無料期間が終わり契約の無い委託は、ログインのたびに契約を結ぶかを確かめる(課題 8396f3b7)。
-    setTimeout(checkContractWindowOnce, 0);
+    // 無料期間が終わり契約の無い委託の窓は、Notice の口座宛ての知らせとして出る(noticeGateOnce・notice-delivery 7節)。
     // Screens that expose a live list register a reloader (activeListReload);
     // clear it here so it only points at the screen currently on view.
     activeListReload = null;

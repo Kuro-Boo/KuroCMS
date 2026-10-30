@@ -345,8 +345,12 @@ function noticeView(
 }
 
 /** 引く。**引けなくても前に引いたものを返す**(管理画面を止めない)。 */
-export async function noticeState(env: Env, lang: string): Promise<NoticeView> {
-  const n = await entamyNoticeFor(env, lang);
+export async function noticeState(
+  env: Env,
+  lang: string,
+  tz?: string,
+): Promise<NoticeView> {
+  const n = await entamyNoticeFor(env, lang, tz);
   await n.load();
   const r = await n.refresh();
   return noticeView(n, !r.ok);
@@ -357,8 +361,9 @@ export async function noticeAck(
   env: Env,
   lang: string,
   id: string,
+  tz?: string,
 ): Promise<NoticeView> {
-  const n = await entamyNoticeFor(env, lang);
+  const n = await entamyNoticeFor(env, lang, tz);
   await n.load();
   await n.ack(id);
   return noticeView(n, false);
@@ -369,10 +374,40 @@ export async function noticeSetOther(
   env: Env,
   lang: string,
   enabled: boolean,
+  tz?: string,
 ): Promise<NoticeView> {
-  const n = await entamyNoticeFor(env, lang);
+  const n = await entamyNoticeFor(env, lang, tz);
   await n.load();
   await n.setOtherEnabled(enabled);
   await n.refresh();
   return noticeView(n, false);
+}
+
+/**
+ * 口座宛ての知らせに答える(notice-delivery 7節)。既読にはしない —— 解決するまで出る。
+ * 届かなくても画面は進める(答えは控えないので、届かなかった答えは記録に残らない)。
+ */
+export async function noticeAnswer(
+  env: Env,
+  lang: string,
+  id: string,
+  answer: string,
+  tz?: string,
+): Promise<{ ok: boolean }> {
+  const n = await entamyNoticeFor(env, lang, tz);
+  await n.load();
+  return { ok: (await n.answer(id, answer)).ok };
+}
+
+/** 読んだものの一覧(5 件ずつ)。引けなければ null(画面は「読めなかった」と出す・無いとは言わない)。 */
+export async function noticeHistory(
+  env: Env,
+  lang: string,
+  page: number,
+  tz?: string,
+): Promise<Record<string, unknown> | null> {
+  const n = await entamyNoticeFor(env, lang, tz);
+  await n.load();
+  const r = await n.history(page);
+  return r.ok ? (r.value as unknown as Record<string, unknown>) : null;
 }

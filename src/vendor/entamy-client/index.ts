@@ -259,7 +259,12 @@ export interface LegalStatus {
 export class EntamyLegal {
   constructor(
     readonly config: EntamyConfig,
-    readonly options: { store?: EntamyStore; fetch?: typeof fetch } = {},
+    readonly options: {
+      store?: EntamyStore;
+      fetch?: typeof fetch;
+      /** 基盤の同意の記録(公開版は基盤とつながらないので使わない)。 */
+      agreements?: unknown;
+    } = {},
   ) {}
   /** 取れないので「求めない」を返す。**推測しない。** */
   fetchStatus(
@@ -420,6 +425,9 @@ export interface EntamyNoticeItem {
   body: string;
   action: { kind: "ack" | "open"; label?: string | null; url?: string };
   publishedAt: string | null;
+  direct?: boolean;
+  topic?: string;
+  answers?: Array<{ id: string; label: string; url?: string }>;
 }
 export interface EntamyNoticeState {
   notices: EntamyNoticeItem[];
@@ -444,6 +452,7 @@ export class EntamyNotice {
       version?: string;
       platform?: "ios" | "android" | "web";
       lang?: string;
+      timeZone?: string;
     } = {},
   ) {}
   load(): Promise<EntamyNoticeState> {
@@ -467,6 +476,20 @@ export class EntamyNotice {
   setOtherEnabled(_enabled: boolean): Promise<EntamyResult<boolean>> {
     return refuse<boolean>();
   }
+  answer(_id: string, _answer: string): Promise<EntamyResult<boolean>> {
+    return refuse<boolean>();
+  }
+  history(_page = 1): Promise<EntamyResult<EntamyNoticeHistory>> {
+    return refuse<EntamyNoticeHistory>();
+  }
+}
+
+/** 読んだものの一覧(公開版は基盤とつながらないので、いつも断る)。 */
+export interface EntamyNoticeHistory {
+  items: Array<{ id: string; kind: string; title: string; body: string; at: string; answer: string | null; answerLabel: string | null }>;
+  page: number;
+  pages: number;
+  total: number;
 }
 
 // ── 不具合の報告 ────────────────────────────────────────────────────────
