@@ -760,11 +760,21 @@ async function handleApiDispatch(
     }
     // 読んだものの一覧(5 件ずつ)。引けなければ 503(「無い」と言わない)。
     if (path === "/api/system/notices/history" && request.method === "GET") {
+      // タブの区分(notice-delivery 7.5)。知らない値は付けない(全部)。
+      const c = noticeQ.get("category");
+      const noticeCategory =
+        c === "alert" || c === "info" || c === "security" ? c : undefined;
       const page = Math.max(
         1,
         Number.parseInt(noticeQ.get("page") ?? "1", 10) || 1,
       );
-      const h = await noticeHistory(env, noticeLang, page, noticeTz);
+      const h = await noticeHistory(
+        env,
+        noticeLang,
+        page,
+        noticeTz,
+        noticeCategory,
+      );
       if (!h)
         throw new HttpError(
           503,

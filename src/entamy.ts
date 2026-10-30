@@ -405,9 +405,10 @@ export async function noticeHistory(
   lang: string,
   page: number,
   tz?: string,
+  category?: "alert" | "info" | "security",
 ): Promise<Record<string, unknown> | null> {
   const n = await entamyNoticeFor(env, lang, tz);
   await n.load();
-  const r = await n.history(page);
+  const r = await n.history(page, category);
   return r.ok ? (r.value as unknown as Record<string, unknown>) : null;
 }

@@ -410,7 +410,7 @@ export class EntamyMailer {
 }
 
 // ── お知らせ ────────────────────────────────────────────────────────────
-/** 何も引かない。お知らせが無いのと同じに見える(画面は「お知らせはありません」)。 */
+/** 何も引かない。お知らせが無いのと同じに見える(画面は「新しいお知らせはありません」)。 */
 export type EntamyNoticeKind =
   | "critical"
   | "important"
@@ -428,6 +428,7 @@ export interface EntamyNoticeItem {
   direct?: boolean;
   topic?: string;
   answers?: Array<{ id: string; label: string; url?: string }>;
+  category?: "alert" | "info" | "security";
 }
 export interface EntamyNoticeState {
   notices: EntamyNoticeItem[];
@@ -479,7 +480,10 @@ export class EntamyNotice {
   answer(_id: string, _answer: string): Promise<EntamyResult<boolean>> {
     return refuse<boolean>();
   }
-  history(_page = 1): Promise<EntamyResult<EntamyNoticeHistory>> {
+  history(
+    _page = 1,
+    _category?: "alert" | "info" | "security",
+  ): Promise<EntamyResult<EntamyNoticeHistory>> {
     return refuse<EntamyNoticeHistory>();
   }
 }

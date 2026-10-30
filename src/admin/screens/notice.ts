@@ -25,7 +25,10 @@ type NoticeItemView = {
   action: { kind: "ack" | "open"; label?: string | null; url?: string };
   direct?: boolean;
   answers?: { id: string; label: string; url?: string }[];
+  /** タブの区分(notice-delivery 7.5)。 */
+  category?: NoticeCategory;
 };
+type NoticeCategory = "alert" | "info" | "security";
 type NoticeHistoryView = {
   items: {
     id: string;
@@ -177,24 +180,96 @@ function renderNoticePanel() {
     if (css) x.style.cssText = css;
     return x;
   };
-  if (!v || !v.notices.length) {
+  // タブ(notice-delivery 7.5)。新しいものがあるタブに赤い数。KuroCMS の管理画面は ID のログインを持たないので、
+  // セキュリティ通知のタブは「これまで」だけ(7.6)。見た目は設定画面と同じタブの部品。
+  const acked = new Set(v?.acked ?? []);
+  const catOf = (n: NoticeItemView): NoticeCategory =>
+    n.category ??
+    (n.kind === "critical" || n.kind === "important" ? "alert" : "info");
+  const fresh = (c: NoticeCategory) =>
+    (v?.notices ?? []).filter(
+      (n) =>
+        catOf(n) === c &&
+        n.section === "product" &&
+        (n.direct || !acked.has(n.id)),
+    ).length;
+  if (!noticeTabPicked) {
+    noticeTab = fresh("alert") > 0 ? "alert" : "info";
+    if (v) noticeTabPicked = true;
+  }
+  const bar = el("div", undefined, "margin:0 0 8px");
+  bar.className = "settingsTabBar";
+  bar.setAttribute("role", "tablist");
+  const labels: Record<NoticeCategory, string> = {
+    alert: t("noticeTabAlert"),
+    info: t("noticeTabInfo"),
+    security: t("noticeTabSecurity"),
+  };
+  for (const c of ["alert", "info", "security"] as NoticeCategory[]) {
+    const b = el("button", labels[c]) as HTMLButtonElement;
+    b.type = "button";
+    b.className = "settingsTab" + (c === noticeTab ? " active" : "");
+    b.setAttribute("role", "tab");
+    b.setAttribute("aria-selected", String(c === noticeTab));
+    const n = fresh(c);
+    if (n > 0) {
+      const badge = el(
+        "span",
+        String(n),
+        "display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:20px;padding:0 6px;margin-left:6px;border-radius:10px;background:#e5484d;color:#fff;font-size:12px;font-weight:700;line-height:1",
+      );
+      b.appendChild(badge);
+    }
+    b.onclick = () => {
+      noticeTab = c;
+      noticeTabPicked = true;
+      noticeHistoryPage = 1;
+      renderNoticePanel();
+    };
+    bar.appendChild(b);
+  }
+  body.appendChild(bar);
+  const mine = (v?.notices ?? []).filter((n) => catOf(n) === noticeTab);
+  const freshHere = mine.filter((n) => n.direct || !acked.has(n.id)).length;
+  if (!freshHere) {
     body.appendChild(
-      el("div", t("noticeEmpty"), "color:var(--muted);font-size:13px"),
+      el(
+        "div",
+        t(
+          noticeTab === "alert"
+            ? "noticeEmptyAlert"
+            : noticeTab === "security"
+              ? "noticeEmptySecurity"
+              : "noticeEmpty",
+        ),
+        "color:var(--muted);font-size:13px",
+      ),
     );
-  } else {
-    const acked = new Set(v.acked);
-    const sections: [string, NoticeItemView[]][] = [
-      [
-        t("noticeSectionProduct"),
-        v.notices.filter((n) => n.section === "product"),
-      ],
-      [t("noticeSectionOther"), v.notices.filter((n) => n.section === "other")],
-    ];
+  }
+  {
+    const sections: [string, NoticeItemView[]][] =
+      noticeTab === "info"
+        ? [
+            [
+              t("noticeSectionProduct"),
+              mine.filter((n) => n.section === "product"),
+            ],
+            [
+              t("noticeSectionOther"),
+              mine.filter((n) => n.section === "other"),
+            ],
+          ]
+        : [["", mine]];
     for (const [label, items] of sections) {
       if (!items.length) continue;
-      body.appendChild(
-        el("div", label, "font-size:12px;color:var(--muted);margin:8px 0 4px"),
-      );
+      if (label)
+        body.appendChild(
+          el(
+            "div",
+            label,
+            "font-size:12px;color:var(--muted);margin:8px 0 4px",
+          ),
+        );
       for (const n of items) {
         const row = el(
           "div",
@@ -310,7 +385,11 @@ function renderNoticePanel() {
   }
 }
 
-/** これまでのお知らせ(5 件ずつ)。開いている頁は描き直しても保つ。 */
+/** 開いているタブ。新しいものがある緊急の連絡を先に開き、人が押したら動かさない。 */
+let noticeTab: NoticeCategory = "info";
+let noticeTabPicked = false;
+
+/** これまでのお知らせ(5 件ずつ・開いているタブの区分)。開いている頁は描き直しても保つ。 */
 let noticeHistoryPage = 1;
 function noticeHistoryBox(): HTMLElement {
   const box = document.createElement("div");
@@ -325,7 +404,12 @@ function noticeHistoryBox(): HTMLElement {
     let d: NoticeHistoryView;
     try {
       d = (await api(
-        "/api/system/notices/history" + noticeQuery() + "&page=" + page,
+        "/api/system/notices/history" +
+          noticeQuery() +
+          "&page=" +
+          page +
+          "&category=" +
+          noticeTab,
       )) as NoticeHistoryView;
     } catch {
       list.textContent = t("noticeHistoryFailed");
