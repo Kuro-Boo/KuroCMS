@@ -1163,6 +1163,10 @@ const i18n = {
     legalLinksHelp:
       "The Entamy terms that apply to using KuroCMS. Each opens in a new tab.",
     legalLinksEmpty: "The list could not be loaded.",
+    accountDeletionTitle: "Delete your Entamy ID account",
+    accountDeletionHelp:
+      "You can request deletion of the Entamy ID account you use for KuroCMS through a confirmation link sent to your registered email address. Your account cannot be deleted while a subscription is active.",
+    accountDeletionLink: "Open the account deletion page",
     contractAt: "Hosting started",
     contractPlan: "Billing",
     contractPlanMonth: "Monthly",
@@ -2672,6 +2676,10 @@ const i18n = {
     legalLinksHelp:
       "KuroCMS を使うにあたって適用される Entamy の規約です。押すと別のタブで開きます。",
     legalLinksEmpty: "一覧を取得できませんでした。",
+    accountDeletionTitle: "Entamy ID のアカウントの削除",
+    accountDeletionHelp:
+      "KuroCMS で使っている Entamy ID のアカウントの削除は、登録したメールアドレスに届く確かめのリンクから申し込めます。自動更新の続く契約がある間は削除できません。",
+    accountDeletionLink: "アカウントの削除の窓口を開く",
     contractAt: "委託を始めた日",
     contractPlan: "払い方",
     contractPlanMonth: "月払い",

@@ -903,6 +903,23 @@ async function settings() {
       escapeHtml(t("legalLinksHelp")) +
       "</div>" +
       "<div id='legalLinkRows' style='border:1px solid var(--line);border-radius:10px;overflow:hidden'></div>" +
+      "</div>" +
+      // アカウントの削除の窓口(ID §10.4)。頁は KuroNote などと共通の 1 つで、製品は product_id で選ぶ。
+      "<div class='panel stack' style='gap:12px'>" +
+      "<div class='panelHead'><h3>" +
+      escapeHtml(t("accountDeletionTitle")) +
+      "</h3></div>" +
+      "<div class='muted' style='font-size:13px;line-height:1.7'>" +
+      escapeHtml(t("accountDeletionHelp")) +
+      "</div>" +
+      "<div><a href='" +
+      escapeHtml(
+        "https://id.entamy.com/delete?product_id=cms&lang=" +
+          (state.uiLang === "ja" ? "ja" : "en"),
+      ) +
+      "' target='_blank' rel='noopener'>" +
+      escapeHtml(t("accountDeletionLink")) +
+      " ↗</a></div>" +
       "</div></div>",
   );
   let legalLoaded = false;
