@@ -355,6 +355,13 @@ console.log("setup-gate");
     ).status,
     404,
   );
+  // 番人は宛先 app.internal で叩く。公開のホスト名なら cf-connecting-ip が無くても通さない
+  // (共通の部品 fromGuardian・課題 6867ba62)。
+  eq(
+    "公開のホスト名への migrate は 404",
+    (await call(w, "POST", "/api/system/migrate")).status,
+    404,
+  );
 }
 
 {

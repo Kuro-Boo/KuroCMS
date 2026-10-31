@@ -1,3 +1,4 @@
+import { fromGuardian } from "./vendor/entamy-client/index.ts";
 import { catalogPrices, regionOf } from "./contract-prices.ts";
 import { siteDeletePreview } from "./site-delete.ts";
 import {
@@ -352,7 +353,10 @@ async function handleApiDispatch(
       // (この画面のダッシュボードで選ぶ)に従って1日1回自動更新する ——
       // 番人の設定を書き換えずに、既存の導入を共通の形へ移すため。
       // 選択が読めなくても health は落とさない(名乗らないだけ)。
-      const policy = await updatePolicy(env).catch(() => null);
+      // 持ち主の更新の選択は番人にだけ名乗る(誰にでも見せない・課題 6867ba62)。
+      const policy = fromGuardian(request)
+        ? await updatePolicy(env).catch(() => null)
+        : null;
       return json(
         {
           ok: true,
@@ -380,10 +384,10 @@ async function handleApiDispatch(
       request.method === "POST" &&
       (path === "/api/system/migrate" || path === "/api/migrate")
     ) {
-      // 呼べるのは番人(WorkerOps)の Service Binding だけ(課題 afe5e3fa)。外から来た要求には
-      // Cloudflare の入口が必ず cf-connecting-ip を付け、Service Binding の要求には付かない。
+      // 呼べるのは番人(WorkerOps)の Service Binding だけ(課題 afe5e3fa)。見分け方は製品で共通の
+      // 部品(entamy-connect の fromGuardian・課題 6867ba62): 宛先が app.internal で、cf-connecting-ip が無いこと。
       // 前は誰でも呼べ、重い migration と schema の修復を何度でも起こせた。
-      if (request.headers.get("cf-connecting-ip") !== null) {
+      if (!fromGuardian(request)) {
         throw new HttpError(404, "not_found", "Not found.");
       }
       const last = await env.PUBLIC_PAGES.get(MIGRATE_THROTTLE_KEY);

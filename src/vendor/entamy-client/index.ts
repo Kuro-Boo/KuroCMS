@@ -708,3 +708,17 @@ export function parseCspReports(
 }> {
   return [];
 }
+
+/**
+ * 番人(WorkerOps)からの呼び出しか(正本: entamy-connect の guardian-call.ts)。番人は宛先
+ * https://app.internal の新しい要求で叩き、外からの要求には cf-connecting-ip が付く。
+ * 公開の写しでも同じ判定にする(スタブでも migration の口を開けない)。
+ */
+export function fromGuardian(request: Request): boolean {
+  if (request.headers.get("cf-connecting-ip") !== null) return false;
+  try {
+    return new URL(request.url).hostname === "app.internal";
+  } catch {
+    return false;
+  }
+}
