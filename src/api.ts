@@ -1,4 +1,4 @@
-import { fromGuardian } from "./vendor/entamy-client/index.ts";
+import { fromGuardian } from "./vendor/entamy-service/guardian-call.ts";
 import { catalogPrices, regionOf } from "./contract-prices.ts";
 import { siteDeletePreview } from "./site-delete.ts";
 import {
