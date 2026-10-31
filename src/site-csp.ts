@@ -121,7 +121,7 @@ export function adminCspHeaders(input: {
   nonce: string;
 }): Record<string, string> {
   const base = (input.publicBase || "").replace(/\/+$/, "");
-  return cspHeaders({
+  const headers: Record<string, string> = cspHeaders({
     mode: ADMIN_CSP_MODE,
     productId: "cms",
     nonce: input.nonce,
@@ -134,6 +134,11 @@ export function adminCspHeaders(input: {
     frameSrc: ["'self'", "blob:", "data:", ...EMBED_FRAME],
     frameAncestors: ["'none'"],
   });
+  // 枠に入れさせないことだけは、CSP 全体が report-only の間も効かせる(クリックジャッキング・課題 97b74d87)。
+  // 強制の CSP になれば、その中の frame-ancestors が効く。古いブラウザ向けに X-Frame-Options も付ける。
+  headers["content-security-policy"] ??= "frame-ancestors 'none'";
+  headers["x-frame-options"] = "DENY";
+  return headers;
 }
 
 /**

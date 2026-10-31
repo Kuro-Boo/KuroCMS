@@ -295,6 +295,9 @@ const directive = (p: string, name: string) =>
   assert.match(policy, /frame-ancestors 'none'/);
   assert.match(policy, /report-uri \/blog\/_csp/);
   assert.match(policy, /object-src 'none'/);
+  // report-only の間も、枠に入れさせないことは強制する(課題 97b74d87)。
+  assert.match(h["content-security-policy"] ?? "", /frame-ancestors 'none'/);
+  assert.equal(h["x-frame-options"], "DENY");
 }
 
 console.log("site CSP contract OK");
