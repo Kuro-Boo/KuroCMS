@@ -1386,7 +1386,14 @@ async function settings() {
       // (無料期間中も申し込める。最初の請求は無料期間の終わり —— Billing の申し込みが試用の終わりまで待つ)。
       const link = (label: string, primary: boolean) => {
         const a = document.createElement("a");
-        a.href = CONTRACT_PAGE;
+        // 戻り先(この画面の契約のタブ)を渡す。契約の頁は、持ち主の委託のサイトの住所のときだけ「KuroCMS に戻る」を出し、
+        // 戻る前に契約の情報をこのサイトへ届け直す(毎時を待たない・2026-11-02)。
+        a.href =
+          CONTRACT_PAGE +
+          "?return=" +
+          encodeURIComponent(
+            location.origin + location.pathname + "?tab=hosting",
+          );
         a.target = "_blank";
         a.rel = "noopener";
         a.className = primary ? "button" : "button secondary";
@@ -1643,6 +1650,13 @@ async function settings() {
   });
   loadIpGate();
   loadIpV6();
+
+  // 契約の頁(新しいタブ)から戻ってこの画面が前に出たら、契約のタブを読み直す(申し込み・解約の後の姿を出す)。
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "visible" || !contractLoaded) return;
+    const panel = byId("panel-hosting");
+    if (panel && panel.style.display !== "none") void loadContract();
+  });
 
   // Tab switching
   document.querySelectorAll<AdminElement>(".settingsTab").forEach((btn) => {
