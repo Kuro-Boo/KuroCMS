@@ -91,25 +91,29 @@ async function profile() {
       "opacity:.55;letter-spacing:.02em;background:none;border:0;padding:2px 4px;color:inherit;" +
       "cursor:pointer;border-radius:5px'></button>" +
       "</h3>" +
-      // 項目を 2 列(狭い画面は 1 列)に並べて詰める(部品 .fieldGrid・2026-10-22)。
+      // 3 段(2026-11-02・利用者の指示): ユーザー名と権限を 2 列、メールは全幅(入力の右に確認メールのボタン・下に説明)、
+      // ユーザー ID は全幅で小さく。メールの説明とボタンが片方の列だけを伸ばして、列の高さが揃わなかった。
       "<form class='stack' id='accountForm'><div class='fieldGrid'><label>" +
       escapeHtml(t("displayName")) +
       "<input id='profileDisplayName' /></label>" +
+      "<div><div class='fieldLabel'>" +
+      escapeHtml(t("roles")) +
+      "</div><div style='padding:10px 0'><span id='profileRoles' class='contractBadge'>-</span></div></div>" +
+      "</div>" +
       "<label><span style='display:flex;align-items:center;gap:8px'>" +
       escapeHtml(t("email")) +
       "<span id='profileEmailBadge'></span></span>" +
-      "<input id='profileEmail' type='email' /><div class='muted' style='font-size:12px'>" +
+      "<div style='display:flex;gap:8px;align-items:center;flex-wrap:wrap'>" +
+      "<input id='profileEmail' type='email' style='flex:1;min-width:220px' />" +
+      "<div id='profileEmailVerify'></div></div>" +
+      "<div class='muted' style='font-size:12px;line-height:1.6'>" +
       escapeHtml(t("profileEmailHelp")) +
-      "</div><div id='profileEmailVerify'></div></label>" +
+      "</div></label>" +
       "<div><div class='fieldLabel'>" +
       escapeHtml(t("userIdLabel")) +
-      "</div><div class='tokenOutputRow'><div id='profileAuthorId' class='tokenBox' style='font-size:11px;font-family:ui-monospace,monospace'>-</div><button type='button' class='secondary' id='copyAuthorId'>" +
+      "</div><div style='display:flex;gap:8px;align-items:center'><div id='profileAuthorId' class='tokenBox' style='flex:1;min-width:0;font-size:11px;font-family:ui-monospace,monospace;padding:8px 12px'>-</div><button type='button' class='secondary' id='copyAuthorId' style='font-size:12px;padding:6px 12px'>" +
       escapeHtml(t("copy")) +
       "</button></div></div>" +
-      "<div><div class='fieldLabel'>" +
-      escapeHtml(t("roles")) +
-      "</div><div id='profileRoles' style='padding:8px 0'>-</div></div>" +
-      "</div>" +
       // 更新は左、ログアウトは右(枠の中・区切り線の下)。全幅のボタンにしない。
       "<div style='display:flex;flex-wrap:wrap;gap:10px;align-items:center;border-top:1px solid var(--line);padding-top:14px'><button>" +
       escapeHtml(t("updateAccount")) +
@@ -189,25 +193,6 @@ async function profile() {
       escapeHtml(t("myNetworksLead")) +
       "</p><div id='networkList' class='tokenList'></div></div></div>",
   );
-  // サイトの削除(管理者だけ)。知らせの「このサイトを削除する」と同じ確認の窓を開く(site-delete.ts)。
-  if (state.isAdmin) {
-    const panel = document.createElement("div");
-    panel.className = "panel stack";
-    const h = document.createElement("h3");
-    h.textContent = t("siteDeleteTitle");
-    const lead = document.createElement("p");
-    lead.className = "muted";
-    lead.style.margin = "-4px 0 2px";
-    lead.textContent = t("siteDeleteProfileLead");
-    const b = document.createElement("button");
-    b.type = "button";
-    b.className = "danger";
-    b.textContent = t("siteDeleteOpen");
-    b.style.alignSelf = "flex-start";
-    b.onclick = () => void siteDeleteDialog();
-    panel.append(h, lead, b);
-    document.getElementById("panel-account")?.appendChild(panel);
-  }
   document.querySelectorAll<AdminElement>(".settingsTab").forEach((btn) => {
     btn.addEventListener("click", () => {
       const id = btn.dataset.tab;

@@ -77,9 +77,13 @@ async function dashboard() {
       "<div class='panel stack'>" +
       // 見出しの右端に「無料枠 / Paid」の切り替え。下のグラフをその上限で描き直す。
       "<div style='display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap'>" +
+      // 見出しの右に運用の形のバッジ(委託運用 / 顧客導入)。括弧書きで見出しに混ぜない(2026-11-02)。
+      "<div style='display:flex;align-items:center;gap:10px;flex-wrap:wrap'>" +
       "<h3 id='storageHeading' style='margin:0'>" +
-      escapeHtml(t("storageFreeUsage")) +
+      escapeHtml(t("storageUsage")) +
       "</h3>" +
+      "<span id='storageKindBadge' class='contractBadge' style='display:none;padding:1px 10px;font-size:12px'></span>" +
+      "</div>" +
       "<div id='storagePlanSwitch' style='display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600;color:var(--muted)'>" +
       "<span id='storagePlanFree'>" +
       escapeHtml(t("planFree")) +
@@ -110,7 +114,11 @@ async function dashboard() {
       // can outgrow it well before the .split column collapses to 1 row. Let
       // the button drop to its own line instead of overflowing the card.
       "<div style='display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px'>" +
-      "<span style='font-weight:700;font-size:14px'>KuroCMS</span>" +
+      // 持ち主が開発アカウントなら、見出しの右に印(開発版を受け取れるサイトだと一目で分かるように・2026-11-02)。
+      "<span style='display:inline-flex;align-items:center;gap:8px'><span style='font-weight:700;font-size:14px'>KuroCMS</span>" +
+      "<span id='devAccountBadge' class='contractBadge warn' style='display:none;padding:1px 10px;font-size:11px'>" +
+      escapeHtml(t("devAccountBadge")) +
+      "</span></span>" +
       // updateBtnWrap normally stretches full-width (block layout below the
       // header); override that here so it shrinks to the button's own size —
       // otherwise it fights "KuroCMS" for space in this flex row and never
@@ -258,13 +266,18 @@ async function dashboard() {
     const renderStorage = function () {
       const paid = plan === "paid";
       const heading = byId("storageHeading");
-      // 委託はお客様の Cloudflare の無料枠ではない —— 「無料枠」と書かない。
-      if (heading)
-        heading.textContent = s.r2?.managedQuota
-          ? t("storageManagedUsage")
-          : paid
-            ? t("storagePaidUsage")
-            : t("storageFreeUsage");
+      // 見出しは委託も顧客導入も「使用状況」だけ。運用の形は右のバッジ、プランは右端の切り替えが示す
+      // (委託はお客様の Cloudflare の無料枠ではないので、見出しに「無料枠」を書かない・2026-11-02)。
+      if (heading) heading.textContent = t("storageUsage");
+      const kindBadge = byId("storageKindBadge");
+      if (kindBadge) {
+        const managed = !!s.r2?.managedQuota;
+        kindBadge.textContent = t(
+          managed ? "contractKindManaged" : "contractKindSelf",
+        );
+        kindBadge.className = "contractBadge" + (managed ? "" : " muted");
+        kindBadge.style.display = "";
+      }
       const toggle = byId("storagePlanToggle") as HTMLInputElement | null;
       if (toggle) toggle.checked = paid;
       const freeLabel = byId("storagePlanFree");
@@ -648,6 +661,8 @@ async function dashboard() {
       }
     }
     applyVersionResult(v);
+    const devBadge = byId("devAccountBadge");
+    if (devBadge) devBadge.style.display = v.developer === true ? "" : "none";
   }
 
   // Check the version once when the dashboard opens (result is only shown here;
@@ -673,23 +688,30 @@ async function dashboard() {
     box.innerHTML =
       "<div style='font-weight:600;margin-bottom:4px'>" +
       escapeHtml(t("cspReportsTitle")) +
-      "</div><table style='width:100%;border-collapse:collapse'><tbody>" +
+      "</div>" +
+      // 1 件を 2 行に: 1 行目に何が止まるか(指示 ← 相手)、2 行目に件数と最後に届いた時刻。
+      // 表の 3 列にすると、狭い枠で相手のアドレスが 1 文字ずつ折り返されて読めなかった(2026-11-02)。
       kinds
         .map(function (k: Dynamic) {
           return (
-            "<tr><td style='padding:2px 6px 2px 0;word-break:break-all'><code>" +
+            "<div style='padding:6px 0;border-top:1px solid var(--line)'>" +
+            "<div style='overflow-wrap:anywhere;color:var(--ink)'><code>" +
             escapeHtml(String(k.directive)) +
             "</code> ← <code>" +
             escapeHtml(String(k.blocked)) +
-            "</code></td><td style='padding:2px 0;text-align:right;white-space:nowrap'>" +
-            escapeHtml(String(k.count)) +
-            "</td><td style='padding:2px 0 2px 8px;white-space:nowrap'>" +
-            escapeHtml(new Date(Number(k.last_at)).toLocaleString()) +
-            "</td></tr>"
+            "</code></div><div style='margin-top:2px'>" +
+            escapeHtml(
+              t("cspReportsMeta")
+                .replace("{n}", String(k.count))
+                .replace(
+                  "{date}",
+                  new Date(Number(k.last_at)).toLocaleString(),
+                ),
+            ) +
+            "</div></div>"
           );
         })
-        .join("") +
-      "</tbody></table>";
+        .join("");
     box.style.display = "";
   }
 

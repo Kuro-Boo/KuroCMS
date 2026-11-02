@@ -902,23 +902,6 @@ async function settings() {
     "<div id='legalLinkRows' style='border:1px solid var(--line);border-radius:10px;overflow:hidden'></div>" +
     // 同意した版と同意した日(2026-11-02 にプロフィールから移した)。版のリンクは**その時点の文面**を開く。
     "<div id='legalAgreedRow' class='contractRows' style='display:none'></div>" +
-    "</div>" +
-    // アカウントの削除の窓口(ID §10.4)。頁は KuroNote などと共通の 1 つで、製品は product_id で選ぶ。
-    "<div class='panel stack' style='gap:12px'>" +
-    "<div class='panelHead'><h3>" +
-    escapeHtml(t("accountDeletionTitle")) +
-    "</h3></div>" +
-    "<div class='muted' style='font-size:13px;line-height:1.7'>" +
-    escapeHtml(t("accountDeletionHelp")) +
-    "</div>" +
-    "<div><a href='" +
-    escapeHtml(
-      "https://id.entamy.com/delete?product_id=cms&lang=" +
-        (state.uiLang === "ja" ? "ja" : "en"),
-    ) +
-    "' target='_blank' rel='noopener'>" +
-    escapeHtml(t("accountDeletionLink")) +
-    " ↗</a></div>" +
     "</div>";
   let legalLoaded = false;
   // 同意した版へのリンクと同意した日。最新ではなく、同意した時点の文面が開く

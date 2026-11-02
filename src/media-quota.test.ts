@@ -137,11 +137,12 @@ check(
   2,
 );
 
-// 委託はお客様の無料枠ではない —— 見出しを替える。
+// 委託はお客様の無料枠ではない —— 見出しは運用の形によらず「使用状況」だけ(形は右のバッジ)。
 const dash = screens.find((x) => x.f === "dashboard.ts")!.s;
 check(
-  "委託のときはダッシュボードの見出しから「無料枠」を外す",
-  /managedQuota[\s\S]{0,200}storageManagedUsage/.test(dash),
+  "ダッシュボードの使用状況の見出しに「無料枠」を書かない",
+  /heading\.textContent = t\("storageUsage"\)/.test(dash) &&
+    !/storageFreeUsage/.test(dash),
   true,
 );
 

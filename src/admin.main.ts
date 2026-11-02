@@ -1012,7 +1012,8 @@ const i18n = {
       "Could not check the owner right now. Please try again in a moment.",
     contactPanelHelp:
       "One per site, separate from the sign-in addresses of the people who use this CMS (each person changes their own in Profile). Important notices about this CMS (security, updates, backup reminders) are sent here, and this Entamy ID holds the managed hosting contract. It is not used for anything else.",
-    contactLinked: "Registered: {email} (confirmed {date})",
+    contactLinked: "Registered: {email}",
+    contactLinkedAt: "This email address was confirmed on {date}.",
     contactPending: "Waiting for confirmation: {email}",
     contactNone: "Not registered",
     contactOptedOut:
@@ -1163,8 +1164,45 @@ const i18n = {
     legalLinksEmpty: "The list could not be loaded.",
     accountDeletionTitle: "Delete your Entamy ID account",
     accountDeletionHelp:
-      "You can request deletion of the Entamy ID account you use for KuroCMS through a confirmation link sent to your registered email address. Your account cannot be deleted while a subscription is active.",
-    accountDeletionLink: "Open the account deletion page",
+      "Deletes the Entamy ID of this site's owner (the account used for KuroCMS). To delete the ID, this site must be deleted first. A window opens showing the steps and what is deleted and kept.",
+    accountDeleteOpen: "Delete Entamy ID account…",
+    accountDeleteTitle: "Delete the Entamy ID account",
+    accountDeleteLead:
+      "This explains the steps and effects of deleting the Entamy ID of this site's owner (the account used for KuroCMS).",
+    accountDeleteGoneTitle: "What is deleted",
+    accountDeleteGoneAccount:
+      "The Entamy ID account used for KuroCMS. It is deleted when the deletion grace period ends and cannot be restored after that. You can cancel during the grace period.",
+    accountDeleteGoneOwner:
+      "This site's owner registration. Important notices (security, updates, backups) will no longer reach anyone.",
+    accountDeleteSiteTitle: "This site must be deleted first",
+    accountDeleteContractTitle: "Contract",
+    accountDeleteContractBlock:
+      "There is a managed hosting contract that renews automatically (including one already applied for). Cancel it on the contract page before deleting the site.",
+    accountDeleteContractUnknown:
+      "The contract status cannot be confirmed yet. Please check it on the contract page.",
+    accountDeleteContractCancelled:
+      "There is a cancelled managed hosting contract. The site can be deleted once the contract ends.",
+    accountDeleteContractNone: "There is no ongoing managed hosting contract.",
+    accountDeleteContractSelf: "Self-hosting is free and has no contract.",
+    accountDeleteKeptTitle: "What is kept",
+    accountDeleteKeptRecords:
+      "If any payment was ever made, transaction and contract records and records of your agreement to the terms are kept for the period required by law.",
+    accountDeleteSiteRequired:
+      "KuroCMS runs connected to the Entamy platform, so this site cannot keep running without its owner's Entamy ID. The site must therefore be deleted before the ID. While the site exists, the ID cannot be deleted.",
+    accountDeleteStepsTitle: "Steps",
+    accountDeleteStepContract:
+      "If a managed hosting contract is ongoing, cancel it on the contract page.",
+    accountDeleteStepSiteManaged:
+      'Use "Delete this site" to delete this site (articles, images, users and settings).',
+    accountDeleteStepSiteSelf:
+      'Use "Delete this site" to clean up this site on your own Cloudflare account in Entamy\'s Site management.',
+    accountDeleteStepId:
+      "After the site is deleted, delete the ID on Entamy's deletion page (id.entamy.com/delete). A confirmation link is sent to your registered email address, and you request deletion from that link.",
+    accountDeleteGoSite: "Delete this site…",
+    accountDeleteFreeTitle: "To keep using the site without paying",
+    accountDeleteFreeBody:
+      "If you only want to stop paying, you can move to self-hosting (running on your own Cloudflare account, free) without deleting the ID or the site. Articles, media, settings and users are copied over, and the managed hosting contract ends when the move is finished.",
+    accountDeleteFreeGo: "See the move to self-hosting",
     contractAt: "Hosting started",
     contractPlan: "Billing",
     contractPlanMonth: "Monthly",
@@ -1598,9 +1636,7 @@ const i18n = {
     guardianResultFailed:
       "The WorkerOps update failed ({when}). Reason: {error}",
     guardianBusy: "WorkerOps is busy updating KuroCMS. Try again in a minute.",
-    storageFreeUsage: "CF Free Tier Usage",
-    storageManagedUsage: "Usage (hosted by Entamy)",
-    storagePaidUsage: "CF Paid Usage (included in the plan)",
+    storageUsage: "Usage",
     planFree: "Free",
     cfAccountLabel: "Cloudflare account: ",
     cfAccountManaged: "Cloudflare account for hosted (managed) users",
@@ -2030,6 +2066,8 @@ const i18n = {
     tmplScriptWarnLabel: "Scripts not loaded",
     cspReportsTitle:
       "Security policy (CSP) reports from the public site (what it would block)",
+    cspReportsMeta: "{n} reports · last on {date}",
+    devAccountBadge: "Developer account",
     tmplScriptWarnExternal:
       "External script (not loaded on public pages; paste its code into the template instead): ",
     tmplScriptWarnToken:
@@ -2461,7 +2499,8 @@ const i18n = {
       "いまは持ち主を確かめられません。少し待ってからもう一度お試しください。",
     contactPanelHelp:
       "サイトに 1 つだけの宛先です。この CMS を使う人のログイン用のアドレス（各自がプロフィールで変えます）とは別です。この CMS の重要なお知らせ（セキュリティ・更新・バックアップのお願いなど）が届き、この Entamy ID が委託運用の契約の持ち主になります。それ以外には使いません。",
-    contactLinked: "登録済み: {email}(確認 {date})",
+    contactLinked: "登録済み: {email}",
+    contactLinkedAt: "メールアドレスの確認は {date} に行われました。",
     contactPending: "確認待ち: {email}",
     contactNone: "未登録",
     contactOptedOut:
@@ -2685,8 +2724,44 @@ const i18n = {
     legalLinksEmpty: "一覧を取得できませんでした。",
     accountDeletionTitle: "Entamy ID のアカウントの削除",
     accountDeletionHelp:
-      "KuroCMS で使っている Entamy ID のアカウントの削除は、登録したメールアドレスに届く確かめのリンクから申し込めます。自動更新の続く契約がある間は削除できません。",
-    accountDeletionLink: "アカウントの削除の窓口を開く",
+      "このサイトの持ち主の Entamy ID（KuroCMS で使っている口座）を削除します。ID を削除するには、先にこのサイトを削除する必要があります。押すと、その手順と、削除されるもの・残るものを確かめる窓が開きます。",
+    accountDeleteOpen: "Entamy ID のアカウントを削除…",
+    accountDeleteTitle: "Entamy ID のアカウントを削除する",
+    accountDeleteLead:
+      "このサイトの持ち主の Entamy ID（KuroCMS で使っている口座）の削除について、手順と影響を説明します。",
+    accountDeleteGoneTitle: "削除されるもの",
+    accountDeleteGoneAccount:
+      "KuroCMS で使っている Entamy ID のアカウント。削除の猶予期間が終わると消え、元に戻せません。猶予期間のあいだは取り消せます。",
+    accountDeleteGoneOwner:
+      "このサイトの持ち主の登録。セキュリティ・更新・バックアップなどの重要なお知らせが、どこにも届かなくなります。",
+    accountDeleteSiteTitle: "先にこのサイトの削除が必要です",
+    accountDeleteContractTitle: "契約",
+    accountDeleteContractBlock:
+      "自動更新の続く委託契約（申し込み済みを含む）があります。サイトを削除する前に、契約の頁で解約してください。",
+    accountDeleteContractUnknown:
+      "契約の状態をまだ確かめられません。契約の頁で状態を確かめてください。",
+    accountDeleteContractCancelled:
+      "解約済みの委託契約があります。契約が終わると、サイトを削除できます。",
+    accountDeleteContractNone: "続いている委託契約はありません。",
+    accountDeleteContractSelf: "顧客導入は無料で、契約はありません。",
+    accountDeleteKeptTitle: "削除しても残るもの",
+    accountDeleteKeptRecords:
+      "一度でも支払いがあった場合は、取引と契約の記録、規約への同意の記録を、法令などで決められた期間残します。",
+    accountDeleteSiteRequired:
+      "KuroCMS は Entamy 基盤とつながって動いているため、持ち主の Entamy ID が無いと、このサイトは動き続けられません。そのため、ID を削除する前に、このサイトを削除する必要があります。サイトが残っている間は、ID を削除できません。",
+    accountDeleteStepsTitle: "削除の手順",
+    accountDeleteStepContract: "委託契約が続いていれば、契約の頁で解約します。",
+    accountDeleteStepSiteManaged:
+      "「このサイトを削除する」から、このサイト（記事・画像・利用者・設定）を削除します。",
+    accountDeleteStepSiteSelf:
+      "「このサイトを削除する」から、Entamy の「サイト管理」で、お客様の Cloudflare にあるこのサイトを片付けます。",
+    accountDeleteStepId:
+      "サイトを削除した後、Entamy の削除の窓口（id.entamy.com/delete）で ID を削除します。登録したメールアドレスに確かめのリンクが届き、そのリンクから申し込みます。",
+    accountDeleteGoSite: "このサイトを削除する…",
+    accountDeleteFreeTitle: "費用を止めて使い続けたいときは",
+    accountDeleteFreeBody:
+      "費用を止めたいだけなら、ID もサイトも削除せずに、顧客導入（ご自身の Cloudflare アカウントで動かす形・無料）へ引っ越せます。記事・メディア・設定・利用者はそのまま写り、引っ越しが終わると委託契約も終わります。",
+    accountDeleteFreeGo: "顧客導入への引っ越しを見る",
     contractAt: "委託を始めた日",
     contractPlan: "払い方",
     contractPlanMonth: "月払い",
@@ -3124,9 +3199,7 @@ const i18n = {
       "WorkerOps の更新に失敗しました（{when}）。理由: {error}",
     guardianBusy:
       "WorkerOps が KuroCMS を更新している最中です。1 分ほどおいてもう一度お試しください。",
-    storageFreeUsage: "CF 無料枠使用状況",
-    storageManagedUsage: "使用状況（Entamy 委託）",
-    storagePaidUsage: "CF Paid 使用状況（料金に含まれる分）",
+    storageUsage: "使用状況",
     planFree: "無料枠",
     cfAccountLabel: "Cloudflare アカウント: ",
     cfAccountManaged: "委託利用者用の Cloudflare アカウント",
@@ -3557,6 +3630,8 @@ const i18n = {
     tmplDetailDownloadLabel: "ダウンロード URL",
     tmplScriptWarnLabel: "読み込まないスクリプト",
     cspReportsTitle: "公開サイトの守り（CSP）の報告（止めることになるもの）",
+    cspReportsMeta: "{n} 件 · 最後に届いたのは {date}",
+    devAccountBadge: "開発アカウント",
     tmplScriptWarnExternal:
       "外部の JS（公開ページでは読み込みません。使う時は中身をテンプレートに貼り付けてください）: ",
     tmplScriptWarnToken:
@@ -6088,9 +6163,7 @@ async function renderContactPanel(el: HTMLElement | null) {
   }
   const line =
     info.state === "linked"
-      ? t("contactLinked")
-          .replace("{email}", info.email ?? "")
-          .replace("{date}", info.linkedAt ? formatDateTime(info.linkedAt) : "")
+      ? t("contactLinked").replace("{email}", info.email ?? "")
       : info.state === "installer"
         ? t("contactInstaller")
         : info.state === "opted_out"
@@ -6110,6 +6183,14 @@ async function renderContactPanel(el: HTMLElement | null) {
     "<div style='display:flex;align-items:center;gap:8px;flex-wrap:wrap'>" +
     "<span style='flex:1;min-width:0;word-break:break-all'>" +
     escapeHtml(line) +
+    // 確認した日時は 2 行目に小さく添える(1 行目に括弧で並べると「確認」が何の確認か読めない)。
+    (info.state === "linked" && info.linkedAt
+      ? "<span class='muted' style='display:block;font-size:12px;margin-top:2px'>" +
+        escapeHtml(
+          t("contactLinkedAt").replace("{date}", formatDateTime(info.linkedAt)),
+        ) +
+        "</span>"
+      : "") +
     "</span>" +
     (info.state === "linked" || info.state === "none"
       ? "<button type='button' class='secondary' id='contactEditBtn'>" +
@@ -6123,8 +6204,43 @@ async function renderContactPanel(el: HTMLElement | null) {
         escapeHtml(t("contactRemove")) +
         "</button>"
       : "") +
+    "</div>" +
+    // サイトの削除(2026-11-02 にプロフィールから移した)。ID の削除より先に要るので、ID の削除の上に置く。
+    // 知らせの「このサイトを削除する」と同じ確認の窓(siteDeleteDialog・site-delete.ts)を開く。
+    "<div class='stack' style='gap:6px;margin-top:8px;padding-top:12px;border-top:1px solid var(--line)'>" +
+    "<b style='font-size:13px'>" +
+    escapeHtml(t("siteDeleteTitle")) +
+    "</b>" +
+    "<div class='muted' style='font-size:12px;line-height:1.7'>" +
+    escapeHtml(t("siteDeleteProfileLead")) +
+    "</div>" +
+    "<div><button type='button' class='danger-soft' id='siteDeleteBtn'>" +
+    escapeHtml(t("siteDeleteOpen")) +
+    "</button></div>" +
+    "</div>" +
+    // Entamy ID のアカウントの削除の窓口(ID §10.4)。持ち主の ID のことなので、この枠に置く(2026-11-02・利用者)。
+    // 頁は KuroNote などと共通の 1 つで、製品は product_id で選ぶ。
+    "<div class='stack' style='gap:6px;margin-top:8px;padding-top:12px;border-top:1px solid var(--line)'>" +
+    "<b style='font-size:13px'>" +
+    escapeHtml(t("accountDeletionTitle")) +
+    "</b>" +
+    "<div class='muted' style='font-size:12px;line-height:1.7'>" +
+    escapeHtml(t("accountDeletionHelp")) +
+    "</div>" +
+    // 押すと、消えるもの・残るもの・契約の扱いを見せる窓(accountDeleteDialog・site-delete.ts)。窓口へはそこから送る。
+    "<div><button type='button' class='danger-soft' id='accountDeleteBtn'>" +
+    escapeHtml(t("accountDeleteOpen")) +
+    "</button></div>" +
     "</div>";
   const rerender = () => void renderContactPanel(el);
+  el.querySelector("#siteDeleteBtn")?.addEventListener(
+    "click",
+    () => void siteDeleteDialog(),
+  );
+  el.querySelector("#accountDeleteBtn")?.addEventListener(
+    "click",
+    () => void accountDeleteDialog(),
+  );
   el.querySelector("#contactEditBtn")?.addEventListener("click", () =>
     openContactDialog(info, { prompt: false, onClose: rerender }),
   );

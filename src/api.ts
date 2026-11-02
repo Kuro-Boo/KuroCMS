@@ -7493,6 +7493,29 @@ async function me(
         .bind(authorId, nowIso(), user.uid)
         .run();
     }
+    // 持ち主(Entamy ID)として確かめ済みのアドレスと同じなら、確認済みとして記録する(2026-11-02・利用者の指示)。
+    // そのアドレスに届くことは Entamy ID の確認で分かっている —— もう一度確認メールを送らせない。記録は一度だけで、
+    // 以後は ID に訊かない。アドレスを変えれば今までどおり未確認に戻る(PUT)。訊けなければ未確認のまま。
+    if (!row.email_verified_at) {
+      try {
+        const c = await contactState(env);
+        if (
+          c.state === "linked" &&
+          c.email &&
+          c.email.toLowerCase() === String(row.email).toLowerCase()
+        ) {
+          const at = c.linkedAt || nowIso();
+          await env.DB.prepare(
+            "UPDATE users SET email_verified_at = ? WHERE uid = ? AND email_verified_at IS NULL AND lower(email) = ?",
+          )
+            .bind(at, user.uid, c.email.toLowerCase())
+            .run();
+          row.email_verified_at = at;
+        }
+      } catch {
+        /* 未確認のまま(確認メールで確かめられる) */
+      }
+    }
     return json({
       user: {
         uid: row.uid,
