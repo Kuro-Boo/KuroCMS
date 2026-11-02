@@ -12134,23 +12134,26 @@ async function finishMoveTarget(
   const expiresAt = new Date(Date.now() + MOVE_RECOVERY_TTL_MS).toISOString();
   let mailed = 0;
   const failed: string[] = [];
+  // 行き先の言い方。委託運用へ来たのか、お客様の Cloudflare へ来たのか(この導入の形で決まる)。
+  const managed = isManagedHosting(env);
   for (const u of users.results ?? []) {
     const token = randomToken();
+    const tokenHash = await sha256Hex(token);
     await env.DB.prepare(
       `INSERT INTO recovery_tokens (token_hash, uid, email, expires_at, created_at)
        VALUES (?, ?, ?, ?, ?)`,
     )
-      .bind(await sha256Hex(token), u.uid, u.email, expiresAt, nowIso())
+      .bind(tokenHash, u.uid, u.email, expiresAt, nowIso())
       .run();
     const link = `${origin}${adminBasePath(env)}/?recover=${encodeURIComponent(token)}`;
     const mail = ja
       ? {
           subject: `[${siteName}] 引っ越しが終わりました —— パスキーを登録してください`,
           text:
-            `${siteName} は、お客様の Cloudflare へ引っ越しました。新しい管理画面のアドレスは ${origin}${adminBasePath(env)}/ です。\n` +
+            `${siteName} は、${managed ? "Entamy の委託運用" : "お客様の Cloudflare"}へ引っ越しました。新しい管理画面のアドレスは ${origin}${adminBasePath(env)}/ です。\n` +
             `パスキーはアドレスに結び付くため、新しいアドレスで登録し直す必要があります。次のリンクを開いてください（7 日間有効・1 回のみ）:\n${link}\n`,
           html:
-            `<p>${htmlEscape(siteName)} は、お客様の Cloudflare へ引っ越しました。新しい管理画面のアドレスは <a href="${origin}${adminBasePath(env)}/">${htmlEscape(origin)}${htmlEscape(adminBasePath(env))}/</a> です。</p>` +
+            `<p>${htmlEscape(siteName)} は、${managed ? "Entamy の委託運用" : "お客様の Cloudflare"}へ引っ越しました。新しい管理画面のアドレスは <a href="${origin}${adminBasePath(env)}/">${htmlEscape(origin)}${htmlEscape(adminBasePath(env))}/</a> です。</p>` +
             `<p>パスキーはアドレスに結び付くため、新しいアドレスで登録し直す必要があります。</p>` +
             `<p><a href="${link}">パスキーを登録する</a></p>` +
             `<p style="color:#666;font-size:13px">このリンクは 7 日間有効で、1 回だけ使えます。期限が切れたら、管理画面の「パスキーを再設定」からメールを送り直せます。</p>`,
@@ -12158,10 +12161,10 @@ async function finishMoveTarget(
       : {
           subject: `[${siteName}] Your site has moved — register a passkey`,
           text:
-            `${siteName} has moved to your own Cloudflare account. The new admin address is ${origin}${adminBasePath(env)}/.\n` +
+            `${siteName} has moved to ${managed ? "Entamy managed hosting" : "your own Cloudflare account"}. The new admin address is ${origin}${adminBasePath(env)}/.\n` +
             `Passkeys are tied to the address, so please register one again at the new address (valid for 7 days, single use):\n${link}\n`,
           html:
-            `<p>${htmlEscape(siteName)} has moved to your own Cloudflare account. The new admin address is <a href="${origin}${adminBasePath(env)}/">${htmlEscape(origin)}${htmlEscape(adminBasePath(env))}/</a>.</p>` +
+            `<p>${htmlEscape(siteName)} has moved to ${managed ? "Entamy managed hosting" : "your own Cloudflare account"}. The new admin address is <a href="${origin}${adminBasePath(env)}/">${htmlEscape(origin)}${htmlEscape(adminBasePath(env))}/</a>.</p>` +
             `<p>Passkeys are tied to the address, so please register one again at the new address.</p>` +
             `<p><a href="${link}">Register a passkey</a></p>` +
             `<p style="color:#666;font-size:13px">This link is valid for 7 days and can be used once. If it expires, request a new one from “Recover passkey” on the admin sign-in screen.</p>`,
@@ -12170,7 +12173,10 @@ async function finishMoveTarget(
       to: u.email,
       ...mail,
       fromName: siteName,
-      idempotencyKey: `move-${u.uid}`,
+      // 鍵はこの引っ越しで作ったリンクごとに変える。利用者の番号(usr_001)はどのサイトでも同じなので、
+      // 番号で作ると、前に別のサイトの引っ越しで送った鍵と重なり、Mailer が送らずに「受けた」と返す
+      // (2026-11-02 の往復の試験で、メールが届かないまま「1 人に送った」と出た)。
+      idempotencyKey: `move-${tokenHash}`,
     }).catch(() => null);
     if (status?.path) mailed++;
     else failed.push(u.email);
