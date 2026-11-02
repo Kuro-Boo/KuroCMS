@@ -1052,7 +1052,7 @@ async function siteManagement() {
     panel.innerHTML =
       "<div style='display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:8px;align-items:end;margin-bottom:10px'>" +
       "<label style='display:flex;flex-direction:column;gap:3px'>" +
-      "<span style='font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)'>" +
+      "<span style='font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--muted)'>" +
       escapeHtml(t("tmplEditorName")) +
       "</span>" +
       "<input id='tmplEditNameInput' placeholder='" +
@@ -1060,7 +1060,7 @@ async function siteManagement() {
       "' style='font-size:14px;font-weight:700' />" +
       "</label>" +
       "<label style='display:flex;flex-direction:column;gap:3px'>" +
-      "<span style='font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)'>" +
+      "<span style='font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--muted)'>" +
       escapeHtml(t("tmplEditorAuthor")) +
       "</span>" +
       "<input id='tmplEditAuthorInput' placeholder='" +

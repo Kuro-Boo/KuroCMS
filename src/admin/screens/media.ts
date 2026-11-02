@@ -26,22 +26,14 @@ function mediaScreen(
   // 一覧の見出しと説明文は本文に置かない —— 画面の枠(shell)が題と説明文(pageLead)を出している。前は
   // "registered" + 種類 + "List" の鍵をつないで見出しを引いていたが、その文言がどこにも無く、鍵の文字がそのまま
   // 出ていた。説明文も枠と本文で 2 回出ていた(2026-11-02)。
-  const kindLabel =
-    kind === "image"
-      ? t("imageTypeLabel")
-      : kind === "video"
-        ? t("videoTypeLabel")
-        : t("audioTypeLabel");
   shell(
     t(labelKey),
     "<div class='stack'>" +
       "<div id='mediaScreenBody' class='panel stack'>" +
-      // 1 本の帯: 左に保存の量、右に画像だけの自動縮小と追加のボタン。
-      "<div style='display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:10px 14px;border:1px solid var(--line);border-radius:10px;background:var(--surface-2)'>" +
-      "<div id='mediaStorageInfo' class='muted' style='font-size:13px'>" +
-      escapeHtml(t("loading")) +
-      "</div>" +
-      "<div style='display:flex;align-items:center;gap:12px;flex-wrap:wrap'>" +
+      // 上の 1 行: 左に画像だけの自動縮小、右上に追加のボタン(折り返さない・仕様 core-style-s3-8)。
+      // 保存の量の文は置かない(R2 の使用量はダッシュボードの「使用状況」が出す・2026-11-02)。
+      "<div style='display:flex;align-items:center;gap:20px'>" +
+      "<div style='flex:1 1 auto;min-width:0'>" +
       (kind === "image"
         ? "<label style='display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)'>" +
           escapeHtml(t("imageAutoResize")) +
@@ -58,10 +50,10 @@ function mediaScreen(
           escapeHtml(t("imageResize2m")) +
           "</option></select></label>"
         : "") +
-      "<button type='button' id='mediaAddBtn'>" +
+      "</div>" +
+      "<button type='button' id='mediaAddBtn' style='flex:0 0 auto;margin-left:auto;white-space:nowrap'>" +
       escapeHtml(t("addFile")) +
       "</button>" +
-      "</div>" +
       "</div>" +
       "<div id='mediaDropZone' class='dropZone'>" +
       "<div class='dropZoneIcon'>" +
@@ -149,20 +141,6 @@ function mediaScreen(
     const overlay = body.querySelector<AdminElement>(".r2Overlay");
     if (overlay) overlay.remove();
 
-    const m = ((storageData || {}).media || {})[kind] || { count: 0, bytes: 0 };
-    const info = byId("mediaStorageInfo");
-    if (info) {
-      info.textContent =
-        m.count === 0
-          ? t("mediaInfoNonePre") + kindLabel + t("mediaInfoNoneSuf")
-          : t("mediaInfoCountPre") +
-            kindLabel +
-            t("mediaInfoCountMid1") +
-            fmtNum(m.count) +
-            t("mediaInfoCountMid2") +
-            fmtBytes(m.bytes) +
-            t("mediaInfoCountEnd");
-    }
     byId("mediaAddBtn")?.addEventListener("click", function () {
       byId("mediaFileInput")?.click();
     });
@@ -572,28 +550,6 @@ function uploadFiles(files: Dynamic, kind: Dynamic, apiPath: Dynamic) {
       // 新しい順なので、登録したものは 1 ページ目に出る。
       mediaPage = 1;
       loadMediaList(apiPath);
-      // Refresh storage info
-      api("/api/system/storage")
-        .then(function (s) {
-          const kindLabel =
-            kind === "image"
-              ? t("imageTypeLabel")
-              : kind === "video"
-                ? t("videoTypeLabel")
-                : t("audioTypeLabel");
-          const m = (s.media || {})[kind] || { count: 0, bytes: 0 };
-          const info = byId("mediaStorageInfo");
-          if (info)
-            info.textContent =
-              t("mediaInfoCountPre") +
-              kindLabel +
-              t("mediaInfoCountMid1") +
-              fmtNum(m.count) +
-              t("mediaInfoCountMid2") +
-              fmtBytes(m.bytes) +
-              t("mediaInfoCountEnd");
-        })
-        .catch(function () {});
     } catch (err) {
       setStatus(errorMessage(err) || t("error"), false);
     }

@@ -893,9 +893,6 @@ const i18n = {
     legalTitle: "Terms have been updated",
     legalFirstTitle: "Before you start",
     siteMoveTitle: "Contract",
-    siteMoveNowManaged: "This site runs on KuroCMS managed hosting servers.",
-    siteMoveNowSelf:
-      "This site runs on your own Cloudflare account (self-hosted).",
     siteMoveToSelf: "Move to your own Cloudflare account",
     siteMoveToManaged: "Move to Entamy managed hosting",
     siteMoveSelfLead:
@@ -917,7 +914,7 @@ const i18n = {
     siteMoveShow: "Show progress",
     siteMoveStepsTitle: "Steps",
     siteMoveCloseNote:
-      "Closing this window does not stop the move. You can reopen it from Settings → Contract.",
+      "Closing this window does not stop the move. You can reopen it any time with “Show progress” in Settings → Contract.",
     siteMoveFailed: "The move stopped. What was copied so far is kept.",
     siteMoveResume: "Resume from where it stopped",
     siteMoveAgain: "Try again",
@@ -2380,9 +2377,6 @@ const i18n = {
     legalTitle: "規約が更新されました",
     legalFirstTitle: "はじめに",
     siteMoveTitle: "契約",
-    siteMoveNowManaged: "いまは KuroCMSの委託運用サーバー上で動いています。",
-    siteMoveNowSelf:
-      "いまはご自身の Cloudflare アカウントで動いています（顧客導入）。",
     siteMoveToSelf: "ご自身の Cloudflare アカウントへ引っ越す",
     siteMoveToManaged: "Entamy の委託運用へ引っ越す",
     siteMoveSelfLead:
@@ -2404,7 +2398,7 @@ const i18n = {
     siteMoveShow: "進み具合を見る",
     siteMoveStepsTitle: "作業の工程",
     siteMoveCloseNote:
-      "閉じても引っ越しは止まりません。「設定 → 契約」からいつでも開き直せます。",
+      "閉じても引っ越しは止まりません。「設定 → 契約」の「進み具合を見る」から、いつでも開き直せます。",
     siteMoveFailed: "引っ越しが止まりました。写した分は残っています。",
     siteMoveResume: "途中から再開",
     siteMoveAgain: "やり直す",
@@ -6273,17 +6267,8 @@ async function render() {
     if (state.preview) {
       enablePreviewMode();
     } else {
-      // Check setup status
-      const setupStatusResponse = await fetch(withBase("/api/setup/status"));
-      if (setupStatusResponse.ok) {
-        const setupStatus = await setupStatusResponse.json();
-        if (setupStatus.moving) return movingScreen();
-        if (setupStatus.needsSetup) {
-          return setupScreen(setupStatus);
-        }
-      }
-
-      // Check for invitation token in URL
+      // 届いたリンク(招待・パスキーの登録し直し)は、初期設定の判定より先に読む。引っ越しの後は
+      // パスキーが 0 なので、先に判定を見るとメールのリンクから開いても初期設定の画面に落ちる。
       const urlParams = new URLSearchParams(location.search);
       const inviteToken = urlParams.get("invite");
       if (inviteToken) {
@@ -6292,6 +6277,16 @@ async function render() {
       const recoverToken = urlParams.get("recover");
       if (recoverToken) {
         return recoverScreen(recoverToken);
+      }
+
+      // Check setup status
+      const setupStatusResponse = await fetch(withBase("/api/setup/status"));
+      if (setupStatusResponse.ok) {
+        const setupStatus = await setupStatusResponse.json();
+        if (setupStatus.moving) return movingScreen();
+        if (setupStatus.needsSetup) {
+          return setupScreen(setupStatus);
+        }
       }
 
       // Check session

@@ -138,6 +138,7 @@ import {
   forgetMovedCache,
   moveFrozen,
   moveTargetPending,
+  moveTargetDone,
   readRows,
   readRowsByKey,
   rowsByKeys,
@@ -2745,7 +2746,9 @@ async function passkeyRegisterBegin(
     const credCount = await env.DB.prepare(
       "SELECT COUNT(*) AS cnt FROM passkey_credentials",
     ).first<{ cnt: number }>();
-    if ((credCount?.cnt ?? 0) > 0) {
+    // 引っ越しを受け終えた先は、パスキーが 0 でも初期設定ではない —— 写した管理者のパスキーを
+    // 初期設定の鍵で登録させない(本人には登録し直すリンクがメールで届いている)。
+    if ((credCount?.cnt ?? 0) > 0 || (await moveTargetDone(env))) {
       throw new HttpError(
         409,
         "setup_completed",
@@ -3436,9 +3439,11 @@ async function setupStatus(env: Env): Promise<Response> {
   const moving = await moveTargetPending(env);
   // パスキーが 1 つも無い間は初期設定の続き(管理者を作った後にパスキーの登録で止まった人も、
   // 同じリンクからやり直せる・初期設定の鍵が要る)。
+  // 引っ越しを受け終えた先は、パスキーが 0 でも初期設定ではない(届いたリンクから登録し直す)。
   const passkeys = await countPasskeys(env);
+  const moved = !moving && (await moveTargetDone(env));
   return json({
-    needsSetup: passkeys === 0 && !moving,
+    needsSetup: passkeys === 0 && !moving && !moved,
     moving,
   });
 }
@@ -3449,7 +3454,11 @@ async function setupStatus(env: Env): Promise<Response> {
  * そこには載せない。
  */
 async function setupOwner(request: Request, env: Env): Promise<Response> {
-  if ((await countPasskeys(env)) > 0 || (await moveTargetPending(env))) {
+  if (
+    (await countPasskeys(env)) > 0 ||
+    (await moveTargetPending(env)) ||
+    (await moveTargetDone(env))
+  ) {
     return json({ email: null });
   }
   const body = await readJson(request);
@@ -3466,7 +3475,8 @@ async function setup(request: Request, env: Env): Promise<Response> {
     );
   }
   // 済んだかはパスキーで決める(管理者を作った後にパスキーの登録で止まった人が、やり直せる)。
-  if ((await countPasskeys(env)) > 0) {
+  // 引っ越しを受け終えた先は、写した利用者がいるので済んでいる(パスキーは届いたリンクから登録し直す)。
+  if ((await countPasskeys(env)) > 0 || (await moveTargetDone(env))) {
     throw new HttpError(
       409,
       "setup_completed",

@@ -16,6 +16,7 @@ import {
   moveFrozen,
   moveRetired,
   moveTargetPending,
+  moveTargetDone,
   readRows,
   readRowsByKey,
   rowsByKeys,
@@ -132,8 +133,11 @@ console.log("move");
     await code(authorizeMove(req(), env, ["target"])),
     "move_unauthorized",
   );
+  eq("仕上げの前は受け終えていない", await moveTargetDone(env), false);
   raw.prepare("UPDATE move_state SET finished_at = ?").run(now);
   eq("仕上げの後は初期化を止めない", await moveTargetPending(env), false);
+  // 受け終えた先はパスキーが 0 でも初期設定を開けない(写した管理者を初期設定の鍵で乗っ取らせない)。
+  eq("仕上げの後は受け終えた先", await moveTargetDone(env), true);
 }
 {
   const { raw, env } = world();

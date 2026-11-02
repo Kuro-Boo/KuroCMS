@@ -531,7 +531,7 @@ async function settings() {
       escapeHtml(t("importStrapiDesc")) +
       "</div>" +
       "<div style='border:1px solid var(--line);border-radius:10px;padding:16px'>" +
-      "<div style='font-size:13px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px'>" +
+      "<div style='font-size:13px;font-weight:700;color:var(--muted);letter-spacing:.06em;margin-bottom:12px'>" +
       escapeHtml(t("importConnectionSettings")) +
       "</div>" +
       "<label>Strapi URL<div class='muted'>" +
@@ -549,7 +549,7 @@ async function settings() {
       "</div><input id='strapiContentType' placeholder='articles' /></label>" +
       "</div>" +
       "<details style='border:1px solid var(--line);border-radius:10px;padding:14px'>" +
-      "<summary style='font-size:13px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;cursor:pointer'>" +
+      "<summary style='font-size:13px;font-weight:700;color:var(--muted);letter-spacing:.06em;cursor:pointer'>" +
       escapeHtml(t("importFieldMapping")) +
       "</summary>" +
       "<div style='margin-top:12px;display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px'>" +
@@ -582,7 +582,7 @@ async function settings() {
       "</div>" +
       "<div id='strapiImportSection' style='display:none;width:100%;box-sizing:border-box'>" +
       "<div style='border:1px solid var(--line);border-radius:10px;padding:16px;box-sizing:border-box'>" +
-      "<div style='font-size:13px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px'>" +
+      "<div style='font-size:13px;font-weight:700;color:var(--muted);letter-spacing:.06em;margin-bottom:12px'>" +
       escapeHtml(t("importSettingsSection")) +
       "</div>" +
       "<div style='display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px'>" +
@@ -627,7 +627,7 @@ async function settings() {
       escapeHtml(t("importKurocmsDesc")) +
       "</div>" +
       "<div style='border:1px solid var(--line);border-radius:10px;padding:16px'>" +
-      "<div style='font-size:13px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px'>" +
+      "<div style='font-size:13px;font-weight:700;color:var(--muted);letter-spacing:.06em;margin-bottom:12px'>" +
       escapeHtml(t("importConnectionSettings")) +
       "</div>" +
       "<label>KuroCMS URL<div class='muted'>" +
@@ -650,7 +650,7 @@ async function settings() {
       "</div>" +
       "<div id='kurocmsImportSection' style='display:none;width:100%;box-sizing:border-box'>" +
       "<div style='border:1px solid var(--line);border-radius:10px;padding:16px;box-sizing:border-box'>" +
-      "<div style='font-size:13px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px'>" +
+      "<div style='font-size:13px;font-weight:700;color:var(--muted);letter-spacing:.06em;margin-bottom:12px'>" +
       escapeHtml(t("importSettingsSection")) +
       "</div>" +
       "<div style='display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px'>" +
@@ -1016,6 +1016,8 @@ async function settings() {
       "<div id='contractRows' class='contractRows'></div>" +
       "<div id='contractNote' class='readonlyBanner' style='display:none;margin:0;flex-wrap:wrap'></div>" +
       "<div id='contractActions' style='display:flex;gap:8px;flex-wrap:wrap;align-items:center'></div>" +
+      // 運用の形を変える(委託運用 ⇄ 顧客導入の引っ越し)。いまの契約の続きとして、この枠に置く。
+      siteMoveControlsHtml() +
       "<div id='contractPageNote' class='muted' style='font-size:12px;line-height:1.7;display:none'>" +
       escapeHtml(t("contractPageNote")) +
       "</div>" +
@@ -1533,7 +1535,7 @@ async function settings() {
         move.textContent = t("siteMoveToSelf") + " →";
         move.addEventListener("click", (e) => {
           e.preventDefault();
-          byId("siteMoveSection")?.scrollIntoView({ behavior: "smooth" });
+          byId("siteMoveBox")?.scrollIntoView({ behavior: "smooth" });
         });
         note.appendChild(move);
       }

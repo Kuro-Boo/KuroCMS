@@ -105,6 +105,16 @@ export async function moveTargetPending(env: Env): Promise<boolean> {
   return !!state && state.role === "target" && !state.finished_at;
 }
 
+/**
+ * 引っ越しを受け終えた移す先か。利用者は写してあり、パスキーだけが無い(ドメインに結び付くので持っていけない)。
+ * 管理者はメールで届いたリンク(?recover=)か「パスキーを忘れた」から登録し直す —— 初期設定の画面は出さない
+ * (パスキーが 0 でも初期設定の続きではない・最初の管理者を作らせない)。
+ */
+export async function moveTargetDone(env: Env): Promise<boolean> {
+  const state = await readMoveState(env);
+  return !!state && state.role === "target" && !!state.finished_at;
+}
+
 export interface TableShape {
   pk: string[];
   cols: string[];

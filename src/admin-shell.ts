@@ -81,6 +81,8 @@ export function adminHtml(
       * { box-sizing: border-box; }
       html { scroll-padding-bottom: 70px; }
       body { margin: 0; background: var(--theme-main-pane); color: var(--ink); overflow-x: hidden; }
+      /* 説明文の最後の行に 1〜2 字だけ残さない(「ん。」だけが次の行へ落ちる)。対応しないブラウザーは今まで通り。 */
+      p, li, dd, .muted, .pageLead, .notice, .readonlyBanner { text-wrap: pretty; }
       a { color: inherit; text-decoration: none; }
       .app { display: grid; grid-template-columns: var(--sidebar-w, 210px) 1fr; min-height: 100vh; }
       /* Draggable divider between the sidebar and the workspace. Invisible until
@@ -405,7 +407,7 @@ export function adminHtml(
       .helpDialogClose:hover { background: var(--surface-2); }
       .helpDialogBody { overflow-y: auto; padding: 14px 16px; flex: 1; font-size: 13px; line-height: 1.75; }
       .helpSection { margin-bottom: 18px; }
-      .helpSectionTitle { font-weight: 800; font-size: 12px; color: var(--accent); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 5px; padding-bottom: 3px; border-bottom: 1px solid var(--line); }
+      .helpSectionTitle { font-weight: 800; font-size: 12px; color: var(--accent); letter-spacing: .04em; margin-bottom: 5px; padding-bottom: 3px; border-bottom: 1px solid var(--line); }
       .helpLayout { display: grid; grid-template-columns: 190px 1fr; gap: 0; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; background: var(--surface); }
       .helpNav { border-right: 1px solid var(--line); background: var(--surface); display: flex; flex-direction: column; }
       .helpNavItem { display: block; width: 100%; padding: 11px 16px; font-size: 13px; font-weight: 600; color: var(--ink) !important; cursor: pointer; border: none !important; border-bottom: 1px solid var(--line) !important; background: var(--surface) !important; border-radius: 0 !important; box-shadow: none !important; text-align: left; transition: background .12s, color .12s; }
@@ -448,7 +450,7 @@ export function adminHtml(
       .tableScroll td.flexible, .tableScroll th.flexible { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 0; }
       table { width: 100%; border-collapse: collapse; table-layout: auto; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
       th, td { padding: 12px 14px; border-bottom: 1px solid var(--line); text-align: left; font-size: 14px; vertical-align: middle; overflow-wrap: anywhere; word-break: break-word; }
-      th { background: var(--surface-2); color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; white-space: nowrap; width: 1%; }
+      th { background: var(--surface-2); color: var(--muted); font-size: 12px; letter-spacing: 0.06em; white-space: nowrap; width: 1%; }
       tr:last-child td { border-bottom: 0; }
       .tableCompact td:not(.flexible), .tableCompact th:not(.flexible) { width: 1%; white-space: nowrap; }
       .tableCompact td.flexible, .tableCompact th.flexible { width: auto; }
@@ -467,7 +469,7 @@ export function adminHtml(
       .callout::before { content: ''; position: absolute; top: -6px; left: 16px; width: 10px; height: 10px; transform: rotate(45deg); background: inherit; }
       .callout.above::before { top: auto; bottom: -6px; }
       .error { border-left: 4px solid var(--danger); background: color-mix(in srgb, var(--danger) 10%, transparent); color: var(--danger); }
-      .pageLead { margin: 7px 0 0; color: var(--muted); font-size: 14px; max-width: 720px; }
+      .pageLead { margin: 7px 0 0; color: var(--muted); font-size: 14px; }
       .stat { display: grid; gap: 8px; min-height: 132px; }
       .statValue { font-size: 34px; line-height: 1; font-weight: 800; letter-spacing: -0.02em; color: var(--heading); }
       .statLabel { color: var(--muted); font-size: 13px; font-weight: 600; }
@@ -542,14 +544,14 @@ export function adminHtml(
       .setupHero { display: grid; gap: 10px; margin-bottom: 18px; padding: 24px; border-radius: 16px; background: linear-gradient(135deg, #1e293b 0%, var(--bg) 100%); color: var(--ink); box-shadow: var(--shadow); border: 1px solid var(--line); }
       [data-theme="dark"] .setupHero { background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); }
       .setupHero h2 { font-size: 32px; margin: 0; color: var(--heading); }
-      .setupHero p { max-width: 720px; margin: 0; color: var(--muted); }
+      .setupHero p { margin: 0; color: var(--muted); }
       .setupLayout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; align-items: start; }
       .setupAside { background: var(--surface-2); color: var(--ink); padding: 20px; border-radius: 12px; border: 1px solid var(--line); }
       .setupAside .sectionLabel { color: var(--heading); }
       .setupAside ol { margin: 0; padding-left: 20px; color: var(--muted); }
       .setupAside li { margin: 8px 0; }
       .setupOtpNotice { border: 2px solid var(--danger); border-radius: 10px; padding: 12px; background: color-mix(in srgb, var(--danger) 8%, transparent); color: var(--danger); font-size: 13px; line-height: 1.6; font-weight: 600; }
-      .sectionLabel { color: var(--accent-2); font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.1em; }
+      .sectionLabel { color: var(--accent-2); font-size: 12px; font-weight: 800; letter-spacing: 0.1em; }
       code { padding: 2px 6px; border-radius: 6px; background: var(--code-bg); color: var(--code-ink); font-family: ui-monospace, monospace; font-size: 0.9em; }
       .tableScroll code {
         color: var(--ink);

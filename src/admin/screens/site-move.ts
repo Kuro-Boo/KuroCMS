@@ -27,14 +27,20 @@ function siteMoveOlder(a: string, b: string): boolean {
 
 function siteMoveSectionHtml(): string {
   return (
+    // 持ち主(連絡先)と削除の枠。導入口より前の導入は、ここで結んでから引っ越す(renderContactPanel)。
     "<div id='siteMoveSection' class='panel stack' style='display:none'>" +
-    // 持ち主(連絡先)。導入口より前の導入は、ここで結んでから引っ越す(renderContactPanel)。
-    "<div id='contactPanel' class='stack' style='gap:8px;padding-bottom:16px;border-bottom:1px solid var(--line)'></div>" +
-    // 見出しはタブが言うので置かない(SNS のタブと同じ)。いまの形を最初の行に。
-    "<div id='siteMoveNow' style='font-weight:700'></div>" +
+    "<div id='contactPanel' class='stack' style='gap:8px'></div>" +
+    "</div>"
+  );
+}
+
+/** 引っ越しのボタンと進み具合の 1 行。契約のタブの「いまの契約」の枠の中に置く(運用の形を変えるのは契約の話)。 */
+function siteMoveControlsHtml(): string {
+  return (
+    "<div id='siteMoveBox' class='stack' style='display:none;gap:8px'>" +
     "<div class='muted' id='siteMoveNote' style='display:none'></div>" +
     "<div><button type='button' class='secondary' id='siteMoveOpen'></button></div>" +
-    // 走っている間・止まった後は、この 1 行と「進み具合を見る」だけを枠に残す(中身はダイアログ)。
+    // 走っている間・止まった後は、この 1 行と「進み具合を見る」だけを残す(中身はダイアログ)。
     "<div id='siteMoveInline' class='toolbar' style='display:none;gap:12px;align-items:center'>" +
     "<b id='siteMoveInlineState'></b>" +
     "<button type='button' class='secondary' id='siteMoveShow'>" +
@@ -155,25 +161,26 @@ function siteMoveRemember(value: string | null): void {
 
 async function mountSiteMove(): Promise<void> {
   const box = byId("siteMoveSection");
-  if (!box) return;
+  const moveBox = byId("siteMoveBox");
+  if (!box || !moveBox) return;
   let info: Dynamic;
   try {
     info = await api("/api/system/site-move");
   } catch {
-    // 管理者でない・古いサーバー。タブごと出さない。
+    // 管理者でない・古いサーバー。持ち主の枠も引っ越しのボタンも出さない。
     box.remove();
+    moveBox.remove();
     byId("siteMoveTabBtn")?.remove();
     return;
   }
   box.style.display = "";
+  moveBox.style.display = "";
   void renderContactPanel(byId("contactPanel"));
   const toSelf = info.to === "self";
-  const now = byId("siteMoveNow")!;
   const note = byId("siteMoveNote")!;
   const open = byId("siteMoveOpen") as Dynamic;
   const inline = byId("siteMoveInline")!;
   const inlineState = byId("siteMoveInlineState")!;
-  now.textContent = t(toSelf ? "siteMoveNowManaged" : "siteMoveNowSelf");
   open.textContent = t(toSelf ? "siteMoveToSelf" : "siteMoveToManaged");
   // 持ち主が分からなければ、先に持ち主の登録(確認メール 1 通)。結ばれたら枠を描き直す。
   let needOwner = false;
@@ -484,8 +491,10 @@ async function mountSiteMove(): Promise<void> {
 /** 枠を描き直す(持ち主を結んだ後など)。 */
 async function refreshSiteMove(): Promise<void> {
   const box = byId("siteMoveSection");
-  if (!box) return;
+  const moveBox = byId("siteMoveBox");
+  if (!box || !moveBox) return;
   byId("siteMoveOverlay")?.remove();
   box.outerHTML = siteMoveSectionHtml();
+  moveBox.outerHTML = siteMoveControlsHtml();
   await mountSiteMove();
 }
