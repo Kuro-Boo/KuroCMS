@@ -109,7 +109,6 @@ async function profile() {
       "<div><div class='fieldLabel'>" +
       escapeHtml(t("roles")) +
       "</div><div id='profileRoles' style='padding:8px 0'>-</div></div>" +
-      "<div id='legalAgreedRow' style='display:none'></div>" +
       "</div>" +
       // 更新は左、ログアウトは右(枠の中・区切り線の下)。全幅のボタンにしない。
       "<div style='display:flex;flex-wrap:wrap;gap:10px;align-items:center;border-top:1px solid var(--line);padding-top:14px'><button>" +
@@ -307,58 +306,6 @@ async function profile() {
       }
     })();
 
-    // 同意した版へのリンク。**その時点の文面**が開く（最新ではない）。
-    // 何に同意したのかを後から確かめられないと、同意を記録した意味が薄い。
-    void (async () => {
-      const slot = byId("legalAgreedRow");
-      if (!slot) return;
-      try {
-        const info = (await api("/api/system/legal")) as {
-          acceptedVersion?: string | null;
-          acceptedAt?: string | null;
-          termsUrl?: string;
-          privacyUrl?: string;
-        };
-        if (!info.acceptedVersion) return;
-        // 版は「規約/ポリシー」の順に連結されている。
-        const [tv, pv] = info.acceptedVersion.split("/");
-        const link = (base: string, v: string, label: string) =>
-          v
-            ? "<a href='" +
-              escapeHtml(base + "?version=" + encodeURIComponent(v)) +
-              "' target='_blank' rel='noopener'>" +
-              escapeHtml(label + " " + v) +
-              "</a>"
-            : "";
-        slot.style.display = "";
-        slot.innerHTML =
-          "<div class='fieldLabel'>" +
-          escapeHtml(t("legalAgreed")) +
-          "</div><div style='font-size:12px;padding:8px 0'>" +
-          [
-            link(
-              info.termsUrl ?? "https://kuro.boo/terms/",
-              tv,
-              t("legalTerms"),
-            ),
-            link(
-              info.privacyUrl ?? "https://kuro.boo/privacy/",
-              pv,
-              t("legalPrivacy"),
-            ),
-          ]
-            .filter(Boolean)
-            .join(" / ") +
-          (info.acceptedAt
-            ? "<div style='opacity:.6;margin-top:2px'>" +
-              escapeHtml(formatDateTime(info.acceptedAt)) +
-              "</div>"
-            : "") +
-          "</div>";
-      } catch {
-        /* 出せなければ何も置かない */
-      }
-    })();
     const meUser = meData.user;
     state.currentUser = meUser;
     // タブタイトル "KuroCMS <ユーザー名>" を実値に追随させる（改名直後もここで反映）。

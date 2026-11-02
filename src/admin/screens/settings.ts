@@ -900,6 +900,8 @@ async function settings() {
     escapeHtml(t("legalLinksHelp")) +
     "</div>" +
     "<div id='legalLinkRows' style='border:1px solid var(--line);border-radius:10px;overflow:hidden'></div>" +
+    // 同意した版と同意した日(2026-11-02 にプロフィールから移した)。版のリンクは**その時点の文面**を開く。
+    "<div id='legalAgreedRow' class='contractRows' style='display:none'></div>" +
     "</div>" +
     // アカウントの削除の窓口(ID §10.4)。頁は KuroNote などと共通の 1 つで、製品は product_id で選ぶ。
     "<div class='panel stack' style='gap:12px'>" +
@@ -919,6 +921,56 @@ async function settings() {
     " ↗</a></div>" +
     "</div>";
   let legalLoaded = false;
+  // 同意した版へのリンクと同意した日。最新ではなく、同意した時点の文面が開く
+  // (何に同意したのかを後から確かめられないと、同意を記録した意味が薄い)。
+  async function loadLegalAgreed() {
+    const slot = byId("legalAgreedRow");
+    if (!slot) return;
+    try {
+      const info = (await api("/api/system/legal")) as {
+        acceptedVersion?: string | null;
+        acceptedAt?: string | null;
+        termsUrl?: string;
+        privacyUrl?: string;
+      };
+      if (!info.acceptedVersion) return;
+      // 版は「規約/ポリシー」の順に連結されている。
+      const [tv, pv] = info.acceptedVersion.split("/");
+      const link = (base: string, v: string, label: string) =>
+        v
+          ? "<a href='" +
+            escapeHtml(base + "?version=" + encodeURIComponent(v)) +
+            "' target='_blank' rel='noopener'>" +
+            escapeHtml(label + " " + v) +
+            "</a>"
+          : "";
+      slot.innerHTML =
+        "<div class='fieldLabel' style='margin:0'>" +
+        escapeHtml(t("legalAgreed")) +
+        "</div><div>" +
+        [
+          link(info.termsUrl ?? "https://kuro.boo/terms/", tv, t("legalTerms")),
+          link(
+            info.privacyUrl ?? "https://kuro.boo/privacy/",
+            pv,
+            t("legalPrivacy"),
+          ),
+        ]
+          .filter(Boolean)
+          .join(" / ") +
+        "</div>" +
+        (info.acceptedAt
+          ? "<div class='fieldLabel' style='margin:0'>" +
+            escapeHtml(t("legalAgreedAt")) +
+            "</div><div>" +
+            escapeHtml(formatDateTime(info.acceptedAt)) +
+            "</div>"
+          : "");
+      slot.style.display = "";
+    } catch {
+      /* 出せなければ何も置かない */
+    }
+  }
   async function loadLegalLinks() {
     const rows = byId("legalLinkRows");
     if (!rows) return;
@@ -1707,7 +1759,10 @@ async function settings() {
       switchTab(btn.dataset.tab);
       if (btn.dataset.tab === "region" && !regionMeasured) void loadRegion();
       if (btn.dataset.tab === "hosting" && !contractLoaded) void loadContract();
-      if (btn.dataset.tab === "hosting" && !legalLoaded) void loadLegalLinks();
+      if (btn.dataset.tab === "hosting" && !legalLoaded) {
+        void loadLegalLinks();
+        void loadLegalAgreed();
+      }
     });
   });
 
