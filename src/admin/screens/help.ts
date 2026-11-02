@@ -161,7 +161,7 @@ async function help() {
       escapeHtml(c.title) +
       "</h2>" +
       "<div>" +
-      "<div style='font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:rgb(185,50,80);margin-bottom:6px'>" +
+      "<div style='font-size:11px;font-weight:800;letter-spacing:.06em;color:rgb(185,50,80);margin-bottom:6px'>" +
       escapeHtml(t("helpRoleLabel")) +
       "</div>" +
       "<p style='line-height:1.8;margin:0;font-size:13px'>" +
@@ -169,7 +169,7 @@ async function help() {
       "</p>" +
       "</div>" +
       "<div>" +
-      "<div style='font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--accent);margin-bottom:6px'>" +
+      "<div style='font-size:11px;font-weight:800;letter-spacing:.06em;color:var(--accent);margin-bottom:6px'>" +
       escapeHtml(t("helpCanDoLabel")) +
       "</div>" +
       "<ul style='padding-left:1.2em;line-height:1.9;margin:0;font-size:13px'>" +
@@ -182,7 +182,7 @@ async function help() {
       "</ul>" +
       "</div>" +
       "<div>" +
-      "<div style='font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--danger);margin-bottom:6px'>" +
+      "<div style='font-size:11px;font-weight:800;letter-spacing:.06em;color:var(--danger);margin-bottom:6px'>" +
       escapeHtml(t("helpNotesLabel")) +
       "</div>" +
       "<ul style='padding-left:1.2em;line-height:1.9;margin:0;font-size:13px'>" +
