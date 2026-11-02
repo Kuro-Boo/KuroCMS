@@ -919,10 +919,13 @@ const i18n = {
     siteMoveResume: "Resume from where it stopped",
     siteMoveAgain: "Try again",
     siteMoveDone: "The move is complete.",
-    siteMoveMailed:
-      "Sent {n} administrators a link to register a passkey at the new address.",
+    siteMoveCheckMail: "Check your email",
+    siteMoveCheckMailBody:
+      "We sent {n} administrators an email with a link to register a passkey at the new address. You sign in to the new admin panel from that link (valid for 7 days). Passkeys are tied to the address, so the passkey you use here does not work there.",
+    siteMoveMailFailed: "The email could not be sent",
+    siteMoveMailFailedBody:
+      "Open the new address's admin panel and use “Send recovery link” on the sign-in screen with your registered email address. Passkeys are tied to the address, so the passkey you use here does not work there.",
     siteMoveNewAddress: "New address",
-    siteMoveOpenAdmin: "Open the new admin panel",
     siteMoveOpsKey: "WorkerOps key",
     siteMoveOpsKeyNote:
       "The key to the new site's recovery console. Save it now somewhere safe. Delete the API token in Cloudflare after the move.",
@@ -2403,10 +2406,13 @@ const i18n = {
     siteMoveResume: "途中から再開",
     siteMoveAgain: "やり直す",
     siteMoveDone: "引っ越しが終わりました。",
-    siteMoveMailed:
-      "管理者 {n} 人に、新しいアドレスでパスキーを登録するリンクを送りました。",
+    siteMoveCheckMail: "メールを確かめてください",
+    siteMoveCheckMailBody:
+      "管理者 {n} 人に、新しいアドレスでパスキーを登録するリンクをメールで送りました。新しい管理画面には、そのリンクから入ります（7 日間有効）。パスキーはアドレスに結び付くので、いまお使いのパスキーでは入れません。",
+    siteMoveMailFailed: "メールを送れませんでした",
+    siteMoveMailFailedBody:
+      "新しいアドレスの管理画面を開き、ログインの画面の「再設定リンクを送信」に登録したメールアドレスを入れてください。パスキーはアドレスに結び付くので、いまお使いのパスキーでは入れません。",
     siteMoveNewAddress: "新しいアドレス",
-    siteMoveOpenAdmin: "新しい管理画面を開く",
     siteMoveOpsKey: "番人（WorkerOps）の鍵",
     siteMoveOpsKeyNote:
       "新しいサイトの復旧画面に入る鍵です。いま安全な場所に控えてください。引っ越しが終わったら、API トークンは Cloudflare で削除してください。",

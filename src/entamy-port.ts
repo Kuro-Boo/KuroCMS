@@ -349,12 +349,14 @@ let checkedReported = false;
  * 失敗の知らせは 1 時間に 1 度まで(どちらも失敗したら 1 時間空ける)、確かめた結果は導入ごとに 1 度。
  */
 export async function hardenEntamyConnection(env: Env): Promise<void> {
+  // 置けた・確かめた・付け替えたは記録(record)。人が手を付けるのは失敗だけ。
   const report = async (
     code: string,
     detail: Record<string, string | number>,
+    record = false,
   ) => {
     try {
-      await (await entamyPort(env)).defects.report(code, { detail });
+      await (await entamyPort(env)).defects.report(code, { detail, record });
     } catch {
       /* 知らせが届かないことは、知らせたい出来事より軽い */
     }
@@ -365,7 +367,7 @@ export async function hardenEntamyConnection(env: Env): Promise<void> {
   });
   if (secrets.outcome === "provisioned") {
     resetEntamyPort();
-    await report("entamy_secret_provisioned", {});
+    await report("entamy_secret_provisioned", {}, true);
   } else if (
     secrets.outcome === "failed" &&
     "failed" in secrets &&
@@ -394,9 +396,11 @@ export async function hardenEntamyConnection(env: Env): Promise<void> {
     (await env.PUBLIC_PAGES.get(CHECKED_KEY).catch(() => null)) === kind
   )
     return;
-  await report(kind === "rekeyed" ? "install_rekeyed" : "install_id_checked", {
-    kind,
-  });
+  await report(
+    kind === "rekeyed" ? "install_rekeyed" : "install_id_checked",
+    { kind },
+    true,
+  );
   await env.PUBLIC_PAGES.put(
     CHECKED_KEY,
     kind === "rekeyed" ? "hardened" : kind,

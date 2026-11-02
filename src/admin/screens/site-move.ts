@@ -389,25 +389,30 @@ async function mountSiteMove(): Promise<void> {
       // 済んだ。鍵は画面に出ている間に控えてもらい、覚えておくのはやめる。
       siteMoveRemember(null);
       const url = String(job.result.publicUrl || "");
+      const mailed = Number(job.result.mailed ?? 0);
+      // 新しい管理画面へのボタンは置かない(2026-11-02 利用者)。パスキーはアドレスに結び付くので、
+      // 新しい管理画面にはメールで届いたリンクからしか入れない —— 開かせると、入れない画面に人を立たせる。
+      // 代わりに「メールを確かめる」ことを大きく言う。送れなかったときだけ、ログイン画面の再設定の道を案内する。
       const p = document.createElement("div");
       p.className = "stack";
-      p.style.gap = "6px";
+      p.style.cssText =
+        "gap:10px;padding:18px 20px;border:2px solid var(--accent,#157a6e);border-radius:12px;background:var(--accent-soft,rgba(21,122,110,.1))";
       p.innerHTML =
-        "<div>" +
+        "<div style='font-size:20px;font-weight:800'>" +
+        escapeHtml(t(mailed > 0 ? "siteMoveCheckMail" : "siteMoveMailFailed")) +
+        "</div><div style='font-size:15px;line-height:1.8'>" +
         escapeHtml(
-          t("siteMoveMailed").replace("{n}", String(job.result.mailed ?? 0)),
+          mailed > 0
+            ? t("siteMoveCheckMailBody").replace("{n}", String(mailed))
+            : t("siteMoveMailFailedBody"),
         ) +
-        "</div><div>" +
+        "</div><div class='muted' style='font-size:13px'>" +
         escapeHtml(t("siteMoveNewAddress")) +
         ": <a target='_blank' rel='noopener' href='" +
         escapeHtml(url) +
         "'>" +
         escapeHtml(url) +
-        "</a></div><div><a target='_blank' rel='noopener' href='" +
-        escapeHtml(url + "/kurocms/admin") +
-        "'>" +
-        escapeHtml(t("siteMoveOpenAdmin")) +
-        " →</a></div>";
+        "</a></div>";
       result.appendChild(p);
     }
   }
