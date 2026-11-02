@@ -765,10 +765,15 @@ const i18n = {
     types: "Types",
     userManager: "Users",
     backup: "Backup",
+    userManagerLead:
+      "Invite people to the admin panel and manage their roles (admin, author) and whether they can sign in.",
+    backupLead:
+      "Export your articles, media and settings to one ZIP, and restore them from it when needed.",
+    currentAccountBadge: "Signed in now",
     backupTabBackup: "Backup",
     backupTabRestore: "Restore",
     backupDesc:
-      "Save all KuroCMS content and settings — articles, translations, categories, taxonomies, media library metadata, templates, site settings and SNS connections — together with the actual image / video / audio files as a single ZIP. Login accounts and credentials (users, passkeys, personal access tokens) are excluded. Note: SNS connection tokens are included, so keep the backup file private. The archive streams directly to the file you choose, so very large sites back up without running out of memory.",
+      "Save all KuroCMS content and settings — articles, translations, categories, types, languages, media library metadata, templates, site settings and SNS connections — together with the actual image / video / audio files as a single ZIP. Login accounts and credentials (users, passkeys, personal access tokens) are excluded. Note: SNS connection tokens are included, so keep the backup file private. The archive streams directly to the file you choose, so very large sites back up without running out of memory.",
     backupStart: "Back up…",
     backupDone: "Backup completed.",
     // メディアの取りこぼしを黙って完了扱いにしないための警告（{failed}/{total} を置換）
@@ -878,8 +883,7 @@ const i18n = {
     categoriesLead: "Define reusable categories for document classification.",
     languageManagerLead: "Register languages to be used for data entry.",
     typesLead: "Manage article types such as news, blog, and research.",
-    settingsLead:
-      "Set the public domain, display (base language, time zone, byline), hosting, email, social links, mobile, imports, and IP restriction, and check the region and contract.",
+    settingsLead: "Change KuroCMS settings, your contract, and more.",
     profileLead:
       "Your own account, display, PATs, passkeys, and IP restriction.",
     noLanguages: "No languages registered",
@@ -2367,8 +2371,7 @@ const i18n = {
     categoriesLead: "記事分類に使うカテゴリを管理します。",
     languageManagerLead: "データ登録で利用する言語を登録します。",
     typesLead: "news、blog、research などの記事タイプを管理します。",
-    settingsLead:
-      "公開ドメイン、表示（基本言語・時刻・筆者）、契約（いまの契約・無料期間・料金・持ち主・引っ越し）、メール送信、SNS 連動、スマホ、インポート、IP 制限を設定し、稼働地域を確かめます。",
+    settingsLead: "KuroCMS本体に関する設定や契約などの変更を行います。",
     profileLead: "自分のアカウント、表示、PAT、パスキー、IP 制限を設定します。",
     noLanguages: "言語が登録されていません",
     profileIdentity: "アカウント情報",
@@ -2617,10 +2620,15 @@ const i18n = {
     summary: "概要",
     userManager: "ユーザー管理",
     backup: "バックアップ",
+    userManagerLead:
+      "管理画面に入れる人を招待し、権限(管理者・投稿者)と、ログインできるかを管理します。",
+    backupLead:
+      "記事・メディア・設定を 1 つの ZIP に書き出し、必要なときにそこから戻します。",
+    currentAccountBadge: "ログイン中",
     backupTabBackup: "バックアップ",
     backupTabRestore: "レストア",
     backupDesc:
-      "KuroCMS のすべてのコンテンツと設定（記事・翻訳・カテゴリ・タクソノミー・メディア管理情報・テンプレート・サイト設定・SNS 連携）を、画像／動画／音楽の実ファイルとともに 1 つの ZIP に保存します。ログインアカウントと認証情報（ユーザー・パスキー・個人アクセストークン）は含まれません。なお SNS 連携のトークンは含まれるため、バックアップファイルは厳重に保管してください。選択したファイルへ直接ストリーミング保存するため、大規模サイトでもメモリ不足になりません。",
+      "KuroCMS のすべてのコンテンツと設定（記事・翻訳・カテゴリ・タイプ・言語・メディア管理情報・テンプレート・サイト設定・SNS 連携）を、画像／動画／音楽の実ファイルとともに 1 つの ZIP に保存します。ログインアカウントと認証情報（ユーザー・パスキー・個人アクセストークン）は含まれません。なお SNS 連携のトークンは含まれるため、バックアップファイルは厳重に保管してください。選択したファイルへ直接ストリーミング保存するため、大規模サイトでもメモリ不足になりません。",
     backupStart: "バックアップ…",
     backupDone: "バックアップが完了しました。",
     backupMediaIncomplete:
@@ -4476,6 +4484,8 @@ function pageLeadForTitle(title: Dynamic) {
     [t("profile")]: t("profileLead"),
     [t("siteManagement")]: t("siteManagementLead"),
     [t("help")]: t("helpPageLead"),
+    [t("userManager")]: t("userManagerLead"),
+    [t("backup")]: t("backupLead"),
   };
   return leads[title] || t("subtitle");
 }
@@ -5399,7 +5409,7 @@ const helpContent: Record<string, Dynamic> = {
     title: "バックアップ",
     role: "サイトの中身を ZIP に書き出し、ZIP から戻す画面です。管理者だけが使え、バックアップとレストアの 2 つのタブがあります。",
     canDo:
-      "記事・翻訳・カテゴリ・タクソノミー・テンプレート・サイトの設定・SNS 連携と、画像・動画・音楽の実ファイルを 1 つの ZIP に保存する / ZIP から、今の中身をすべて置き換えて戻す",
+      "記事・翻訳・カテゴリ・タイプ・言語・テンプレート・サイトの設定・SNS 連携と、画像・動画・音楽の実ファイルを 1 つの ZIP に保存する / ZIP から、今の中身をすべて置き換えて戻す",
     notes:
       "利用者・パスキー・PAT と、SNS・取り込み元の鍵は ZIP に入りません（ZIP は暗号化しないため）。レストアの後は、設定の「SNS 連動」などで接続し直してください。レストアは、今のコンテンツ・メディア・設定をすべて消してから置き換えます。取り消せません。処理の間はタブを開いたままにしてください。大きなサイトは Chrome か Edge を使ってください。レストアの後はビルドすると、公開ページが作り直されます。別の Cloudflare や委託運用へ移るときは、バックアップではなく「設定 → 契約」の引っ越しを使ってください。",
   },
@@ -5614,7 +5624,7 @@ const helpContentEn: Record<string, Dynamic> = {
     title: "Backup",
     role: "Export the site's content to a ZIP and restore from a ZIP. Administrators only; it has Backup and Restore tabs.",
     canDo:
-      "Save articles, translations, categories, taxonomy, templates, site settings, social connections, and the image, video and audio files in one ZIP / Restore from a ZIP, replacing everything currently there",
+      "Save articles, translations, categories, types, languages, templates, site settings, social connections, and the image, video and audio files in one ZIP / Restore from a ZIP, replacing everything currently there",
     notes:
       "Users, passkeys, PATs and the keys for social media and import sources are not in the ZIP (it is not encrypted). After a restore, reconnect them in Settings (SNS and so on). Restore deletes all current content, media and settings before replacing them, and it cannot be undone. Keep the tab open while it runs. Use Chrome or Edge for large sites. After a restore, build to regenerate the public pages. To move to another Cloudflare account or to managed hosting, use the move under Settings → Contract rather than a backup.",
   },

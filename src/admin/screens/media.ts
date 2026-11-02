@@ -23,12 +23,9 @@ function mediaScreen(
   apiPath: Dynamic,
   acceptMime: Dynamic,
 ) {
-  const listTitleKey =
-    "registered" +
-    labelKey.charAt(0).toUpperCase() +
-    labelKey.slice(1) +
-    "List";
-  const leadKey = labelKey + "Lead";
+  // 一覧の見出しと説明文は本文に置かない —— 画面の枠(shell)が題と説明文(pageLead)を出している。前は
+  // "registered" + 種類 + "List" の鍵をつないで見出しを引いていたが、その文言がどこにも無く、鍵の文字がそのまま
+  // 出ていた。説明文も枠と本文で 2 回出ていた(2026-11-02)。
   const kindLabel =
     kind === "image"
       ? t("imageTypeLabel")
@@ -39,13 +36,14 @@ function mediaScreen(
     t(labelKey),
     "<div class='stack'>" +
       "<div id='mediaScreenBody' class='panel stack'>" +
-      "<div class='panelHead'><h3>" +
-      escapeHtml(t(listTitleKey)) +
-      "</h3><div class='toolbar'><button type='button' id='mediaAddBtn'>" +
-      escapeHtml(t("addFile")) +
-      "</button></div></div>" +
+      // 1 本の帯: 左に保存の量、右に画像だけの自動縮小と追加のボタン。
+      "<div style='display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:10px 14px;border:1px solid var(--line);border-radius:10px;background:var(--surface-2)'>" +
+      "<div id='mediaStorageInfo' class='muted' style='font-size:13px'>" +
+      escapeHtml(t("loading")) +
+      "</div>" +
+      "<div style='display:flex;align-items:center;gap:12px;flex-wrap:wrap'>" +
       (kind === "image"
-        ? "<div style='display:flex;justify-content:flex-end;margin-top:-6px'><label style='display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)'>" +
+        ? "<label style='display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)'>" +
           escapeHtml(t("imageAutoResize")) +
           "<select id='imageResizeLimit' style='width:auto;min-width:180px;padding:5px 8px;font-size:12px'>" +
           "<option value='0'>" +
@@ -58,13 +56,12 @@ function mediaScreen(
           escapeHtml(t("imageResize1m")) +
           "</option><option value='2000000'>" +
           escapeHtml(t("imageResize2m")) +
-          "</option></select></label></div>"
+          "</option></select></label>"
         : "") +
-      "<div class='categoryHint'>" +
-      escapeHtml(t(leadKey)) +
+      "<button type='button' id='mediaAddBtn'>" +
+      escapeHtml(t("addFile")) +
+      "</button>" +
       "</div>" +
-      "<div id='mediaStorageInfo' class='muted' style='font-size:13px;padding:6px 0 2px'>" +
-      escapeHtml(t("loading")) +
       "</div>" +
       "<div id='mediaDropZone' class='dropZone'>" +
       "<div class='dropZoneIcon'>" +
