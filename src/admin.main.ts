@@ -1043,18 +1043,20 @@ const i18n = {
     email: "Email",
     mailDeliveryTitle: "Email delivery",
     mailDeliveryLead:
-      "Emails from this CMS (passkey recovery, invitations, etc.) are sent by the Kuro-Boo server by default. If you set up your own domain, mail is sent within Cloudflare's free allowance and is not subject to the Kuro-Boo server's limit. If your own domain fails to send, the Kuro-Boo server sends it instead.",
+      "How email from this CMS (passkey recovery, invitations) is sent. By default Kuro.boo's server sends it (with a sending limit). Sending from your own domain avoids that limit.",
+    mailNowTitle: "Sending now",
+    mailStateTitle: "Setup status",
     mailDeliveryRequirement:
       "To send from your own domain, this site needs a Worker Custom Domain, Email Routing enabled on that domain, and every administrator's email address added and verified as an Email Routing destination address.",
     mailDeliveryKuroLimit:
       "The Kuro-Boo server has a sending limit. Once it is reached, mail cannot be sent until the limit resets.",
     mailDeliveryCurrent: "Current method",
-    mailDeliveryCustom: "Your domain (Email Routing)",
-    mailDeliveryKuro: "Kuro-Boo server",
-    mailDeliveryDomain: "Custom Domain",
+    mailDeliveryCustom: "Your domain",
+    mailDeliveryKuro: "Kuro.boo's server",
+    mailDeliveryDomain: "Sending domain",
     mailDeliverySender: "Sender",
-    mailDeliveryDestination: "Destination (your address)",
-    mailDeliveryZoneLabel: "Email Routing on the sender domain",
+    mailDeliveryDestination: "Recipient (you)",
+    mailDeliveryZoneLabel: "Email Routing",
     mailDeliveryZoneStateOn: "enabled",
     mailDeliveryCfMissing:
       "This site has no Cloudflare key, so sending from your own domain cannot be set up. Mail is sent by the Kuro-Boo server.",
@@ -1080,8 +1082,8 @@ const i18n = {
     err_email_verify_too_soon: "Please wait a minute before sending again.",
     profileEmailHelp:
       "Your address on this CMS (passkey recovery emails and similar are sent here). The site owner (Entamy ID) is shown in Settings → Contract.",
-    mailDeliveryVerified: "verified",
-    mailDeliveryUnverified: "not verified",
+    mailDeliveryVerified: "Verified",
+    mailDeliveryUnverified: "Not verified",
     mailDeliveryUnavailable: "Cloudflare settings could not be read",
     mailDeliveryAdminOnly: "Only an administrator can change this setting.",
     mailDeliveryToggle: "Send from my domain",
@@ -1520,26 +1522,27 @@ const i18n = {
     recoverRequestLead:
       "Enter your registered email. We'll send a link to register a new passkey.",
     recoverSendLink: "Send recovery link",
-    mailSetupGuideTitle: "How to send from your own domain",
+    mailSetupGuideTitle: "Sending from your domain",
     mailSetupGuideIntro:
-      "By default, Kuro's server sends on your behalf. Sending from your own domain uses your Cloudflare free quota and is not subject to Kuro's limit. The setup happens on Cloudflare — it cannot be done from this screen.",
-    mailSetupStep1: "Step 1: Enable Email Routing on your domain",
+      "This is set up in Cloudflare. Finished steps get a ✓.",
+    mailSetupStep1: "Turn on Email Routing",
     mailSetupStep1Body:
-      "In Cloudflare, open Compute → Email Service → Email Routing, select {zone}, and enable it. The sending domain must be onboarded to your Cloudflare account.",
-    mailSetupStep2: "Step 2: Add and verify a destination address",
+      "In Cloudflare's Email Routing, choose {zone} and enable it.",
+    mailSetupStep2: "Add the admins' addresses as recipients",
     mailSetupStep2Body:
-      "On the same screen, under Destination addresses (shared across the whole account), add every admin email address — including {address} — then open the link in each confirmation email to mark it verified. Recovery mail goes to whoever requests it, so if you have several admins you need all of them. One unverified address locks out that person alone.",
-    mailSetupStep3: "Step 3: Turn on the switch here",
+      "Add {address} under Destination addresses and open the link in the email that arrives. With several admins, add every one.",
+    mailSetupStep3: "Turn on the switch above",
     mailSetupStep3Body:
-      "Once steps 1 and 2 are done, the switch becomes available. With it on, mail is sent from your domain, and Kuro's server relays only when that fails.",
+      "It works once steps 1 and 2 are done. If your domain can't send, Kuro.boo's server sends instead.",
     mailSetupOpenCf: "Open Email Routing in Cloudflare",
     mailSetupDocs: "Cloudflare documentation",
     mailSetupNote:
-      "If the status says it could not be checked, this installation's token lacks zone-level permission, so KuroCMS cannot verify it. Sending still succeeds if the setup is correct; if it fails, mail is relayed and the screen says so.",
-    mailDeliveryZoneOff: "Email Routing is not enabled on the sender domain",
+      "Even if Email Routing shows “Can't check”, sending works when the setup is right.",
+    mailDeliveryZoneOff: "Not enabled",
+    mailDeliveryZoneUnknown: "Can't check (if sending fails, look here)",
     mailDeliveryZoneOn: "Email Routing enabled on the sender domain",
     mailDeliveryAdminsUnverified:
-      "These administrators are not verified destinations and would stop receiving recovery mail",
+      "These admins' addresses are not verified, so recovery email won't reach them",
     // 配送の不調。**順調なときは出さない。**
     recoverRelayed:
       "Your own domain could not send this message, so kuro.boo's server delivered it instead. The mail should arrive, but the own-domain setting is not working — check Settings → Email.",
@@ -1651,7 +1654,7 @@ const i18n = {
     profileTabAccount: "Account",
     profileTabDisplay: "Display",
     profileTabPat: "PAT",
-    profileTabPasskey: "Passkeys",
+    profileTabPasskey: "Devices",
     profileTabNetwork: "IP restriction",
     cfAccountUnknown: "could not be checked",
     planPaid: "Paid",
@@ -2254,6 +2257,18 @@ const i18n = {
     tokenDeleteConfirm: "Delete this token? This cannot be undone.",
     rename: "Rename",
     passkeyDevices: "Passkeys (devices)",
+    passkeyManageTitle: "Passkeys",
+    deviceSessionsTitle: "Signed-in devices",
+    deviceSessionsLead:
+      "Devices signed in to this admin panel. Sign out the ones you don't use.",
+    sessionThisDevice: "This device",
+    sessionUnknownDevice: "Unnamed device",
+    sessionSignedIn: "Signed in",
+    sessionLastActive: "Last active",
+    sessionRevoke: "Sign out",
+    sessionRevokeConfirm:
+      "Sign out this device? It will need to sign in with a passkey again.",
+    sessionRevoked: "Signed out.",
     passkeyDevicesLead:
       "Register passkeys on multiple devices so you can still sign in if one is lost.",
     addPasskey: "Add this device",
@@ -2527,18 +2542,20 @@ const i18n = {
     email: "メール",
     mailDeliveryTitle: "メール送信設定",
     mailDeliveryLead:
-      "この CMS からのメール（パスキーの復旧・招待など）は、既定では黒兎のサーバーが送ります。自分のドメインから送るように設定すると、Cloudflare の無料枠で送れ、黒兎のサーバーの上限を受けません。自分のドメインで送れなかったときは、黒兎のサーバーが代わりに送ります。",
+      "パスキーの復旧や招待のメールを送る方法です。既定は黒兎のサーバー(送れる数に上限あり)。自分のドメインから送ると、黒兎の上限を受けません。",
+    mailNowTitle: "いまの送り方",
+    mailStateTitle: "設定の状態",
     mailDeliveryRequirement:
       "自分のドメインから送るには、このサイトに Worker のカスタムドメインがあること、そのドメインで Email Routing が有効なこと、管理者全員のメールアドレスが Email Routing の宛先として認証済みであることが必要です。",
     mailDeliveryKuroLimit:
       "黒兎のサーバーには送信数の上限があります。上限に達すると、時間がたつまで送れません。",
     mailDeliveryCurrent: "現在の送信方法",
-    mailDeliveryCustom: "自分のドメイン（Email Routing）",
+    mailDeliveryCustom: "自分のドメイン",
     mailDeliveryKuro: "黒兎のサーバー",
-    mailDeliveryDomain: "カスタムドメイン",
+    mailDeliveryDomain: "送信元のドメイン",
     mailDeliverySender: "送信元",
-    mailDeliveryDestination: "宛先（あなたのアドレス）",
-    mailDeliveryZoneLabel: "送信元ドメインの Email Routing",
+    mailDeliveryDestination: "宛先(あなた)",
+    mailDeliveryZoneLabel: "Email Routing",
     mailDeliveryZoneStateOn: "有効",
     mailDeliveryCfMissing:
       "このサイトには Cloudflare の鍵が無いため、自分のドメインからの送信は設定できません。メールは黒兎のサーバーが送ります。",
@@ -2564,11 +2581,11 @@ const i18n = {
     err_email_verify_too_soon: "1 分ほど待ってから、もう一度送ってください。",
     profileEmailHelp:
       "この CMS で使うあなたのアドレスです（パスキーを失くしたときの復旧メールなどが届きます）。サイトの持ち主（Entamy ID）は「設定 → 契約」で確かめます。",
-    mailDeliveryVerified: "検証済み",
-    mailDeliveryUnverified: "未検証",
+    mailDeliveryVerified: "認証済み",
+    mailDeliveryUnverified: "未認証",
     mailDeliveryUnavailable: "Cloudflareの設定を取得できません",
     mailDeliveryAdminOnly: "この設定を変更できるのは管理者だけです。",
-    mailDeliveryToggle: "自分のドメインから送信する",
+    mailDeliveryToggle: "自分のドメインから送る",
     mailDeliverySaved: "メール送信設定を更新しました。",
     roles: "権限",
     interfaceLanguage: "管理画面の言語",
@@ -3083,29 +3100,27 @@ const i18n = {
     recoverRequestLead:
       "登録済みのメールアドレスを入力してください。新しいパスキーを登録するためのリンクを送信します。",
     recoverSendLink: "再設定リンクを送信",
-    mailSetupGuideTitle: "自ドメインで送信する設定方法",
+    mailSetupGuideTitle: "自分のドメインから送る手順",
     mailSetupGuideIntro:
-      "既定では黒兎のサーバーが代理送信します。ご自身のドメインから送ると、Cloudflare の無料枠で送信でき、黒兎側の上限を受けません。設定は Cloudflare 側で行います（この画面からは実行できません）。",
-    mailSetupStep1: "手順 1：ドメインで Email Routing を有効にする",
+      "設定は Cloudflare で行います。済んだ手順に ✓ が付きます。",
+    mailSetupStep1: "Email Routing を有効にする",
     mailSetupStep1Body:
-      "Cloudflare の Compute → Email Service → Email Routing を開き、{zone} を選んで有効化します。送信元のドメインが Cloudflare に登録されていることが条件です。",
-    mailSetupStep2: "手順 2：宛先アドレスを追加して認証する",
+      "Cloudflare の Email Routing で {zone} を選び、有効にします。",
+    mailSetupStep2: "管理者のアドレスを宛先に追加する",
     mailSetupStep2Body:
-      "同じ画面の Destination addresses（宛先アドレス。アカウント全体で共有）に、{address} を含む管理者のメールアドレスをすべて追加し、届いた確認メールのリンクを開いて verified にします。⚠ 復旧メールは要求した本人へ送るため、管理者が複数いる場合は全員分が必要です。1 人でも未認証だと、その人だけログインできなくなります。",
-    mailSetupStep3: "手順 3：この画面のスイッチを入れる",
+      "宛先アドレス(Destination addresses)に {address} を追加し、届いたメールのリンクで認証します。管理者が複数なら全員分が要ります。",
+    mailSetupStep3: "上のスイッチを入れる",
     mailSetupStep3Body:
-      "手順 1・2 が済むとスイッチが押せるようになります。入れると以後は自ドメインから送信し、失敗したときだけ黒兎のサーバーが代送します。",
+      "1・2 が済むと押せます。自分のドメインで送れなかったときは、黒兎のサーバーが代わりに送ります。",
     mailSetupOpenCf: "Cloudflare の Email Routing を開く",
     mailSetupDocs: "Cloudflare の手順書",
     mailSetupNote:
-      "「確認できませんでした」と出る場合、この導入のトークンに zone 側の権限が無く、CMS からは判定できない状態です。設定が正しければ送信は成功します。失敗した場合は代送に切り替わり、その旨が画面に表示されます。",
-    mailDeliveryZoneOff:
-      "送信元ドメインで Email Routing が有効になっていません",
-    mailDeliveryZoneUnknown:
-      "確認できませんでした（この導入のトークンに zone 側の権限が無い可能性があります）。送信に失敗する場合はここを疑ってください",
+      "Email Routing が「確かめられません」でも、設定が正しければ送れます。",
+    mailDeliveryZoneOff: "有効になっていません",
+    mailDeliveryZoneUnknown: "確かめられません(送れなければここを見直す)",
     mailDeliveryZoneOn: "送信元ドメインで Email Routing が有効です",
     mailDeliveryAdminsUnverified:
-      "次の管理者は verified な宛先ではないため、復旧メールが届かなくなります",
+      "次の管理者は宛先が未認証のため、復旧メールが届きません",
     // 配送の不調。**順調なときは出さない。**
     recoverRelayed:
       "自ドメインからの送信に失敗したため、黒兎のサーバーが代わりに送信しました。メールは届くはずですが、自ドメインの設定は機能していません。設定 → メール送信をご確認ください。",
@@ -3218,7 +3233,7 @@ const i18n = {
     profileTabAccount: "アカウント",
     profileTabDisplay: "表示",
     profileTabPat: "PAT",
-    profileTabPasskey: "パスキー",
+    profileTabPasskey: "デバイス",
     profileTabNetwork: "IP制限",
     cfAccountUnknown: "確認できません",
     planPaid: "Paid",
@@ -3823,6 +3838,18 @@ const i18n = {
     tokenDeleteConfirm: "このトークンを削除しますか？削除後は元に戻せません。",
     rename: "名前を変更",
     passkeyDevices: "パスキー（デバイス）",
+    passkeyManageTitle: "パスキーの管理",
+    deviceSessionsTitle: "ログイン中の端末",
+    deviceSessionsLead:
+      "この管理画面にログインしている端末です。使っていない端末はログアウトさせてください。",
+    sessionThisDevice: "この端末",
+    sessionUnknownDevice: "名前の分からない端末",
+    sessionSignedIn: "ログイン",
+    sessionLastActive: "最後に使った日時",
+    sessionRevoke: "ログアウトさせる",
+    sessionRevokeConfirm:
+      "この端末をログアウトさせますか？その端末では、もう一度パスキーでログインが必要になります。",
+    sessionRevoked: "ログアウトさせました。",
     passkeyDevicesLead:
       "複数のデバイスにパスキーを登録しておくと、1台を失ってもサインインできます。",
     addPasskey: "このデバイスを追加",
@@ -6215,6 +6242,18 @@ async function renderContactPanel(el: HTMLElement | null) {
         "</button>"
       : "") +
     "</div>" +
+    // 管理番号(匿名アカウント)。問い合わせのときに「どの導入か」を伝える手がかりで、サイトの持ち主の事柄なので
+    // この枠に置く(2026-11-02 にプロフィールの右上から移した・利用者)。**install_id は出さない**(なりすましに使える鍵)。
+    // 番号が取れた時だけ、後から埋めて見せる。
+    "<div id='contactInstallId' style='display:none;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px'>" +
+    "<span class='muted'>" +
+    escapeHtml(t("installIdentity")) +
+    "</span>" +
+    "<code id='contactInstallIdValue' style='font-family:ui-monospace,monospace;word-break:break-all'></code>" +
+    "<button type='button' class='secondary' id='contactInstallIdCopy' style='padding:2px 10px;font-size:12px'>" +
+    escapeHtml(t("copy")) +
+    "</button>" +
+    "</div>" +
     // サイトの削除(2026-11-02 にプロフィールから移した)。ID の削除より先に要るので、ID の削除の上に置く。
     // 知らせの「このサイトを削除する」と同じ確認の窓(siteDeleteDialog・site-delete.ts)を開く。
     "<div class='stack' style='gap:6px;margin-top:8px;padding-top:12px;border-top:1px solid var(--line)'>" +
@@ -6243,6 +6282,7 @@ async function renderContactPanel(el: HTMLElement | null) {
     "</button></div>" +
     "</div>";
   const rerender = () => void renderContactPanel(el);
+  void fillContactInstallId(el);
   el.querySelector("#siteDeleteBtn")?.addEventListener(
     "click",
     () => void siteDeleteDialog(),
@@ -6266,6 +6306,40 @@ async function renderContactPanel(el: HTMLElement | null) {
       }
     },
   );
+}
+
+/** 持ち主の枠の管理番号。**番号がある時だけ出す**(取得中・送信停止中を出しても、利用者にできることは無い)。 */
+async function fillContactInstallId(el: HTMLElement) {
+  const row = el.querySelector<HTMLElement>("#contactInstallId");
+  const value = el.querySelector<HTMLElement>("#contactInstallIdValue");
+  if (!row || !value) return;
+  let shown = "";
+  try {
+    const info = (await api("/api/system/install-id")) as {
+      accountId?: string | null;
+      optedOut?: boolean;
+    };
+    shown = !info.optedOut && info.accountId ? info.accountId : "";
+  } catch {
+    shown = "";
+  }
+  if (!shown) {
+    row.remove();
+    return;
+  }
+  value.textContent = shown;
+  row.style.display = "flex";
+  row
+    .querySelector("#contactInstallIdCopy")
+    ?.addEventListener("click", async (event) => {
+      const target = event.currentTarget as HTMLElement;
+      try {
+        await navigator.clipboard.writeText(shown);
+        toast(t("copySuccess"), false, target);
+      } catch {
+        toast(t("copyFailed"), true, target);
+      }
+    });
 }
 
 async function render() {

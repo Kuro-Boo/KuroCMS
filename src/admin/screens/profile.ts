@@ -79,17 +79,9 @@ async function profile() {
         )
         .join("") +
       "</div>" +
-      "<div id='panel-account' class='settingsPanel stack'><div class='panel stack'><h3 style='display:flex;align-items:baseline;gap:10px;flex-wrap:wrap'>" +
+      "<div id='panel-account' class='settingsPanel stack'><div class='panel stack'><h3>" +
       escapeHtml(t("profileIdentity")) +
-      // 匿名アカウント。問い合わせのときに「どの導入か」を伝える唯一の手がかり。
-      // **install_id は出さない**（あれはなりすましに使える鍵）。
-      // **右端へ寄せる**（margin-left:auto）。見出しの一部ではなく、添え物として扱う。
-      // 押すと番号をコピーする —— 問い合わせのときに手で書き写させない。
-      "<button type='button' id='installIdBadge' title='" +
-      escapeHtml(t("copy")) +
-      "' style='margin-left:auto;font-size:10px;font-weight:400;font-family:ui-monospace,monospace;" +
-      "opacity:.55;letter-spacing:.02em;background:none;border:0;padding:2px 4px;color:inherit;" +
-      "cursor:pointer;border-radius:5px'></button>" +
+      // 管理番号は設定 → 契約の「サイトの持ち主」の枠へ移した(2026-11-02・利用者)。
       "</h3>" +
       // 3 段(2026-11-02・利用者の指示): ユーザー名と権限を 2 列、メールは全幅(入力の右に確認メールのボタン・下に説明)、
       // ユーザー ID は全幅で小さく。メールの説明とボタンが片方の列だけを伸ばして、列の高さが揃わなかった。
@@ -144,32 +136,20 @@ async function profile() {
       "</div></div><input id='darkModeToggle' type='checkbox' class='toggle'" +
       (state.colorMode === "dark" ? " checked" : "") +
       " /></div></div></div>" +
-      "<div id='panel-pat' class='settingsPanel stack' style='display:none'><div class='panel stack'><h3>" +
+      // PAT とMCP(2026-11-02 に並べ直した): 左 1/3 に PAT の作成と履歴、右 2/3 に MCP の繋ぎ方(長い URL とコマンドを
+      // 広い方に置く)。狭い画面では PAT が上、MCP が下に並ぶ。部品の id は変えない(下のコピー・作成の動きがそのまま効く)。
+      "<div id='panel-pat' class='settingsPanel stack' style='display:none'>" +
+      "<div style='display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start'>" +
+      // ── 左 1/3: Personal Access Token ─────────────────────────────────
+      "<div class='panel stack' style='flex:1 1 300px;min-width:0'>" +
+      // 追加のボタンは枠の中の右上(仕様 core-style-s3-8)。
+      "<div style='display:flex;align-items:flex-start;gap:20px'><h3 style='flex:1 1 auto;min-width:0;margin:0'>" +
       escapeHtml(t("profileApiAccess")) +
-      "</h3><p class='muted' style='margin:-4px 0 2px'>" +
-      escapeHtml(t("profileApiAccessLead")) +
-      "</p>" +
-      // ── MCP connect (endpoint URL + copy-paste client config) ──────────
-      "<div class='stack' style='gap:6px;margin:2px 0 12px;padding:10px 12px;border:1px solid var(--border,#2a2f3a);border-radius:8px'><div class='tokenMeta'><b>" +
-      escapeHtml(t("mcpConnectTitle")) +
-      "</b></div><div class='tokenHelp'>" +
-      escapeHtml(t("mcpConnectLead")) +
-      "</div><div class='tokenLabel'>" +
-      escapeHtml(t("mcpEndpointLabel")) +
-      "</div><div class='tokenOutputRow'><div id='mcpEndpoint' class='tokenBox' style='font-size:11px;font-family:ui-monospace,monospace;word-break:break-all'>" +
-      escapeHtml(mcpUrl) +
-      "</div><button type='button' class='secondary' id='copyMcpUrl'>" +
-      escapeHtml(t("copy")) +
-      "</button></div><div class='tokenLabel'>" +
-      escapeHtml(t("mcpConfigLabel")) +
-      "</div><div class='tokenOutputRow'><div id='mcpConfig' class='tokenBox' style='font-size:11px;font-family:ui-monospace,monospace;white-space:pre-wrap;word-break:break-all'>" +
-      escapeHtml(mcpCmd) +
-      "</div><button type='button' class='secondary' id='copyMcpConfig'>" +
-      escapeHtml(t("copy")) +
-      "</button></div></div>" +
-      "<form class='toolbar' id='tokenForm'><button>" +
+      "</h3><form id='tokenForm' style='flex:0 0 auto;margin:0'><button style='white-space:nowrap'>" +
       escapeHtml(t("createPatAction")) +
-      "</button></form><div class='stack' style='gap:8px'><div class='tokenLabel'>" +
+      "</button></form></div><p class='muted' style='margin:-4px 0 2px'>" +
+      escapeHtml(t("profileApiAccessLead")) +
+      "</p><div class='stack' style='gap:8px'><div class='tokenLabel'>" +
       escapeHtml(t("generatedToken")) +
       "</div><div class='tokenHelp'>" +
       escapeHtml(t("patScopeNote")) +
@@ -177,21 +157,53 @@ async function profile() {
       escapeHtml(t("copy")) +
       "</button></div></div><div class='stack' style='gap:8px'><div class='tokenMeta'>" +
       escapeHtml(t("tokenHistory")) +
-      "</div><div id='tokenHistory' class='tokenList'></div></div></div></div>" +
-      // ── Passkey (device) management ──────────────────────────────────
-      "<div id='panel-passkey' class='settingsPanel stack' style='display:none'><div class='panel stack'><h3>" +
-      escapeHtml(t("passkeyDevices")) +
+      "</div><div id='tokenHistory' class='tokenList'></div></div></div>" +
+      // ── 右 2/3: MCP で繋ぐ(接続先の URL とクライアントの設定) ──────────
+      "<div class='panel stack' style='flex:2 1 460px;min-width:0'><h3>" +
+      escapeHtml(t("mcpConnectTitle")) +
       "</h3><p class='muted' style='margin:-4px 0 2px'>" +
-      escapeHtml(t("passkeyDevicesLead")) +
-      "</p><form class='toolbar' id='addPasskeyForm'><button>" +
+      escapeHtml(t("mcpConnectLead")) +
+      "</p><div class='stack' style='gap:8px'><div class='tokenLabel'>" +
+      escapeHtml(t("mcpEndpointLabel")) +
+      "</div><div class='tokenOutputRow'><div id='mcpEndpoint' class='tokenBox' style='font-size:11px;font-family:ui-monospace,monospace;word-break:break-all'>" +
+      escapeHtml(mcpUrl) +
+      "</div><button type='button' class='secondary' id='copyMcpUrl'>" +
+      escapeHtml(t("copy")) +
+      "</button></div></div><div class='stack' style='gap:8px'><div class='tokenLabel'>" +
+      escapeHtml(t("mcpConfigLabel")) +
+      "</div><div class='tokenOutputRow'><div id='mcpConfig' class='tokenBox' style='font-size:11px;font-family:ui-monospace,monospace;white-space:pre-wrap;word-break:break-all'>" +
+      escapeHtml(mcpCmd) +
+      "</div><button type='button' class='secondary' id='copyMcpConfig'>" +
+      escapeHtml(t("copy")) +
+      "</button></div></div></div>" +
+      "</div>" +
+      "</div>" +
+      // ── Passkey (device) management ──────────────────────────────────
+      // デバイス(2026-11-02): 左 1/2 にログイン中の端末、右 1/2 にパスキーの管理。狭い画面では縦に並ぶ。
+      "<div id='panel-passkey' class='settingsPanel stack' style='display:none'>" +
+      "<div style='display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start'>" +
+      "<div class='panel stack' style='flex:1 1 360px;min-width:0'><h3 style='margin:0'>" +
+      escapeHtml(t("deviceSessionsTitle")) +
+      "</h3><p class='muted' style='margin:-4px 0 2px'>" +
+      escapeHtml(t("deviceSessionsLead")) +
+      "</p><div id='sessionList' class='tokenList'></div></div>" +
+      "<div class='panel stack' style='flex:1 1 360px;min-width:0'>" +
+      // 追加のボタンは枠の中の右上(仕様 core-style-s3-8)。
+      "<div style='display:flex;align-items:flex-start;gap:20px'><h3 style='flex:1 1 auto;min-width:0;margin:0'>" +
+      escapeHtml(t("passkeyManageTitle")) +
+      "</h3><form id='addPasskeyForm' style='flex:0 0 auto;margin:0'><button style='white-space:nowrap'>" +
       escapeHtml(t("addPasskey")) +
-      "</button></form><div id='passkeyList' class='tokenList'></div></div></div>" +
+      "</button></form></div><p class='muted' style='margin:-4px 0 2px'>" +
+      escapeHtml(t("passkeyDevicesLead")) +
+      "</p><div id='passkeyList' class='tokenList'></div></div>" +
+      "</div>" +
+      "</div>" +
       // ── 登録した回線(IP 制限・ip-gate.ts)。登録は全自動で、ここは見て外すだけ ──
       "<div id='panel-network' class='settingsPanel stack' style='display:none'><div class='panel stack' id='networkPanel'><h3>" +
       escapeHtml(t("myNetworks")) +
       "</h3><p class='muted' style='margin:-4px 0 2px'>" +
       escapeHtml(t("myNetworksLead")) +
-      "</p><div id='networkList' class='tokenList'></div></div></div>",
+      "</p><div id='networkList'></div></div></div>",
   );
   document.querySelectorAll<AdminElement>(".settingsTab").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -257,39 +269,6 @@ async function profile() {
       api("/api/me"),
       api("/api/me/tokens"),
     ]);
-
-    // 匿名アカウントの表示。**取れなくても画面は壊さない** ——
-    // まだ一度も名乗っていない導入や、送信を止めてある導入では空になる。
-    void (async () => {
-      const badge = byId("installIdBadge");
-      if (!badge) return;
-      try {
-        const info = (await api("/api/system/install-id")) as {
-          accountId?: string | null;
-          optedOut?: boolean;
-        };
-        // **番号がある時だけ出す。** 「取得中」や「送信停止中」を出しても、
-        // CMS の運用とは関係のない心配をさせるだけで、利用者にできることは無い。
-        // 番号が無ければ**要素ごと消す**。空のボタンを残すと、見えないだけで
-        // 押せる領域が右端に残る。
-        const shown = !info.optedOut && info.accountId ? info.accountId : "";
-        if (!shown) {
-          badge.remove();
-          return;
-        }
-        badge.textContent = t("installIdentity") + " : " + shown;
-        badge.addEventListener("click", async (event: Dynamic) => {
-          try {
-            await navigator.clipboard.writeText(shown);
-            toast(t("copySuccess"), false, event.currentTarget);
-          } catch {
-            toast(t("copyFailed"), true, event.currentTarget);
-          }
-        });
-      } catch {
-        badge.remove();
-      }
-    })();
 
     const meUser = meData.user;
     state.currentUser = meUser;
@@ -499,48 +478,56 @@ async function profile() {
       return;
     }
     const cur = data.current ? data.current.net : "";
+    // 左 1/2 に IPv6、右 1/2 に IPv4(2026-11-02)。狭い画面では縦に並ぶ。
+    const row = function (n: Dynamic) {
+      // 固定の行(設定の「登録 IPv6」で手で足したもの)は期限が無い。
+      const meta = n.pinned
+        ? escapeHtml(t("ipV6Pinned")) + " · " + escapeHtml(t("ipV6NoExpiry"))
+        : escapeHtml(t("networkLastUsed")) +
+          " " +
+          escapeHtml(formatDateTime(new Date(n.last_seen_at).toISOString())) +
+          " · " +
+          escapeHtml(t("networkExpires")) +
+          " " +
+          escapeHtml(formatDateTime(new Date(n.expires_at).toISOString()));
+      return (
+        "<div class='tokenRow'><div><b>" +
+        escapeHtml(n.net) +
+        "</b>" +
+        (n.note || n.label
+          ? " <span class='tokenMeta'>" +
+            escapeHtml(n.note || n.label) +
+            "</span>"
+          : "") +
+        (n.net === cur
+          ? " <span class='tokenMeta' style='color:var(--brand,#157a6e);font-weight:600'>（" +
+            escapeHtml(t("networkCurrent")) +
+            "）</span>"
+          : "") +
+        "<div class='tokenMeta'>" +
+        meta +
+        "</div></div><div><button class='danger' data-remove-network='" +
+        escapeHtml(n.id) +
+        "'>&#128465; " +
+        escapeHtml(t("delete")) +
+        "</button></div></div>"
+      );
+    };
+    const all = (data.networks || []) as Dynamic[];
+    const col = (title: string, items: Dynamic[]) =>
+      "<div class='stack' style='flex:1 1 320px;min-width:0;gap:10px'><div class='fieldLabel' style='margin:0'>" +
+      escapeHtml(title) +
+      "</div><div class='tokenList'>" +
+      (items.map(row).join("") ||
+        "<div class='tokenMeta'>" + escapeHtml(t("listEmpty")) + "</div>") +
+      "</div></div>";
+    const v6 = all.filter((n) => String(n.net).includes(":"));
+    const v4 = all.filter((n) => !String(n.net).includes(":"));
     listEl.innerHTML =
-      (data.networks || [])
-        .map(function (n: Dynamic) {
-          // 固定の行(設定の「登録 IPv6」で手で足したもの)は期限が無い。
-          const meta = n.pinned
-            ? escapeHtml(t("ipV6Pinned")) +
-              " · " +
-              escapeHtml(t("ipV6NoExpiry"))
-            : escapeHtml(t("networkLastUsed")) +
-              " " +
-              escapeHtml(
-                formatDateTime(new Date(n.last_seen_at).toISOString()),
-              ) +
-              " · " +
-              escapeHtml(t("networkExpires")) +
-              " " +
-              escapeHtml(formatDateTime(new Date(n.expires_at).toISOString()));
-          return (
-            "<div class='tokenRow'><div><b>" +
-            escapeHtml(n.net) +
-            "</b>" +
-            (n.note || n.label
-              ? " <span class='tokenMeta'>" +
-                escapeHtml(n.note || n.label) +
-                "</span>"
-              : "") +
-            (n.net === cur
-              ? " <span class='tokenMeta' style='color:var(--brand,#157a6e);font-weight:600'>（" +
-                escapeHtml(t("networkCurrent")) +
-                "）</span>"
-              : "") +
-            "<div class='tokenMeta'>" +
-            meta +
-            "</div></div><div><button class='danger' data-remove-network='" +
-            escapeHtml(n.id) +
-            "'>&#128465; " +
-            escapeHtml(t("delete")) +
-            "</button></div></div>"
-          );
-        })
-        .join("") ||
-      "<div class='tokenMeta'>" + escapeHtml(t("listEmpty")) + "</div>";
+      "<div style='display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start'>" +
+      col("IPv6", v6) +
+      col("IPv4", v4) +
+      "</div>";
     listEl
       .querySelectorAll<AdminElement>("[data-remove-network]")
       .forEach((btn) => {
@@ -562,6 +549,80 @@ async function profile() {
   loadNetworks();
 
   // ── Passkey (device) management ────────────────────────────────────────
+  /** ログイン中の端末(me-sessions.ts)。名前はログインに使ったパスキーのデバイス名。今の端末には札、ほかはログアウトさせられる。 */
+  async function loadSessions() {
+    const listEl = byId("sessionList");
+    if (!listEl) return;
+    if (state.preview) {
+      listEl.innerHTML =
+        "<div class='tokenRow'><div><b>This device</b></div></div>";
+      return;
+    }
+    const data = await api("/api/me/sessions");
+    const items = data.sessions || [];
+    listEl.innerHTML =
+      items
+        .map(function (s: Dynamic) {
+          const meta =
+            escapeHtml(t("sessionSignedIn")) +
+            " " +
+            escapeHtml(s.created_at ? formatDateTime(s.created_at) : "—") +
+            " · " +
+            escapeHtml(t("sessionLastActive")) +
+            " " +
+            escapeHtml(
+              s.last_active_at ? formatDateTime(s.last_active_at) : "—",
+            );
+          return (
+            "<div class='tokenRow'><div style='min-width:0'><b>" +
+            escapeHtml(s.device || t("sessionUnknownDevice")) +
+            "</b>" +
+            (s.current
+              ? " <span style='font-size:10px;font-weight:700;background:var(--accent-soft);color:var(--accent);border:1px solid var(--accent);border-radius:999px;padding:1px 8px'>" +
+                escapeHtml(t("sessionThisDevice")) +
+                "</span>"
+              : "") +
+            "<div class='tokenMeta'>" +
+            meta +
+            "</div></div>" +
+            (s.current
+              ? ""
+              : "<button class='danger-soft' style='white-space:nowrap' data-revoke-session='" +
+                escapeHtml(s.id) +
+                "'>" +
+                escapeHtml(t("sessionRevoke")) +
+                "</button>") +
+            "</div>"
+          );
+        })
+        .join("") ||
+      "<div class='tokenMeta'>" + escapeHtml(t("listEmpty")) + "</div>";
+  }
+
+  byId("sessionList")?.addEventListener("click", function (e: Dynamic) {
+    const btn = e.target.closest("[data-revoke-session]");
+    if (!btn || state.preview) return;
+    const id = btn.getAttribute("data-revoke-session");
+    if (!id) return;
+    openEntryDialog(
+      t("sessionRevoke"),
+      "<p class='muted'>" + escapeHtml(t("sessionRevokeConfirm")) + "</p>",
+      t("sessionRevoke"),
+      async (_form: Dynamic, close: Dynamic) => {
+        try {
+          await api("/api/me/sessions/" + encodeURIComponent(id) + "/revoke", {
+            method: "POST",
+          });
+          close();
+          toast(t("sessionRevoked"), false, btn);
+          await loadSessions();
+        } catch (error) {
+          toast(errorMessage(error), true, btn);
+        }
+      },
+    );
+  });
+
   async function loadPasskeys() {
     const listEl = byId("passkeyList");
     if (!listEl) return;
@@ -739,4 +800,6 @@ async function profile() {
 
   await loadProfileAndTokens();
   await loadPasskeys();
+  // ログイン中の端末は読めなくても画面は出す(古い版のサーバーには口が無い)。
+  await loadSessions().catch(() => {});
 }

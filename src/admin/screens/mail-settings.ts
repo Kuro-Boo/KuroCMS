@@ -6,33 +6,52 @@
 // (Entamy Mailer)が代わりに送る(sendMail・api.ts)。委託運用は Entamy が送るのでタブを出さない。
 
 function mailSettingsPanelHtml(): string {
+  // 3 つの枠(2026-11-02 に作り直した): ① いまの送り方と切り替え ② 設定の状態 ③ 自分のドメインから送る手順。
+  // 前は長い説明が 3 段続き、手順は畳まれ、切り替えは一番下で、何を見て何をするかが分かりにくかった。
   return (
     "<div id='panel-mail' class='settingsPanel' style='display:none'>" +
-    "<div class='panel stack' id='mailDeliveryBox'>" +
-    // 見出しはタブが言うので置かない(SNS のタブと同じ)。
-    "<div class='tokenHelp'>" +
+    "<div class='stack' id='mailDeliveryBox' style='gap:20px'>" +
+    // ① いまの送り方と切り替え
+    "<div class='panel stack' style='gap:12px'>" +
+    "<div style='display:flex;align-items:flex-start;gap:20px'>" +
+    "<div style='flex:1 1 auto;min-width:0'>" +
+    "<div class='muted' style='font-size:12px;font-weight:700'>" +
+    escapeHtml(t("mailNowTitle")) +
+    "</div>" +
+    "<div id='mailNowValue' style='font-size:20px;font-weight:800;margin-top:4px'>-</div>" +
+    "<div class='tokenMeta' style='white-space:normal;margin-top:8px'>" +
     escapeHtml(t("mailDeliveryLead")) +
-    "</div><div class='tokenHelp'>" +
-    escapeHtml(t("mailDeliveryRequirement")) +
-    "</div><div class='tokenHelp' style='color:var(--danger,#b42318)'>" +
-    escapeHtml(t("mailDeliveryKuroLimit")) +
-    "</div><div id='mailDeliveryStatus' class='tokenBox' style='white-space:normal'>-</div>" +
-    // ⚠ 設定は **Cloudflare 側でしか行えない**（宛先の verify も Email Routing の
-    //   有効化も CMS からは実行できない）。手順を出さないと、トグルが押せない
-    //   理由も、次に何をすればよいかも画面から分からない。
-    "<details id='mailSetupGuide' style='border:1px solid var(--line,#2a2f3a);border-radius:8px;padding:10px'>" +
-    "<summary style='cursor:pointer;font-weight:600'>" +
+    "</div>" +
+    "</div>" +
+    "<label style='flex:0 0 auto;display:flex;flex-direction:column;align-items:flex-end;gap:8px;margin:0'>" +
+    "<span style='font-size:12px;font-weight:700;white-space:nowrap'>" +
+    escapeHtml(t("mailDeliveryToggle")) +
+    "</span>" +
+    "<input id='mailRoutingToggle' type='checkbox' class='toggle' disabled />" +
+    "</label>" +
+    "</div>" +
+    "<div id='mailDeliveryManageHelp' class='tokenMeta'></div>" +
+    "<div id='mailAlerts' class='stack' style='gap:8px'></div>" +
+    "</div>" +
+    // ② 設定の状態
+    "<div class='panel stack' style='gap:12px'>" +
+    "<div class='fieldLabel' style='margin:0'>" +
+    escapeHtml(t("mailStateTitle")) +
+    "</div>" +
+    "<div id='mailDeliveryStatus' style='display:grid;grid-template-columns:max-content minmax(0,1fr);gap:10px 20px;font-size:13px'>-</div>" +
+    "</div>" +
+    // ③ 自分のドメインから送る手順(畳まない)
+    // ⚠ 設定は **Cloudflare 側でしか行えない**(宛先の verify も Email Routing の有効化も CMS からは実行できない)。
+    "<div class='panel stack' id='mailSetupGuide' style='gap:14px'>" +
+    "<div class='fieldLabel' style='margin:0'>" +
     escapeHtml(t("mailSetupGuideTitle")) +
-    "</summary>" +
-    "<div class='tokenHelp' style='margin-top:8px'>" +
+    "</div>" +
+    "<div class='tokenMeta' style='white-space:normal'>" +
     escapeHtml(t("mailSetupGuideIntro")) +
     "</div>" +
-    "<div id='mailSetupGuideBody' class='stack' style='gap:10px;margin-top:10px'></div>" +
-    "</details>" +
-    "<div class='toggleRow'><div><div><b>" +
-    escapeHtml(t("mailDeliveryToggle")) +
-    "</b></div><div id='mailDeliveryManageHelp' class='tokenMeta'></div></div>" +
-    "<input id='mailRoutingToggle' type='checkbox' class='toggle' disabled /></div></div>" +
+    "<div id='mailSetupGuideBody' class='stack' style='gap:16px'></div>" +
+    "</div>" +
+    "</div>" +
     "</div>"
   );
 }
@@ -74,68 +93,75 @@ function renderMailSettings(data: Dynamic) {
   const status = byId("mailDeliveryStatus");
   const toggle = byId("mailRoutingToggle");
   const help = byId("mailDeliveryManageHelp");
+  const now = byId("mailNowValue");
+  const alerts = byId("mailAlerts");
   if (!status || !toggle || !help) return;
 
+  if (now)
+    now.textContent = data.enabled
+      ? t("mailDeliveryCustom")
+      : t("mailDeliveryKuro");
   const domains = (data.domains || [])
     .map((domain: Dynamic) => domain.hostname || "")
     .filter(Boolean)
     .join(", ");
-  const destinationState = data.destinationVerified
-    ? t("mailDeliveryVerified")
-    : t("mailDeliveryUnverified");
+  // 済んでいる = ✅、足りない = ⚠、確かめられない = ?(「無効」と見せない)。
+  const chip = (state: "ok" | "ng" | "unknown", text: string) =>
+    "<span style='font-weight:700;color:" +
+    (state === "ok"
+      ? "var(--accent)"
+      : state === "ng"
+        ? "var(--danger,#b42318)"
+        : "var(--muted)") +
+    "'>" +
+    (state === "ok" ? "✅ " : state === "ng" ? "⚠ " : "? ") +
+    escapeHtml(text) +
+    "</span>";
+  const row = (label: string, value: string) =>
+    "<div class='muted' style='font-weight:700'>" +
+    escapeHtml(label) +
+    "</div><div style='min-width:0;overflow-wrap:anywhere'>" +
+    value +
+    "</div>";
+  // ⚠ 宛先の verify は**アカウント単位**、Email Routing の有効化は **zone 単位**。片方だけでは送れないので両方出す。
   status.innerHTML =
-    "<div><b>" +
-    escapeHtml(t("mailDeliveryCurrent")) +
-    ":</b> " +
-    escapeHtml(data.enabled ? t("mailDeliveryCustom") : t("mailDeliveryKuro")) +
-    "</div><div><b>" +
-    escapeHtml(t("mailDeliveryDomain")) +
-    ":</b> " +
-    escapeHtml(domains || "-") +
-    "</div><div><b>" +
-    escapeHtml(t("mailDeliverySender")) +
-    ":</b> " +
-    escapeHtml(data.senderAddress || "-") +
-    "</div><div><b>" +
-    escapeHtml(t("mailDeliveryDestination")) +
-    ":</b> " +
-    escapeHtml(data.destination || "-") +
-    "（" +
-    escapeHtml(destinationState) +
-    "）</div>" +
-    // ⚠ 宛先の verify は**アカウント単位**、Email Routing の有効化は
-    //   **zone 単位**。片方だけ満たしても送信は失敗するので、両方出す。
-    "<div><b>" +
-    escapeHtml(t("mailDeliveryZoneLabel")) +
-    ":</b> " +
-    escapeHtml(
+    row(t("mailDeliverySender"), escapeHtml(data.senderAddress || "-")) +
+    row(t("mailDeliveryDomain"), escapeHtml(domains || "-")) +
+    row(
+      t("mailDeliveryZoneLabel"),
       data.senderZoneEnabled === true
-        ? t("mailDeliveryZoneStateOn")
-        : // `null`（確認できない）を「無効」と見せない。既存の導入は
-          // zone 側の権限を持たないため、ここは頻繁に不明になる。
-          (data.senderZoneEnabled === false
-            ? t("mailDeliveryZoneOff")
-            : t("mailDeliveryZoneUnknown")) +
-            (data.senderZoneReason ? "（" + data.senderZoneReason + "）" : ""),
+        ? chip("ok", t("mailDeliveryZoneStateOn"))
+        : data.senderZoneEnabled === false
+          ? chip("ng", t("mailDeliveryZoneOff"))
+          : chip("unknown", t("mailDeliveryZoneUnknown")),
     ) +
-    "</div>" +
-    // 復旧メールは要求した本人へ送るので、他の管理者が未 verified だと
-    // その人だけ無言で締め出される。
-    ((data.unverifiedAdmins || []).length > 0
-      ? "<div style='color:var(--danger,#b42318);margin-top:4px'>" +
-        escapeHtml(
-          t("mailDeliveryAdminsUnverified") +
-            ": " +
-            (data.unverifiedAdmins || []).join(", "),
-        ) +
-        "</div>"
-      : "") +
-    (!data.available && data.reason
-      ? "<div style='color:var(--danger,#b42318);margin-top:4px'>" +
-        escapeHtml(mailReasonText(String(data.reason))) +
-        "</div>"
-      : "") +
-    mailLastStatusHtml(data.lastStatus);
+    row(
+      t("mailDeliveryDestination"),
+      escapeHtml(data.destination || "-") +
+        " " +
+        (data.destinationVerified
+          ? chip("ok", t("mailDeliveryVerified"))
+          : chip("ng", t("mailDeliveryUnverified"))),
+    );
+  // 気をつけること(未認証の管理者・読めなかった理由)と、最後のメールの結果。
+  const warn = (text: string) =>
+    "<div style='color:var(--danger,#b42318);font-size:13px'>⚠ " +
+    escapeHtml(text) +
+    "</div>";
+  if (alerts)
+    alerts.innerHTML =
+      // 復旧メールは要求した本人へ送るので、他の管理者が未 verified だとその人だけ無言で締め出される。
+      ((data.unverifiedAdmins || []).length > 0
+        ? warn(
+            t("mailDeliveryAdminsUnverified") +
+              ": " +
+              (data.unverifiedAdmins || []).join(", "),
+          )
+        : "") +
+      (!data.available && data.reason
+        ? warn(mailReasonText(String(data.reason)))
+        : "") +
+      mailLastStatusHtml(data.lastStatus);
   toggle.checked = Boolean(data.enabled);
   toggle.disabled = !data.canManage || (!data.enabled && !data.canEnable);
   help.textContent = data.canManage ? "" : t("mailDeliveryAdminOnly");
@@ -164,14 +190,26 @@ function renderMailSetupGuide(data: Dynamic) {
   //   ドメインは、この画面に入ってから選ぶ。
   const dash =
     "https://dash.cloudflare.com/?to=/:account/email-service/routing";
-  const mark = (done: boolean) => (done ? "✅ " : "▢ ");
-  const step = (done: boolean, title: string, desc: string) =>
-    "<div><div><b>" +
-    mark(done) +
-    escapeHtml(title) +
-    "</b></div><div class='tokenMeta' style='white-space:normal'>" +
-    escapeHtml(desc) +
-    "</div></div>";
+  // 番号の丸(済んだ手順は ✓)と、短い題・説明。
+  let n = 0;
+  const step = (done: boolean, title: string, desc: string) => {
+    n += 1;
+    return (
+      "<div style='display:flex;gap:12px;align-items:flex-start'>" +
+      "<div style='flex:0 0 26px;height:26px;border-radius:999px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;" +
+      (done
+        ? "background:var(--accent-soft);color:var(--accent)"
+        : "background:var(--surface-2);color:var(--muted);border:1px solid var(--line)") +
+      "'>" +
+      (done ? "✓" : String(n)) +
+      "</div>" +
+      "<div style='min-width:0'><div style='font-weight:700'>" +
+      escapeHtml(title) +
+      "</div><div class='tokenMeta' style='white-space:normal;margin-top:2px'>" +
+      escapeHtml(desc) +
+      "</div></div></div>"
+    );
+  };
   body.innerHTML =
     step(
       data.senderZoneEnabled === true,
@@ -199,7 +237,7 @@ function renderMailSetupGuide(data: Dynamic) {
       ),
     ) +
     step(Boolean(data.enabled), t("mailSetupStep3"), t("mailSetupStep3Body")) +
-    "<div style='display:flex;gap:8px;flex-wrap:wrap'>" +
+    "<div style='display:flex;gap:16px 20px;flex-wrap:wrap;margin-top:8px'>" +
     "<a class='secondary' target='_blank' rel='noopener' href='" +
     escapeHtml(dash) +
     "' style='font-size:12px;padding:6px 14px;text-decoration:none'>" +

@@ -70,6 +70,7 @@ import {
 import { checkRecipeCards } from "./recipe-guard.js";
 import { entamyPort } from "./entamy-port";
 import { channelAllowed, effectiveChannel } from "./update-channel";
+import { listMeSessions, revokeMeSession } from "./me-sessions";
 import { checkSiteProof } from "./site-proof";
 import {
   CONTACT_CONSENT_VERSION,
@@ -1408,6 +1409,32 @@ async function handleApiDispatch(
 
     if (path === "/api/me/tokens") {
       return withJsonHeaders(await meTokens(request, env, user));
+    }
+
+    // ログイン中の端末(プロフィールのデバイスのタブ・me-sessions.ts)。画面のセッションからだけ。
+    if (request.method === "GET" && path === "/api/me/sessions") {
+      requireInteractiveUser(user);
+      return withJsonHeaders(
+        json({
+          sessions: (await listMeSessions(env, user)) as unknown as JsonValue,
+        }),
+      );
+    }
+    const meSessionRevokeMatch = path.match(
+      /^\/api\/me\/sessions\/([0-9a-f]{32})\/revoke$/,
+    );
+    if (request.method === "POST" && meSessionRevokeMatch) {
+      requireInteractiveUser(user);
+      const r = await revokeMeSession(env, user, meSessionRevokeMatch[1]);
+      await logActivity(
+        env,
+        user,
+        "session.revoke",
+        "session",
+        meSessionRevokeMatch[1],
+        {},
+      );
+      return withJsonHeaders(json(r));
     }
 
     const meTokenRevokeMatch = path.match(

@@ -163,8 +163,8 @@ async function settings() {
         : "";
   }
 
+  // 「基本」(R2 メディアストレージ)は契約のタブへ、「稼働地域」はドメインのタブの右へ移した(2026-11-02・利用者の指示)。
   const tabBar = [
-    "basic",
     // ドメイン(公開ドメイン・Worker の URL・独自ドメイン)。顧客導入でも委託運用でも同じタブ(2026-10-22)。
     "domain",
     // 表示(基本言語・時計・筆者)。「基本」が長く、下の項目を見落とすので分けた。
@@ -177,11 +177,9 @@ async function settings() {
     "sns",
     "import",
     "ipgate",
-    "region",
   ]
     .map((id) => {
       const labels: Record<string, string> = {
-        basic: t("settingsTabBasic"),
         domain: t("settingsTabDomain"),
         display: t("settingsTabDisplay"),
         hosting: t("siteMoveTitle"),
@@ -189,16 +187,14 @@ async function settings() {
         sns: t("settingsTabSns"),
         import: t("settingsTabImport"),
         ipgate: t("settingsTabIpGate"),
-        region: t("settingsTabRegion"),
       };
       return (
         "<button type='button' class='settingsTab" +
-        (id === "basic" ? " active" : "") +
+        (id === "domain" ? " active" : "") +
         "' data-tab='" +
         id +
         "'" +
         (id === "hosting" ? " id='siteMoveTabBtn'" : "") +
-        (id === "basic" ? " id='basicTabBtn'" : "") +
         (id === "mail" ? " id='mailTabBtn'" : "") +
         ">" +
         escapeHtml(labels[id] || id) +
@@ -212,16 +208,11 @@ async function settings() {
     "<div class='settingsTabBar'>" +
       tabBar +
       "</div>" +
-      // ── Basic ────────────────────────────────────────────────────────
-      "<div id='panel-basic' class='settingsPanel'>" +
-      // 基本は R2 メディアストレージ(顧客導入)。ドメインに関わるものは「ドメイン」のタブへ(2026-10-22)。
-      "<div class='panel stack' id='basicPanel'>" +
-      "<div id='r2SetupSection'></div>" +
-      "</div>" +
-      "</div>" +
       // ── ドメイン(公開ドメイン・Worker の URL・独自ドメイン。顧客導入・委託運用で同じタブ) ──
-      "<div id='panel-domain' class='settingsPanel' style='display:none'>" +
-      "<div class='stack'>" +
+      // 左 2/3 にドメイン、右 1/3 に稼働地域(狭い画面では縦に並ぶ・2026-11-02)。
+      "<div id='panel-domain' class='settingsPanel'>" +
+      "<div style='display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start'>" +
+      "<div class='stack' style='flex:2 1 420px;min-width:0'>" +
       // サイト名はサイト管理（サイト情報）画面に移設。設定フォーム保存時は読込済みの
       // 値をそのままエコーして消えないようにする（saveAll 参照）。
       "<form class='panel stack' id='siteForm'>" +
@@ -274,6 +265,9 @@ async function settings() {
       "</div>" +
       // 委託運用: 自分のドメイン(Cloudflare for SaaS・site-domain.ts)。
       ownDomainPanelHtml() +
+      "</div>" +
+      // 稼働地域(Worker と D1 がいまどこで動いているか)。中身は下で差し込む。
+      "<div id='regionColumn' style='flex:1 1 260px;min-width:0'></div>" +
       "</div>" +
       "</div>" +
       // ── 表示(基本言語・サイトの時計・筆者。公開ページの出し方。2026-10-21 に「基本」から分けた) ──
@@ -330,8 +324,12 @@ async function settings() {
       "</div>" +
       "</div>" +
       // ── 運用の形(委託運用 ⇄ 顧客導入の引っ越し・site-move.ts) ─────────
-      "<div id='panel-hosting' class='settingsPanel' style='display:none'>" +
+      "<div id='panel-hosting' class='settingsPanel stack' style='display:none'>" +
       siteMoveSectionHtml() +
+      // R2 メディアストレージ(顧客導入の資源・2026-11-02 に「基本」から移した)。委託運用では出さない。
+      "<div class='panel stack' id='r2Panel'>" +
+      "<div id='r2SetupSection'></div>" +
+      "</div>" +
       "</div>" +
       mailSettingsPanelHtml() +
       // ── SNS ──────────────────────────────────────────────────────────
@@ -526,8 +524,8 @@ async function settings() {
       "</button>" +
       "</div>" +
       // ── Strapi sub-section ──────────────────────────────────────────
-      "<div id='importSectionStrapi'>" +
-      "<div class='muted' style='font-size:13px;margin-bottom:4px'>" +
+      "<div id='importSectionStrapi' class='stack' style='gap:20px'>" +
+      "<div class='muted' style='font-size:13px'>" +
       escapeHtml(t("importStrapiDesc")) +
       "</div>" +
       "<div style='border:1px solid var(--line);border-radius:10px;padding:16px'>" +
@@ -571,7 +569,8 @@ async function settings() {
       "</div>" +
       "</details>" +
       "<div id='strapiRawFieldsHint' style='display:none;font-size:12px;color:var(--muted);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:8px 12px;line-height:1.8'></div>" +
-      "<div style='display:flex;align-items:center;gap:8px;flex-wrap:wrap'>" +
+      // ボタンの列は上を広く、ボタンどうしを離す(core-style-s3-7)。
+      "<div style='display:flex;align-items:center;gap:16px 20px;flex-wrap:wrap;margin-top:12px'>" +
       "<button type='button' id='strapiTestBtn'>" +
       escapeHtml(t("importConnect")) +
       "</button>" +
@@ -622,8 +621,8 @@ async function settings() {
       "</div>" +
       "</div>" +
       // ── KuroCMS sub-section ─────────────────────────────────────────
-      "<div id='importSectionKurocms' style='display:none'>" +
-      "<div class='muted' style='font-size:13px;margin-bottom:4px'>" +
+      "<div id='importSectionKurocms' class='stack' style='gap:20px;display:none'>" +
+      "<div class='muted' style='font-size:13px'>" +
       escapeHtml(t("importKurocmsDesc")) +
       "</div>" +
       "<div style='border:1px solid var(--line);border-radius:10px;padding:16px'>" +
@@ -639,7 +638,7 @@ async function settings() {
       escapeHtml(t("kurocmsPatHelp")) +
       "</div><input id='kurocmsPat' type='password' placeholder='kuro_...' /></label>" +
       "</div>" +
-      "<div style='display:flex;align-items:center;gap:8px;flex-wrap:wrap'>" +
+      "<div style='display:flex;align-items:center;gap:16px 20px;flex-wrap:wrap;margin-top:12px'>" +
       "<button type='button' id='kurocmsTestBtn'>" +
       escapeHtml(t("importConnectAndShow")) +
       "</button>" +
@@ -826,9 +825,9 @@ async function settings() {
 
   // ── 稼働地域(Worker と D1 がいまどこで動いているか・/api/system/region) ──
   // 地名はサーバーが管理画面の言語で付ける。表に無い拠点は名前が無く、コードを添え書きにする。
-  byId("panel-ipgate")?.insertAdjacentHTML(
-    "afterend",
-    "<div id='panel-region' class='settingsPanel' style='display:none'>" +
+  byId("regionColumn")?.insertAdjacentHTML(
+    "beforeend",
+    "<div id='regionPanel'>" +
       "<div class='panel stack' style='gap:12px'>" +
       "<div class='panelHead'><h3>" +
       escapeHtml(t("regionTitle")) +
@@ -886,6 +885,8 @@ async function settings() {
     }
   }
   byId("regionMeasureBtn")?.addEventListener("click", () => void loadRegion());
+  // 最初に開くタブはドメイン(稼働地域はその右)。開いた時に 1 回読む。
+  void loadRegion();
 
   // ── 規約とポリシー(KuroNote などの設定と同じ中身・2026-10-30) ──
   // 並べる文書は基盤の目録が決める(サーバーが共有ライブラリーの EntamyLegal.fetchIndex で取る)。
@@ -1742,7 +1743,7 @@ async function settings() {
   document.querySelectorAll<AdminElement>(".settingsTab").forEach((btn) => {
     btn.addEventListener("click", () => {
       switchTab(btn.dataset.tab);
-      if (btn.dataset.tab === "region" && !regionMeasured) void loadRegion();
+      if (btn.dataset.tab === "domain" && !regionMeasured) void loadRegion();
       if (btn.dataset.tab === "hosting" && !contractLoaded) void loadContract();
       if (btn.dataset.tab === "hosting" && !legalLoaded) {
         void loadLegalLinks();
@@ -1839,11 +1840,9 @@ async function settings() {
       const help = byId("publicDomainHelpText");
       if (help) help.textContent = t("publicDomainManagedHelp");
       // 委託は鍵を持たない: workers.dev・Cloudflare の Custom Domain・R2 の枠は出さず、
-      // 自分のドメインは Cloudflare for SaaS の枠(site-domain.ts)で付ける。基本のタブは中身が無いので隠す。
+      // 自分のドメインは Cloudflare for SaaS の枠(site-domain.ts)で付ける。
       byId("selfDomainPanel")?.remove();
-      byId("basicTabBtn")?.remove();
-      byId("panel-basic")?.remove();
-      switchTab("domain");
+      byId("r2Panel")?.remove();
       void mountOwnDomain(
         String(s.defaultPublicDomain || s.publicDomain || ""),
         s.publicDomain || "",
