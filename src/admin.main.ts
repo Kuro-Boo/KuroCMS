@@ -888,8 +888,7 @@ const i18n = {
     legalTitle: "Terms have been updated",
     legalFirstTitle: "Before you start",
     siteMoveTitle: "Contract",
-    siteMoveNowManaged:
-      "This site runs on Entamy managed hosting (Entamy's Cloudflare account).",
+    siteMoveNowManaged: "This site runs on KuroCMS managed hosting servers.",
     siteMoveNowSelf:
       "This site runs on your own Cloudflare account (self-hosted).",
     siteMoveToSelf: "Move to your own Cloudflare account",
@@ -1132,7 +1131,6 @@ const i18n = {
     settingsTabBasic: "Basic",
     settingsTabDisplay: "Display",
     settingsTabSns: "SNS",
-    settingsTabMobile: "Mobile",
     siteTimezone: "Site time zone",
     siteTimezoneHelp:
       "The clock your site keeps. It decides which calendar month an article belongs to in the archive filter, and the date shown on public pages — both for every visitor, wherever they are. Leave it on UTC only if that is really your editorial time zone. Changing it changes generated HTML, so run a build (all pages) afterwards.",
@@ -1158,7 +1156,6 @@ const i18n = {
     settingsTabImport: "Import",
     settingsTabIpGate: "IP restriction",
     settingsTabRegion: "Region",
-    settingsTabLegal: "Terms",
     legalLinksTitle: "KuroCMS terms and policies",
     legalLinksHelp:
       "The Entamy terms that apply to using KuroCMS. Each opens in a new tab.",
@@ -1197,8 +1194,21 @@ const i18n = {
     contractSynced: "Updated {date}.",
     contractNowTitle: "Your contract",
     contractPlansTitle: "Plans and prices",
-    contractFormManaged:
-      "Runs on Entamy managed hosting (Entamy's Cloudflare account).",
+    contractKindManaged: "Managed hosting",
+    contractKindSelf: "Self-hosting",
+    contractKindPaid: "Paid",
+    contractKindFree: "Free",
+    contractKindManagedDesc:
+      "Runs this site on Entamy's Cloudflare account. Entamy takes care of the Cloudflare setup and updates.",
+    contractKindSelfDesc:
+      "Runs on your own Cloudflare account. No contract is needed.",
+    contractRulesTitle: "Contract rules",
+    contractRuleRenewLabel: "Renewal",
+    contractRuleCancelLabel: "Cancelling",
+    contractRuleTrialLabel: "Free period",
+    contractRuleUnpaidLabel: "Without a contract",
+    contractRuleSelfLabel: "Switching",
+    contractFormManaged: "Runs on KuroCMS managed hosting servers.",
     contractFormSelf: "Runs on your own Cloudflare account (self-hosting).",
     contractBadgeSelf: "Free · no contract needed",
     contractBadgePending: "Checking",
@@ -1227,33 +1237,31 @@ const i18n = {
     contractPaidFrom: "Paid from",
     contractApplyLeadTrial:
       "You can subscribe during the free period. Your first payment is due when the free period ends ({date}).",
-    contractPlansLead:
-      "Managed hosting runs this site on Entamy's Cloudflare account, and Entamy takes care of the Cloudflare setup and updates. It is paid. Self-hosting on your own Cloudflare account is free.",
     contractRegion: "Country or region",
     contractRegionJp: "Japan (JPY)",
     contractRegionUs: "United States and others (USD)",
     contractRegionEu: "Europe (EUR)",
     contractRegionDetected:
-      "Chosen from the country of your connection ({country}). The price you pay is set on the contract page.",
+      "Chosen to match the country of your connection ({country}). The exact amount you pay is confirmed on the contract page.",
     contractPerMonth: "{amount} / month",
     contractPerYear: "{amount} / year",
     contractYearPerMonth: "{amount} per month",
     contractYearSaving: "about {n}% less than monthly",
     contractTaxIncluded: "tax included",
     contractPricesNotYet:
-      "Prices for this region are not published yet. Subscriptions are not open in this region.",
+      "Prices for this region are still being prepared, so you cannot subscribe here yet.",
     contractPricesUnavailable:
-      "Prices could not be read. Please check them on the contract page.",
+      "Prices could not be loaded. Please check them on the contract page.",
     contractRuleRenew:
-      "Your subscription renews automatically on the day you subscribed (every month or every year). If that day does not exist in a month (29th–31st), the last day of that month is used.",
+      "Your subscription renews automatically on the day you subscribed: every month for monthly, every year for yearly. In months without that day (29th–31st), it renews on the last day of the month.",
     contractRuleCancel:
-      "If you cancel, a monthly plan stays usable until the end of the month you paid for, with no refund. A yearly plan is refunded by the month: it stays usable until the end of the contract month that includes the cancellation day, and the remaining months are refunded.",
+      "Monthly: usable until the end of the month you paid for, with no refund. Yearly: usable until the end of the contract month that includes the cancellation day, and the remaining months are refunded pro rata.",
     contractRuleTrial:
-      "The free period is given once, the first time an Entamy ID uses managed hosting. If you subscribe during the free period, your first payment is due when it ends.",
+      "Given once per Entamy ID, the first time it uses managed hosting. If you subscribe during the free period, your first payment is on the day it ends.",
     contractRuleUnpaid:
-      "If the free period ends without a subscription, adding articles and building (publishing) stop, and the data is deleted {n} days later. Published pages stay online until then.",
+      "When the free period ends, adding articles and building (publishing) stop, and the data is deleted {n} days later. Published pages stay online until the deletion date.",
     contractRuleSelf:
-      "Self-hosting on your own Cloudflare account is free. You can move there from managed hosting with the move below.",
+      "You can switch between managed hosting and self-hosting with the move further down this tab.",
     regionTitle: "Where this site runs",
     regionHelp:
       "Where this KuroCMS's database (D1) and KuroCMS itself are running now. The database region is fixed when it is created and cannot be changed later; Cloudflare picks the location within the region.",
@@ -2329,8 +2337,7 @@ const i18n = {
     legalTitle: "規約が更新されました",
     legalFirstTitle: "はじめに",
     siteMoveTitle: "契約",
-    siteMoveNowManaged:
-      "いまは Entamy の委託運用で動いています（Entamy の Cloudflare アカウント）。",
+    siteMoveNowManaged: "いまは KuroCMSの委託運用サーバー上で動いています。",
     siteMoveNowSelf:
       "いまはご自身の Cloudflare アカウントで動いています（顧客導入）。",
     siteMoveToSelf: "ご自身の Cloudflare アカウントへ引っ越す",
@@ -2645,7 +2652,6 @@ const i18n = {
     settingsTabBasic: "基本",
     settingsTabDisplay: "表示",
     settingsTabSns: "SNS連動",
-    settingsTabMobile: "スマホ設定",
     siteTimezone: "サイトのタイムゾーン",
     siteTimezoneHelp:
       "サイトが使う時計です。記事一覧の月による絞り込みでどの月に入るか、公開ページに出る日付がいつになるか——この 2 つを、どこから見ている閲覧者に対しても同じにします。日本で運用しているなら Asia/Tokyo を選んでください（UTC のままだと、日本時間 0:00〜8:59 に公開した記事が前の月のアーカイブに入り、9/1 の記事が 8 月に混ざります）。生成される HTML が変わるので、変更後はビルド（全ページ）を実行してください。",
@@ -2671,7 +2677,6 @@ const i18n = {
     settingsTabImport: "インポート",
     settingsTabIpGate: "IP 制限",
     settingsTabRegion: "稼働地域",
-    settingsTabLegal: "規約",
     legalLinksTitle: "KuroCMS の規約とポリシー",
     legalLinksHelp:
       "KuroCMS を使うにあたって適用される Entamy の規約です。押すと別のタブで開きます。",
@@ -2709,8 +2714,21 @@ const i18n = {
     contractSynced: "{date} に更新。",
     contractNowTitle: "いまの契約",
     contractPlansTitle: "契約の形態と料金",
-    contractFormManaged:
-      "Entamy の委託運用で動いています（Entamy の Cloudflare アカウント）。",
+    contractKindManaged: "委託運用",
+    contractKindSelf: "顧客導入",
+    contractKindPaid: "有料",
+    contractKindFree: "無料",
+    contractKindManagedDesc:
+      "Entamy の Cloudflare アカウントでこのサイトを動かします。Cloudflare の用意と更新は Entamy が受け持ちます。",
+    contractKindSelfDesc:
+      "ご自身の Cloudflare アカウントで動かします。契約は要りません。",
+    contractRulesTitle: "契約の決まり",
+    contractRuleRenewLabel: "更新",
+    contractRuleCancelLabel: "途中の解約",
+    contractRuleTrialLabel: "無料期間",
+    contractRuleUnpaidLabel: "契約しないとき",
+    contractRuleSelfLabel: "切り替え",
+    contractFormManaged: "KuroCMSの委託運用サーバー上で動いています。",
     contractFormSelf:
       "ご自身の Cloudflare アカウントで動いています（顧客導入）。",
     contractBadgeSelf: "無料・契約は要りません",
@@ -2739,33 +2757,31 @@ const i18n = {
     contractPaidFrom: "有料になる日",
     contractApplyLeadTrial:
       "無料期間中でも申し込めます。最初のお支払いは無料期間が終わったとき（{date}）です。",
-    contractPlansLead:
-      "委託運用は、Entamy の Cloudflare アカウントでこのサイトを動かす有料の形です。Cloudflare の手続きと更新は Entamy が受け持ちます。ご自身の Cloudflare アカウントで動かす顧客導入は無料です。",
     contractRegion: "国・地域",
     contractRegionJp: "日本（円）",
     contractRegionUs: "米国ほか（米ドル）",
     contractRegionEu: "欧州（ユーロ）",
     contractRegionDetected:
-      "回線の国（{country}）から選びました。お支払いの額は契約の頁で決まります。",
+      "お使いの回線の国（{country}）に合わせて選んでいます。実際のお支払い額は、契約の頁で確定します。",
     contractPerMonth: "{amount} / 月",
     contractPerYear: "{amount} / 年",
     contractYearPerMonth: "月あたり {amount}",
     contractYearSaving: "月払いより約 {n}% お得",
     contractTaxIncluded: "税込",
     contractPricesNotYet:
-      "この地域の料金はまだ公開していません。この地域ではまだ申し込めません。",
+      "この地域の料金は準備中のため、まだお申し込みいただけません。",
     contractPricesUnavailable:
-      "料金を読めませんでした。契約の頁でご確認ください。",
+      "料金を読み込めませんでした。契約の頁でご確認ください。",
     contractRuleRenew:
-      "契約した日が更新日で、自動で更新します（月払いは毎月、年払いは毎年）。29〜31 日で、その日が無い月は月末です。",
+      "契約した日を更新日として、月払いは毎月、年払いは毎年、自動で更新します。その日が無い月（29〜31 日）は、月末に更新します。",
     contractRuleCancel:
-      "途中で解約すると、月払いは払った 1 か月の終わりまで使え、返金はありません。年払いは月割りで、解約した日を含む契約月の終わりまで使え、残りの月の分を返金します。",
+      "月払いは、支払い済みの 1 か月の終わりまで使えます。返金はありません。年払いは、解約した日を含む契約月の終わりまで使え、残りの月の分を月割りで返金します。",
     contractRuleTrial:
-      "無料期間は、Entamy ID で委託運用を初めて使うときに 1 回だけ付きます。無料期間中に申し込んでも、最初のお支払いは無料期間が終わったときです。",
+      "1 つの Entamy ID につき 1 回、委託運用を初めて使うときに付きます。無料期間中に申し込んだ場合、最初のお支払いは無料期間が終わる日です。",
     contractRuleUnpaid:
-      "契約しないまま無料期間が終わると、記事の追加とビルド（公開）が止まり、{n} 日後にデータが消えます。公開済みのページはそれまで出し続けます。",
+      "無料期間が終わると、記事の追加とビルド（公開）が止まり、{n} 日後にデータを削除します。公開中のページは、削除の日まで表示されます。",
     contractRuleSelf:
-      "ご自身の Cloudflare アカウントで動かす顧客導入は無料です。委託運用からは、下の引っ越しで移れます。",
+      "委託運用と顧客導入は、このタブの下にある引っ越しで切り替えられます。",
     regionTitle: "稼働地域",
     regionHelp:
       "この KuroCMS のデータベース（D1）と KuroCMS 本体が、いまどこで動いているかです。データベースの地域は作ったときに決まり、後から変えられません。地域の中のどの拠点に置くかは Cloudflare が選びます。",
@@ -5234,9 +5250,9 @@ const helpContent: Record<string, Dynamic> = {
     title: "設定",
     role: "サイト全体の設定をまとめた画面です。タブごとに分かれています。開いているタブのくわしい説明は、そのタブでヘルプを押すと出ます。",
     canDo:
-      "基本：R2 メディアストレージ（顧客導入だけ） / ドメイン：公開ドメインと既定値に戻す・Worker の URL・独自ドメイン（委託運用は Cloudflare for SaaS で自分のドメインを付ける） / 表示：基本言語・サイトのタイムゾーン・記事の末尾に筆者を出すか / 契約：いまの運用の形と契約の状態・無料期間の残り・国ごとの料金・申し込みと解約への入口（委託運用だけ）、持ち主の登録、委託運用と顧客導入のあいだの引っ越し / メール送信：この CMS のメールをどこから送るか（顧客導入だけ） / SNS連動：Bluesky・X・Threads の接続と、投稿済みの印の一括操作 / スマホ設定：狭い画面で記事のメディアを全幅にする / インポート：Strapi や別の KuroCMS から記事を取り込む / IP 制限：管理画面を使える回線を絞る / 稼働地域：データベースと KuroCMS が動いている場所を確かめる",
+      "基本：R2 メディアストレージ（顧客導入だけ） / ドメイン：公開ドメインと既定値に戻す・Worker の URL・独自ドメイン（委託運用は Cloudflare for SaaS で自分のドメインを付ける） / 表示：基本言語・サイトのタイムゾーン・記事の末尾に筆者を出すか・スマホで記事のメディアを全幅にするか / 契約：いまの運用の形と契約の状態・無料期間の残り・国ごとの料金・申し込みと解約への入口（委託運用だけ）、持ち主の登録、委託運用と顧客導入のあいだの引っ越し、KuroCMS の規約とポリシー・Entamy ID のアカウントの削除 / メール送信：この CMS のメールをどこから送るか（顧客導入だけ） / SNS連動：Bluesky・X・Threads の接続と、投稿済みの印の一括操作 / インポート：Strapi や別の KuroCMS から記事を取り込む / IP 制限：管理画面を使える回線を絞る / 稼働地域：データベースと KuroCMS が動いている場所を確かめる",
     notes:
-      "表示とスマホ設定の変更は、ビルド（全ページ）を実行するまで公開ページに出ません。公開ページ内のリンクは、ドメインのタブの一番上の公開ドメインから作ります。データベースの地域は作ったときに決まり、後から変えられません。契約情報は 1 時間ほどごとに更新されます。",
+      "表示の変更は、ビルド（全ページ）を実行するまで公開ページに出ません。公開ページ内のリンクは、ドメインのタブの一番上の公開ドメインから作ります。データベースの地域は作ったときに決まり、後から変えられません。契約情報は 1 時間ほどごとに更新されます。",
   },
   domain: {
     title: "ドメイン",
@@ -5449,9 +5465,9 @@ const helpContentEn: Record<string, Dynamic> = {
     title: "Settings",
     role: "Site-wide settings, split into tabs. Press Help while a tab is open to see help for that tab.",
     canDo:
-      "Basic: R2 media storage (self-hosting only) / Domain: public domain and reset to default, Worker URL, custom domain (on managed hosting, attach your own domain with Cloudflare for SaaS) / Display: base language, site time zone, author line at the end of articles / Contract: the hosting form and contract status, the free period left, prices by country, and the way to subscribe or cancel (managed hosting only); register the owner; move between managed hosting and self-hosting / Email: where this CMS sends its mail from (self-hosting only) / SNS: connect Bluesky, X and Threads, and set or clear posted marks in bulk / Mobile: make article media full width on narrow screens / Import: bring in articles from Strapi or another KuroCMS / IP restriction: limit the networks that can use the admin panel / Region: see where the database and KuroCMS run",
+      "Basic: R2 media storage (self-hosting only) / Domain: public domain and reset to default, Worker URL, custom domain (on managed hosting, attach your own domain with Cloudflare for SaaS) / Display: base language, site time zone, author line at the end of articles, full-width article media on phones / Contract: the hosting form and contract status, the free period left, prices by country, and the way to subscribe or cancel (managed hosting only); register the owner; move between managed hosting and self-hosting; KuroCMS terms and policies; Entamy ID account deletion / Email: where this CMS sends its mail from (self-hosting only) / SNS: connect Bluesky, X and Threads, and set or clear posted marks in bulk / Import: bring in articles from Strapi or another KuroCMS / IP restriction: limit the networks that can use the admin panel / Region: see where the database and KuroCMS run",
     notes:
-      "Display and Mobile changes reach the public pages only after a full build. Links in your public pages are built from the public domain at the top of the Domain tab. The database region is fixed when the database is created. Contract information refreshes about once an hour.",
+      "Display changes reach the public pages only after a full build. Links in your public pages are built from the public domain at the top of the Domain tab. The database region is fixed when the database is created. Contract information refreshes about once an hour.",
   },
   domain: {
     title: "Domain",

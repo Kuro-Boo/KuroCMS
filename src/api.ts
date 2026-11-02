@@ -69,6 +69,7 @@ import {
 } from "./kuroeditor/normalize.js";
 import { checkRecipeCards } from "./recipe-guard.js";
 import { entamyPort } from "./entamy-port";
+import { channelAllowed, effectiveChannel } from "./update-channel";
 import { checkSiteProof } from "./site-proof";
 import {
   CONTACT_CONSENT_VERSION,
@@ -1187,6 +1188,19 @@ async function handleApiDispatch(
           400,
           "invalid_request",
           "channel must be stable or latest.",
+        );
+      }
+      // 番人の開発版も、開発アカウントのサイトだけ(core-feature-flags 2節)。
+      if (
+        !channelAllowed(
+          body.channel,
+          body.channel === "latest" && (await ownerIsDeveloper(env)),
+        )
+      ) {
+        throw new HttpError(
+          403,
+          "developer_only",
+          "The development channel is available to developer accounts only.",
         );
       }
       return json({
@@ -4845,14 +4859,43 @@ async function updatePolicy(
   return { auto, channel: channel === "latest" ? "dev" : "stable" };
 }
 
+/**
+ * このサイトの持ち主が開発アカウントか(仕様 core-feature-flags・2026-11-02)。このサイト(導入の口座)のトークンの dev ——
+ * ID は持ち主が開発アカウントのときだけ載せる。委託も顧客導入も同じ。分からない(基盤に届かない・古い ID)ときは一般として
+ * 扱う(開発版を渡す側に倒さない)。開発版と、開発・安定の切り替えは、開発アカウントのサイトにだけ出す。
+ */
+async function ownerIsDeveloper(env: Env): Promise<boolean> {
+  try {
+    const port = await entamyPort(env);
+    return (await port.session.claims())?.developer === true;
+  } catch {
+    return false;
+  }
+}
+
+/** 開発版を選べるのは開発アカウントのサイトだけ。一般のサイトは保存した値にかかわらず安定版。 */
 async function getUpdateChannel(env: Env): Promise<"stable" | "latest"> {
   const v = await env.PUBLIC_PAGES.get(UPDATE_CHANNEL_KEY);
-  return v === "latest" ? "latest" : "stable";
+  if (v !== "latest") return "stable";
+  return effectiveChannel(v, await ownerIsDeveloper(env));
 }
 
 async function setUpdateChannel(request: Request, env: Env): Promise<Response> {
   const body = await readJson(request);
   const channel = body.channel === "latest" ? "latest" : "stable";
+  // 画面で隠すだけにしない(core-feature-flags 2節)。一般のサイトは開発版を選べない。
+  if (
+    !channelAllowed(
+      channel,
+      channel === "latest" && (await ownerIsDeveloper(env)),
+    )
+  ) {
+    throw new HttpError(
+      403,
+      "developer_only",
+      "The development channel is available to developer accounts only.",
+    );
+  }
   await env.PUBLIC_PAGES.put(UPDATE_CHANNEL_KEY, channel);
   // 委託は自分で更新できない。番人にすぐ確かめさせる(しないと次の 1 日 1 回の確認まで入らない)。
   const checkRequested = await askManagedUpdateCheck(env);
@@ -4895,6 +4938,8 @@ async function systemVersion(env: Env, refresh = false): Promise<Response> {
     stable,
     latest,
     channel,
+    // 持ち主が開発アカウントか。画面は、このときだけ開発・安定の切り替えと開発版の版を出す。
+    developer: await ownerIsDeveloper(env),
     autoUpdate: await getAutoUpdate(env).catch(() => true),
     hasUpdate,
     // いまの版がいつ入ったか。記録より前に入った版は at が null(分からない日を出さない)。

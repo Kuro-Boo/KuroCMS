@@ -175,11 +175,9 @@ async function settings() {
     // メール送信(サイト全体の設定・管理者だけ)。2026-10-21 にプロフィールから移した。
     "mail",
     "sns",
-    "mobile",
     "import",
     "ipgate",
     "region",
-    "legal",
   ]
     .map((id) => {
       const labels: Record<string, string> = {
@@ -189,11 +187,9 @@ async function settings() {
         hosting: t("siteMoveTitle"),
         mail: t("settingsTabMail"),
         sns: t("settingsTabSns"),
-        mobile: t("settingsTabMobile"),
         import: t("settingsTabImport"),
         ipgate: t("settingsTabIpGate"),
         region: t("settingsTabRegion"),
-        legal: t("settingsTabLegal"),
       };
       return (
         "<button type='button' class='settingsTab" +
@@ -281,7 +277,7 @@ async function settings() {
       "</div>" +
       "</div>" +
       // ── 表示(基本言語・サイトの時計・筆者。公開ページの出し方。2026-10-21 に「基本」から分けた) ──
-      "<div id='panel-display' class='settingsPanel' style='display:none'>" +
+      "<div id='panel-display' class='settingsPanel stack' style='display:none'>" +
       "<form class='panel stack' id='displayForm'>" +
       "<label>" +
       escapeHtml(t("defaultLanguage")) +
@@ -307,6 +303,31 @@ async function settings() {
       escapeHtml(t("saveSiteSettings")) +
       "</button>" +
       "</form>" +
+      // スマホ向けレイアウト(サイトビルドの設定)。2026-11-02 に「スマホ設定」のタブから表示へ移した。
+      // 保存は別の口(saveMobileBtn)なので、枠も分けたまま置く。
+      "<div class='panel stack'>" +
+      "<div class='panelHead'><h3>" +
+      escapeHtml(t("mobileTitle")) +
+      "</h3></div>" +
+      "<div class='muted' style='font-size:12px'>" +
+      escapeHtml(t("mobileIntro")) +
+      "</div>" +
+      // 切り替えの行は部品(.toggleRow)を使う —— 何の切り替えかを、スイッチの横に書く。
+      "<div class='toggleRow'><div><div><b>" +
+      escapeHtml(t("mobileMediaFullWidth")) +
+      "</b></div><div class='tokenMeta'>" +
+      escapeHtml(t("mobileMediaFullWidthHelp")) +
+      "</div><div class='tokenMeta' style='margin-top:6px'>" +
+      escapeHtml(t("mobileMediaFullWidthVideo")) +
+      "</div></div><input id='mobileMediaFullWidth' type='checkbox' class='toggle' /></div>" +
+      "<div style='font-size:12px;padding:8px 10px;border-radius:8px;background:rgba(128,128,128,.12)'>" +
+      escapeHtml(t("mobileBuildNote")) +
+      "</div>" +
+      "<div class='toolbar'><button type='button' id='saveMobileBtn'>" +
+      escapeHtml(t("save")) +
+      "</button></div>" +
+      "<div id='mobileStatus' class='muted' style='font-size:12px'></div>" +
+      "</div>" +
       "</div>" +
       // ── 運用の形(委託運用 ⇄ 顧客導入の引っ越し・site-move.ts) ─────────
       "<div id='panel-hosting' class='settingsPanel' style='display:none'>" +
@@ -490,32 +511,6 @@ async function settings() {
       "</form>" +
       "<div id='extraSnsCards'></div>" +
       "</div>" +
-      "</div>" +
-      "</div>" +
-      // ── スマホ設定 ───────────────────────────────────────────────────
-      "<div id='panel-mobile' class='settingsPanel' style='display:none'>" +
-      "<div class='panel stack'>" +
-      "<div class='panelHead'><h3>" +
-      escapeHtml(t("mobileTitle")) +
-      "</h3></div>" +
-      "<div class='muted' style='font-size:12px'>" +
-      escapeHtml(t("mobileIntro")) +
-      "</div>" +
-      // 切り替えの行は部品(.toggleRow)を使う —— 何の切り替えかを、スイッチの横に書く。
-      "<div class='toggleRow'><div><div><b>" +
-      escapeHtml(t("mobileMediaFullWidth")) +
-      "</b></div><div class='tokenMeta'>" +
-      escapeHtml(t("mobileMediaFullWidthHelp")) +
-      "</div><div class='tokenMeta' style='margin-top:6px'>" +
-      escapeHtml(t("mobileMediaFullWidthVideo")) +
-      "</div></div><input id='mobileMediaFullWidth' type='checkbox' class='toggle' /></div>" +
-      "<div style='font-size:12px;padding:8px 10px;border-radius:8px;background:rgba(128,128,128,.12)'>" +
-      escapeHtml(t("mobileBuildNote")) +
-      "</div>" +
-      "<div class='toolbar'><button type='button' id='saveMobileBtn'>" +
-      escapeHtml(t("save")) +
-      "</button></div>" +
-      "<div id='mobileStatus' class='muted' style='font-size:12px'></div>" +
       "</div>" +
       "</div>" +
       // ── Import ───────────────────────────────────────────────────────
@@ -736,9 +731,11 @@ async function settings() {
         "</span></div></div>";
       return (
         "<div id='panel-ipgate' class='settingsPanel' style='display:none'>" +
-        "<form class='stack' id='ipGateForm' style='gap:16px'>" +
+        // 左 2/3 の枠に ① 状態・①' 登録 IPv6・③ 詳しい設定を区切り線で縦に、右 1/3 の枠に ② 仕組み(2026-11-02・利用者)。
+        "<form class='ipGateLayout' id='ipGateForm'>" +
         // ① 状態
-        "<div class='panel stack' style='gap:12px'>" +
+        "<div class='panel stack ipGateMain'>" +
+        "<div class='ipGateSection stack'>" +
         "<div class='panelHead'><h3>" +
         escapeHtml(t("ipGateTitle")) +
         "</h3>" +
@@ -758,7 +755,7 @@ async function settings() {
         "</div>" +
         // ①' 登録 IPv6(自分の回線)。手で足す prefix は固定(期限なし)。
         //     ipGateForm の中にあるので、追加は submit ではなくボタンの click で送る。
-        "<div class='panel stack' style='gap:12px'>" +
+        "<div class='ipGateSection stack'>" +
         "<div class='panelHead'><h3>" +
         escapeHtml(t("ipV6Title")) +
         "</h3></div>" +
@@ -783,18 +780,8 @@ async function settings() {
         "</button>" +
         "</div>" +
         "</div>" +
-        // ② 仕組み
-        "<div class='panel stack' style='gap:12px'>" +
-        "<div class='panelHead'><h3>" +
-        escapeHtml(t("ipGateHowTitle")) +
-        "</h3></div>" +
-        "<div style='display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px'>" +
-        step("1", t("ipGateHow1t"), t("ipGateHow1b")) +
-        step("2", t("ipGateHow2t"), t("ipGateHow2b")) +
-        step("3", t("ipGateHow3t"), t("ipGateHow3b")) +
-        "</div></div>" +
         // ③ 詳しい設定
-        "<div class='panel stack' style='gap:12px'>" +
+        "<div class='ipGateSection stack'>" +
         "<div class='panelHead'><h3>" +
         escapeHtml(t("ipGateDetailTitle")) +
         "</h3></div>" +
@@ -821,6 +808,17 @@ async function settings() {
         escapeHtml(t("save")) +
         "</button></div>" +
         "</div>" +
+        "</div>" +
+        // ② 仕組み
+        "<div class='panel stack ipGateHow'>" +
+        "<div class='panelHead'><h3>" +
+        escapeHtml(t("ipGateHowTitle")) +
+        "</h3></div>" +
+        "<div style='display:grid;gap:10px'>" +
+        step("1", t("ipGateHow1t"), t("ipGateHow1b")) +
+        step("2", t("ipGateHow2t"), t("ipGateHow2b")) +
+        step("3", t("ipGateHow3t"), t("ipGateHow3b")) +
+        "</div></div>" +
         "</form></div>"
       );
     })(),
@@ -892,36 +890,34 @@ async function settings() {
   // ── 規約とポリシー(KuroNote などの設定と同じ中身・2026-10-30) ──
   // 並べる文書は基盤の目録が決める(サーバーが共有ライブラリーの EntamyLegal.fetchIndex で取る)。
   // 押すと公開の頁を別のタブで開く —— 頁の中で読む共有部品(@entamy/ui)は、公開ミラーの都合で管理画面に取り込めない。
-  byId("panel-region")?.insertAdjacentHTML(
-    "afterend",
-    "<div id='panel-legal' class='settingsPanel' style='display:none'>" +
-      "<div class='panel stack' style='gap:12px'>" +
-      "<div class='panelHead'><h3>" +
-      escapeHtml(t("legalLinksTitle")) +
-      "</h3></div>" +
-      "<div class='muted' style='font-size:13px;line-height:1.7'>" +
-      escapeHtml(t("legalLinksHelp")) +
-      "</div>" +
-      "<div id='legalLinkRows' style='border:1px solid var(--line);border-radius:10px;overflow:hidden'></div>" +
-      "</div>" +
-      // アカウントの削除の窓口(ID §10.4)。頁は KuroNote などと共通の 1 つで、製品は product_id で選ぶ。
-      "<div class='panel stack' style='gap:12px'>" +
-      "<div class='panelHead'><h3>" +
-      escapeHtml(t("accountDeletionTitle")) +
-      "</h3></div>" +
-      "<div class='muted' style='font-size:13px;line-height:1.7'>" +
-      escapeHtml(t("accountDeletionHelp")) +
-      "</div>" +
-      "<div><a href='" +
-      escapeHtml(
-        "https://id.entamy.com/delete?product_id=cms&lang=" +
-          (state.uiLang === "ja" ? "ja" : "en"),
-      ) +
-      "' target='_blank' rel='noopener'>" +
-      escapeHtml(t("accountDeletionLink")) +
-      " ↗</a></div>" +
-      "</div></div>",
-  );
+  // 2026-11-02(利用者): 「規約」のタブをやめ、契約のタブの左の列(いまの契約の下)に置く(下の contractSection)。
+  const legalPanelsHtml =
+    "<div class='panel stack' style='gap:12px'>" +
+    "<div class='panelHead'><h3>" +
+    escapeHtml(t("legalLinksTitle")) +
+    "</h3></div>" +
+    "<div class='muted' style='font-size:13px;line-height:1.7'>" +
+    escapeHtml(t("legalLinksHelp")) +
+    "</div>" +
+    "<div id='legalLinkRows' style='border:1px solid var(--line);border-radius:10px;overflow:hidden'></div>" +
+    "</div>" +
+    // アカウントの削除の窓口(ID §10.4)。頁は KuroNote などと共通の 1 つで、製品は product_id で選ぶ。
+    "<div class='panel stack' style='gap:12px'>" +
+    "<div class='panelHead'><h3>" +
+    escapeHtml(t("accountDeletionTitle")) +
+    "</h3></div>" +
+    "<div class='muted' style='font-size:13px;line-height:1.7'>" +
+    escapeHtml(t("accountDeletionHelp")) +
+    "</div>" +
+    "<div><a href='" +
+    escapeHtml(
+      "https://id.entamy.com/delete?product_id=cms&lang=" +
+        (state.uiLang === "ja" ? "ja" : "en"),
+    ) +
+    "' target='_blank' rel='noopener'>" +
+    escapeHtml(t("accountDeletionLink")) +
+    " ↗</a></div>" +
+    "</div>";
   let legalLoaded = false;
   async function loadLegalLinks() {
     const rows = byId("legalLinkRows");
@@ -973,6 +969,8 @@ async function settings() {
   byId("panel-hosting")?.insertAdjacentHTML(
     "afterbegin",
     "<div id='contractSection' class='contractGrid'>" +
+      // 左の列: いまの契約・規約とポリシー・アカウントの削除を縦に。
+      "<div class='stack' style='gap:16px'>" +
       "<div class='panel stack' style='gap:14px'>" +
       "<div class='panelHead'><h3>" +
       escapeHtml(t("contractNowTitle")) +
@@ -988,12 +986,43 @@ async function settings() {
       "</div>" +
       "<div id='contractSynced' class='muted' style='font-size:12px'></div>" +
       "</div>" +
+      legalPanelsHtml +
+      "</div>" +
       "<div class='panel stack' style='gap:14px'>" +
       "<div class='panelHead'><h3>" +
       escapeHtml(t("contractPlansTitle")) +
       "</h3></div>" +
-      "<div class='muted' style='font-size:13px;line-height:1.7'>" +
-      escapeHtml(t("contractPlansLead")) +
+      // 運用の形の違い(委託運用は有料・顧客導入は無料)を 2 行の見比べで置く。
+      "<div class='contractForms'>" +
+      (
+        [
+          [
+            "contractKindManaged",
+            "contractKindPaid",
+            "contractKindManagedDesc",
+            "",
+          ],
+          [
+            "contractKindSelf",
+            "contractKindFree",
+            "contractKindSelfDesc",
+            " muted",
+          ],
+        ] as const
+      )
+        .map(
+          ([name, tag, desc, tone]) =>
+            "<div class='contractForm'><div class='contractFormName'>" +
+            escapeHtml(t(name)) +
+            "<span class='contractBadge" +
+            tone +
+            "'>" +
+            escapeHtml(t(tag)) +
+            "</span></div><div class='muted'>" +
+            escapeHtml(t(desc)) +
+            "</div></div>",
+        )
+        .join("") +
       "</div>" +
       "<label class='contractRegion'><span class='fieldLabel' style='margin:0'>" +
       escapeHtml(t("contractRegion")) +
@@ -1019,7 +1048,10 @@ async function settings() {
       "</select></label>" +
       "<div id='contractRegionNote' class='muted' style='font-size:12px;margin-top:-6px'></div>" +
       "<div id='contractPrices' class='contractPrices'></div>" +
-      "<ul id='contractRules' class='contractRules'></ul>" +
+      "<div class='contractRulesTitle fieldLabel'>" +
+      escapeHtml(t("contractRulesTitle")) +
+      "</div>" +
+      "<dl id='contractRules' class='contractRules'></dl>" +
       "</div>" +
       "</div>",
   );
@@ -1136,14 +1168,26 @@ async function settings() {
   function renderRules(deleteAfterDays: number) {
     const ul = byId("contractRules");
     if (!ul) return;
-    ul.innerHTML = [
-      t("contractRuleRenew"),
-      t("contractRuleCancel"),
-      t("contractRuleTrial"),
-      t("contractRuleUnpaid").replace("{n}", String(deleteAfterDays)),
-      t("contractRuleSelf"),
-    ]
-      .map((x) => "<li>" + escapeHtml(x) + "</li>")
+    ul.innerHTML = (
+      [
+        ["contractRuleRenewLabel", t("contractRuleRenew")],
+        ["contractRuleCancelLabel", t("contractRuleCancel")],
+        ["contractRuleTrialLabel", t("contractRuleTrial")],
+        [
+          "contractRuleUnpaidLabel",
+          t("contractRuleUnpaid").replace("{n}", String(deleteAfterDays)),
+        ],
+        ["contractRuleSelfLabel", t("contractRuleSelf")],
+      ] as const
+    )
+      .map(
+        ([label, text]) =>
+          "<dt>" +
+          escapeHtml(t(label)) +
+          "</dt><dd>" +
+          escapeHtml(text) +
+          "</dd>",
+      )
       .join("");
   }
   async function loadContract() {
@@ -1382,7 +1426,8 @@ async function settings() {
         html += line(t("contractTrialFinal"), contractDate(finalAt), true);
         html += line(t("contractPaidFrom"), paidFrom);
       }
-      // 申し込み・解約は Entamy の契約の頁で(新しいタブ)。契約が有れば「解約する」、無ければ「申し込む」
+      // 申し込み・解約は Entamy の契約の頁で(同じタブ・2026-11-02。新しいタブで開くと、契約の頁の「KuroCMS に戻る」で
+      // 往復するたびに CMS のタブが増えた。戻り先を渡すので、同じタブで行き来する)。契約が有れば「解約する」、無ければ「申し込む」
       // (無料期間中も申し込める。最初の請求は無料期間の終わり —— Billing の申し込みが試用の終わりまで待つ)。
       const link = (label: string, primary: boolean) => {
         const a = document.createElement("a");
@@ -1394,8 +1439,6 @@ async function settings() {
           encodeURIComponent(
             location.origin + location.pathname + "?tab=hosting",
           );
-        a.target = "_blank";
-        a.rel = "noopener";
         a.className = primary ? "button" : "button secondary";
         a.textContent = label;
         return a;
@@ -1663,8 +1706,8 @@ async function settings() {
     btn.addEventListener("click", () => {
       switchTab(btn.dataset.tab);
       if (btn.dataset.tab === "region" && !regionMeasured) void loadRegion();
-      if (btn.dataset.tab === "legal" && !legalLoaded) void loadLegalLinks();
       if (btn.dataset.tab === "hosting" && !contractLoaded) void loadContract();
+      if (btn.dataset.tab === "hosting" && !legalLoaded) void loadLegalLinks();
     });
   });
 

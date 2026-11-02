@@ -25,6 +25,22 @@
  * 配布されている `worker.js`（GitHub Release）には本体が入っている。
  */
 
+// ── トークンのクレーム（本体の claims.ts と同じ形）─────────────────────────
+export interface EntamyClaims {
+  subject?: string;
+  audience?: string;
+  subscription: string;
+  registration: string;
+  expiresAt?: Date;
+  sessionId?: string;
+  entitlements: Set<string>;
+  policy: Record<string, boolean>;
+  billingTest: boolean;
+  /** 開発アカウントか(`dev`・core-feature-flags)。見せるかどうかだけに使う。 */
+  developer: boolean;
+  attested?: string;
+}
+
 // ── 失敗の型（本体と同じ語彙）───────────────────────────────────────────
 export type EntamyFailureKind =
   | "network"
@@ -129,6 +145,10 @@ export class EntamySession {
     return given ?? "";
   }
   accountId(): Promise<string | null> {
+    return Promise.resolve(null);
+  }
+  /** アクセストークンのクレーム。基盤が無いのでトークンも無く、いつも null(開発アカウントではない側に倒れる)。 */
+  claims(_options: { force?: boolean } = {}): Promise<EntamyClaims | null> {
     return Promise.resolve(null);
   }
   reportInstall(

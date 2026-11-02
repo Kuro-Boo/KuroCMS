@@ -33,6 +33,11 @@ export interface ManagedProduct {
   data: Words;
   /** データを手元に残す方法(無ければ書かない)。 */
   backup: Words | null;
+  /**
+   * 委託のサイトの、契約を見る画面の道(住所の後ろ・2026-11-02)。契約の頁は、製品から戻り先が渡らなかったときも、
+   * 持ち主の委託のサイトの住所 + この道へ「{製品} に戻る」を出す(行き止まりにしない)。無ければ戻るボタンを出さない。
+   */
+  contractScreenPath?: string;
 }
 
 export const MANAGED_PRODUCTS: Readonly<Record<string, ManagedProduct>> = {
@@ -46,6 +51,7 @@ export const MANAGED_PRODUCTS: Readonly<Record<string, ManagedProduct>> = {
     site: true,
     data: { ja: "サイトのデータ（記事・メディア・設定）", en: "the site's data (articles, media and settings)" },
     backup: { ja: "管理画面の「バックアップ」から ZIP を書き出してください", en: "export a ZIP from Backup in the admin panel" },
+    contractScreenPath: "/kurocms/admin/settings?tab=hosting",
   },
   mushmanager: {
     name: "MushManager",

@@ -1,6 +1,23 @@
 // KuroCMS admin screen module. Concatenated by scripts/build-admin.js.
 
 /**
+ * 開発・安定の切り替えと開発版の版は、持ち主が開発アカウントのサイトにだけ出す(仕様 core-feature-flags 2節)。
+ * サーバーも一般のサイトの開発版を断るので、ここは見た目。版の結果が来るまでは出さない(一般の側に倒す)。
+ */
+let developer = false;
+function applyChannelVisibility() {
+  for (const id of [
+    "updateChannelToggle",
+    "versionLatest",
+    "guardianChannelToggle",
+    "guardianLatest",
+  ]) {
+    const rowEl = byId(id)?.closest<HTMLElement>(".versionRow");
+    if (rowEl) rowEl.style.display = developer ? "" : "none";
+  }
+}
+
+/**
  * WorkerOps(復旧の番人)の更新枠。KuroCMS の枠と同じ形(導入・安定・最新・2 つの切り替え・ボタン)。
  * 番人の更新は app が行う(cms-workerops・guardian-update.ts)。
  */
@@ -548,6 +565,8 @@ async function dashboard() {
 
   function applyVersionResult(v: Dynamic) {
     lastVersion = v;
+    developer = v.developer === true;
+    applyChannelVisibility();
     const cur = byId("versionCurrent");
     const stab = byId("versionStable");
     const lat = byId("versionLatest");
@@ -873,6 +892,7 @@ function setupGuardianPanel() {
       ch.checked = g.channel === "latest";
       ch.disabled = !g.available;
     }
+    applyChannelVisibility();
     const auto = byId("guardianAutoToggle") as HTMLInputElement | null;
     if (auto) {
       auto.checked = g.autoUpdate !== false;

@@ -214,7 +214,8 @@ async function siteManagement() {
       escapeHtml(t("analyticsTab")) +
       "</button>" +
       "</div>" +
-      "<div id='siteTabPanel' style='border:1px solid var(--line);border-top:none;border-radius:0 0 var(--radius) var(--radius);padding:16px'></div>",
+      // 中身の枠はタブの線から離して置く(タブの見た目は admin-shell.ts の .settingsTabBar)。
+      "<div id='siteTabPanel' style='border:1px solid var(--line);border-radius:var(--radius);padding:16px'></div>",
   );
 
   document.querySelectorAll<AdminElement>(".siteTab").forEach(function (btn) {
