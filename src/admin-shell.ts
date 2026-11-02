@@ -210,9 +210,6 @@ export function adminHtml(
       .colorItem input[type="color"]::-moz-color-swatch { border: none; border-radius: 6px; }
       .colorTitle { font-weight: 750; color: var(--ink); }
       .colorHelp { color: var(--muted); font-size: 12px; margin-top: 2px; }
-      .settingsTabBar { display: flex; gap: 2px; border-bottom: 2px solid var(--accent); padding-bottom: 0; margin-bottom: 0; }
-      .settingsTab { background: rgba(21,122,110,.10); border: 1.5px solid var(--accent); border-bottom: none; color: var(--accent); padding: 8px 18px; font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; border-radius: 8px 8px 0 0; opacity: .45; transition: opacity .15s; }
-      .settingsTab:hover { opacity: .7; }
       /* 設定の「契約」タブ(左: いまの契約・右: 契約の形態と料金)。狭い画面では 1 列。 */
       .contractGrid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; margin-bottom: 16px; }
       .contractBadge { display: inline-flex; align-items: center; padding: 4px 12px; border-radius: 999px; font-size: 13px; font-weight: 700; background: var(--accent-soft); color: var(--accent); }
@@ -233,16 +230,28 @@ export function adminHtml(
       .contractPrice.best { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
       .contractAmount { font-size: 22px; font-weight: 800; color: var(--ink); }
       @media(max-width:1100px){ .contractGrid { grid-template-columns: minmax(0, 1fr); } }
-      .contractRules { margin: 0; padding-left: 18px; display: grid; gap: 6px; font-size: 13px; line-height: 1.7; color: var(--muted); }
-      .settingsTab.active { background: var(--accent); color: #fff; opacity: 1; margin-bottom: -2px; border-bottom: 2px solid var(--accent); }
+      /* 設定の「IP 制限」タブ: 左 2/3 の枠(状態・登録 IPv6・詳しい設定)と、右 1/3 の枠(仕組み)。枠は角を立てる。 */
+      .ipGateLayout { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+      .ipGateLayout > .panel { border-radius: 0; gap: 0; }
+      .ipGateSection { gap: 12px; }
+      .ipGateSection + .ipGateSection { margin-top: 22px; padding-top: 22px; border-top: 1px solid var(--line); }
+      .ipGateHow { gap: 12px !important; }
+      @media(max-width:1100px){ .ipGateLayout { grid-template-columns: minmax(0, 1fr); } }
+      .contractForms { display: grid; gap: 8px; }
+      .contractForm { display: grid; gap: 4px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius); font-size: 13px; line-height: 1.7; }
+      .contractFormName { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 700; color: var(--ink); }
+      .contractFormName .contractBadge { padding: 1px 10px; font-size: 12px; }
+      .contractRulesTitle { margin: 4px 0 0; padding-top: 14px; border-top: 1px solid var(--line); }
+      .contractRules { margin: 0; display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 10px 16px; font-size: 13px; line-height: 1.7; }
+      .contractRules dt { font-weight: 700; color: var(--ink); }
+      .contractRules dd { margin: 0; color: var(--muted); }
+      @media(max-width:480px){ .contractRules { grid-template-columns: minmax(0, 1fr); gap: 2px; } .contractRules dd { margin-bottom: 8px; } }
       .settingsPanel { animation: fadeIn 0.15s ease; width:100%; box-sizing:border-box; }
       .importSwitcher { display:flex; background:var(--surface-3); border:1px solid var(--line); border-radius:10px; padding:4px; gap:4px; }
       .importSwitcher .importSwitch { flex:1; padding:9px 16px; font:inherit; font-size:14px; font-weight:600; border:none; border-radius:7px; cursor:pointer; transition:all 0.15s; }
       .importSwitcher .importSwitch:not(.active) { background:transparent; color:var(--muted); }
       .importSwitcher .importSwitch:hover:not(.active) { background:var(--surface-2); color:var(--ink); }
       .importSwitcher .importSwitch.active { background:var(--accent); color:#fff; box-shadow:0 1px 4px rgba(0,0,0,.25); }
-      .settingsPanel > .panel, .settingsPanel > .panel.stack { border-radius: 0 !important; border-top: none !important; }
-      .settingsPanel > .stack > .panel:first-child { border-radius: 0 !important; border-top: none !important; }
       /* 下に固定の .articleBottomBar（記事一覧のビルド、記事編集の保存）は場所を取らないので、
          そのままでは一覧のページ送りや本文の最後を覆って押せなくする。帯は折り返すと高くなるため、
          高さは trackBottomBarHeight() が --bottom-bar-h に入れ、main はその分だけ下を空ける。 */
@@ -419,6 +428,18 @@ export function adminHtml(
       button.danger-soft:not(.se-btn) { background: rgba(239,68,68,.12); color: var(--danger); border-color: rgba(239,68,68,.3); box-shadow: none; }
       button.danger-soft:not(.se-btn):hover { background: rgba(239,68,68,.2); border-color: rgba(239,68,68,.5); }
       button.artModeBtn { font-size: 11px !important; padding: 4px 10px !important; white-space: nowrap; min-width: 68px; }
+      /* タブ(設定・プロフィール・サイト管理・バックアップ・お知らせで共通)。
+         文字だけを並べ、選んでいるタブは下線と濃い文字で示す。中身の枠はタブの線から間を空けて置く。
+         上の button の全体の決まり(詳細度 0,2,1)に勝つよう、同じ詳細度でこの後ろに書く。 */
+      .settingsTabBar { display: flex; gap: 4px; margin: 0 0 20px; box-shadow: inset 0 -1px 0 var(--line); overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+      .settingsTabBar::-webkit-scrollbar { display: none; }
+      .settingsTabBar > button.settingsTab { position: relative; flex-shrink: 0; white-space: nowrap; background: transparent; border: 0; border-radius: 0; box-shadow: none; color: var(--muted); padding: 10px 14px 13px; font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; transition: color .15s; }
+      .settingsTabBar > button.settingsTab::after { content: ""; position: absolute; left: 10px; right: 10px; bottom: 0; height: 3px; border-radius: 3px 3px 0 0; background: transparent; transition: background-color .15s; }
+      .settingsTabBar > button.settingsTab:hover { color: var(--ink); filter: none; }
+      .settingsTabBar > button.settingsTab:hover::after { background: var(--line-strong); }
+      .settingsTabBar > button.settingsTab.active { color: var(--ink); }
+      .settingsTabBar > button.settingsTab.active::after { background: var(--accent); }
+      .settingsTabBar > button.settingsTab:focus-visible { outline: 2px solid var(--accent); outline-offset: -4px; border-radius: 8px; }
       .toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
       .headerTools { display: flex; gap: 10px; align-items: center; justify-content: flex-end; }
       .localeSelect { width: auto; min-width: 120px; }
@@ -719,9 +740,9 @@ export function adminHtml(
         .mediaGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         .toolbar { flex-wrap: wrap; }
         .toolbar input { min-width: 0; }
-        /* Settings tabs: scrollable on mobile */
-        .settingsTabBar { overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; flex-wrap: nowrap; padding-bottom: 0; }
-        .settingsTab { font-size: 12px; padding: 7px 12px; white-space: nowrap; flex-shrink: 0; }
+        .settingsTabBar { margin-bottom: 16px; }
+        .settingsTabBar > button.settingsTab { font-size: 13px; padding: 9px 10px 12px; }
+        .settingsTabBar > button.settingsTab::after { left: 6px; right: 6px; }
         /* Import screen grids */
         #strapiImportSection div[style*="grid-template-columns:1fr 1fr"] { grid-template-columns: 1fr !important; }
         /* Article editor */
@@ -804,7 +825,6 @@ export function adminHtml(
         .panel { padding: 14px; }
         h2 { font-size: 22px; }
         .mediaGrid { grid-template-columns: 1fr; }
-        .settingsTab { font-size: 11px; padding: 6px 10px; }
         header { gap: 10px; margin-bottom: 16px; }
         .popupCard { border-radius: 12px; }
       }
