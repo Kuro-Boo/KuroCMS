@@ -19,7 +19,11 @@ async function loadUsersPanel() {
   );
 
   async function renderUsers() {
-    const d = await api("/api/users");
+    // 自分(ログイン中のアカウント)を引いて、一覧の行に札を付ける。引けなくても一覧は出す。
+    const [d, me] = await Promise.all([
+      api("/api/users"),
+      api("/api/me").catch(() => null),
+    ]);
     const users = d.users || [];
     const list = byId("userList");
     if (!list) return;
@@ -30,27 +34,12 @@ async function loadUsersPanel() {
         "</div>";
       return;
     }
+    // 1 人を 2 行で見せる(2026-11-02)。1 行目はメールアドレス(長くても折り返さず読める)と「ログイン中」の札、
+    // 2 行目は表示名・権限・状態・登録日・最終ログイン。表の列ではメールアドレスの枠が狭く、途中で折り返していた。
+    const meUid = me?.user?.uid ?? null;
+    const sep = "<span style='color:var(--line-strong)'>·</span>";
     list.innerHTML =
-      "<table style='width:100%;border-collapse:collapse;font-size:13px'>" +
-      "<thead><tr style='border-bottom:2px solid var(--line);text-align:left'>" +
-      "<th style='padding:10px 14px;font-weight:700;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em'>" +
-      escapeHtml(t("email")) +
-      "</th>" +
-      "<th style='padding:10px 14px;font-weight:700;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em'>" +
-      escapeHtml(t("roles")) +
-      "</th>" +
-      "<th style='padding:10px 14px;font-weight:700;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em'>" +
-      escapeHtml(t("userStatus")) +
-      "</th>" +
-      "<th style='padding:10px 14px;font-weight:700;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em'>" +
-      escapeHtml(t("registeredDate")) +
-      "</th>" +
-      "<th style='padding:10px 14px;font-weight:700;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em'>" +
-      escapeHtml(t("lastLoginDate")) +
-      "</th>" +
-      "<th style='padding:10px 14px'></th>" +
-      "</tr></thead>" +
-      "<tbody>" +
+      "<div style='display:flex;flex-direction:column'>" +
       users
         .map(function (u: Dynamic) {
           const role = u.is_admin
@@ -73,33 +62,48 @@ async function loadUsersPanel() {
           const lastLogin = u.last_login_at
             ? u.last_login_at.slice(0, 10)
             : "—";
+          const isMe = meUid !== null && u.uid === meUid;
           return (
-            "<tr style='border-bottom:1px solid var(--line)'>" +
-            "<td style='padding:12px 14px'><span style='font-weight:600'>" +
+            "<div style='display:flex;align-items:center;gap:16px;padding:14px 4px;border-bottom:1px solid var(--line)'>" +
+            "<div style='flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:6px'>" +
+            // 1 行目: メールアドレスと「ログイン中」
+            "<div style='display:flex;align-items:center;gap:8px;flex-wrap:wrap'>" +
+            "<span style='font-weight:700;font-size:14px;overflow-wrap:anywhere'>" +
             escapeHtml(u.email) +
             "</span>" +
-            (u.display_name
-              ? "<br><span style='font-size:11px;color:var(--muted)'>" +
-                escapeHtml(u.display_name) +
+            (isMe
+              ? "<span style='font-size:10px;font-weight:700;background:var(--accent-soft);color:var(--accent);border:1px solid var(--accent);border-radius:999px;padding:1px 8px'>" +
+                escapeHtml(t("currentAccountBadge")) +
                 "</span>"
               : "") +
-            "</td>" +
-            "<td style='padding:12px 14px;' ><span style='" +
+            "</div>" +
+            // 2 行目: 表示名・権限・状態・登録日・最終ログイン
+            "<div style='display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px;color:var(--muted)'>" +
+            (u.display_name
+              ? "<span>" + escapeHtml(u.display_name) + "</span>" + sep
+              : "") +
+            "<span style='" +
             roleColor +
             "'>" +
             role +
-            "</span></td>" +
-            "<td style='padding:12px 14px'>" +
+            "</span>" +
+            sep +
             statusBadge +
-            "</td>" +
-            "<td style='padding:12px 14px;color:var(--muted)'>" +
+            sep +
+            "<span>" +
+            escapeHtml(t("registeredDate")) +
+            " " +
             date +
-            "</td>" +
-            "<td style='padding:12px 14px;color:var(--muted)'>" +
+            "</span>" +
+            sep +
+            "<span>" +
+            escapeHtml(t("lastLoginDate")) +
+            " " +
             lastLogin +
-            "</td>" +
-            "<td style='padding:12px 14px;text-align:right'>" +
-            "<div style='display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap'>" +
+            "</span>" +
+            "</div>" +
+            "</div>" +
+            "<div style='flex:0 0 auto;display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap'>" +
             "<button type='button' class='secondary' style='font-size:11px;padding:4px 10px' data-uid='" +
             escapeHtml(u.uid) +
             "' data-email='" +
@@ -121,12 +125,11 @@ async function loadUsersPanel() {
             escapeHtml(t("delete")) +
             "</button>" +
             "</div>" +
-            "</td>" +
-            "</tr>"
+            "</div>"
           );
         })
         .join("") +
-      "</tbody></table>";
+      "</div>";
 
     byId("userList")?.addEventListener("click", async function (e: Dynamic) {
       const btn = e.target.closest("[data-action]");

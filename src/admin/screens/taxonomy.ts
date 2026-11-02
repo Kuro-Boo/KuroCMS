@@ -13,9 +13,7 @@ async function languages() {
       "</h3><div class='toolbar'><button type='button' id='languageAddButton'>" +
       escapeHtml(t("addRegister")) +
       "</button></div></div>" +
-      "<div class='categoryHint'>" +
-      escapeHtml(t("languageManagerLead")) +
-      "</div>" +
+      // 説明文は画面の枠(shell の pageLead)が出す。本文でも出して 2 回並んでいた(2026-11-02)。
       "<div id='selectedLanguageList' class='emptyState'>" +
       escapeHtml(t("loading")) +
       "</div>" +
