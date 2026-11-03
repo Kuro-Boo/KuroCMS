@@ -3911,6 +3911,11 @@ async function kvPutBundle(
     else await recordPages(env, normPath(path), bundle);
     return;
   }
+  // 書く前に、このページの前の記録を消す。KV に書けた後に D1 の記録が失敗すると前のハッシュが残り、
+  // 中身を前に戻したときに「同じ」と見て書かず、KV の新しい方が出続ける。記録があれば KV にも同じものがある、を崩さない。
+  await env.DB.prepare("DELETE FROM asset_pages WHERE path = ?")
+    .bind(normPath(path))
+    .run();
   const payload: PageBundle = { v: 1, langs: bundle };
   const json = JSON.stringify(payload);
   const bytes = new TextEncoder().encode(json).length;
@@ -4026,9 +4031,9 @@ function buildPartialKey(path: string): string {
 const WORKER_SUBREQUEST_LIMIT = 1000;
 const BUILD_SUBREQUEST_BUDGET = Math.floor(WORKER_SUBREQUEST_LIMIT * 0.8); // 800
 const SUBREQ_PER_LANG = 4;
-// The D1 read of the previous hashes (pageUnchanged), KV put + one D1 batch
-// (build-cache row and the Static Assets index rows together).
-const SUBREQ_PER_BUILT_PAGE = 3;
+// The D1 read of the previous hashes (pageUnchanged), the D1 delete of the old
+// record, KV put + one D1 batch (build-cache row and the Static Assets index rows together).
+const SUBREQ_PER_BUILT_PAGE = 4;
 
 // ─── Build cache helpers ──────────────────────────────────────────────────────
 
