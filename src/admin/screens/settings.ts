@@ -6,7 +6,7 @@
  */
 const CONTRACT_PAGE = "https://kurocms.entamy.com/contract/";
 
-/** 設定 → 表示 の「自動ビルドして公開する」。入 = auto、切 = manual。その場で保存し、失敗したら戻す。 */
+/** 設定 → 表示 の「公開設定されている記事を自動ビルドして公開する」。入 = auto、切 = manual。その場で保存し、失敗したら戻す。 */
 function mountPublishMode() {
   const box = byId("publishModeAuto") as HTMLInputElement | null;
   if (!box) return;

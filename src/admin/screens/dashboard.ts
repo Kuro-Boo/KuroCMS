@@ -1101,7 +1101,7 @@ async function articles() {
   buildBar.id = "artsBuildBar";
   buildBar.innerHTML =
     // 下のバーは今回のビルドのことだけ(2026-11-03)。自動公開(manual/auto)は
-    // 設定 → 表示 の「自動ビルドして公開する」で決め、ここにはいまの値だけを出す。
+    // 設定 → 表示 の「公開設定されている記事を自動ビルドして公開する」で決め、ここにはいまの値だけを出す。
     "<div style='display:flex;align-items:center;gap:14px;min-width:0;flex-wrap:wrap'>" +
     "<label class='buildForceRow' title='" +
     escapeHtml(t("buildForceAllHelp")) +

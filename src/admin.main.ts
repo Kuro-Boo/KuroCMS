@@ -1694,7 +1694,7 @@ const i18n = {
     buildForceAllHelp:
       "Rebuild every page this time, including unchanged ones. Clears after the build.",
     publishPanelTitle: "Publishing",
-    publishModeLabel: "Auto-build and publish",
+    publishModeLabel: "Auto-build and publish posts set to published",
     publishModeHelp:
       "When on, posts whose publish or unpublish time has passed are built automatically every minute, and publishing or reverting a post to draft reaches the site without pressing Build. When off, changes reach the site only when someone presses Build Now.",
     publishModeNote: "A change here can take up to 5 minutes to take effect.",
@@ -3280,7 +3280,7 @@ const i18n = {
     buildForceAllHelp:
       "今回だけ、変わっていないページも含めて全ページを作り直します。ビルドが終わると外れます。",
     publishPanelTitle: "公開",
-    publishModeLabel: "自動ビルドして公開する",
+    publishModeLabel: "公開設定されている記事を自動ビルドして公開する",
     publishModeHelp:
       "入れると、公開・公開の終わりの時刻を過ぎた記事を毎分見て、自動でビルドします。記事を公開・下書きに戻したときも、ビルドを押さずにサイトへ反映します。切ると、「今すぐビルド」を押したときだけ反映します。",
     publishModeNote: "ここを変えてから効き始めるまで、最長 5 分かかります。",
