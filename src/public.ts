@@ -101,6 +101,7 @@ import {
   looksLikeLang,
   splitLangPath,
 } from "./lang-path";
+import { buildModeForMinute, getBuildMode } from "./build-mode.ts";
 import {
   markMediaGateReady,
   type AssetsProgress,
@@ -5331,41 +5332,16 @@ export async function buildAllPublicPages(
 //               from its live state (covers flag flips and window crossings)
 //   "always"  — like manual, but builds ignore the future publish_at bound so
 //               future-dated posts are built/listed as soon as a build runs
-export type BuildMode = "manual" | "auto" | "always";
-export const BUILD_MODE_KEY = "_cfg/build_schedule_mode";
+// ビルドの方式の保存と、毎分の自動ビルドが見る控えは build-mode.ts(node で試験するため分けた)。
+export {
+  BUILD_MODE_KEY,
+  getBuildMode,
+  setBuildMode,
+  type BuildMode,
+} from "./build-mode.ts";
 // Same per-invocation page budget as the manual build; if a transition affects
 // more pages than this, the next cron tick detects the still-pending mode/live
 // disagreement (live only syncs on a fully drained build) and continues.
-
-/** Read the persisted build mode (defaults to "manual"). */
-export async function getBuildMode(env: Env): Promise<BuildMode> {
-  if (!env.PUBLIC_PAGES) return "manual";
-  const v = await env.PUBLIC_PAGES.get(BUILD_MODE_KEY);
-  const mode: BuildMode = v === "auto" || v === "always" ? v : "manual";
-  buildModeSeen = { mode, at: Date.now() };
-  return mode;
-}
-
-/**
- * 毎分の自動ビルドが見るビルドの方式の控え(この isolate・2026-11-03)。毎分 KV を読まないように、
- * 読んでから 5 分は控えを使う。この isolate で変えたときはすぐ替わる。別の isolate で変えたときは、
- * 予定公開が最長 5 分遅れる。
- */
-const BUILD_MODE_TTL_MS = 5 * 60_000;
-let buildModeSeen: { mode: BuildMode; at: number } | null = null;
-
-async function buildModeForMinute(env: Env): Promise<BuildMode> {
-  if (buildModeSeen && Date.now() - buildModeSeen.at < BUILD_MODE_TTL_MS)
-    return buildModeSeen.mode;
-  return getBuildMode(env);
-}
-
-/** Persist the build mode. */
-export async function setBuildMode(env: Env, mode: BuildMode): Promise<void> {
-  if (!env.PUBLIC_PAGES) return;
-  await env.PUBLIC_PAGES.put(BUILD_MODE_KEY, mode);
-  buildModeSeen = { mode, at: Date.now() };
-}
 
 /**
  * Cron entry point. Only acts in "auto" mode, and only when some document's

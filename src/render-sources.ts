@@ -53,6 +53,8 @@ export const NOT_RENDER: Readonly<Record<string, string>> = {
   "src/admin-assets.ts":
     "生成物。ページに焼き込む部品の名前と KuroEditor の版は、build-admin.js が指紋に直接混ぜる",
   "src/assets-publish.ts": "静的資産の索引と登録",
+  "src/build-mode.ts":
+    "ビルドの方式の保存と毎分の控え(方式の値はビルドが読むが、このコードは HTML を変えない)",
   "src/build-dependencies.ts":
     "どのページを作り直すかを決める(HTML は変えない)",
   "src/build-size.ts": "ビルドの回の量",
