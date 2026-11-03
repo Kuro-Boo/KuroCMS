@@ -1693,21 +1693,14 @@ const i18n = {
     buildForceAll: "Force rebuild of all pages",
     buildForceAllHelp:
       "Rebuild every page this time, including unchanged ones. Clears after the build.",
-    publishModeLabel: "Scheduled posts",
-    publishModeHelp: "When publishing and unpublishing reach the public site.",
-    publishModeManual: "Publish only when you build",
-    publishModeManualHelp:
-      "Changes reach the site only when someone presses Build Now, including posts whose publish or unpublish time has passed.",
-    publishModeAuto: "Publish automatically at the scheduled time",
-    publishModeAutoHelp:
-      "Every minute, posts whose publish or unpublish time has passed are built automatically. Publishing or reverting a post to draft also reaches the site without pressing Build.",
-    publishModeAlways: "Publish without waiting for the scheduled time",
-    publishModeAlwaysHelp:
-      "Posts with a future publish time are put on the site right away. Posts are still taken down automatically at their unpublish time.",
+    publishPanelTitle: "Publishing",
+    publishModeLabel: "Auto-build and publish",
+    publishModeHelp:
+      "When on, posts whose publish or unpublish time has passed are built automatically every minute, and publishing or reverting a post to draft reaches the site without pressing Build. When off, changes reach the site only when someone presses Build Now.",
     publishModeNote: "A change here can take up to 5 minutes to take effect.",
-    publishModeShortManual: "Manual",
-    publishModeShortAuto: "Automatic",
-    publishModeShortAlways: "No waiting",
+    publishModeBar: "Auto-publish",
+    publishModeOn: "On",
+    publishModeOff: "Off",
     publishModeSaved: "Saved.",
     buildNow: "Build Now",
     buildNoTemplateHint: "Please select a template first.",
@@ -3286,21 +3279,14 @@ const i18n = {
     buildForceAll: "強制で全ページを作り直す",
     buildForceAllHelp:
       "今回だけ、変わっていないページも含めて全ページを作り直します。ビルドが終わると外れます。",
-    publishModeLabel: "予定記事の公開",
-    publishModeHelp: "公開・公開の終わりを、いつ公開サイトへ反映するか。",
-    publishModeManual: "ビルドしたときだけ公開する",
-    publishModeManualHelp:
-      "「今すぐビルド」を押したときにだけサイトへ反映します。公開や公開の終わりの時刻を過ぎた記事も、押すまではそのままです。",
-    publishModeAuto: "予定時刻に自動で公開する",
-    publishModeAutoHelp:
-      "公開・公開の終わりの時刻を過ぎた記事を、毎分見て自動でビルドします。記事を公開・下書きに戻したときも、ビルドを押さずにサイトへ反映します。",
-    publishModeAlways: "予定時刻を待たずに公開する",
-    publishModeAlwaysHelp:
-      "公開予定日時が先の記事も、すぐにサイトへ出します。公開の終わりの時刻を過ぎた記事は、毎分見て自動で下げます。",
+    publishPanelTitle: "公開",
+    publishModeLabel: "自動ビルドして公開する",
+    publishModeHelp:
+      "入れると、公開・公開の終わりの時刻を過ぎた記事を毎分見て、自動でビルドします。記事を公開・下書きに戻したときも、ビルドを押さずにサイトへ反映します。切ると、「今すぐビルド」を押したときだけ反映します。",
     publishModeNote: "ここを変えてから効き始めるまで、最長 5 分かかります。",
-    publishModeShortManual: "手動",
-    publishModeShortAuto: "自動",
-    publishModeShortAlways: "予定を待たない",
+    publishModeBar: "自動公開",
+    publishModeOn: "入",
+    publishModeOff: "切",
     publishModeSaved: "保存しました。",
     buildNow: "今すぐビルド",
     buildNoTemplateHint: "テンプレートを選択してください。",

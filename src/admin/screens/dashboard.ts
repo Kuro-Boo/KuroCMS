@@ -1100,8 +1100,8 @@ async function articles() {
   buildBar.className = "articleBottomBar";
   buildBar.id = "artsBuildBar";
   buildBar.innerHTML =
-    // 下のバーは今回のビルドのことだけ(2026-11-03)。予定記事の公開(manual/auto/always)は
-    // 設定 → 表示 の「予定記事の公開」で決め、ここにはいまの値だけを出す。
+    // 下のバーは今回のビルドのことだけ(2026-11-03)。自動公開(manual/auto)は
+    // 設定 → 表示 の「自動ビルドして公開する」で決め、ここにはいまの値だけを出す。
     "<div style='display:flex;align-items:center;gap:14px;min-width:0;flex-wrap:wrap'>" +
     "<label class='buildForceRow' title='" +
     escapeHtml(t("buildForceAllHelp")) +
@@ -1128,17 +1128,14 @@ async function articles() {
     if (force) force.checked = false;
     runBuildWithProgress(all);
   });
-  // 予定記事の公開(manual / auto / always)は表示だけ。管理者には設定へのリンクにする。
+  // 自動公開(manual / auto)は表示だけ。管理者には設定へのリンクにする。
   const publishModeEl = byId("artsPublishMode");
   const showPublishMode = function (mode: string) {
     if (!publishModeEl) return;
-    const key =
-      mode === "auto"
-        ? "publishModeShortAuto"
-        : mode === "always"
-          ? "publishModeShortAlways"
-          : "publishModeShortManual";
-    const text = t("publishModeLabel") + ": " + t(key);
+    const text =
+      t("publishModeBar") +
+      ": " +
+      t(mode === "auto" ? "publishModeOn" : "publishModeOff");
     publishModeEl.innerHTML = state.isAdmin
       ? "<a href='" +
         escapeHtml(adminHref("/settings") + "?tab=display") +
@@ -1147,17 +1144,10 @@ async function articles() {
         "</a>"
       : escapeHtml(text);
   };
-  showPublishMode(listBuildMode);
+  showPublishMode("manual");
   api("/api/build/mode")
     .then(function (d) {
-      if (d && typeof d.mode === "string") {
-        showPublishMode(d.mode);
-        // 一覧より後に届く。ビルド状態バッジの意味が変わるので描き直す。
-        if (listBuildMode !== d.mode) {
-          listBuildMode = d.mode;
-          if (allDocs.length) renderList();
-        }
-      }
+      if (d && typeof d.mode === "string") showPublishMode(d.mode);
     })
     .catch(function () {});
   api("/api/settings")
@@ -1564,12 +1554,6 @@ function formatDateShort(value: Dynamic) {
 // final backstop either way).
 const snsPosting = new Set<string>();
 
-// ビルド設定（manual / auto / always）。行の「ビルド状態」バッジの判定に要る:
-// always（未来記事も無条件にビルド）では公開予定日時の上限が外れる＝公開待ちの
-// 記事もビルドで live になるので、"公開待ち" として扱ってはいけない。
-// 既定は manual —— 取得前に一覧が描かれても、実物と一致する側に倒しておく。
-let listBuildMode = "manual";
-
 function renderArticleTable(documents: Dynamic) {
   if (!documents || !documents.length)
     return "<div class='emptyState'>" + escapeHtml(t("noDocuments")) + "</div>";
@@ -1629,10 +1613,8 @@ function renderArticleTable(documents: Dynamic) {
       !!unpubAt &&
       !Number.isNaN(unpubAt.getTime()) &&
       unpubAt.getTime() <= Date.now();
-    // 次のビルドが live をどちらに倒すか（src/public.ts の liveCaseSql と同じ条件。
-    // always は公開予定日時の上限が外れる）。
-    const shouldBeLive =
-      isPublished && !expired && (!scheduled || listBuildMode === "always");
+    // 次のビルドが live をどちらに倒すか（src/public.ts の liveCaseSql と同じ条件）。
+    const shouldBeLive = isPublished && !expired && !scheduled;
     const buildState = (function () {
       if (doc.live === 1)
         return shouldBeLive

@@ -9,21 +9,14 @@
  * KV-miss fallback, sitemap/RSS) before any build ran.
  *   "live"   — serve-time: what the last completed build published (live = 1)
  *   "window" — build-time: mode = 1 within the publish window
- *   "future" — build-time in "always" mode: the upper publish_at bound is
- *              dropped so future-dated posts are built/listed immediately; the
- *              unpublish_at (expiry) bound is always enforced
  */
-export type PubFilter = "live" | "window" | "future";
+export type PubFilter = "live" | "window";
 
 /** SQL predicate selecting published documents under `filter`.
  *  `alias` is the column prefix ("d." or ""). */
 export function publishedSql(alias: string, filter: PubFilter): string {
   if (filter === "live") return `${alias}live = 1`;
-  const upper =
-    filter === "future"
-      ? ""
-      : `AND datetime(${alias}publish_at) <= datetime('now') `;
-  return `${alias}mode = 1 ${upper}AND (${alias}unpublish_at IS NULL OR datetime(${alias}unpublish_at) > datetime('now'))`;
+  return `${alias}mode = 1 AND datetime(${alias}publish_at) <= datetime('now') AND (${alias}unpublish_at IS NULL OR datetime(${alias}unpublish_at) > datetime('now'))`;
 }
 
 // Two binds, in order: (1) requested lang, (2) site/default lang.

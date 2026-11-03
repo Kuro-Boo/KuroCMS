@@ -6,48 +6,34 @@
  */
 const CONTRACT_PAGE = "https://kurocms.entamy.com/contract/";
 
-/** 設定 → 表示 の「予定記事の公開」。選んだその場で保存し、失敗したら元の値に戻す。 */
+/** 設定 → 表示 の「自動ビルドして公開する」。入 = auto、切 = manual。その場で保存し、失敗したら戻す。 */
 function mountPublishMode() {
-  const radios = Array.from(
-    document.querySelectorAll<HTMLInputElement>("input[name='publishMode']"),
-  );
-  if (!radios.length) return;
-  let current = "";
-  const pick = function (mode: string) {
-    current = mode;
-    for (const r of radios) r.checked = r.value === mode;
-  };
-  if (state.preview) {
-    pick("manual");
-    return;
-  }
+  const box = byId("publishModeAuto") as HTMLInputElement | null;
+  if (!box) return;
+  if (state.preview) return;
   api("/api/build/mode")
     .then(function (d: Dynamic) {
-      pick(typeof d?.mode === "string" ? d.mode : "manual");
+      box.checked = d?.mode === "auto";
     })
     .catch(function () {});
-  for (const r of radios) {
-    r.addEventListener("change", function () {
-      if (!r.checked || r.value === current) return;
-      const prev = current;
-      for (const x of radios) x.disabled = true;
-      api("/api/build/mode", {
-        method: "PUT",
-        body: JSON.stringify({ mode: r.value }),
+  box.addEventListener("change", function () {
+    const on = box.checked;
+    box.disabled = true;
+    api("/api/build/mode", {
+      method: "PUT",
+      body: JSON.stringify({ mode: on ? "auto" : "manual" }),
+    })
+      .then(function () {
+        toast(t("publishModeSaved"), false, box);
       })
-        .then(function () {
-          current = r.value;
-          toast(t("publishModeSaved"), false, r);
-        })
-        .catch(function (e: Dynamic) {
-          pick(prev);
-          toast(String(e?.message || e), true, r);
-        })
-        .finally(function () {
-          for (const x of radios) x.disabled = false;
-        });
-    });
-  }
+      .catch(function (e: Dynamic) {
+        box.checked = !on;
+        toast(String(e?.message || e), true, box);
+      })
+      .finally(function () {
+        box.disabled = false;
+      });
+  });
 }
 
 async function settings() {
@@ -315,7 +301,10 @@ async function settings() {
       "</div>" +
       "</div>" +
       // ── 表示(基本言語・サイトの時計・筆者。公開ページの出し方。2026-10-21 に「基本」から分けた) ──
-      "<div id='panel-display' class='settingsPanel stack' style='display:none'>" +
+      // 左右 1/2 ずつ(2026-11-03)。左は見た目(言語・時計・筆者・スマホ)、右は公開。狭い画面では縦に並ぶ。
+      "<div id='panel-display' class='settingsPanel' style='display:none'>" +
+      "<div style='display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start'>" +
+      "<div class='stack' style='flex:1 1 380px;min-width:0'>" +
       "<form class='panel stack' id='displayForm'>" +
       "<label>" +
       escapeHtml(t("defaultLanguage")) +
@@ -341,39 +330,6 @@ async function settings() {
       escapeHtml(t("saveSiteSettings")) +
       "</button>" +
       "</form>" +
-      // 予定記事の公開(ビルドの方式 manual / auto / always・build-mode.ts)。2026-11-03 に記事一覧の
-      // 下のバーの選択欄から移した —— あの欄は「今回のビルド」と「サイトの決まり」が混ざっていた。
-      // 選んだその場で保存する(PUT /api/build/mode)。
-      "<div class='panel stack' id='publishModePanel'>" +
-      "<div class='panelHead'><h3>" +
-      escapeHtml(t("publishModeLabel")) +
-      "</h3></div>" +
-      "<div class='muted' style='font-size:12px'>" +
-      escapeHtml(t("publishModeHelp")) +
-      "</div>" +
-      (["manual", "auto", "always"] as const)
-        .map(function (m) {
-          const k =
-            m === "manual"
-              ? "publishModeManual"
-              : m === "auto"
-                ? "publishModeAuto"
-                : "publishModeAlways";
-          return (
-            "<label class='toggleRow' style='cursor:pointer'><div><div><b>" +
-            escapeHtml(t(k)) +
-            "</b></div><div class='tokenMeta'>" +
-            escapeHtml(t(k + "Help")) +
-            "</div></div><input type='radio' name='publishMode' value='" +
-            m +
-            "' style='width:auto;margin:0' /></label>"
-          );
-        })
-        .join("") +
-      "<div class='muted' style='font-size:12px'>" +
-      escapeHtml(t("publishModeNote")) +
-      "</div>" +
-      "</div>" +
       // スマホ向けレイアウト(サイトビルドの設定)。2026-11-02 に「スマホ設定」のタブから表示へ移した。
       // 保存は別の口(saveMobileBtn)なので、枠も分けたまま置く。
       "<div class='panel stack'>" +
@@ -398,6 +354,28 @@ async function settings() {
       escapeHtml(t("save")) +
       "</button></div>" +
       "<div id='mobileStatus' class='muted' style='font-size:12px'></div>" +
+      "</div>" +
+      "</div>" +
+      // 右の列: 公開(予定記事をいつサイトへ出すか)。
+      "<div class='stack' style='flex:1 1 380px;min-width:0'>" +
+      // 自動ビルドして公開する(ビルドの方式 manual / auto・build-mode.ts)。2026-11-03 に記事一覧の
+      // 下のバーの選択欄から移した —— あの欄は「今回のビルド」と「サイトの決まり」が混ざっていた。
+      // 選んだその場で保存する(PUT /api/build/mode)。
+      "<div class='panel stack' id='publishModePanel'>" +
+      "<div class='panelHead'><h3>" +
+      escapeHtml(t("publishPanelTitle")) +
+      "</h3></div>" +
+      // 入 = auto、切 = manual。
+      "<div class='toggleRow'><div><div><b>" +
+      escapeHtml(t("publishModeLabel")) +
+      "</b></div><div class='tokenMeta'>" +
+      escapeHtml(t("publishModeHelp")) +
+      "</div></div><input id='publishModeAuto' type='checkbox' class='toggle' /></div>" +
+      "<div class='muted' style='font-size:12px'>" +
+      escapeHtml(t("publishModeNote")) +
+      "</div>" +
+      "</div>" +
+      "</div>" +
       "</div>" +
       "</div>" +
       // ── 運用の形(委託運用 ⇄ 顧客導入の引っ越し・site-move.ts) ─────────

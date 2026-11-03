@@ -101,7 +101,7 @@ import {
   looksLikeLang,
   splitLangPath,
 } from "./lang-path";
-import { buildModeForMinute, getBuildMode } from "./build-mode.ts";
+import { buildModeForMinute } from "./build-mode.ts";
 import {
   markMediaGateReady,
   type AssetsProgress,
@@ -143,10 +143,8 @@ export function cheapHash(s: string): string {
  *  state — the build-time counterpart of publishedSql, used wherever a build
  *  syncs documents.live. Must stay consistent with publishedSql and with the
  *  auto-build cron's pending-change predicate. */
-function liveCaseSql(filter: "window" | "future"): string {
-  const upper =
-    filter === "future" ? "" : `AND datetime(publish_at) <= datetime('now') `;
-  return `CASE WHEN mode = 1 ${upper}AND (unpublish_at IS NULL OR datetime(unpublish_at) > datetime('now')) THEN 1 ELSE 0 END`;
+function liveCaseSql(): string {
+  return `CASE WHEN mode = 1 AND datetime(publish_at) <= datetime('now') AND (unpublish_at IS NULL OR datetime(unpublish_at) > datetime('now')) THEN 1 ELSE 0 END`;
 }
 
 interface StoredTemplate {
@@ -4319,10 +4317,8 @@ export async function buildDocumentPages(
 
   let live = row.live === 1;
   if (opts.promote) {
-    const buildFilter =
-      (await getBuildMode(env)) === "always" ? "future" : "window";
     const updated = await env.DB.prepare(
-      `UPDATE documents SET live = ${liveCaseSql(buildFilter)}
+      `UPDATE documents SET live = ${liveCaseSql()}
        WHERE did = ? RETURNING live`,
     )
       .bind(did)
@@ -4569,21 +4565,20 @@ export async function buildAllPublicPages(
   const template = await loadTemplate(env, settings.template_id);
   const staticPages = parseStaticPages(template.sourceHtml);
   // The full build is the sole materializer of the publish flag: it renders
-  // from mode within the publish window ("always" mode ignores the future
-  // publish_at bound so scheduled posts are built and listed immediately) and
-  // syncs documents.live at the end, so serving ("live" filter) follows.
-  const filter: PubFilter =
-    (await getBuildMode(env)) === "always" ? "future" : "window";
+  // from mode within the publish window and syncs documents.live at the end,
+  // so serving ("live" filter) follows.
+  const filter: PubFilter = "window";
   // Fold a hash of the template SOURCE into the cache key so editing the
   // template (same id) invalidates every page's build hash and forces a rebuild
   // (the per-page hashes are `${ts}:${tplId}`, otherwise blind to template edits).
-  // Also fold the filter in so toggling the mode rebuilds listings/details.
+  // The trailing ":" is the slot the removed "always" mode used ("F"). Kept so
+  // removing it (2026-11-03) does not change every page's build hash.
   const fontHash = cheapHash(
     `${settings.fonts_json || ""}:${settings.base_font || ""}:${settings.font_configs_json || ""}`,
   );
   // compiledHash participates so a Tailwind-CSS recompile regenerates pages
   // (their <link> href embeds the hash) on the next build.
-  const tplId = `${template.id}:${cheapHash(template.sourceHtml)}:${template.compiledHash || ""}:${fontHash}:${filter === "future" ? "F" : ""}`;
+  const tplId = `${template.id}:${cheapHash(template.sourceHtml)}:${template.compiledHash || ""}:${fontHash}:`;
 
   // ── Resolve languages ─────────────────────────────────────────────────────
   const langRows = await env.DB.prepare(
@@ -5235,7 +5230,7 @@ export async function buildAllPublicPages(
   // pass (more:true) keeps the old snapshot; the mode/live disagreement also
   // lets the auto-build cron detect that a build is still pending.
   if (!more) {
-    const liveCase = liveCaseSql(filter);
+    const liveCase = liveCaseSql();
     await env.DB.prepare(
       `UPDATE documents SET live = ${liveCase} WHERE live <> ${liveCase}`,
     ).run();
@@ -5344,9 +5339,7 @@ export {
 // disagreement (live only syncs on a fully drained build) and continues.
 
 /**
- * Cron entry point. Acts in "auto" and "always" mode ("always" = auto that does
- * not wait for publish_at; it still takes posts down at unpublish_at — 2026-11-03),
- * and only when some document's
+ * Cron entry point. Only acts in "auto" mode, and only when some document's
  * flag-state (mode within the publish window) disagrees with its materialized
  * `live` state. One predicate covers every pending transition — a manual
  * publish/unpublish flag flip AND a publish_at / unpublish_at boundary
@@ -5357,15 +5350,12 @@ export {
  */
 export async function runScheduledAutoBuild(env: Env): Promise<void> {
   if (!env.PUBLIC_PAGES) return;
-  const mode = await buildModeForMinute(env);
-  if (mode === "manual") return;
+  if ((await buildModeForMinute(env)) !== "auto") return;
 
-  // Must mirror the build's filter (buildAllPublicPages: "always" → "future",
-  // otherwise "window") and its live-sync CASE exactly, or the cron would loop
-  // or stall. Both come from liveCaseSql.
+  // Must mirror the build's live-sync CASE exactly, or the cron would loop or
+  // stall. Both come from liveCaseSql.
   const pending = await env.DB.prepare(
-    `SELECT COUNT(*) AS cnt FROM documents
-     WHERE live <> (${liveCaseSql(mode === "always" ? "future" : "window")})`,
+    `SELECT COUNT(*) AS cnt FROM documents WHERE live <> (${liveCaseSql()})`,
   ).first<{ cnt: number }>();
   // A build that finished but is not yet registered as Static Assets is not
   // finished: run it again (pages skip via the build cache; it registers).

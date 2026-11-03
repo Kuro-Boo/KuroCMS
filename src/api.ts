@@ -1891,7 +1891,7 @@ async function handleApiDispatch(
       );
     }
 
-    // Build scheduling mode: "manual" | "auto" | "always" (KV-backed).
+    // Build scheduling mode: "manual" | "auto" (KV-backed).
     if (path === "/api/build/mode") {
       if (request.method === "GET") {
         requireAuthor(user);
@@ -1906,7 +1906,7 @@ async function handleApiDispatch(
           () => ({}) as Record<string, unknown>,
         );
         const raw = typeof body2.mode === "string" ? body2.mode : "";
-        if (raw !== "manual" && raw !== "auto" && raw !== "always") {
+        if (raw !== "manual" && raw !== "auto") {
           throw new HttpError(400, "bad_request", "invalid mode");
         }
         await setBuildMode(env, raw as BuildMode);
@@ -5966,8 +5966,7 @@ async function classifyNotLive(
     .first<{ pending: number; expired: number }>();
   if (!row) return "not_built";
   if (row.expired === 1) return "expired";
-  if (row.pending === 1 && (await getBuildMode(env)) !== "always")
-    return "scheduled";
+  if (row.pending === 1) return "scheduled";
   return "not_built";
 }
 
@@ -12148,7 +12147,7 @@ async function finishMoveTarget(
   );
   const origin = new URL(request.url).origin;
   const buildMode = body.buildMode;
-  if (buildMode === "manual" || buildMode === "auto" || buildMode === "always")
+  if (buildMode === "manual" || buildMode === "auto")
     await setBuildMode(env, buildMode);
 
   // パスキーはドメインに結び付くので持っていけない。全員に登録のリンクを送る。

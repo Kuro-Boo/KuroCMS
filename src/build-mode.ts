@@ -13,7 +13,8 @@
  */
 import type { Env } from "./types";
 
-export type BuildMode = "manual" | "auto" | "always";
+// 予定時刻を待たずに公開する "always" は 2026-11-03 に外した(分かりにくい。前倒しは記事の公開日時を変えて行う)。
+export type BuildMode = "manual" | "auto";
 export const BUILD_MODE_KEY = "_cfg/build_schedule_mode";
 export const BUILD_MODE_TTL_MS = 5 * 60_000;
 
@@ -31,7 +32,7 @@ export async function getBuildMode(
 ): Promise<BuildMode> {
   if (!env.PUBLIC_PAGES) return "manual";
   const v = await env.PUBLIC_PAGES.get(BUILD_MODE_KEY);
-  const mode: BuildMode = v === "auto" || v === "always" ? v : "manual";
+  const mode: BuildMode = v === "auto" ? "auto" : "manual";
   seen = { mode, at: now };
   return mode;
 }
