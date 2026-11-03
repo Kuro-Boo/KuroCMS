@@ -14,6 +14,7 @@ import {
   pageAssetPath,
   publishAssets,
   manifestFingerprint,
+  pageUnchanged,
   recordPages,
   toBase64,
 } from "./assets-publish.ts";
@@ -358,6 +359,48 @@ function harness(
     "見出しの無かった頃の指紋とは同じ(見出しが空なら指紋は変わらない)",
     await manifestFingerprint(m.files, ""),
     await manifestFingerprint(m.files),
+  );
+}
+
+{
+  // 中身が同じなら KV へ書き直さない(2026-11-03・KV の書き込みは 1 日 1,000 回)。
+  const env = { DB: d1() } as unknown as Env;
+  const b = { ja: "<p>記事</p>", en: "<p>post</p>" };
+  eq("まだ書いていないページは違う", await pageUnchanged(env, "/a", b), false);
+  await recordPages(env, "/a", b);
+  eq(
+    "言語も中身も同じなら同じ",
+    await pageUnchanged(env, "/a", { en: "<p>post</p>", ja: "<p>記事</p>" }),
+    true,
+  );
+  eq(
+    "中身が 1 言語でも違えば違う",
+    await pageUnchanged(env, "/a", { ...b, en: "<p>post!</p>" }),
+    false,
+  );
+  eq(
+    "言語が増えれば違う",
+    await pageUnchanged(env, "/a", { ...b, fr: "<p>x</p>" }),
+    false,
+  );
+  eq(
+    "言語が減れば違う",
+    await pageUnchanged(env, "/a", { ja: "<p>記事</p>" }),
+    false,
+  );
+  await forgetPages(env, ["/a"]);
+  eq("消したページは違う", await pageUnchanged(env, "/a", b), false);
+  const broken = {
+    DB: {
+      prepare: () => {
+        throw new Error("d1");
+      },
+    },
+  } as unknown as Env;
+  eq(
+    "D1 が読めなければ違う(書く)",
+    await pageUnchanged(broken, "/a", b),
+    false,
   );
 }
 

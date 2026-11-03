@@ -9985,6 +9985,8 @@ async function setSitePublished(
 
 async function siteUnpublish(env: Env, user: AuthUser): Promise<Response> {
   requireAdmin(user);
+  // 記録(D1)を先に消す(pageUnchanged)。資産を下ろすのは KV を消した後(下の publishSiteAssets)。
+  await forgetPages(env, null);
   // 消すのは配信中のページだけ。**prefix を外さないこと**（PAGE_KV_PREFIXES）。
   for (const prefix of PAGE_KV_PREFIXES) {
     let cursor: string | undefined;
@@ -12344,6 +12346,9 @@ async function restoreWipePages(env: Env, url: URL): Promise<Response> {
     sep >= 0 ? raw.slice(sep + 1) || undefined : undefined;
   if (!Number.isFinite(index) || index < 0) index = 0;
 
+  // 記録(D1)を先に消す(呼ぶたびに・何度消しても同じ)。KV を何回かに分けて消す間にビルドが走っても、
+  // 「記録はあるのに KV に無い」ページを前と同じと見て書かない(pageUnchanged)ことが無いように。
+  await forgetPages(env, null);
   let deleted = 0;
   while (index < PAGE_KV_PREFIXES.length) {
     const listed = await env.PUBLIC_PAGES.list({
@@ -12370,8 +12375,6 @@ async function restoreWipePages(env: Env, url: URL): Promise<Response> {
     if (deleted >= RESTORE_KV_WIPE_PAGE) break;
   }
   const done = index >= PAGE_KV_PREFIXES.length;
-  // The pages are gone from KV, so they leave the Static Assets index too.
-  if (done) await forgetPages(env, null);
   return json({
     ok: true,
     done,

@@ -110,6 +110,7 @@ import {
   loadRecordedBuildCache,
   manifestFingerprint,
   pageRecordStatements,
+  pageUnchanged,
   publishAssets,
   recordPages,
 } from "./assets-publish";
@@ -3901,6 +3902,15 @@ async function kvPutBundle(
   deferred?: D1PreparedStatement[],
 ): Promise<void> {
   const kv = requirePublicPages(env);
+  // 前に書いたものと同じなら KV へは書かない(書き込みの枠・pageUnchanged)。D1 の記録だけ直す。
+  if (await pageUnchanged(env, normPath(path), bundle)) {
+    if (deferred)
+      deferred.push(
+        ...(await pageRecordStatements(env, normPath(path), bundle)),
+      );
+    else await recordPages(env, normPath(path), bundle);
+    return;
+  }
   const payload: PageBundle = { v: 1, langs: bundle };
   const json = JSON.stringify(payload);
   const bytes = new TextEncoder().encode(json).length;
@@ -4016,8 +4026,9 @@ function buildPartialKey(path: string): string {
 const WORKER_SUBREQUEST_LIMIT = 1000;
 const BUILD_SUBREQUEST_BUDGET = Math.floor(WORKER_SUBREQUEST_LIMIT * 0.8); // 800
 const SUBREQ_PER_LANG = 4;
-// KV put + one D1 batch (build-cache row and the Static Assets index rows together).
-const SUBREQ_PER_BUILT_PAGE = 2;
+// The D1 read of the previous hashes (pageUnchanged), KV put + one D1 batch
+// (build-cache row and the Static Assets index rows together).
+const SUBREQ_PER_BUILT_PAGE = 3;
 
 // ─── Build cache helpers ──────────────────────────────────────────────────────
 
@@ -4428,6 +4439,12 @@ export async function deleteArticlePages(
 ): Promise<void> {
   const kv = requirePublicPages(env);
   const path = `/${tid}/${slug}/`;
+  // 記録(D1)を先に消す。KV だけ消えて記録が残ると、次のビルドが「前と同じ」と見て書かない(pageUnchanged)。
+  await env.DB.prepare("DELETE FROM page_build_cache WHERE path = ?")
+    .bind(path)
+    .run()
+    .catch(() => {});
+  await forgetPages(env, [normPath(path)]);
   await kv.delete(kvKeyBundle(path));
   const langRows = await env.DB.prepare(
     `SELECT id FROM taxonomy_items WHERE kind = 'language'`,
@@ -4437,11 +4454,6 @@ export async function deleteArticlePages(
   for (const r of langRows.results ?? []) {
     await kv.delete(kvKey(path, r.id)).catch(() => {});
   }
-  await env.DB.prepare("DELETE FROM page_build_cache WHERE path = ?")
-    .bind(path)
-    .run()
-    .catch(() => {});
-  await forgetPages(env, [normPath(path)]);
   // The URL just stopped existing — the edge must not keep answering it.
   await bumpPublishGen(env);
 }
@@ -4466,26 +4478,7 @@ async function sweepOrphanPages(
   // Compare in normalized key form (kvKey/kvKeyBundle strip the trailing "/").
   const expected = new Set<string>();
   for (const p of expectedPaths) expected.add(normPath(p));
-  let deleted = 0;
-  outer: for (const prefix of ["pageb:", "page:"]) {
-    let cursor: string | undefined;
-    do {
-      const listed = await kv.list({ prefix, cursor });
-      for (const k of listed.keys) {
-        // pageb:<path> / legacy page:<lang>:<path>
-        const rest = k.name.slice(prefix.length);
-        const path =
-          prefix === "pageb:" ? rest : rest.slice(rest.indexOf(":") + 1);
-        if (expected.has(path)) continue;
-        if (deleted >= SWEEP_DELETE_MAX) break outer;
-        await kv.delete(k.name);
-        deleted++;
-      }
-      cursor = listed.list_complete
-        ? undefined
-        : ((listed as { cursor?: string }).cursor ?? undefined);
-    } while (cursor);
-  }
+  // 記録(D1)を先に消し、KV は後。途中で止まっても「記録はあるのに KV に無い」を残さない(pageUnchanged)。
   const cacheRows = await env.DB.prepare(
     "SELECT DISTINCT path FROM page_build_cache",
   )
@@ -4518,6 +4511,26 @@ async function sweepOrphanPages(
       .map((r) => r.path)
       .filter((p) => !expected.has(p)),
   );
+  let deleted = 0;
+  outer: for (const prefix of ["pageb:", "page:"]) {
+    let cursor: string | undefined;
+    do {
+      const listed = await kv.list({ prefix, cursor });
+      for (const k of listed.keys) {
+        // pageb:<path> / legacy page:<lang>:<path>
+        const rest = k.name.slice(prefix.length);
+        const path =
+          prefix === "pageb:" ? rest : rest.slice(rest.indexOf(":") + 1);
+        if (expected.has(path)) continue;
+        if (deleted >= SWEEP_DELETE_MAX) break outer;
+        await kv.delete(k.name);
+        deleted++;
+      }
+      cursor = listed.list_complete
+        ? undefined
+        : ((listed as { cursor?: string }).cursor ?? undefined);
+    } while (cursor);
+  }
   return deleted;
 }
 

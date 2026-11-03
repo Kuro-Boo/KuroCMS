@@ -159,6 +159,38 @@ export async function pageRecordStatements(
   return stmts;
 }
 
+/**
+ * KV に書こうとしているページが、前に書いたものと同じか(言語の組も中身のハッシュも同じ・2026-11-03)。
+ *
+ * KV の書き込みは無料で 1 日 1,000 回。作り直すかどうかの指紋(public.ts の combined)には組み立ての
+ * コードの指紋(RENDER_FINGERPRINT)や時計が入るので、版を上げただけで全ページを作り直し、HTML が
+ * 前と同じでも全部書き直していた。同じなら書かない。`asset_pages` は KV に書けたあとにだけ書く
+ * (kvPutBundle)ので、ここが同じと言うなら KV にも同じものがある。読めなければ「違う」(書く)。
+ */
+export async function pageUnchanged(
+  env: Env,
+  path: string,
+  bundle: Record<string, string>,
+): Promise<boolean> {
+  let rows: { lang: string; hash: string }[];
+  try {
+    const r = await env.DB.prepare(
+      "SELECT lang, hash FROM asset_pages WHERE path = ?",
+    )
+      .bind(path)
+      .all<{ lang: string; hash: string }>();
+    rows = r.results ?? [];
+  } catch {
+    return false;
+  }
+  const langs = Object.keys(bundle);
+  if (rows.length !== langs.length) return false;
+  const was = new Map(rows.map((r) => [r.lang, r.hash]));
+  for (const lang of langs)
+    if (was.get(lang) !== (await assetHash(bundle[lang]!))) return false;
+  return true;
+}
+
 /** ページを消したとき(パスを渡す)・全部消したとき(null)。 */
 export async function forgetPages(
   env: Env,
