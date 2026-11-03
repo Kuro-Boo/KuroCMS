@@ -101,6 +101,7 @@ import {
   looksLikeLang,
   splitLangPath,
 } from "./lang-path";
+import { buildReason, reportBuild } from "./release-report.ts";
 import { buildModeForMinute } from "./build-mode.ts";
 import {
   markMediaGateReady,
@@ -4898,6 +4899,8 @@ export async function buildAllPublicPages(
     errors = 0,
     index = 0,
     more = false;
+  // 最初に作れなかったページ(Defects の build_page_failed に添える)。
+  let firstError: { path: string; reason: string } | null = null;
 
   // Build ONE page as a single KV bundle holding every language variant.
   // `langs` = the languages this page should contain (index pages = all
@@ -5033,6 +5036,7 @@ export async function buildAllPublicPages(
     } catch (err) {
       if (err === BUILD_BUDGET_REACHED) throw err;
       errors++;
+      firstError ??= { path, reason: buildReason(err) };
       onEvent?.({
         type: "page",
         index,
@@ -5306,6 +5310,13 @@ export async function buildAllPublicPages(
     if (!assets.done) more = true;
   }
 
+  if (firstError)
+    await reportBuild(env, "build_page_failed", {
+      errors,
+      path: firstError.path,
+      reason: firstError.reason,
+      trigger: onEvent ? "manual" : "auto",
+    });
   onEvent?.({ type: "done", built, skipped, errors, more, swept, assets });
   return {
     built,
@@ -5382,7 +5393,13 @@ export async function runScheduledAutoBuild(env: Env): Promise<void> {
     size.budget < AUTO_BUILD_MAX_PER_INVOCATION
       ? Math.max(2, size.budget * 2)
       : undefined,
-  );
+  ).catch(async (err: unknown) => {
+    await reportBuild(env, "build_failed", {
+      reason: buildReason(err),
+      trigger: "auto",
+    });
+    throw err;
+  });
   if (r.more)
     await env.PUBLIC_PAGES.put(
       AUTO_BUILD_SIZE_KEY,

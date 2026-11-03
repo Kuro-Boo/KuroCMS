@@ -31,7 +31,7 @@ import {
   updateChannelVersion,
   UPDATE_ORIGIN,
 } from "./release-source";
-import { reportRelease } from "./release-report";
+import { buildReason, reportBuild, reportRelease } from "./release-report";
 import {
   getGuardianAuto,
   guardianInfo,
@@ -1966,6 +1966,11 @@ async function handleApiDispatch(
           const errLine =
             JSON.stringify({ type: "error", message: String(err) }) + "\n";
           await writer.write(enc.encode(errLine)).catch(() => {});
+          // 応答は 200 のまま流れるので、Worker の失敗にも残らない。Defects へ送る。
+          await reportBuild(env, "build_failed", {
+            reason: buildReason(err),
+            trigger: "manual",
+          });
         } finally {
           await writer.close().catch(() => {});
         }
@@ -1992,10 +1997,20 @@ async function handleApiDispatch(
       const buildDid = await resolveDid(env, buildDocMatch[1]);
       const assets = await buildDocumentPages(env, buildDid, [], {
         promote: true,
+      }).catch(async (err: unknown) => {
+        await reportBuild(env, "build_failed", {
+          reason: buildReason(err),
+          trigger: "document",
+        });
+        throw err;
       });
       // The build is not done until its pages are registered as Static Assets
       // (the point of a build). Say so, so the caller builds again.
       if (assets && !assets.done) {
+        await reportBuild(env, "build_failed", {
+          reason: `assets_not_registered: ${assets.error ?? assets.status}`,
+          trigger: "document",
+        });
         return json(
           {
             ok: false,

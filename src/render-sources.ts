@@ -58,6 +58,8 @@ export const NOT_RENDER: Readonly<Record<string, string>> = {
   "src/build-dependencies.ts":
     "どのページを作り直すかを決める(HTML は変えない)",
   "src/build-size.ts": "ビルドの回の量",
+  "src/release-report.ts":
+    "Defects への報告(版の取得・番人・ビルドの失敗)。HTML は変えない",
   "src/http.ts": "応答の組み立て",
   "src/move.ts": "引っ越しの後の転送",
   "src/site-csp.ts":

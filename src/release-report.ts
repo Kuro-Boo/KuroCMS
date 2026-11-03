@@ -75,3 +75,31 @@ export async function reportGuardian(
     /* 報告が通らないことは、報告したかった事実より軽い */
   }
 }
+
+/**
+ * ビルドの失敗(cms-cms-build・2026-11-03)。ビルドの口は進み具合を NDJSON で流し、応答は 200 のまま終わるので、
+ * Worker の失敗にも debug の記録にも残らず、**画面のログを見た人にしか分からなかった**。
+ *
+ *   build_failed       ビルドが途中で投げて止まった(手動の口・毎分の自動ビルド)
+ *   build_page_failed  ビルドは回り切ったが、作れなかったページがあった(数と最初の 1 件)
+ *
+ * detail は数・道・理由だけ(本文は載せない)。理由は 500 文字で切る。
+ */
+export async function reportBuild(
+  env: Env,
+  code: "build_failed" | "build_page_failed",
+  detail: Record<string, string | number>,
+): Promise<void> {
+  try {
+    const { defects } = await entamyPort(env);
+    await defects.report(code, { detail });
+  } catch {
+    /* 報告が通らないことは、報告したかった事実より軽い */
+  }
+}
+
+/** 例外を Defects に載せる長さの文にする。 */
+export function buildReason(err: unknown): string {
+  const s = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+  return s.slice(0, 500);
+}
