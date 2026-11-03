@@ -479,7 +479,7 @@ export function adminHtml(
       .workflowItem { display: grid; grid-template-columns: 30px 1fr; gap: 12px; align-items: start; }
       .workflowNo { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 8px; background: var(--surface-3); font-weight: 800; color: var(--heading); }
       .toggleRow { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); }
-      .toggle { appearance: none; width: 46px; height: 28px; border-radius: 999px; border: 1px solid var(--line-strong); background: var(--surface-3); position: relative; cursor: pointer; transition: all 160ms ease; }
+      .toggle { appearance: none; flex: none; width: 46px; height: 28px; border-radius: 999px; border: 1px solid var(--line-strong); background: var(--surface-3); position: relative; cursor: pointer; transition: all 160ms ease; }
       .toggle::after { content: ""; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: var(--muted); transition: all 160ms ease; }
       .toggle:checked { background: var(--accent); border-color: var(--accent); }
       .toggle:checked::after { left: 21px; background: #fff; }
