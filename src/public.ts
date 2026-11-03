@@ -5341,13 +5341,30 @@ export const BUILD_MODE_KEY = "_cfg/build_schedule_mode";
 export async function getBuildMode(env: Env): Promise<BuildMode> {
   if (!env.PUBLIC_PAGES) return "manual";
   const v = await env.PUBLIC_PAGES.get(BUILD_MODE_KEY);
-  return v === "auto" || v === "always" ? v : "manual";
+  const mode: BuildMode = v === "auto" || v === "always" ? v : "manual";
+  buildModeSeen = { mode, at: Date.now() };
+  return mode;
+}
+
+/**
+ * 毎分の自動ビルドが見るビルドの方式の控え(この isolate・2026-11-03)。毎分 KV を読まないように、
+ * 読んでから 5 分は控えを使う。この isolate で変えたときはすぐ替わる。別の isolate で変えたときは、
+ * 予定公開が最長 5 分遅れる。
+ */
+const BUILD_MODE_TTL_MS = 5 * 60_000;
+let buildModeSeen: { mode: BuildMode; at: number } | null = null;
+
+async function buildModeForMinute(env: Env): Promise<BuildMode> {
+  if (buildModeSeen && Date.now() - buildModeSeen.at < BUILD_MODE_TTL_MS)
+    return buildModeSeen.mode;
+  return getBuildMode(env);
 }
 
 /** Persist the build mode. */
 export async function setBuildMode(env: Env, mode: BuildMode): Promise<void> {
   if (!env.PUBLIC_PAGES) return;
   await env.PUBLIC_PAGES.put(BUILD_MODE_KEY, mode);
+  buildModeSeen = { mode, at: Date.now() };
 }
 
 /**
@@ -5362,7 +5379,7 @@ export async function setBuildMode(env: Env, mode: BuildMode): Promise<void> {
  */
 export async function runScheduledAutoBuild(env: Env): Promise<void> {
   if (!env.PUBLIC_PAGES) return;
-  if ((await getBuildMode(env)) !== "auto") return;
+  if ((await buildModeForMinute(env)) !== "auto") return;
 
   // Must mirror the "window" filter (auto mode never builds future posts) and
   // the build's live-sync CASE exactly, or the cron would loop or stall.

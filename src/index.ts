@@ -8,6 +8,7 @@ import { entamyPort, hardenEntamyConnection } from "./entamy-port";
 import { adoptGuardianMinute, guardianAutoTick } from "./guardian-update";
 import { guardianDeps } from "./guardian-deps";
 import { noteRunningVersion } from "./version-since";
+import { KUROCMS_VERSION } from "./version";
 import { purgeIpGate } from "./ip-gate";
 import { runScheduledThreadsTokenRefresh } from "./threads-token";
 import { html, notFound, notFoundPage, preparingPage } from "./http";
@@ -40,6 +41,23 @@ import {
 import { templateNotChosen } from "./site-preparing";
 import { moveFrozen, movedPage, moveRetired, movedTo } from "./move";
 import type { Env } from "./types";
+
+/**
+ * 毎分の仕事が KV を読まずに済ませるための、この isolate の控え(2026-11-03)。KV の読み出しは
+ * 口座で 1 日 10 万回で、委託ではサイトがそれを分け合う。毎分 7 回ほど読んでいたので、1 サイトで
+ * 1 日 1 万回になっていた。控えは isolate が替われば消えるだけで、最初の 1 分にまた読む。
+ *
+ * - versionNoted: いまの版を記録し終えた版(版は isolate の中で変わらない)。
+ * - guardianIdle: 番人の自動更新を次に見る時刻。この版で済んだ・鍵が無いは、この isolate の間ずっと。
+ *   切のときは 10 分(入に変えたのに気づくまでの遅れ)。
+ * - mailerQuietUntil: Mailer の鍵の更新の時期まで、鍵の控えを読まない。失敗したら 10 分あける
+ *   (entamy-connect が KV に残す間引きもある)。
+ */
+let versionNoted: string | null = null;
+let guardianIdleUntil = 0;
+let mailerQuietUntil = 0;
+const GUARDIAN_OFF_RECHECK_MS = 10 * 60_000;
+const MAILER_RETRY_MS = 10 * 60_000;
 
 /**
  * 毎分の仕事。cron(顧客導入の古い導入)か、番人から渡される分(tick・番人の毎分。WorkerOps の tick.ts)で走る。
@@ -88,16 +106,27 @@ async function runMinute(
     );
   }
   // いまの版がいつ入ったか(ダッシュボードの KuroCMS の枠)。どの経路で入っても 1 分以内に残る。
-  ctx.waitUntil(
-    noteRunningVersion(env).catch((err) => {
-      console.error("version note failed:", err);
-    }),
-  );
-  ctx.waitUntil(
-    guardianAutoTick(env, guardianDeps(env)).catch((err) => {
-      console.error("guardian auto-update failed:", err);
-    }),
-  );
+  if (versionNoted !== KUROCMS_VERSION)
+    ctx.waitUntil(
+      noteRunningVersion(env)
+        .then(() => {
+          versionNoted = KUROCMS_VERSION;
+        })
+        .catch((err) => {
+          console.error("version note failed:", err);
+        }),
+    );
+  if (at >= guardianIdleUntil)
+    ctx.waitUntil(
+      guardianAutoTick(env, guardianDeps(env), (why) => {
+        guardianIdleUntil =
+          why === "off"
+            ? at + GUARDIAN_OFF_RECHECK_MS
+            : Number.POSITIVE_INFINITY;
+      }).catch((err) => {
+        console.error("guardian auto-update failed:", err);
+      }),
+    );
   // 導入の報告。**cron に乗せる** —— 利用者の操作に相乗りさせると、
   // 画面の応答が外部サービスの調子に引きずられる。中で1日1回に絞っている。
   // refresh token は呼ぶたびに回転するため、同じ cron で並列に使わない。
@@ -113,8 +142,13 @@ async function runMinute(
       // 推測できる名乗りは秘密入りへ付け替える。どちらも済んでいれば通信しない。
       await hardenEntamyConnection(env);
       await reportInstall(env);
+      if (Date.now() < mailerQuietUntil) return;
       const port = await entamyPort(env);
       const cred = await port.mailer.credential();
+      // 鍵の更新の時期(renewAfter)までは、次の毎分で鍵の控えを読まない。
+      mailerQuietUntil = cred.ok
+        ? Math.max(cred.value.renewAfter - 60_000, Date.now() + 60_000)
+        : Date.now() + MAILER_RETRY_MS;
       // ⚠ **失敗の理由を捨てない。** cron の失敗は誰の画面にも出ないので、
       //   ここで残さないと「メールが送れない」としか分からなくなる。
       //   実際、SAT の権限が空で発行されていた不具合は、基盤側の DB を

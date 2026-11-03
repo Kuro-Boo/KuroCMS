@@ -136,13 +136,35 @@ async function collect(
  *
  * force=true は更新の直後に使う。版が変わった瞬間は間隔を待たずに知らせる。
  */
+/**
+ * 次に報告を確かめる時刻(この isolate の控え・2026-11-03)。毎分の処理が KV を読む回数を減らす ——
+ * 前の報告から 24 時間たつまで、版も番人の版も同じなら、送らない設定も前の報告の時刻も読まない。
+ * 送らない設定は「送る時」に読むので、控えの間に送らないへ変えても送ってしまうことは無い。
+ */
+let reportQuiet: {
+  until: number;
+  version: string;
+  workerops: string | null;
+} | null = null;
+
 export async function reportInstall(env: Env, force = false): Promise<void> {
   try {
-    if (await optedOut(env)) return;
-
     const version = KUROCMS_VERSION;
     // 番人の版が変わったときも、間隔を待たずに知らせる(番人は app と別に上がる)。
     const workerops = await workeropsVersion(env);
+    if (
+      !force &&
+      reportQuiet &&
+      Date.now() < reportQuiet.until &&
+      reportQuiet.version === version &&
+      reportQuiet.workerops === workerops
+    )
+      return;
+    if (await optedOut(env)) {
+      // 送らない間は 1 時間に 1 回だけ読み直す(送るに戻したときに気づくため)。
+      reportQuiet = { until: Date.now() + 3600_000, version, workerops };
+      return;
+    }
     const last = await env.PUBLIC_PAGES.get(K_LAST);
     if (!force && last) {
       try {
@@ -155,8 +177,14 @@ export async function reportInstall(env: Env, force = false): Promise<void> {
           l.version === version &&
           (l.workerops ?? null) === workerops &&
           Date.now() - l.at < REPORT_INTERVAL_MS
-        )
+        ) {
+          reportQuiet = {
+            until: l.at + REPORT_INTERVAL_MS,
+            version,
+            workerops,
+          };
           return;
+        }
       } catch {
         /* 壊れていたら送る */
       }
@@ -185,6 +213,11 @@ export async function reportInstall(env: Env, force = false): Promise<void> {
       K_LAST,
       JSON.stringify({ at: Date.now(), version, workerops }),
     );
+    reportQuiet = {
+      until: Date.now() + REPORT_INTERVAL_MS,
+      version,
+      workerops,
+    };
   } catch {
     // 握りつぶす。**観測できないことは、動かないことより軽い。**
   }

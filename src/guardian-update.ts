@@ -566,16 +566,28 @@ export async function guardianUpdate(
 export async function guardianAutoTick(
   env: Env,
   deps: GuardianDeps,
+  /** 毎分の処理が KV を読まずに済ませるための知らせ(index.ts の runMinute・2026-11-03)。
+   *  setup: 鍵か束縛が無い / off: 自動更新が切 / done: この app の版ではもう済んだ。 */
+  idle?: (why: "setup" | "off" | "done") => void,
 ): Promise<GuardianResult | null> {
-  if (missingSetup(env)) return null;
-  if (!(await getGuardianAuto(env))) return null;
+  if (missingSetup(env)) {
+    idle?.("setup");
+    return null;
+  }
+  if (!(await getGuardianAuto(env))) {
+    idle?.("off");
+    return null;
+  }
   let seen: { app?: string; at?: number; done?: boolean } = {};
   try {
     seen = JSON.parse((await env.PUBLIC_PAGES.get(SEEN_KEY)) ?? "{}");
   } catch {
     /* 読めなければ、版が変わったものとして扱う */
   }
-  if (seen.app === deps.appVersion && seen.done) return null;
+  if (seen.app === deps.appVersion && seen.done) {
+    idle?.("done");
+    return null;
+  }
   if (seen.app !== deps.appVersion) {
     seen = { app: deps.appVersion, at: deps.now(), done: false };
     await env.PUBLIC_PAGES.put(SEEN_KEY, JSON.stringify(seen));
@@ -586,5 +598,6 @@ export async function guardianAutoTick(
   const r = await guardianUpdate(env, deps, "auto");
   if (r.outcome === "busy") return r; // 次の分にやり直す
   await env.PUBLIC_PAGES.put(SEEN_KEY, JSON.stringify({ ...seen, done: true }));
+  idle?.("done");
   return r;
 }

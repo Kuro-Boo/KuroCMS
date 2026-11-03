@@ -427,6 +427,48 @@ const main = async () => {
     );
   }
 
+  // ── 毎分の処理へ「もう読まなくてよい」を知らせる(runMinute の控え・2026-11-03) ──
+  {
+    const why = async (o: Parameters<typeof world>[0]) => {
+      const w = world(o);
+      const got: string[] = [];
+      const r = await guardianAutoTick(w.env, w.deps, (x) => got.push(x));
+      return [r?.outcome ?? null, got];
+    };
+    const seen = (app: string, done: boolean) => ({
+      "system:guardian_seen": JSON.stringify({ app, at: 0, done }),
+    });
+    eq(
+      "知らせ: 同じ版で済んでいれば done",
+      await why({ appVersion: "1.10.50", kv: seen("1.10.50", true) }),
+      [null, ["done"]],
+    );
+    eq(
+      "知らせ: 上げ終えたら done",
+      await why({ appVersion: "1.10.51", kv: seen("1.10.50", true) }),
+      ["updated", ["done"]],
+    );
+    eq(
+      "知らせ: 切なら off",
+      await why({ appVersion: "1.10.51", kv: { "system:guardian_auto": "0" } }),
+      [null, ["off"]],
+    );
+    eq("知らせ: 鍵が無ければ setup", await why({ noToken: true }), [
+      null,
+      ["setup"],
+    ]);
+    eq(
+      "知らせ: busy は知らせない(次の分にやり直す)",
+      await why({ appVersion: "1.10.51", holdOk: false }),
+      ["busy", []],
+    );
+    eq(
+      "知らせ: 古い番人を待つ間は知らせない",
+      await why({ appVersion: "1.10.51", peer: null }),
+      [null, []],
+    );
+  }
+
   // ── cron を番人の 1 本にまとめる(adoptGuardianMinute・core-offering 11 節) ──
   {
     const w = world({ noToken: true });
