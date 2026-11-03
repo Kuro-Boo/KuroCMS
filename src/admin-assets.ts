@@ -6,4 +6,4 @@ export const SITE_HEAD_FILE = "kuro-head.69851950c0.js";
 /** 公開ページの部品を動かす(src/site/kuro-site.ts)。 */
 export const SITE_SCRIPT_FILE = "kuro-site.d26618e692.js";
 /** 公開ページを組み立てるコードの指紋(src/render-sources.ts)。 */
-export const RENDER_FINGERPRINT = "1ece79c535b6ed3b";
+export const RENDER_FINGERPRINT = "c836a1f0adb749fd";
