@@ -898,7 +898,7 @@ const i18n = {
     siteMoveSelfLead:
       "KuroCMS is set up in your Cloudflare account and your articles, media, settings and users are copied over. This site keeps working while it copies (it pauses only for a few minutes at the final check). When it finishes, this address shows a notice that sends visitors to the new address, and every administrator of this KuroCMS gets an email with a link to register a passkey there. Self-hosting is free.",
     siteMoveManagedLead:
-      "KuroCMS is set up on Entamy's Cloudflare account and your articles, media, settings and users are copied over. This site keeps working while it copies. When it finishes, this site shows a notice that sends visitors to the new address ({id}.kurocms.site), and every administrator of this KuroCMS gets an email with a link to register a passkey there. Custom domains are not carried over. The KuroCMS installed in your own Cloudflare account is not deleted; if you no longer need it, delete it yourself after switching. You cannot choose the installation ID.",
+      "KuroCMS is set up on Entamy's dedicated KuroCMS managed hosting servers and your articles, media, settings and users are copied over. This site keeps working while it copies. When it finishes, this site shows a notice that sends visitors to the new address ({id}.kurocms.site), and every administrator of this KuroCMS gets an email with a link to register a passkey there. Custom domains are not carried over. The KuroCMS installed in your own Cloudflare account is not deleted; if you no longer need it, delete it yourself after switching. You cannot choose the installation ID.",
     siteMoveManagedPrice:
       "Managed hosting is paid. The free period starts when the new site is ready (once per registered email account; an ID that has ever used managed hosting does not get a free period again). The contract belongs to the Entamy ID that installed this site.",
     siteMoveAccountId: "Cloudflare Account ID",
@@ -2403,7 +2403,7 @@ const i18n = {
     siteMoveSelfLead:
       "ご自身の Cloudflare アカウントに KuroCMS を立て、記事・メディア・設定・利用者を写します。写している間もこのサイトはそのまま使えます（最後の突き合わせの数分だけ止まります）。終わると、このアドレスは新しいアドレスへの案内に替わり、この KuroCMS の管理者全員に、新しいアドレスでパスキーを登録するリンクがメールで届きます。顧客導入は無料です。",
     siteMoveManagedLead:
-      "Entamy の Cloudflare アカウントに KuroCMS を立て、記事・メディア・設定・利用者を写します。写している間もこのサイトはそのまま使えます。終わると、このサイトは新しいアドレス（{導入ID}.kurocms.site）への案内に替わり、この KuroCMS の管理者全員に、新しいアドレスでパスキーを登録するリンクがメールで届きます。独自ドメインは引き継ぎません。ご自身の Cloudflare に導入した KuroCMS のものは消しません。必要なければ、運用を切り替えた後にご自身で削除してください。※導入 ID は選べません。",
+      "Entamy社の KuroCMS 専用委託運用サーバーに KuroCMS を立て、記事・メディア・設定・利用者を写します。写している間もこのサイトはそのまま使えます。終わると、このサイトは新しいアドレス（{導入ID}.kurocms.site）への案内に替わり、この KuroCMS の管理者全員に、新しいアドレスでパスキーを登録するリンクがメールで届きます。独自ドメインは引き継ぎません。ご自身の Cloudflare に導入した KuroCMS のものは消しません。必要なければ、運用を切り替えた後にご自身で削除してください。※導入 ID は選べません。",
     siteMoveManagedPrice:
       "委託運用は有料です。最初の無料期間は、新しいサイトが使えるようになった時点から数えます（登録メールアカウントごとに 1 回。一度でも委託運用を使ったことがある ID の場合は無料期間は追加されません）。契約の持ち主は、このサイトを導入した Entamy ID です。",
     siteMoveAccountId: "Cloudflare の Account ID",
@@ -5281,7 +5281,7 @@ function makePieChart(
 const helpContent: Record<string, Dynamic> = {
   basic: {
     title: "KuroCMS の基本",
-    role: "KuroCMS は Cloudflare の上で動く記事管理システムです。記事・メディア・サイトの見た目を管理画面で整え、ビルドすると公開ページができます。動かし方は 2 つあり、Entamy の Cloudflare アカウントで動く「委託運用」と、ご自身の Cloudflare アカウントで動く「顧客導入」です。いまどちらで動いているかは「設定 → 契約」で確かめられます。",
+    role: "KuroCMS は Cloudflare の上で動く記事管理システムです。記事・メディア・サイトの見た目を管理画面で整え、ビルドすると公開ページができます。動かし方は 2 つあり、Entamy社の KuroCMS 専用委託運用サーバーで動く「委託運用」と、ご自身の Cloudflare アカウントで動く「顧客導入」です。いまどちらで動いているかは「設定 → 契約」で確かめられます。",
     canDo:
       "記事を書く（多言語・修正履歴・自動保存） / 画像・動画・音楽を置き、記事やサイト文字に貼る / テンプレート・サイト文字・フォント・計測で公開サイトを整える / ビルドして公開ページを作る（手動・予定公開に合わせた自動ビルドなど） / SNS（Bluesky・X・Threads）へ記事を投稿する / 利用者を招待し、管理者と投稿者に分ける / バックアップと復元 / REST API と MCP で、AI から記事を扱う（PAT） / 委託運用と顧客導入のあいだで引っ越す",
     notes:
@@ -5496,7 +5496,7 @@ const helpContent: Record<string, Dynamic> = {
 const helpContentEn: Record<string, Dynamic> = {
   basic: {
     title: "KuroCMS basics",
-    role: "KuroCMS is a content management system that runs on Cloudflare. You shape articles, media and the look of the site in this admin panel, and a build turns them into public pages. It runs in one of two ways: managed hosting on Entamy's Cloudflare account, or self-hosting on your own Cloudflare account. Settings → Contract shows which one this site uses.",
+    role: "KuroCMS is a content management system that runs on Cloudflare. You shape articles, media and the look of the site in this admin panel, and a build turns them into public pages. It runs in one of two ways: managed hosting on Entamy's dedicated KuroCMS managed hosting servers, or self-hosting on your own Cloudflare account. Settings → Contract shows which one this site uses.",
     canDo:
       "Write articles (multilingual, revision history, autosave) / Upload images, video and audio and place them in articles and site text / Shape the public site with templates, site text, fonts and analytics / Build public pages (manually, or automatically at scheduled publish times) / Post articles to Bluesky, X and Threads / Invite users as administrators or authors / Back up and restore / Work with articles from AI through the REST API and MCP (PAT) / Move between managed hosting and self-hosting",
     notes:

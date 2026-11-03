@@ -1058,9 +1058,10 @@ async function settings() {
       // 左の列: いまの契約・規約とポリシー・アカウントの削除を縦に。
       "<div class='stack' style='gap:16px'>" +
       "<div class='panel stack' style='gap:14px'>" +
-      "<div class='panelHead'><h3>" +
+      // 見出しの右に運用の形(委託運用 / 顧客導入)のバッジ(2026-11-03)。
+      "<div class='panelHead' style='justify-content:flex-start'><h3>" +
       escapeHtml(t("contractNowTitle")) +
-      "</h3></div>" +
+      "</h3><span id='contractKindBadge' class='contractBadge'></span></div>" +
       "<div id='contractForm' style='font-weight:700'></div>" +
       "<div><span id='contractBadge' class='contractBadge'>…</span></div>" +
       "<div id='contractTrial' class='stack' style='display:none;gap:6px'></div>" +
@@ -1313,6 +1314,13 @@ async function settings() {
     form.textContent = t(
       managedHosting ? "contractFormManaged" : "contractFormSelf",
     );
+    const kindBadge = byId("contractKindBadge");
+    if (kindBadge) {
+      kindBadge.textContent = t(
+        managedHosting ? "contractKindManaged" : "contractKindSelf",
+      );
+      kindBadge.className = "contractBadge" + (managedHosting ? "" : " muted");
+    }
     try {
       const r: Dynamic = await api("/api/system/contract");
       contractPrices = Array.isArray(r.prices) ? r.prices : null;
