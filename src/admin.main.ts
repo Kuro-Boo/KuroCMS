@@ -1764,7 +1764,7 @@ const i18n = {
     err_missing_file: "No file was selected.",
     err_media_not_found: "The media file was not found.",
     err_r2_not_configured:
-      "Media storage (R2) is not set up. See Settings → Basic → R2 media storage.",
+      "Media storage (R2) is not set up. See Settings → Contract → R2 media storage.",
     err_cf_creds_missing: "Cloudflare credentials are not configured.",
     err_custom_domain_required: "Assign a custom domain first.",
     err_email_routing_destination_unverified:
@@ -2004,7 +2004,8 @@ const i18n = {
     coverMidHint:
       "Specify a cover by image id, e.g. [[img-xxx]]. Loads when you leave the field.",
     coverMidNotFound: "No image found for that id.",
-    r2CoverUnavail: "Media needs R2. See Settings → Basic → R2 media storage.",
+    r2CoverUnavail:
+      "Media needs R2. See Settings → Contract → R2 media storage.",
     slugLabelNote: "read-only, click to copy",
     slugCopyHint: "Click to copy",
     slugHint:
@@ -2023,7 +2024,7 @@ const i18n = {
     // Cloudflare 側で始めただけでは使えず、KuroCMS の「R2 利用開始」を押して
     // はじめてバケットが繋がるので、2 段階であることを必ず書く。
     r2EnableDesc:
-      "Images, video and audio are stored in Cloudflare R2. Nothing is charged up to the free 10 GB. Set it up in your own Cloudflare by following the steps under Settings → Basic → R2 media storage (start R2, create a bucket, and bind it to this Worker as MEDIA_BUCKET). Once it is bound, this screen becomes available.",
+      "Images, video and audio are stored in Cloudflare R2. Nothing is charged up to the free 10 GB. Set it up in your own Cloudflare by following the steps under Settings → Contract → R2 media storage (start R2, create a bucket, and bind it to this Worker as MEDIA_BUCKET). Once it is bound, this screen becomes available.",
     uploadPreparing: "Preparing…",
     uploading: "Uploading…",
     uploadComplete: "Done",
@@ -2043,7 +2044,7 @@ const i18n = {
     videoTypeLabel: "Videos",
     audioTypeLabel: "Music",
     r2MediaUnavailMsg:
-      "Media unavailable<br>Settings → Basic → R2 media storage",
+      "Media unavailable<br>Settings → Contract → R2 media storage",
     tmplCommunityLocked: "🔒 Published to community — cannot edit",
     tmplCommunityUnlockHint:
       "Unpublish from community in the Template Preview tab first.",
@@ -2401,7 +2402,7 @@ const i18n = {
     siteMoveToSelf: "ご自身の Cloudflare アカウントへ引っ越す",
     siteMoveToManaged: "Entamy の委託運用へ引っ越す",
     siteMoveSelfLead:
-      "ご自身の Cloudflare アカウントに KuroCMS を立て、記事・メディア・設定・利用者を写します。写している間もこのサイトはそのまま使えます（最後の突き合わせの数分だけ止まります）。終わると、このアドレスは新しいアドレスへの案内に替わり、この KuroCMS の管理者全員に、新しいアドレスでパスキーを登録するリンクがメールで届きます。顧客導入は無料です。",
+      "ご自身の Cloudflare アカウントに KuroCMS を立て、記事・メディア・設定・利用者を写します。写している間もこのサイトはそのまま使えます（最後の突き合わせの数分だけ止まります）。終わると、このアドレスは新しいアドレスへの案内に替わり、この KuroCMS の管理者全員に、新しいアドレスでパスキーを登録するリンクがメールで届きます。顧客運用は無料です。",
     siteMoveManagedLead:
       "Entamy社の KuroCMS 専用委託運用サーバーに KuroCMS を立て、記事・メディア・設定・利用者を写します。写している間もこのサイトはそのまま使えます。終わると、このサイトは新しいアドレス（{導入ID}.kurocms.site）への案内に替わり、この KuroCMS の管理者全員に、新しいアドレスでパスキーを登録するリンクがメールで届きます。独自ドメインは引き継ぎません。ご自身の Cloudflare に導入した KuroCMS のものは消しません。必要なければ、運用を切り替えた後にご自身で削除してください。※導入 ID は選べません。",
     siteMoveManagedPrice:
@@ -2409,7 +2410,7 @@ const i18n = {
     siteMoveAccountId: "Cloudflare の Account ID",
     siteMoveToken: "Cloudflare の API トークン",
     siteMoveTokenHelp:
-      "顧客導入と同じ権限のトークンです。Entamy もこのサイトも保存しません。メディアがあるサイトは、先に Cloudflare のダッシュボードで R2 を有効にしてください。",
+      "顧客運用と同じ権限のトークンです。Entamy もこのサイトも保存しません。メディアがあるサイトは、先に Cloudflare のダッシュボードで R2 を有効にしてください。",
     siteMoveConfirm:
       "移す先は新しい導入として作られ、既存のものを上書きしないこと、SNS の連携の鍵と PAT は持っていかないことを確かめました。",
     siteMoveConfirmRequired: "チェックを入れて確かめてください。",
@@ -2767,7 +2768,7 @@ const i18n = {
     accountDeleteContractCancelled:
       "解約済みの委託契約があります。契約が終わると、サイトを削除できます。",
     accountDeleteContractNone: "続いている委託契約はありません。",
-    accountDeleteContractSelf: "顧客導入は無料で、契約はありません。",
+    accountDeleteContractSelf: "顧客運用は無料で、契約はありません。",
     accountDeleteKeptTitle: "削除しても残るもの",
     accountDeleteKeptRecords:
       "一度でも支払いがあった場合は、取引と契約の記録、規約への同意の記録を、法令などで決められた期間残します。",
@@ -2784,8 +2785,8 @@ const i18n = {
     accountDeleteGoSite: "このサイトを削除する…",
     accountDeleteFreeTitle: "費用を止めて使い続けたいときは",
     accountDeleteFreeBody:
-      "費用を止めたいだけなら、ID もサイトも削除せずに、顧客導入（ご自身の Cloudflare アカウントで動かす形・無料）へ引っ越せます。記事・メディア・設定・利用者はそのまま写り、引っ越しが終わると委託契約も終わります。",
-    accountDeleteFreeGo: "顧客導入への引っ越しを見る",
+      "費用を止めたいだけなら、ID もサイトも削除せずに、顧客運用（ご自身の Cloudflare アカウントで動かす形・無料）へ引っ越せます。記事・メディア・設定・利用者はそのまま写り、引っ越しが終わると委託契約も終わります。",
+    accountDeleteFreeGo: "顧客運用への引っ越しを見る",
     contractAt: "委託を始めた日",
     contractPlan: "払い方",
     contractPlanMonth: "月払い",
@@ -2816,7 +2817,7 @@ const i18n = {
     contractNowTitle: "いまの契約",
     contractPlansTitle: "契約の形態と料金",
     contractKindManaged: "委託運用",
-    contractKindSelf: "顧客導入",
+    contractKindSelf: "顧客運用",
     contractKindPaid: "有料",
     contractKindFree: "無料",
     contractKindManagedDesc:
@@ -2831,7 +2832,7 @@ const i18n = {
     contractRuleSelfLabel: "切り替え",
     contractFormManaged: "KuroCMSの委託運用サーバー上で動いています。",
     contractFormSelf:
-      "ご自身の Cloudflare アカウントで動いています（顧客導入）。",
+      "ご自身の Cloudflare アカウントで動いています（顧客運用）。",
     contractBadgeSelf: "無料・契約は要りません",
     contractBadgePending: "確かめ中",
     contractBadgeActive: "契約中・{plan}",
@@ -2850,7 +2851,7 @@ const i18n = {
     contractInheritedApplyLead:
       "前の持ち主の契約で払われた期間を使っています。{date} の後も使うには、契約のお申し込みが要ります。",
     contractSelfNote:
-      "顧客導入は無料で、契約は要りません。Entamy の委託運用へ引っ越すと有料になります（料金は右）。",
+      "顧客運用は無料で、契約は要りません。Entamy の委託運用へ引っ越すと有料になります（料金は右）。",
     contractBarUntil: "{date} まで",
     contractTrialExtendedTo: "キャンペーンで {date} まで延長",
     contractAfterTrial:
@@ -2882,7 +2883,7 @@ const i18n = {
     contractRuleUnpaid:
       "無料期間が終わると、記事の追加とビルド（公開）が止まり、{n} 日後にデータを削除します。公開中のページは、削除の日まで表示されます。",
     contractRuleSelf:
-      "委託運用と顧客導入は、このタブの下にある引っ越しで切り替えられます。",
+      "委託運用と顧客運用は、このタブの下にある引っ越しで切り替えられます。",
     regionTitle: "稼働地域",
     regionHelp:
       "この KuroCMS のデータベース（D1）と KuroCMS 本体が、いまどこで動いているかです。データベースの地域は作ったときに決まり、後から変えられません。地域の中のどの拠点に置くかは Cloudflare が選びます。",
@@ -3346,7 +3347,7 @@ const i18n = {
     err_missing_file: "ファイルが選ばれていません。",
     err_media_not_found: "画像・メディアが見つかりません。",
     err_r2_not_configured:
-      "画像の保存先（R2）が未設定です。「設定 → 基本」の「R2 メディアストレージ」の手順でつないでください。",
+      "画像の保存先（R2）が未設定です。「設定 → 契約」の「R2 メディアストレージ」の手順でつないでください。",
     err_cf_creds_missing: "Cloudflare の資格情報が未設定です。",
     err_custom_domain_required: "先にカスタムドメインを割り当ててください。",
     err_email_routing_destination_unverified:
@@ -3591,7 +3592,7 @@ const i18n = {
       "画像ID（例: [[img-xxx]]）でカバーを指定。フォーカスを外すと読み込みます。",
     coverMidNotFound: "そのIDの画像が見つかりません。",
     r2CoverUnavail:
-      "メディアを使うには R2 が必要です（設定 → 基本 →「R2 メディアストレージ」）。",
+      "メディアを使うには R2 が必要です（設定 → 契約 →「R2 メディアストレージ」）。",
     slugLabelNote: "slugは変更不可。クリックでコピー",
     slugCopyHint: "クリックでコピー",
     slugHint:
@@ -3607,7 +3608,7 @@ const i18n = {
     dropZoneLead: "ここにファイルをドロップ、またはクリックして選択",
     r2EnableTitle: "メディアを使うには R2 の有効化が必要です",
     r2EnableDesc:
-      "画像・動画・音楽は Cloudflare R2 に保存します。無料枠の 10GB までは課金されません。設定はご自身の Cloudflare で行います。「設定 → 基本」の「R2 メディアストレージ」にある手順（R2 の利用を始め、バケットを作り、この Worker に MEDIA_BUCKET の名前でつなぐ）を済ませると、この画面が使えるようになります。",
+      "画像・動画・音楽は Cloudflare R2 に保存します。無料枠の 10GB までは課金されません。設定はご自身の Cloudflare で行います。「設定 → 契約」の「R2 メディアストレージ」にある手順（R2 の利用を始め、バケットを作り、この Worker に MEDIA_BUCKET の名前でつなぐ）を済ませると、この画面が使えるようになります。",
     uploadPreparing: "準備中…",
     uploading: "アップロード中…",
     uploadComplete: "完了",
@@ -3627,7 +3628,7 @@ const i18n = {
     videoTypeLabel: "動画",
     audioTypeLabel: "音楽",
     r2MediaUnavailMsg:
-      "メディア利用不可<br>設定 → 基本 →「R2 メディアストレージ」",
+      "メディア利用不可<br>設定 → 契約 →「R2 メディアストレージ」",
     tmplCommunityLocked: "🔒 コミュニティ公開中のテンプレートは修正できません",
     tmplCommunityUnlockHint:
       "テンプレート表示タブで「コミュニティ非公開」にしてから編集してください",
@@ -5281,17 +5282,17 @@ function makePieChart(
 const helpContent: Record<string, Dynamic> = {
   basic: {
     title: "KuroCMS の基本",
-    role: "KuroCMS は Cloudflare の上で動く記事管理システムです。記事・メディア・サイトの見た目を管理画面で整え、ビルドすると公開ページができます。動かし方は 2 つあり、Entamy社の KuroCMS 専用委託運用サーバーで動く「委託運用」と、ご自身の Cloudflare アカウントで動く「顧客導入」です。いまどちらで動いているかは「設定 → 契約」で確かめられます。",
+    role: "KuroCMS は Cloudflare の上で動く記事管理システムです。記事・メディア・サイトの見た目を管理画面で整え、ビルドすると公開ページができます。動かし方は 2 つあり、Entamy社の KuroCMS 専用委託運用サーバーで動く「委託運用」と、ご自身の Cloudflare アカウントで動く「顧客運用」です。いまどちらで動いているかは「設定 → 契約」で確かめられます。",
     canDo:
-      "記事を書く（多言語・修正履歴・自動保存） / 画像・動画・音楽を置き、記事やサイト文字に貼る / テンプレート・サイト文字・フォント・計測で公開サイトを整える / ビルドして公開ページを作る（手動・予定公開に合わせた自動ビルドなど） / SNS（Bluesky・X・Threads）へ記事を投稿する / 利用者を招待し、管理者と投稿者に分ける / バックアップと復元 / REST API と MCP で、AI から記事を扱う（PAT） / 委託運用と顧客導入のあいだで引っ越す",
+      "記事を書く（多言語・修正履歴・自動保存） / 画像・動画・音楽を置き、記事やサイト文字に貼る / テンプレート・サイト文字・フォント・計測で公開サイトを整える / ビルドして公開ページを作る（手動・予定公開に合わせた自動ビルドなど） / SNS（Bluesky・X・Threads）へ記事を投稿する / 利用者を招待し、管理者と投稿者に分ける / バックアップと復元 / REST API と MCP で、AI から記事を扱う（PAT） / 委託運用と顧客運用のあいだで引っ越す",
     notes:
-      "ログインはパスキー（指紋や顔認証など）だけで、パスワードはありません。パスキーは複数のデバイスに登録しておいてください。パスキーをすべて失くしたときは、ログイン画面から登録済みのメールアドレスに再設定のリンクを送れます。記事の公開・非公開や表示の設定を変えても、ビルドするまで公開ページは変わりません。顧客導入では、Cloudflare の無料枠を超えた分がご自身の Cloudflare に課金されます。委託運用では、メディアの保存に上限（1 サイト 10 GB）があります。使用状況はダッシュボードで確かめてください。",
+      "ログインはパスキー（指紋や顔認証など）だけで、パスワードはありません。パスキーは複数のデバイスに登録しておいてください。パスキーをすべて失くしたときは、ログイン画面から登録済みのメールアドレスに再設定のリンクを送れます。記事の公開・非公開や表示の設定を変えても、ビルドするまで公開ページは変わりません。顧客運用では、Cloudflare の無料枠を超えた分がご自身の Cloudflare に課金されます。委託運用では、メディアの保存に上限（1 サイト 10 GB）があります。使用状況はダッシュボードで確かめてください。",
   },
   dashboard: {
     title: "ダッシュボード",
     role: "サイトの状態をまとめて見るホーム画面です。お知らせ・記事とメディアの数・使用状況・版（KuroCMS と、復旧の番人 WorkerOps）を表示します。",
     canDo:
-      "Entamy と KuroCMS からのお知らせを読む / 記事数と公開数、メディアの件数と容量を確かめる / D1・R2・KV の使用状況をグラフで確かめる（顧客導入では、無料枠と Workers Paid の含み分を切り替えられる） / KuroCMS と WorkerOps の版を確かめ、「今すぐ更新のチェック」「今すぐ更新」を押す / 「自動で更新する」「常に最新版に更新」を切り替える",
+      "Entamy と KuroCMS からのお知らせを読む / 記事数と公開数、メディアの件数と容量を確かめる / D1・R2・KV の使用状況をグラフで確かめる（顧客運用では、無料枠と Workers Paid の含み分を切り替えられる） / KuroCMS と WorkerOps の版を確かめ、「今すぐ更新のチェック」「今すぐ更新」を押す / 「自動で更新する」「常に最新版に更新」を切り替える",
     notes:
       "使用量が 70% を超えると黄色、90% を超えると赤になります。赤になる前に要らないメディアを消してください。委託運用では、使用状況は委託の上限に対して描きます。委託運用では更新を Entamy が届けるので、出るのは最新版のスイッチだけです。更新の仕組みはヘルプの「更新」を、お知らせはヘルプの「お知らせ」を見てください。",
   },
@@ -5317,7 +5318,7 @@ const helpContent: Record<string, Dynamic> = {
     canDo:
       "ドラッグ＆ドロップかクリックでアップロードする / MID を押して [[MID]] をコピーする / 一覧で確かめ、要らない画像を消す / 「画像サイズの自動縮小」で、アップロードのときの上限を選ぶ（変換しない・200KB・500KB・1MB・2MB）",
     notes:
-      "メディアは Cloudflare R2 に置きます。顧客導入で R2 がまだ無いときは、「設定 → 基本」の「R2 メディアストレージ」の手順でつないでください。自動縮小の設定はブラウザごとに覚えます。別のブラウザや端末では選び直してください。同じ内容の画像をもう一度上げると、前の画像を使い回します。アップロードした画像は、アドレスが分かれば誰でも見られます。人に見せない画像は置かないでください。",
+      "メディアは Cloudflare R2 に置きます。顧客運用で R2 がまだ無いときは、「設定 → 契約」の「R2 メディアストレージ」の手順でつないでください。自動縮小の設定はブラウザごとに覚えます。別のブラウザや端末では選び直してください。同じ内容の画像をもう一度上げると、前の画像を使い回します。アップロードした画像は、アドレスが分かれば誰でも見られます。人に見せない画像は置かないでください。",
   },
   videos: {
     title: "動画管理",
@@ -5370,29 +5371,29 @@ const helpContent: Record<string, Dynamic> = {
     title: "設定",
     role: "サイト全体の設定をまとめた画面です。タブごとに分かれています。開いているタブのくわしい説明は、そのタブでヘルプを押すと出ます。",
     canDo:
-      "基本：R2 メディアストレージ（顧客導入だけ） / ドメイン：公開ドメインと既定値に戻す・Worker の URL・独自ドメイン（委託運用は Cloudflare for SaaS で自分のドメインを付ける） / 表示：基本言語・サイトのタイムゾーン・記事の末尾に筆者を出すか・スマホで記事のメディアを全幅にするか / 契約：いまの運用の形と契約の状態・無料期間の残り・国ごとの料金・申し込みと解約への入口（委託運用だけ）、持ち主の登録、委託運用と顧客導入のあいだの引っ越し、KuroCMS の規約とポリシー・Entamy ID のアカウントの削除 / メール送信：この CMS のメールをどこから送るか（顧客導入だけ） / SNS連動：Bluesky・X・Threads の接続と、投稿済みの印の一括操作 / インポート：Strapi や別の KuroCMS から記事を取り込む / IP 制限：管理画面を使える回線を絞る / 稼働地域：データベースと KuroCMS が動いている場所を確かめる",
+      "ドメイン：公開ドメインと既定値に戻す・Worker の URL・独自ドメイン（委託運用は Cloudflare for SaaS で自分のドメインを付ける） / ビルド：基本言語・サイトのタイムゾーン・公開設定されている記事を自動ビルドして公開するか・記事の末尾に筆者を出すか・スマホで記事のメディアを全幅にするか / 契約：いまの運用の形と契約の状態・無料期間の残り・国ごとの料金・申し込みと解約への入口（委託運用だけ）、持ち主の登録、委託運用と顧客運用のあいだの引っ越し、R2 メディアストレージ（顧客運用だけ）、KuroCMS の規約とポリシー・Entamy ID のアカウントの削除 / メール送信：この CMS のメールをどこから送るか（顧客運用だけ） / SNS連動：Bluesky・X・Threads の接続と、投稿済みの印の一括操作 / インポート：Strapi や別の KuroCMS から記事を取り込む / IP 制限：管理画面を使える回線を絞る / 稼働地域：データベースと KuroCMS が動いている場所を確かめる",
     notes:
-      "表示の変更は、ビルド（全ページ）を実行するまで公開ページに出ません。公開ページ内のリンクは、ドメインのタブの一番上の公開ドメインから作ります。データベースの地域は作ったときに決まり、後から変えられません。契約情報は 1 時間ほどごとに更新されます。",
+      "ビルドのタブの変更は、ビルド（全ページ）を実行するまで公開ページに出ません（自動ビルドの入・切を除く）。公開ページ内のリンクは、ドメインのタブの一番上の公開ドメインから作ります。データベースの地域は作ったときに決まり、後から変えられません。契約情報は 1 時間ほどごとに更新されます。",
   },
   domain: {
     title: "ドメイン",
-    role: "このサイトをどのアドレスで公開するかを決めるタブです。顧客導入でも委託運用でも、ここにまとまっています。",
+    role: "このサイトをどのアドレスで公開するかを決めるタブです。顧客運用でも委託運用でも、ここにまとまっています。",
     canDo:
-      "公開ドメインを変える / 「既定値に戻す」で、委託運用は 導入 ID.kurocms.site に、顧客導入は workers.dev のアドレスに戻す / Worker の URL を確かめる（顧客導入） / Cloudflare の独自ドメインを付ける（顧客導入） / 自分のドメインで公開する（委託運用・Cloudflare for SaaS）",
+      "公開ドメインを変える / 「既定値に戻す」で、委託運用は 導入 ID.kurocms.site に、顧客運用は workers.dev のアドレスに戻す / Worker の URL を確かめる（顧客運用） / Cloudflare の独自ドメインを付ける（顧客運用） / 自分のドメインで公開する（委託運用・Cloudflare for SaaS）",
     notes:
       "公開ページ内のリンク（記事の URL・canonical・サイトマップなど）は、一番上の公開ドメインから作ります。変えたら保存して、全ページをビルドしてください。委託運用で自分のドメインを使うときは、ドメイン名を入れて「準備する」を押し、表示された TXT レコードを DNS に足します。証明書が発行済みになったら「ドメインを切り替える」を押し、最後に CNAME を 導入 ID.kurocms.site に向けます。Cloudflare で管理しているドメインは、CNAME を向けた時点で有効になります。ほかの DNS では、ルートのドメインに CNAME を置けないことが多いので、www などを使います。CNAME を書き換えると、そのドメインでそれまで表示していたものは見えなくなります。Cloudflare for SaaS は KuroCMS 側で契約しているので、お客様の追加の費用はありません。",
   },
   hosting: {
     title: "契約と引っ越し",
-    role: "このサイトがどこで動いているか（委託運用か顧客導入か）と、持ち主を確かめるタブです。もう一方の形への引っ越しもここで行います。",
+    role: "このサイトがどこで動いているか（委託運用か顧客運用か）と、持ち主を確かめるタブです。もう一方の形への引っ越しもここで行います。",
     canDo:
-      "いまの運用の形と委託の契約の状態・払い方（月払い・年払い）・契約日・次の更新日を見る / 無料期間の残りを棒で見る / 国（日本・米国・欧州）を選んで料金を見る（初めは回線の国） / 委託契約の申し込み・解約は、Entamy の契約の頁（新しいタブ・サイトの持ち主の Entamy ID でログイン）で行う / 持ち主（Entamy ID）のメールアドレスを登録・変更・取り消す / いまの運用の形を確かめる / 委託運用から、ご自身の Cloudflare アカウントへ引っ越す（顧客導入・無料） / 顧客導入から、Entamy の委託運用へ引っ越す（有料・最初に無料期間がある） / 引っ越しの工程と進み具合をダイアログで見る / 止まった引っ越しを「途中から再開」で続ける",
+      "いまの運用の形と委託の契約の状態・払い方（月払い・年払い）・契約日・次の更新日を見る / 無料期間の残りを棒で見る / 国（日本・米国・欧州）を選んで料金を見る（初めは回線の国） / 委託契約の申し込み・解約は、Entamy の契約の頁（新しいタブ・サイトの持ち主の Entamy ID でログイン）で行う / 持ち主（Entamy ID）のメールアドレスを登録・変更・取り消す / いまの運用の形を確かめる / 委託運用から、ご自身の Cloudflare アカウントへ引っ越す（顧客運用・無料） / 顧客運用から、Entamy の委託運用へ引っ越す（有料・最初に無料期間がある） / 引っ越しの工程と進み具合をダイアログで見る / 止まった引っ越しを「途中から再開」で続ける",
     notes:
       "導入口で入れたサイトは、そのときログインした Entamy ID が持ち主です。それより前に入れたサイトは、先に持ち主のメールアドレスを登録します。確認のメールが 1 通届きます。引っ越すには、KuroCMS を新しい版へ更新しておく必要があります。足りないときは画面が知らせます。写している間もサイトはそのまま使えます。止まるのは最後の突き合わせの数分だけです。ダイアログを閉じても引っ越しは止まりません。終わると、古いアドレスは新しいアドレスへの案内に替わり、管理者全員に、新しいアドレスでパスキーを登録するリンクがメールで届きます。持っていかないものは、パスキー・ログインの状態・登録した回線・PAT・SNS の連携の鍵・操作の記録です。更新の方式と IP 制限は、引っ越し先では既定に戻ります。委託運用の無料期間は、登録メールアカウントごとに 1 回です。委託運用へ移った後も、ご自身の Cloudflare に入れた KuroCMS は消しません。要らなければご自身で消してください。",
   },
   mail: {
     title: "メール送信",
-    role: "この CMS が送るメール（パスキーの再設定など）を、どこから送るかを決めるタブです。顧客導入のサイトにだけ出ます。",
+    role: "この CMS が送るメール（パスキーの再設定など）を、どこから送るかを決めるタブです。顧客運用のサイトにだけ出ます。",
     canDo:
       "いまの送り方（自分のドメイン、または黒兎のサーバー）を確かめる / 自分のドメインから送るスイッチを入れる / 最後のメールがどの経路で送られたかを確かめる / Cloudflare の Email Routing を設定する手順を見る",
     notes:
@@ -5471,7 +5472,7 @@ const helpContent: Record<string, Dynamic> = {
       },
       {
         q: "使用量が上限を超えるとどうなりますか？",
-        a: "顧客導入では、Cloudflare の無料枠を超えた分がご自身の Cloudflare に課金されます（後払い）。委託運用では、メディアの保存が上限に達すると、新しく保存できなくなります。どちらも、ダッシュボードで使用状況を確かめ、要らないメディアを消してください。",
+        a: "顧客運用では、Cloudflare の無料枠を超えた分がご自身の Cloudflare に課金されます（後払い）。委託運用では、メディアの保存が上限に達すると、新しく保存できなくなります。どちらも、ダッシュボードで使用状況を確かめ、要らないメディアを消してください。",
       },
       {
         q: "REST API や AI（MCP）から記事を扱うには？",
@@ -5479,7 +5480,7 @@ const helpContent: Record<string, Dynamic> = {
       },
       {
         q: "R2 が無くても使えますか？",
-        a: "文字だけの記事なら使えます。画像・動画・音楽には R2 が要ります。顧客導入では「設定 → 基本」の「R2 メディアストレージ」の手順でつないでください。委託運用では最初から使えます。",
+        a: "文字だけの記事なら使えます。画像・動画・音楽には R2 が要ります。顧客運用では「設定 → 契約」の「R2 メディアストレージ」の手順でつないでください。委託運用では最初から使えます。",
       },
       {
         q: "Strapi から取り込んだ記事を上書きしたい",
@@ -5532,7 +5533,7 @@ const helpContentEn: Record<string, Dynamic> = {
     canDo:
       'Upload by drag and drop or by clicking / Click an MID to copy [[MID]] / Review the list and delete images you no longer need / Choose the upload size limit under "Automatic image resizing" (no conversion, 200KB, 500KB, 1MB, 2MB)',
     notes:
-      "Media is stored in Cloudflare R2. If a self-hosted site has no R2 yet, connect it with the steps under Settings → Basic → R2 media storage. The auto-resize choice is remembered per browser, so choose again on another browser or device. Uploading the same image again reuses the existing one. Anyone who knows an uploaded image's address can see it, so do not upload private images.",
+      "Media is stored in Cloudflare R2. If a self-hosted site has no R2 yet, connect it with the steps under Settings → Contract → R2 media storage. The auto-resize choice is remembered per browser, so choose again on another browser or device. Uploading the same image again reuses the existing one. Anyone who knows an uploaded image's address can see it, so do not upload private images.",
   },
   videos: {
     title: "Videos",
@@ -5585,9 +5586,9 @@ const helpContentEn: Record<string, Dynamic> = {
     title: "Settings",
     role: "Site-wide settings, split into tabs. Press Help while a tab is open to see help for that tab.",
     canDo:
-      "Basic: R2 media storage (self-hosting only) / Domain: public domain and reset to default, Worker URL, custom domain (on managed hosting, attach your own domain with Cloudflare for SaaS) / Display: base language, site time zone, author line at the end of articles, full-width article media on phones / Contract: the hosting form and contract status, the free period left, prices by country, and the way to subscribe or cancel (managed hosting only); register the owner; move between managed hosting and self-hosting; KuroCMS terms and policies; Entamy ID account deletion / Email: where this CMS sends its mail from (self-hosting only) / SNS: connect Bluesky, X and Threads, and set or clear posted marks in bulk / Import: bring in articles from Strapi or another KuroCMS / IP restriction: limit the networks that can use the admin panel / Region: see where the database and KuroCMS run",
+      "Domain: public domain and reset to default, Worker URL, custom domain (on managed hosting, attach your own domain with Cloudflare for SaaS) / Build: base language, site time zone, whether posts set to published are auto-built and published, author line at the end of articles, full-width article media on phones / Contract: the hosting form and contract status, the free period left, prices by country, and the way to subscribe or cancel (managed hosting only); register the owner; move between managed hosting and self-hosting; R2 media storage (self-hosting only); KuroCMS terms and policies; Entamy ID account deletion / Email: where this CMS sends its mail from (self-hosting only) / SNS: connect Bluesky, X and Threads, and set or clear posted marks in bulk / Import: bring in articles from Strapi or another KuroCMS / IP restriction: limit the networks that can use the admin panel / Region: see where the database and KuroCMS run",
     notes:
-      "Display changes reach the public pages only after a full build. Links in your public pages are built from the public domain at the top of the Domain tab. The database region is fixed when the database is created. Contract information refreshes about once an hour.",
+      "Build tab changes reach the public pages only after a full build (except the auto-build switch). Links in your public pages are built from the public domain at the top of the Domain tab. The database region is fixed when the database is created. Contract information refreshes about once an hour.",
   },
   domain: {
     title: "Domain",
@@ -5694,7 +5695,7 @@ const helpContentEn: Record<string, Dynamic> = {
       },
       {
         q: "Can I use KuroCMS without R2?",
-        a: "Yes, for text-only articles. Images, video and audio need R2. When self-hosting, connect it with the steps under Settings → Basic → R2 media storage. Managed hosting has it from the start.",
+        a: "Yes, for text-only articles. Images, video and audio need R2. When self-hosting, connect it with the steps under Settings → Contract → R2 media storage. Managed hosting has it from the start.",
       },
       {
         q: "I want to overwrite articles imported from Strapi",
