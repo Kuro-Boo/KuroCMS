@@ -247,9 +247,10 @@ async function settings() {
       // サイト名はサイト管理（サイト情報）画面に移設。設定フォーム保存時は読込済みの
       // 値をそのままエコーして消えないようにする（saveAll 参照）。
       "<form class='panel stack' id='siteForm'>" +
-      "<div class='panelHead'><div class='fieldLabel' style='margin:0'>" +
+      // 枠の見出しは .panelHead h3 にそろえる(2026-11-03・利用者の指示)。
+      "<div class='panelHead'><h3>" +
       escapeHtml(t("publicDomain")) +
-      "</div><button type='button' class='secondary' id='resetPublicDomainBtn' style='font-size:12px;padding:4px 10px;display:none'>" +
+      "</h3><button type='button' class='secondary' id='resetPublicDomainBtn' style='font-size:12px;padding:4px 10px;display:none'>" +
       escapeHtml(t("publicDomainReset")) +
       "</button></div>" +
       "<div class='muted' id='publicDomainHelpText'>" +
@@ -272,9 +273,9 @@ async function settings() {
       // 顧客導入: Worker の URL と独自ドメイン(Cloudflare の Custom Domain)。
       "<div class='panel stack' id='selfDomainPanel'>" +
       "<div id='workerOriginSection' style='display:none'>" +
-      "<div class='fieldLabel'>" +
+      "<div class='panelHead' style='margin-bottom:6px'><h3>" +
       escapeHtml(t("workerOriginUrl")) +
-      "</div>" +
+      "</h3></div>" +
       "<div class='muted' style='margin-bottom:6px;font-size:12px'>" +
       escapeHtml(t("workerOriginHelp")) +
       "</div>" +
