@@ -319,13 +319,6 @@ async function settings() {
       escapeHtml(t("siteTimezoneHelp")) +
       "</div><select id='siteTimezone'></select></label>" +
       "<div class='muted' id='siteTimezoneNote' style='font-size:12px'></div>" +
-      // 記事末尾の「筆者: 表示名」。会社・製品紹介のサイトなど不要なら外す。
-      // 切り替えの行は部品(.toggleRow)を使う。label は display:grid なので、チェックが文字の上に載る。
-      "<div class='toggleRow'><div><div><b>" +
-      escapeHtml(t("showByline")) +
-      "</b></div><div class='tokenMeta'>" +
-      escapeHtml(t("showBylineHelp")) +
-      "</div></div><input id='showByline' type='checkbox' class='toggle' /></div>" +
       "<button>" +
       escapeHtml(t("saveSiteSettings")) +
       "</button>" +
@@ -349,6 +342,14 @@ async function settings() {
       "<div class='muted' style='font-size:12px'>" +
       escapeHtml(t("publishModeNote")) +
       "</div>" +
+      // 記事末尾の「筆者: 表示名」。会社・製品紹介のサイトなど不要なら外す。2026-11-03 に公開の枠へ移した。
+      // 切り替えたその場で保存する(saveAll。設定の PUT は全項目を送る形なので、同じ口に相乗りする)。
+      // 切り替えの行は部品(.toggleRow)を使う。label は display:grid なので、チェックが文字の上に載る。
+      "<div class='toggleRow'><div><div><b>" +
+      escapeHtml(t("showByline")) +
+      "</b></div><div class='tokenMeta'>" +
+      escapeHtml(t("showBylineHelp")) +
+      "</div></div><input id='showByline' type='checkbox' class='toggle' /></div>" +
       "</div>" +
       // スマホ向けレイアウト(サイトビルドの設定)。2026-11-02 に「スマホ設定」のタブから表示へ移した。
       // 保存は別の口(saveMobileBtn)なので、枠も分けたまま置く。
@@ -3375,6 +3376,11 @@ async function settings() {
       await saveAll(event.currentTarget);
       const out = byId("mobileStatus");
       if (out) out.textContent = t("mobileSavedNeedsBuild");
+    });
+
+    // 筆者の表示(公開の枠)は切り替えたその場で保存する。
+    byId("showByline")?.addEventListener("change", async (event: Dynamic) => {
+      await saveAll(event.currentTarget);
     });
 
     for (const formId of [
