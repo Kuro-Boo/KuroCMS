@@ -308,18 +308,21 @@ async function settings() {
       "<div style='display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start'>" +
       "<div class='stack' style='flex:1 1 380px;min-width:0'>" +
       "<form class='panel stack' id='displayForm'>" +
-      "<label>" +
+      // 見出しは右の枠と同じ .panelHead h3(2026-11-03・利用者の指示)。
+      "<div class='panelHead'><h3><label for='defaultLang' style='display:inline;margin:0;font:inherit;color:inherit'>" +
       escapeHtml(t("defaultLanguage")) +
-      "<div class='muted'>" +
+      "</label></h3></div>" +
+      "<div class='muted' style='font-size:12px'>" +
       escapeHtml(t("defaultLanguageHelp")) +
-      "</div><select id='defaultLang' required></select></label>" +
+      "</div><select id='defaultLang' required></select>" +
       // サイトの時計。月アーカイブの区切りと公開ページの日付表示の両方が
       // これで決まる（未設定 = UTC）。ビルド出力を変えるので再ビルドが要る。
-      "<label>" +
+      "<div class='panelHead' style='margin-top:12px'><h3><label for='siteTimezone' style='display:inline;margin:0;font:inherit;color:inherit'>" +
       escapeHtml(t("siteTimezone")) +
-      "<div class='muted'>" +
+      "</label></h3></div>" +
+      "<div class='muted' style='font-size:12px'>" +
       escapeHtml(t("siteTimezoneHelp")) +
-      "</div><select id='siteTimezone'></select></label>" +
+      "</div><select id='siteTimezone'></select>" +
       "<div class='muted' id='siteTimezoneNote' style='font-size:12px'></div>" +
       "<button>" +
       escapeHtml(t("saveSiteSettings")) +
