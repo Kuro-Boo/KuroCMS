@@ -281,8 +281,6 @@ export function adminHtml(
       /* Build-mode dropdown: opt out of the global "select{width:100%}" and the
          native arrow so the box auto-sizes to its widest option in any language
          (no clipping / no overlap) with a custom chevron in reserved padding. */
-      .buildModeSelect { width: auto; min-width: 0; max-width: 100%; appearance: none; -webkit-appearance: none; -moz-appearance: none; height: 38px; padding: 0 32px 0 12px; font-size: 13px; font-weight: 600; border-radius: 10px; border: 1px solid var(--line); background-color: var(--surface-2); color: var(--ink); cursor: pointer; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888888' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 12px center; transition: border-color .15s ease; }
-      .buildModeSelect:hover { border-color: var(--accent); }
       .articleTopGrid { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius) var(--radius) 0 0; display: grid; grid-template-columns: 2fr 1fr; align-items: stretch; }
       .articleCoverArea { padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; border-right: 1px solid var(--line); }
       .articleCoverBox { aspect-ratio: 3/1; width: 100%; border: 2px dashed var(--line); border-radius: 8px; overflow: hidden; background: var(--surface-2); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; transition: border-color .15s, background .15s; }
