@@ -1240,7 +1240,7 @@ const i18n = {
     contractKindPaid: "Paid",
     contractKindFree: "Free",
     contractKindManagedDesc:
-      "Runs this site on Entamy's Cloudflare account. Entamy takes care of the Cloudflare setup and updates.",
+      "Runs this site on Entamy's dedicated KuroCMS managed hosting servers. Entamy takes care of the Cloudflare setup and updates.",
     contractKindSelfDesc:
       "Runs on your own Cloudflare account. No contract is needed.",
     contractRulesTitle: "Contract rules",
@@ -2820,7 +2820,7 @@ const i18n = {
     contractKindPaid: "有料",
     contractKindFree: "無料",
     contractKindManagedDesc:
-      "Entamy の Cloudflare アカウントでこのサイトを動かします。Cloudflare の用意と更新は Entamy が受け持ちます。",
+      "Entamy社の KuroCMS 専用委託運用サーバーでこのサイトを動かします。Cloudflare の用意と更新は Entamy が受け持ちます。",
     contractKindSelfDesc:
       "ご自身の Cloudflare アカウントで動かします。契約は要りません。",
     contractRulesTitle: "契約の決まり",
