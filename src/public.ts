@@ -5344,7 +5344,9 @@ export {
 // disagreement (live only syncs on a fully drained build) and continues.
 
 /**
- * Cron entry point. Only acts in "auto" mode, and only when some document's
+ * Cron entry point. Acts in "auto" and "always" mode ("always" = auto that does
+ * not wait for publish_at; it still takes posts down at unpublish_at — 2026-11-03),
+ * and only when some document's
  * flag-state (mode within the publish window) disagrees with its materialized
  * `live` state. One predicate covers every pending transition — a manual
  * publish/unpublish flag flip AND a publish_at / unpublish_at boundary
@@ -5355,16 +5357,15 @@ export {
  */
 export async function runScheduledAutoBuild(env: Env): Promise<void> {
   if (!env.PUBLIC_PAGES) return;
-  if ((await buildModeForMinute(env)) !== "auto") return;
+  const mode = await buildModeForMinute(env);
+  if (mode === "manual") return;
 
-  // Must mirror the "window" filter (auto mode never builds future posts) and
-  // the build's live-sync CASE exactly, or the cron would loop or stall.
+  // Must mirror the build's filter (buildAllPublicPages: "always" → "future",
+  // otherwise "window") and its live-sync CASE exactly, or the cron would loop
+  // or stall. Both come from liveCaseSql.
   const pending = await env.DB.prepare(
     `SELECT COUNT(*) AS cnt FROM documents
-     WHERE live <> (CASE WHEN mode = 1
-       AND datetime(publish_at) <= datetime('now')
-       AND (unpublish_at IS NULL OR datetime(unpublish_at) > datetime('now'))
-       THEN 1 ELSE 0 END)`,
+     WHERE live <> (${liveCaseSql(mode === "always" ? "future" : "window")})`,
   ).first<{ cnt: number }>();
   // A build that finished but is not yet registered as Static Assets is not
   // finished: run it again (pages skip via the build cache; it registers).

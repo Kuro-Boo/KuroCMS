@@ -6,6 +6,50 @@
  */
 const CONTRACT_PAGE = "https://kurocms.entamy.com/contract/";
 
+/** 設定 → 表示 の「予定記事の公開」。選んだその場で保存し、失敗したら元の値に戻す。 */
+function mountPublishMode() {
+  const radios = Array.from(
+    document.querySelectorAll<HTMLInputElement>("input[name='publishMode']"),
+  );
+  if (!radios.length) return;
+  let current = "";
+  const pick = function (mode: string) {
+    current = mode;
+    for (const r of radios) r.checked = r.value === mode;
+  };
+  if (state.preview) {
+    pick("manual");
+    return;
+  }
+  api("/api/build/mode")
+    .then(function (d: Dynamic) {
+      pick(typeof d?.mode === "string" ? d.mode : "manual");
+    })
+    .catch(function () {});
+  for (const r of radios) {
+    r.addEventListener("change", function () {
+      if (!r.checked || r.value === current) return;
+      const prev = current;
+      for (const x of radios) x.disabled = true;
+      api("/api/build/mode", {
+        method: "PUT",
+        body: JSON.stringify({ mode: r.value }),
+      })
+        .then(function () {
+          current = r.value;
+          toast(t("publishModeSaved"), false, r);
+        })
+        .catch(function (e: Dynamic) {
+          pick(prev);
+          toast(String(e?.message || e), true, r);
+        })
+        .finally(function () {
+          for (const x of radios) x.disabled = false;
+        });
+    });
+  }
+}
+
 async function settings() {
   // Import article-list sort order (shared by the Strapi / KuroCMS lists).
   // Default: publish date, newest first.
@@ -297,6 +341,39 @@ async function settings() {
       escapeHtml(t("saveSiteSettings")) +
       "</button>" +
       "</form>" +
+      // 予定記事の公開(ビルドの方式 manual / auto / always・build-mode.ts)。2026-11-03 に記事一覧の
+      // 下のバーの選択欄から移した —— あの欄は「今回のビルド」と「サイトの決まり」が混ざっていた。
+      // 選んだその場で保存する(PUT /api/build/mode)。
+      "<div class='panel stack' id='publishModePanel'>" +
+      "<div class='panelHead'><h3>" +
+      escapeHtml(t("publishModeLabel")) +
+      "</h3></div>" +
+      "<div class='muted' style='font-size:12px'>" +
+      escapeHtml(t("publishModeHelp")) +
+      "</div>" +
+      (["manual", "auto", "always"] as const)
+        .map(function (m) {
+          const k =
+            m === "manual"
+              ? "publishModeManual"
+              : m === "auto"
+                ? "publishModeAuto"
+                : "publishModeAlways";
+          return (
+            "<label class='toggleRow' style='cursor:pointer'><div><div><b>" +
+            escapeHtml(t(k)) +
+            "</b></div><div class='tokenMeta'>" +
+            escapeHtml(t(k + "Help")) +
+            "</div></div><input type='radio' name='publishMode' value='" +
+            m +
+            "' style='width:auto;margin:0' /></label>"
+          );
+        })
+        .join("") +
+      "<div class='muted' style='font-size:12px'>" +
+      escapeHtml(t("publishModeNote")) +
+      "</div>" +
+      "</div>" +
       // スマホ向けレイアウト(サイトビルドの設定)。2026-11-02 に「スマホ設定」のタブから表示へ移した。
       // 保存は別の口(saveMobileBtn)なので、枠も分けたまま置く。
       "<div class='panel stack'>" +
@@ -1851,6 +1928,7 @@ async function settings() {
     // 運用の形(委託運用なら顧客導入へ、顧客導入なら委託運用へ)。引っ越しはこの画面の中で進める。
     void mountSiteMove();
     void mountMailSettings();
+    mountPublishMode();
     // ?tab=… で開くタブを選べる(契約の窓の「自分の Cloudflare へ引っ越す」が hosting を開く)。
     {
       const want = new URLSearchParams(location.search).get("tab") || "";

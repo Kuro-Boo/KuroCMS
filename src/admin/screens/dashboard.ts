@@ -1100,26 +1100,16 @@ async function articles() {
   buildBar.className = "articleBottomBar";
   buildBar.id = "artsBuildBar";
   buildBar.innerHTML =
-    "<div style='display:flex;align-items:center;gap:8px;min-width:0'>" +
-    "<label for='artsBuildMode' style='font-size:12px;font-weight:700;color:var(--muted);white-space:nowrap'>" +
-    escapeHtml(t("buildModeLabel")) +
+    // 下のバーは今回のビルドのことだけ(2026-11-03)。予定記事の公開(manual/auto/always)は
+    // 設定 → 表示 の「予定記事の公開」で決め、ここにはいまの値だけを出す。
+    "<div style='display:flex;align-items:center;gap:14px;min-width:0;flex-wrap:wrap'>" +
+    "<label class='buildForceRow' title='" +
+    escapeHtml(t("buildForceAllHelp")) +
+    "' style='display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;white-space:nowrap;cursor:pointer'>" +
+    "<input type='checkbox' id='artsBuildForce' style='width:auto;margin:0' />" +
+    escapeHtml(t("buildForceAll")) +
     "</label>" +
-    // .buildModeSelect opts out of the global select{width:100%} and the native
-    // arrow so the box auto-sizes to its widest option in any language.
-    "<select id='artsBuildMode' class='buildModeSelect'>" +
-    "<option value='manual'>" +
-    escapeHtml(t("buildModeManual")) +
-    "</option>" +
-    "<option value='auto'>" +
-    escapeHtml(t("buildModeAuto")) +
-    "</option>" +
-    "<option value='always'>" +
-    escapeHtml(t("buildModeAlways")) +
-    "</option>" +
-    "<option value='forceAll'>" +
-    escapeHtml(t("buildModeForceAll")) +
-    "</option>" +
-    "</select>" +
+    "<span id='artsPublishMode' style='font-size:12px;color:var(--muted);white-space:nowrap'></span>" +
     "</div>" +
     "<div style='display:flex;align-items:center;gap:12px'>" +
     "<button type='button' id='artsBuildBtn'>&#9654; " +
@@ -1132,56 +1122,44 @@ async function articles() {
   document.body.appendChild(buildBar);
   trackBottomBarHeight(buildBar);
   byId("artsBuildBtn")?.addEventListener("click", function () {
-    // "forceAll" is not a persisted scheduling mode — it is a one-shot directive
-    // to rebuild every page (ignore the build cache). Any other selection builds
-    // incrementally as before.
-    const sel = byId("artsBuildMode") as HTMLSelectElement | null;
-    runBuildWithProgress(sel?.value === "forceAll");
+    // 「強制で全ページを作り直す」は今回 1 回だけの指示。押したら外す(保存しない)。
+    const force = byId("artsBuildForce") as HTMLInputElement | null;
+    const all = !!force?.checked;
+    if (force) force.checked = false;
+    runBuildWithProgress(all);
   });
-  // Build scheduling mode selector (manual / auto / always), persisted in KV.
-  const buildModeSel = byId("artsBuildMode") as HTMLSelectElement | null;
-  if (buildModeSel) {
-    let lastMode = "manual";
-    api("/api/build/mode")
-      .then(function (d) {
-        if (d && typeof d.mode === "string") {
-          lastMode = d.mode;
-          buildModeSel.value = d.mode;
-          // 一覧より後に届く。ビルド状態バッジの意味が変わるので描き直す。
-          if (listBuildMode !== d.mode) {
-            listBuildMode = d.mode;
-            if (allDocs.length) renderList();
-          }
-        }
-      })
-      .catch(function () {});
-    buildModeSel.addEventListener("change", function () {
-      const mode = buildModeSel.value;
-      // "forceAll" is a one-shot build directive, not a scheduling mode — never
-      // persist it (the server only accepts manual/auto/always). Leave the real
-      // scheduling mode untouched; the build button reads this selection to force.
-      if (mode === "forceAll") return;
-      const prev = lastMode;
-      buildModeSel.disabled = true;
-      // Only persist the mode. Building always happens via the build button —
-      // changing the selector never triggers a build on its own.
-      api("/api/build/mode", {
-        method: "PUT",
-        body: JSON.stringify({ mode }),
-      })
-        .then(function () {
-          lastMode = mode;
-          listBuildMode = mode;
+  // 予定記事の公開(manual / auto / always)は表示だけ。管理者には設定へのリンクにする。
+  const publishModeEl = byId("artsPublishMode");
+  const showPublishMode = function (mode: string) {
+    if (!publishModeEl) return;
+    const key =
+      mode === "auto"
+        ? "publishModeShortAuto"
+        : mode === "always"
+          ? "publishModeShortAlways"
+          : "publishModeShortManual";
+    const text = t("publishModeLabel") + ": " + t(key);
+    publishModeEl.innerHTML = state.isAdmin
+      ? "<a href='" +
+        escapeHtml(adminHref("/settings") + "?tab=display") +
+        "' style='color:inherit'>" +
+        escapeHtml(text) +
+        "</a>"
+      : escapeHtml(text);
+  };
+  showPublishMode(listBuildMode);
+  api("/api/build/mode")
+    .then(function (d) {
+      if (d && typeof d.mode === "string") {
+        showPublishMode(d.mode);
+        // 一覧より後に届く。ビルド状態バッジの意味が変わるので描き直す。
+        if (listBuildMode !== d.mode) {
+          listBuildMode = d.mode;
           if (allDocs.length) renderList();
-        })
-        .catch(function () {
-          buildModeSel.value = prev; // revert on failure
-        })
-        .finally(function () {
-          buildModeSel.disabled = false;
-        });
-    });
-  }
+        }
+      }
+    })
+    .catch(function () {});
   api("/api/settings")
     .then(function (d) {
       const url = (d && d.settings && d.settings.publicDomain) || "";
