@@ -301,7 +301,7 @@ async function settings() {
       "</div>" +
       "</div>" +
       // ── 表示(基本言語・サイトの時計・筆者。公開ページの出し方。2026-10-21 に「基本」から分けた) ──
-      // 左右 1/2 ずつ(2026-11-03)。左は言語・時計・筆者、右は公開とスマホ向けレイアウト。狭い画面では縦に並ぶ。
+      // 左右 1/2 ずつ(2026-11-03)。左は言語・時計、右は公開(自動ビルド・筆者・スマホ)。狭い画面では縦に並ぶ。
       "<div id='panel-display' class='settingsPanel' style='display:none'>" +
       "<div style='display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start'>" +
       "<div class='stack' style='flex:1 1 380px;min-width:0'>" +
@@ -324,7 +324,7 @@ async function settings() {
       "</button>" +
       "</form>" +
       "</div>" +
-      // 右の列: 公開(自動ビルド)とスマホ向けレイアウト。
+      // 右の列: 公開(自動ビルド・筆者の表示・スマホでのメディアレイアウト)。
       "<div class='stack' style='flex:1 1 380px;min-width:0'>" +
       // 自動ビルドして公開する(ビルドの方式 manual / auto・build-mode.ts)。2026-11-03 に記事一覧の
       // 下のバーの選択欄から移した —— あの欄は「今回のビルド」と「サイトの決まり」が混ざっていた。
@@ -350,17 +350,8 @@ async function settings() {
       "</b></div><div class='tokenMeta'>" +
       escapeHtml(t("showBylineHelp")) +
       "</div></div><input id='showByline' type='checkbox' class='toggle' /></div>" +
-      "</div>" +
-      // スマホ向けレイアウト(サイトビルドの設定)。2026-11-02 に「スマホ設定」のタブから表示へ移した。
-      // 保存は別の口(saveMobileBtn)なので、枠も分けたまま置く。
-      "<div class='panel stack'>" +
-      "<div class='panelHead'><h3>" +
-      escapeHtml(t("mobileTitle")) +
-      "</h3></div>" +
-      "<div class='muted' style='font-size:12px'>" +
-      escapeHtml(t("mobileIntro")) +
-      "</div>" +
-      // 切り替えの行は部品(.toggleRow)を使う —— 何の切り替えかを、スイッチの横に書く。
+      // スマホでのメディアレイアウトの解除(サイトビルドの設定)。2026-11-03 にスマホ向けレイアウトの枠から
+      // 公開の枠へ移した。切り替えたその場で保存する(筆者の表示と同じ saveAll)。
       "<div class='toggleRow'><div><div><b>" +
       escapeHtml(t("mobileMediaFullWidth")) +
       "</b></div><div class='tokenMeta'>" +
@@ -368,12 +359,6 @@ async function settings() {
       "</div><div class='tokenMeta' style='margin-top:6px'>" +
       escapeHtml(t("mobileMediaFullWidthVideo")) +
       "</div></div><input id='mobileMediaFullWidth' type='checkbox' class='toggle' /></div>" +
-      "<div style='font-size:12px;padding:8px 10px;border-radius:8px;background:rgba(128,128,128,.12)'>" +
-      escapeHtml(t("mobileBuildNote")) +
-      "</div>" +
-      "<div class='toolbar'><button type='button' id='saveMobileBtn'>" +
-      escapeHtml(t("save")) +
-      "</button></div>" +
       "<div id='mobileStatus' class='muted' style='font-size:12px'></div>" +
       "</div>" +
       "</div>" +
@@ -3372,11 +3357,14 @@ async function settings() {
 
     // スマホ設定の保存。サイトビルドの出力を変える設定なので、保存しただけでは
     // 公開ページは変わらない（再ビルドが要る）ことを保存後にも伝える。
-    byId("saveMobileBtn")?.addEventListener("click", async (event: Dynamic) => {
-      await saveAll(event.currentTarget);
-      const out = byId("mobileStatus");
-      if (out) out.textContent = t("mobileSavedNeedsBuild");
-    });
+    byId("mobileMediaFullWidth")?.addEventListener(
+      "change",
+      async (event: Dynamic) => {
+        await saveAll(event.currentTarget);
+        const out = byId("mobileStatus");
+        if (out) out.textContent = t("mobileSavedNeedsBuild");
+      },
+    );
 
     // 筆者の表示(公開の枠)は切り替えたその場で保存する。
     byId("showByline")?.addEventListener("change", async (event: Dynamic) => {

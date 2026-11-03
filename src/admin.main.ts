@@ -1149,16 +1149,11 @@ const i18n = {
       "Adds “Written by: <display name of the person who created the article>” below each article, and names that person as the author in the structured data for search engines. Turn it off for sites that do not need an author line, such as company or product sites — the structured data then names the site as the author instead. Changing it changes generated HTML, so run a build (all pages) afterwards.",
     siteTimezoneAutoSet:
       "Site time zone set to {tz} (from this browser). Article dates and the monthly archive now follow it — run a build (all pages) to apply it to the public site. You can change it under Settings → Display.",
-    mobileTitle: "Mobile layout (site build)",
-    mobileIntro:
-      "These settings change the HTML that the SITE BUILD generates for your public pages. They do not affect the KuroCMS admin screens or the editor — what you see while writing stays exactly the same.",
     mobileMediaFullWidth: "Drop media layout on phones",
     mobileMediaFullWidthHelp:
       "When ON, media in article bodies is forced to 100% width with no text wrapping on screens up to 640px. Widths and alignment you set while writing (e.g. 50% / left) still apply on desktop — they are only dropped on narrow screens, where there is no room for text to wrap beside a half-width image.",
     mobileMediaFullWidthVideo:
       "Side effect on YouTube: at full width the player is large enough to play in place, so tapping plays it right there instead of opening the enlarged overlay. Images are full width either way, so tapping still opens them enlarged as before.",
-    mobileBuildNote:
-      "Saving alone changes nothing on the public site — the setting is applied when pages are generated. Run a build (all pages) to reflect it.",
     mobileSavedNeedsBuild:
       "Saved. Run a build (all pages) to apply it to the public site.",
     settingsTabImport: "Import",
@@ -2735,16 +2730,11 @@ const i18n = {
       "記事の下に「筆者: 記事を作った人の表示名」を出し、検索エンジン向けの構造化データでもその人を著者にします。会社・製品紹介のサイトなど、筆者を出す必要がないサイトは OFF にしてください（構造化データの著者はサイト名になります）。生成される HTML が変わるので、変更後はビルド（全ページ）を実行してください。",
     siteTimezoneAutoSet:
       "サイトのタイムゾーンを {tz}（このブラウザの設定）にしました。記事の日付と月別アーカイブの区切りがこれに従います。公開ページに反映するにはビルド（全ページ）を実行してください。変更は設定 → 表示タブから行えます。",
-    mobileTitle: "スマホ向けレイアウト（サイトビルドの設定）",
-    mobileIntro:
-      "ここの設定は、サイトビルドが生成する公開ページの HTML を変えるものです。KuroCMS の管理画面やエディタの表示は変わりません（執筆中の見え方はそのままです）。",
     mobileMediaFullWidth: "スマホでのメディアレイアウトの解除",
     mobileMediaFullWidthHelp:
       "ON にすると、幅 640px 以下の画面では記事本文中のメディアを常に 100% 幅にし、回り込みを解除します。執筆時に指定した幅や寄せ（50%・左寄せなど）は PC ではそのまま効き、狭い画面でだけ無効になります（半分の幅の横に文章を回り込ませる余地が無いため）。",
     mobileMediaFullWidthVideo:
       "YouTube への副作用: 全幅になるとプレイヤーが十分な大きさになるため、タップすると拡大オーバーレイではなく【その場で再生】されます。画像はどちらでも全幅なので、タップ時の動作は変わりません（従来どおり拡大表示）。",
-    mobileBuildNote:
-      "保存しただけでは公開ページは変わりません。この設定はページ生成時に反映されるので、ビルド（全ページ）を実行してください。",
     mobileSavedNeedsBuild:
       "保存しました。公開ページに反映するにはビルド（全ページ）を実行してください。",
     settingsTabImport: "インポート",
