@@ -1138,6 +1138,8 @@ const i18n = {
     summary: "Summary",
     settingsTabBasic: "Basic",
     settingsTabDisplay: "Display",
+    settingsTabBuild: "Build",
+    buildPagePanelTitle: "Page output",
     settingsTabSns: "SNS",
     siteTimezone: "Site time zone",
     siteTimezoneHelp:
@@ -2719,6 +2721,8 @@ const i18n = {
     inviteUser: "ユーザーを招待",
     settingsTabBasic: "基本",
     settingsTabDisplay: "表示",
+    settingsTabBuild: "ビルド",
+    buildPagePanelTitle: "ページの表示",
     settingsTabSns: "SNS連動",
     siteTimezone: "サイトのタイムゾーン",
     siteTimezoneHelp:
