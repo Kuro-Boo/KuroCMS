@@ -197,9 +197,8 @@ async function settings() {
   const tabBar = [
     // ドメイン(公開ドメイン・Worker の URL・独自ドメイン)。顧客導入でも委託運用でも同じタブ(2026-10-22)。
     "domain",
-    // 表示(基本言語・時計)。「基本」が長く、下の項目を見落とすので分けた。
-    "display",
-    // ビルド(自動ビルド・筆者の表示・スマホでのメディアレイアウト・2026-11-03)。
+    // ビルド(基本言語・時計・自動ビルド・筆者・スマホ)。「基本」が長く、下の項目を見落とすので分けた
+    // 「表示」のタブを、2026-11-03 に「ビルド」へ改めた(どれもビルドが作るページを変える)。
     "build",
     // 契約(2026-10-25 に「運用の形」から「契約形式」へ、2026-10-27 に「契約」へ改名・cms-pricing「契約のタブ」)。
     // いまの契約・無料期間・国ごとの料金・申し込みと解約への入口、持ち主、委託運用 ⇄ 顧客導入の引っ越し。
@@ -213,7 +212,6 @@ async function settings() {
     .map((id) => {
       const labels: Record<string, string> = {
         domain: t("settingsTabDomain"),
-        display: t("settingsTabDisplay"),
         build: t("settingsTabBuild"),
         hosting: t("siteMoveTitle"),
         mail: t("settingsTabMail"),
@@ -303,10 +301,12 @@ async function settings() {
       "<div id='regionColumn' style='flex:1 1 260px;min-width:0'></div>" +
       "</div>" +
       "</div>" +
-      // ── 表示(基本言語・サイトの時計。2026-10-21 に「基本」から分けた) ──
-      // 筆者の表示・スマホ・自動ビルドは 2026-11-03 に「ビルド」のタブへ移した。
-      "<div id='panel-display' class='settingsPanel' style='display:none'>" +
-      "<div class='stack' style='max-width:720px'>" +
+      // ── ビルド(2026-11-03 に「表示」のタブを改めた)。基本言語・サイトの時計、自動ビルド、ビルドが作るページの
+      // 出し方(筆者・スマホ)。左右 1/2 ずつ —— 左は言語と時計(保存ボタンで保存)、右は公開とページの表示
+      // (切り替えたその場で保存)。狭い画面では縦に並ぶ。
+      "<div id='panel-build' class='settingsPanel' style='display:none'>" +
+      "<div style='display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start'>" +
+      "<div class='stack' style='flex:1 1 380px;min-width:0'>" +
       "<form class='panel stack' id='displayForm'>" +
       "<label>" +
       escapeHtml(t("defaultLanguage")) +
@@ -326,14 +326,10 @@ async function settings() {
       "</button>" +
       "</form>" +
       "</div>" +
-      "</div>" +
-      // ── ビルド(2026-11-03)。ビルドのしかたと、ビルドが作るページの出し方。どれも切り替えたその場で保存する。
-      // 左右 1/2 ずつ。左は公開(自動ビルド)、右はページの表示(筆者・スマホ)。狭い画面では縦に並ぶ。
-      "<div id='panel-build' class='settingsPanel' style='display:none'>" +
-      "<div style='display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start'>" +
+      "<div class='stack' style='flex:1 1 380px;min-width:0'>" +
       // 自動ビルドして公開する(ビルドの方式 manual / auto・build-mode.ts)。記事一覧の下のバーの選択欄から
       // 移した —— あの欄は「今回のビルド」と「サイトの決まり」が混ざっていた。PUT /api/build/mode。
-      "<div class='panel stack' id='publishModePanel' style='flex:1 1 380px;min-width:0'>" +
+      "<div class='panel stack' id='publishModePanel'>" +
       "<div class='panelHead'><h3>" +
       escapeHtml(t("publishPanelTitle")) +
       "</h3></div>" +
@@ -347,7 +343,7 @@ async function settings() {
       escapeHtml(t("publishModeNote")) +
       "</div>" +
       "</div>" +
-      "<div class='panel stack' style='flex:1 1 380px;min-width:0'>" +
+      "<div class='panel stack'>" +
       "<div class='panelHead'><h3>" +
       escapeHtml(t("buildPagePanelTitle")) +
       "</h3></div>" +
@@ -369,6 +365,7 @@ async function settings() {
       escapeHtml(t("mobileMediaFullWidthVideo")) +
       "</div></div><input id='mobileMediaFullWidth' type='checkbox' class='toggle' /></div>" +
       "<div id='mobileStatus' class='muted' style='font-size:12px'></div>" +
+      "</div>" +
       "</div>" +
       "</div>" +
       "</div>" +
