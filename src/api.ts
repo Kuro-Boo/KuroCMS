@@ -2436,6 +2436,35 @@ const failureText = (err: unknown): string => {
  *   直さなければ黒兎側の枠を食い続ける。結果は [`MailDeliveryStatus`] に残し、
  *   画面が理由を出せるようにする（失敗を握り潰さない）。
  */
+/**
+ * 回復のリンクでパスキーを足したことを本人へ知らせる(課題 d720ebda)。心当たりが無ければ、メールを読まれている。
+ * 言語は分からないので、日本語と英語を並べる。
+ */
+async function notifyRecoveryUsed(
+  env: Env,
+  request: Request,
+  email: string,
+): Promise<void> {
+  if (!email) return;
+  const settings = await env.DB.prepare(
+    "SELECT site_name FROM site_settings WHERE id = 1",
+  ).first<{ site_name: string | null }>();
+  const siteName = (settings?.site_name ?? "KuroCMS").trim() || "KuroCMS";
+  const admin = `${new URL(request.url).origin}${adminBasePath(env)}/`;
+  const at = new Date().toISOString();
+  await sendMail(env, {
+    to: email,
+    subject: `[${siteName}] 新しいパスキーが登録されました / A new passkey was registered`,
+    text:
+      `${siteName} の管理画面に、再設定のリンクから新しいパスキーが登録されました(${at})。\n` +
+      `ほかの端末のログインは切りました。\n` +
+      `心当たりが無い場合は、メールのアカウントを守ったうえで、管理画面のプロフィール → デバイスで知らないパスキーを消してください:\n${admin}\n\n` +
+      `A new passkey was registered for ${siteName} using a recovery link (${at}).\n` +
+      `Other devices have been signed out.\n` +
+      `If this was not you, secure your email account and remove unknown passkeys in Profile → Devices:\n${admin}\n`,
+  });
+}
+
 export async function sendMail(
   env: Env,
   msg: {
@@ -3139,6 +3168,12 @@ async function passkeyRegisterComplete(
       .bind(now, resolvedUid, tokenHash)
       .run()
       .catch(() => {});
+    // 回復はメールのリンクだけでパスキーを足せる(メールを読まれたときの乗っ取りの道・課題 d720ebda)。
+    // だから、その人のほかのセッションを切り(この後に作る 1 つだけにする)、足したことを本人へ知らせる。
+    await env.DB.prepare("DELETE FROM sessions WHERE uid = ?")
+      .bind(resolvedUid)
+      .run();
+    await notifyRecoveryUsed(env, request, resolvedEmail).catch(() => {});
   }
 
   const sessionId = await createSession(
