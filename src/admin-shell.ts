@@ -487,6 +487,13 @@ export function adminHtml(
       .tokenList { display: grid; gap: 6px; }
       .tokenRow { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; align-items: center; border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px; background: var(--surface-2); }
       .tokenRow button { padding: 4px 10px; font-size: 12px; }
+      /* 名前が長い行(メールの名前の端末・パスキー): 名前を 1 行目の幅いっぱいに置き、日時と押し所を 2 行目に並べる。
+         名前と押し所を横に並べると、切れ目のない名前が押し所の下へはみ出して重なった(2026-11-04)。 */
+      .tokenRow.stacked { display: flex; flex-direction: column; align-items: stretch; gap: 4px; }
+      .tokenRowName { overflow-wrap: anywhere; }
+      .tokenRowFoot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; }
+      .tokenRowFoot > .tokenMeta { flex: 1 1 14em; min-width: 0; }
+      .tokenRowFoot > .tokenRowActions { display: flex; gap: 6px; flex: none; margin-left: auto; }
       .tokenMeta { font-size: 11px; color: var(--muted); }
       .langPickerResults { max-height: 240px; overflow-y: auto; border: 1px solid var(--line); border-radius: 8px; margin-top: 8px; }
       .langPickerRow { padding: 8px 12px; cursor: pointer; font-size: 13px; border-bottom: 1px solid var(--line); }
