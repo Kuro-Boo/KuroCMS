@@ -68,6 +68,12 @@ export function clearSessionCookieHeader(secure: boolean): string {
 // Session management
 // ---------------------------------------------------------------------------
 
+/**
+ * セッションの表の鍵。**cookie の値そのものは持たず、その SHA-256 を持つ**(課題 cc941872)。D1 を読めた者が
+ * 値を写して利用者になりすませないように(PAT・回復・招待の鍵と同じ)。AuthUser.sessionId もこの鍵。
+ */
+export const sessionKey = (raw: string): Promise<string> => sha256Hex(raw);
+
 /** 要求の cookie に載ったセッションの ID。無ければ null(期限・持ち主は見ない)。 */
 function cookieSessionId(request: Request): string | null {
   const m = (request.headers.get("cookie") ?? "").match(
@@ -91,7 +97,7 @@ export async function createSession(
   const previous = cookieSessionId(request);
   if (previous) {
     await env.DB.prepare("DELETE FROM sessions WHERE session_id = ?")
-      .bind(previous)
+      .bind(await sessionKey(previous))
       .run();
   }
   const sessionId = "sess_" + randomToken();
@@ -100,7 +106,7 @@ export async function createSession(
   await env.DB.prepare(
     `INSERT INTO sessions (session_id, uid, expires_at, created_at, last_active_at, credential_id) VALUES (?, ?, ?, ?, ?, ?)`,
   )
-    .bind(sessionId, uid, expiresAt, now, now, credentialId)
+    .bind(await sessionKey(sessionId), uid, expiresAt, now, now, credentialId)
     .run();
   return sessionId;
 }
@@ -228,6 +234,7 @@ async function trySessionUser(
   }
 
   if (!sessionId) return null;
+  sessionId = await sessionKey(sessionId);
 
   const row = await env.DB.prepare(
     `SELECT
@@ -378,20 +385,39 @@ export async function bootstrapAdmin(
   return { uid };
 }
 
+/** PAT の期限として選べる日数(既定は 90 日・課題 fbcf9bd6)。 */
+export const PAT_EXPIRY_DAYS: readonly number[] = [30, 90, 365];
+
 export async function createPersonalAccessToken(
   env: Env,
   uid: string,
   name: string,
   scopes: string[],
+  expiresInDays: number,
 ): Promise<string> {
+  // 期限の無い鍵は作らない(作って忘れた鍵が永久に効く・課題 fbcf9bd6)。
+  if (!PAT_EXPIRY_DAYS.includes(expiresInDays)) {
+    throw new HttpError(400, "invalid_expiry", "Choose 30, 90 or 365 days.");
+  }
   const token = `kuro_${randomToken()}`;
   const tokenHash = await sha256Hex(token);
+  const expiresAt = new Date(
+    Date.now() + expiresInDays * 86_400_000,
+  ).toISOString();
   await env.DB.prepare(
     `INSERT INTO personal_access_tokens
-      (token_id, uid, token_hash, name, scopes_json, created_at)
-    VALUES (?, ?, ?, ?, ?, ?)`,
+      (token_id, uid, token_hash, name, scopes_json, created_at, expires_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)`,
   )
-    .bind(makeId("pat"), uid, tokenHash, name, JSON.stringify(scopes), nowIso())
+    .bind(
+      makeId("pat"),
+      uid,
+      tokenHash,
+      name,
+      JSON.stringify(scopes),
+      nowIso(),
+      expiresAt,
+    )
     .run();
   return token;
 }

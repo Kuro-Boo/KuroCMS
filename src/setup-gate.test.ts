@@ -5,6 +5,7 @@
 //
 // api.ts は拡張子の無い import で書かれているので、esbuild で 1 つに束ねてから読む(本物の口を叩く)。
 // D1 は本物の SQLite に全部の migration を当てる。
+import { sessionKey } from "./auth.ts";
 import { readdirSync, readFileSync, mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -322,6 +323,21 @@ console.log("setup-gate");
       .code,
     "session_required",
   );
+  // 取り返しのつかない操作は、管理者の PAT でも通らない(課題 13e50176)。
+  for (const [method, path, body] of [
+    ["POST", "/api/invitations", { email: "x@example.com" }],
+    ["PUT", "/api/users/usr_001", { isAdmin: true }],
+    ["DELETE", "/api/users/usr_001", undefined],
+    ["POST", "/api/system/restore/wipe-db", {}],
+    ["POST", "/api/system/restore/finish", {}],
+    ["PUT", "/api/system/update-channel", { channel: "stable" }],
+  ] as const) {
+    eq(
+      `管理者の PAT で ${method} ${path} は通らない`,
+      (await call(w, method, path, body, bearer(ADMIN))).code,
+      "session_required",
+    );
+  }
   eq(
     "執筆者だけの鍵は、管理者の利用者でも管理の口を通らない",
     (await call(w, "GET", "/api/users", undefined, bearer(AUTHOR))).status,
@@ -375,9 +391,14 @@ console.log("setup-gate");
     .run(now, now);
   w.raw
     .prepare(
-      "INSERT INTO sessions (session_id, uid, expires_at, created_at, last_active_at) VALUES ('sess_x', 'usr_001', ?, ?, ?)",
+      "INSERT INTO sessions (session_id, uid, expires_at, created_at, last_active_at) VALUES (?, 'usr_001', ?, ?, ?)",
     )
-    .run(new Date(Date.now() + 3_600_000).toISOString(), now, now);
+    .run(
+      await sessionKey("sess_x"),
+      new Date(Date.now() + 3_600_000).toISOString(),
+      now,
+      now,
+    );
   const cookie = { cookie: "kurocms_session=sess_x" };
   eq(
     "別の origin からの cookie の変更は断る",
@@ -418,6 +439,42 @@ console.log("setup-gate");
     ).status,
     201,
   );
+  // PAT は期限つき(既定 90 日・選べるのは 30・90・365 日・課題 fbcf9bd6)。
+  {
+    const same = { ...cookie, origin: "https://site.example" };
+    const listed = (await call(w, "GET", "/api/me/tokens", undefined, same))
+      .json.tokens as { expiresAt: string | null }[];
+    const days = (iso: string | null) =>
+      Math.round((Date.parse(iso ?? "") - Date.now()) / 86_400_000);
+    eq("既定の期限は 90 日", days(listed[0]?.expiresAt ?? null), 90);
+    await call(
+      w,
+      "POST",
+      "/api/me/tokens",
+      { name: "y", expiresInDays: 30 },
+      same,
+    );
+    const again = (await call(w, "GET", "/api/me/tokens", undefined, same)).json
+      .tokens as { expiresAt: string | null }[];
+    eq(
+      "30 日を選べる",
+      again.some((x) => days(x.expiresAt) === 30),
+      true,
+    );
+    eq(
+      "選べない日数(期限なし)は断る",
+      (
+        await call(
+          w,
+          "POST",
+          "/api/me/tokens",
+          { name: "z", expiresInDays: 0 },
+          same,
+        )
+      ).code,
+      "invalid_expiry",
+    );
+  }
   eq(
     "読むだけの要求は Origin を見ない",
     (
@@ -452,9 +509,14 @@ console.log("setup-gate");
     .run(now, now);
   w.raw
     .prepare(
-      "INSERT INTO sessions (session_id, uid, expires_at, created_at, last_active_at) VALUES ('sess_x', 'usr_001', ?, ?, ?)",
+      "INSERT INTO sessions (session_id, uid, expires_at, created_at, last_active_at) VALUES (?, 'usr_001', ?, ?, ?)",
     )
-    .run(new Date(Date.now() + 3_600_000).toISOString(), now, now);
+    .run(
+      await sessionKey("sess_x"),
+      new Date(Date.now() + 3_600_000).toISOString(),
+      now,
+      now,
+    );
   w.raw
     .prepare(
       "UPDATE site_settings SET bluesky_token = 'secret-bsky', site_name = 'S' WHERE id = 1",
@@ -513,9 +575,14 @@ console.log("setup-gate");
     .run(now, now);
   w.raw
     .prepare(
-      "INSERT INTO sessions (session_id, uid, expires_at, created_at, last_active_at) VALUES ('sess_x', 'usr_001', ?, ?, ?)",
+      "INSERT INTO sessions (session_id, uid, expires_at, created_at, last_active_at) VALUES (?, 'usr_001', ?, ?, ?)",
     )
-    .run(new Date(Date.now() + 3_600_000).toISOString(), now, now);
+    .run(
+      await sessionKey("sess_x"),
+      new Date(Date.now() + 3_600_000).toISOString(),
+      now,
+      now,
+    );
   const cookie = {
     cookie: "kurocms_session=sess_x",
     origin: "https://site.example",

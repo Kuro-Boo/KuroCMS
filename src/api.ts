@@ -12,6 +12,7 @@ import {
   requireAuthor,
   requireInteractiveUser,
   sessionCookieHeader,
+  sessionKey,
   tryAuth,
 } from "./auth";
 import { templateScriptWarnings } from "./template-scripts";
@@ -949,6 +950,8 @@ async function handleApiDispatch(
 
     if (request.method === "PUT" && path === "/api/system/update-channel") {
       requireAdmin(user);
+      // 取り返しのつかない操作は画面のセッションから(漏れた管理者の PAT で消させない・居座らせない・課題 13e50176)。
+      requireInteractiveUser(user);
       return withJsonHeaders(await setUpdateChannel(request, env));
     }
 
@@ -1315,6 +1318,8 @@ async function handleApiDispatch(
     }
     if (request.method === "POST" && path === "/api/system/restore/wipe-db") {
       requireAdmin(user);
+      // 取り返しのつかない操作は画面のセッションから(漏れた管理者の PAT で消させない・居座らせない・課題 13e50176)。
+      requireInteractiveUser(user);
       return withJsonHeaders(await restoreWipeDb(env));
     }
     if (
@@ -1322,6 +1327,8 @@ async function handleApiDispatch(
       path === "/api/system/restore/wipe-media"
     ) {
       requireAdmin(user);
+      // 取り返しのつかない操作は画面のセッションから(漏れた管理者の PAT で消させない・居座らせない・課題 13e50176)。
+      requireInteractiveUser(user);
       return withJsonHeaders(await restoreWipeMedia(env, url));
     }
     if (
@@ -1329,6 +1336,8 @@ async function handleApiDispatch(
       path === "/api/system/restore/wipe-pages"
     ) {
       requireAdmin(user);
+      // 取り返しのつかない操作は画面のセッションから(漏れた管理者の PAT で消させない・居座らせない・課題 13e50176)。
+      requireInteractiveUser(user);
       return withJsonHeaders(await restoreWipePages(env, url));
     }
     const restoreTableMatch = path.match(
@@ -1336,6 +1345,8 @@ async function handleApiDispatch(
     );
     if (request.method === "POST" && restoreTableMatch) {
       requireAdmin(user);
+      // 取り返しのつかない操作は画面のセッションから(漏れた管理者の PAT で消させない・居座らせない・課題 13e50176)。
+      requireInteractiveUser(user);
       return withJsonHeaders(
         await restoreTable(request, env, restoreTableMatch[1]),
       );
@@ -1345,6 +1356,8 @@ async function handleApiDispatch(
     );
     if (request.method === "POST" && restoreMediaMatch) {
       requireAdmin(user);
+      // 取り返しのつかない操作は画面のセッションから(漏れた管理者の PAT で消させない・居座らせない・課題 13e50176)。
+      requireInteractiveUser(user);
       return withJsonHeaders(
         await restoreMedia(request, env, restoreMediaMatch[1]),
       );
@@ -1371,6 +1384,8 @@ async function handleApiDispatch(
     }
     if (request.method === "POST" && path === "/api/system/restore/finish") {
       requireAdmin(user);
+      // 取り返しのつかない操作は画面のセッションから(漏れた管理者の PAT で消させない・居座らせない・課題 13e50176)。
+      requireInteractiveUser(user);
       return withJsonHeaders(await restoreFinish(env));
     }
 
@@ -1379,6 +1394,8 @@ async function handleApiDispatch(
     }
 
     if (request.method === "POST" && path === "/api/invitations") {
+      // 招待は新しい管理者を作れる(漏れた PAT で居座らせない・課題 13e50176)。
+      requireInteractiveUser(user);
       return withJsonHeaders(await createInvitation(request, env, user));
     }
 
@@ -1387,6 +1404,9 @@ async function handleApiDispatch(
     }
     const userUidMatch = path.match(/^\/api\/users\/([^/]+)$/);
     if (userUidMatch) {
+      // 権限の変更・削除は画面のセッションから(課題 13e50176)。
+      if (request.method === "PUT" || request.method === "DELETE")
+        requireInteractiveUser(user);
       if (request.method === "PUT")
         return withJsonHeaders(
           await updateUser(request, env, user, userUidMatch[1]),
@@ -2220,6 +2240,8 @@ async function authSession(request: Request, env: Env): Promise<Response> {
   if (!sessionId) {
     return json({ authenticated: false });
   }
+  // 表はハッシュで持つ(課題 cc941872)。
+  sessionId = await sessionKey(sessionId);
 
   const row = await env.DB.prepare(
     `SELECT
@@ -7680,13 +7702,18 @@ async function meTokens(
       user.isAdmin ? "admin" : "",
       user.isAuthor ? "author" : "",
     ].filter(Boolean);
+    const days = Number(body.expiresInDays ?? 90);
     const token = await createPersonalAccessToken(
       env,
       user.uid,
       name,
       scopes.length ? scopes : ["author"],
+      days,
     );
-    await logActivity(env, user, "token.create", "user", user.uid, { name });
+    await logActivity(env, user, "token.create", "user", user.uid, {
+      name,
+      expiresInDays: days,
+    });
     return json(
       {
         ok: true,

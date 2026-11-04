@@ -146,7 +146,24 @@ async function profile() {
       // 折り返す(見出しを縮めると 1 文字ずつ縦に割れた)。ボタンは枠より広くならないよう、狭いときは文言を折り返す。
       "<div style='display:flex;flex-wrap:wrap;align-items:center;gap:12px 20px'><h3 style='flex:1 1 12em;margin:0'>" +
       escapeHtml(t("profileApiAccess")) +
-      "</h3><form id='tokenForm' style='flex:0 1 auto;max-width:100%;margin:0'><button style='max-width:100%'>" +
+      "</h3><form id='tokenForm' style='flex:0 1 auto;max-width:100%;margin:0;display:flex;gap:8px;align-items:center;flex-wrap:wrap'>" +
+      // 期限(課題 fbcf9bd6)。期限の無い鍵は作れない。既定は 90 日。
+      "<label class='muted' style='font-size:12px;display:flex;gap:6px;align-items:center'>" +
+      escapeHtml(t("patExpiry")) +
+      "<select id='tokenExpiry'>" +
+      [30, 90, 365]
+        .map(
+          (d) =>
+            "<option value='" +
+            d +
+            "'" +
+            (d === 90 ? " selected" : "") +
+            ">" +
+            escapeHtml(t("patExpiryDays").replace("{n}", String(d))) +
+            "</option>",
+        )
+        .join("") +
+      "</select></label><button style='max-width:100%'>" +
       escapeHtml(t("createPatAction")) +
       "</button></form></div><p class='muted' style='margin:-4px 0 2px'>" +
       escapeHtml(t("profileApiAccessLead")) +
@@ -322,6 +339,17 @@ async function profile() {
             escapeHtml(token.name || t("patManager")) +
             "</b><div class='tokenMeta'>" +
             escapeHtml(formatDateTime(token.createdAt)) +
+            " · " +
+            escapeHtml(
+              !token.expiresAt
+                ? t("patNoExpiry")
+                : Date.parse(token.expiresAt) <= Date.now()
+                  ? t("patExpired")
+                  : t("patExpiresAt").replace(
+                      "{date}",
+                      formatDateTime(token.expiresAt),
+                    ),
+            ) +
             "</div></div>" +
             btn +
             "</div>"
@@ -367,7 +395,12 @@ async function profile() {
     try {
       const result = await api("/api/me/tokens", {
         method: "POST",
-        body: JSON.stringify({ name: "Personal token" }),
+        body: JSON.stringify({
+          name: "Personal token",
+          expiresInDays: Number(
+            (byId("tokenExpiry") as HTMLSelectElement | null)?.value || 90,
+          ),
+        }),
       });
       generatedToken = result.token || "";
       byId("generatedToken")!.textContent = generatedToken || "";

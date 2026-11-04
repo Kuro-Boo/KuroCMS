@@ -1041,6 +1041,11 @@ const i18n = {
     profileApiAccessLead:
       "Create a PAT for REST API access from AI tools, scripts, and external services.",
     createPatAction: "Create New Personal Access Token",
+    patExpiry: "Expires in",
+    patExpiryDays: "{n} days",
+    patExpiresAt: "Expires {date}",
+    patExpired: "Expired",
+    patNoExpiry: "No expiry (create a new token and revoke this one)",
     mcpConnectTitle: "Connect AI (MCP)",
     mcpConnectLead:
       "This site also runs an MCP server, so Claude / Claude Code can manage articles conversationally. Point your AI client at the endpoint below and use a PAT (created here) as the Bearer token.",
@@ -2569,6 +2574,11 @@ const i18n = {
     profileApiAccessLead:
       "REST APIでアクセスするためにPAT（Personal Access Token）を作成します。主にAIなどから利用されます。/api/help にアクセスするとREST API の使い方の説明が表示されます。",
     createPatAction: "新規Personal Access Tokenを作成",
+    patExpiry: "期限",
+    patExpiryDays: "{n} 日",
+    patExpiresAt: "期限 {date}",
+    patExpired: "期限切れ",
+    patNoExpiry: "期限なし（新しい鍵を作り、この鍵は止めてください）",
     mcpConnectTitle: "AI 連携（MCP）",
     mcpConnectLead:
       "このサイトは MCP サーバーも備えており、Claude / Claude Code から会話的に記事を管理できます。AI クライアントに下の接続先を設定し、ここで作る PAT を Bearer トークンとして使います。",

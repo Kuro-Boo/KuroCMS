@@ -3,7 +3,7 @@
 //   ・cookie のセッションは消え、新しい 1 つだけが残る(同じブラウザで入り直しても増えない)
 //   ・cookie が無ければ何も消さない。ほかのブラウザのセッションは残る
 import { DatabaseSync } from "node:sqlite";
-import { createSession } from "./auth.ts";
+import { createSession, sessionKey } from "./auth.ts";
 import type { Env } from "./types.ts";
 
 let failed = 0;
@@ -20,9 +20,16 @@ function check(name: string, got: unknown, want: unknown): void {
 const raw = new DatabaseSync(":memory:");
 raw.exec(`
   CREATE TABLE sessions (session_id TEXT PRIMARY KEY, uid TEXT, expires_at TEXT, created_at TEXT, last_active_at TEXT, credential_id TEXT);
-  INSERT INTO sessions VALUES ('sess_this_browser', 'u1', '2999-01-01T00:00:00.000Z', '2026-11-01T00:00:00.000Z', '2026-11-01T00:00:00.000Z', 'cred_a');
-  INSERT INTO sessions VALUES ('sess_other_browser', 'u1', '2999-01-01T00:00:00.000Z', '2026-11-01T00:00:00.000Z', '2026-11-01T00:00:00.000Z', 'cred_a');
 `);
+// 表は cookie の値の SHA-256 を持つ(課題 cc941872)。
+const K = sessionKey;
+for (const v of ["sess_this_browser", "sess_other_browser"]) {
+  raw
+    .prepare(
+      "INSERT INTO sessions VALUES (?, 'u1', '2999-01-01T00:00:00.000Z', '2026-11-01T00:00:00.000Z', '2026-11-01T00:00:00.000Z', 'cred_a')",
+    )
+    .run(await K(v));
+}
 const stmt = (sql: string, args: unknown[] = []) => ({
   bind: (...a: unknown[]) => stmt(sql, a),
   first: async () => raw.prepare(sql).get(...(args as never[])) ?? null,
@@ -54,7 +61,7 @@ const fresh = await createSession(
 check(
   "このブラウザの前のセッションは消え、新しいものに置き換わる",
   ids(),
-  [fresh, "sess_other_browser"].sort(),
+  [await K(fresh), await K("sess_other_browser")].sort(),
 );
 
 const again = await createSession(
@@ -66,14 +73,20 @@ const again = await createSession(
 check(
   "同じブラウザで入り直しても増えない",
   ids(),
-  [again, "sess_other_browser"].sort(),
+  [await K(again), await K("sess_other_browser")].sort(),
 );
 
 const noCookie = await createSession(env, login(), "u1", "cred_a");
 check(
   "cookie が無ければ何も消さない",
   ids(),
-  [again, noCookie, "sess_other_browser"].sort(),
+  [await K(again), await K(noCookie), await K("sess_other_browser")].sort(),
+);
+
+check(
+  "表には cookie の値そのものを持たない",
+  ids().some((x) => x.startsWith("sess_")),
+  false,
 );
 
 if (failed) {
