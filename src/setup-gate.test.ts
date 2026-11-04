@@ -275,6 +275,83 @@ console.log("setup-gate");
 }
 
 {
+  // ログインで始めた登録は、始めたログインがまだ有効なときだけ完了できる(課題 c3a5600c)。
+  const w = world();
+  const now = new Date().toISOString();
+  const later = new Date(Date.now() + 3_600_000).toISOString();
+  w.raw
+    .prepare(
+      "INSERT INTO users (uid, email, author_id, is_admin, is_author, created_at, updated_at) VALUES ('usr_001', 'a@example.com', 'au', 1, 1, ?, ?)",
+    )
+    .run(now, now);
+  const addSession = async (raw: string) =>
+    w.raw
+      .prepare(
+        "INSERT INTO sessions (session_id, uid, expires_at, created_at, last_active_at) VALUES (?, 'usr_001', ?, ?, ?)",
+      )
+      .run(await sessionKey(raw), later, now, now);
+  await addSession("sess_a");
+  await addSession("sess_b");
+  const as = (raw: string) => ({ cookie: `kurocms_session=${raw}` });
+  const begin = await call(
+    w,
+    "POST",
+    "/api/auth/passkey/register/begin",
+    {},
+    as("sess_a"),
+  );
+  eq("ログインで始められる", begin.status, 200);
+  const finish = async (h: Record<string, string>) =>
+    (
+      await call(
+        w,
+        "POST",
+        "/api/auth/passkey/register/complete",
+        { challengeId: begin.json.challengeId, credential },
+        h,
+      )
+    ).code;
+  eq(
+    "ログイン無しでは完了させない",
+    await finish({}),
+    "registration_not_authorized",
+  );
+  eq(
+    "同じ人の別のログインでも完了させない",
+    await finish(as("sess_b")),
+    "registration_not_authorized",
+  );
+  eq(
+    "始めたログインなら署名の確かめまで進む",
+    await finish(as("sess_a")),
+    "webauthn_verification_failed",
+  );
+  const begin2 = await call(
+    w,
+    "POST",
+    "/api/auth/passkey/register/begin",
+    {},
+    as("sess_a"),
+  );
+  w.raw
+    .prepare("DELETE FROM sessions WHERE session_id = ?")
+    .run(await sessionKey("sess_a"));
+  eq(
+    "始めたログインが切られたら完了させない",
+    (
+      await call(
+        w,
+        "POST",
+        "/api/auth/passkey/register/complete",
+        { challengeId: begin2.json.challengeId, credential },
+        as("sess_a"),
+      )
+    ).code,
+    "registration_not_authorized",
+  );
+}
+
+{
   // PAT の範囲と、PAT でできないこと。
   const w = world();
   const now = new Date().toISOString();

@@ -2792,7 +2792,7 @@ async function passkeyRegisterBegin(
   let userEmail: string;
   let resolvedUid: string | null;
   let authKind: RegisterAuth;
-  let authHash: string | null = null;
+  let authHash: string | null;
 
   // Authorization for who a new passkey may be registered to, in priority order:
   //   1. Authenticated session → add a device to MY account (body uid ignored).
@@ -2807,6 +2807,9 @@ async function passkeyRegisterBegin(
     resolvedUid = sessionUser.uid;
     userEmail = sessionUser.email;
     authKind = "session";
+    // 始めたログイン(ハッシュにした ID)に結び付け、完了でも同じログインがまだ有効かを見る。
+    // IP では縛らない —— 回線の切り替え・v4/v6 で本人だけが落ち、攻撃者は止まらない(課題 c3a5600c)。
+    authHash = sessionUser.sessionId ?? null;
   } else if (recoveryToken) {
     const rec = await lookupRecoveryToken(env, recoveryToken);
     if (!rec || Date.parse(rec.expires_at) <= Date.now()) {
@@ -2984,7 +2987,22 @@ async function passkeyRegisterComplete(
         : challengeRow.auth_kind === "setup"
           ? setupToken
           : null;
-  if (challengeRow.auth_hash !== null) {
+  if (challengeRow.auth_kind === "session") {
+    // 始めた時と同じブラウザの、まだ切られていないログインで完了すること(課題 c3a5600c)。
+    // 回復でほかのログインを切った後や、ログアウトの後に、始めていた登録で鍵を増やさせない。
+    const sessionUser = await tryAuth(env, request);
+    if (
+      !sessionUser?.sessionId ||
+      sessionUser.sessionId !== challengeRow.auth_hash ||
+      sessionUser.uid !== challengeRow.uid
+    ) {
+      throw new HttpError(
+        403,
+        "registration_not_authorized",
+        "Sign in again and start the registration again.",
+      );
+    }
+  } else if (challengeRow.auth_hash !== null) {
     if (!presented || (await sha256Hex(presented)) !== challengeRow.auth_hash) {
       throw new HttpError(
         403,
