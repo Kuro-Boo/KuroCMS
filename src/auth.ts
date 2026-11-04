@@ -1,7 +1,7 @@
-import { makeId, nowIso, randomToken, sha256Hex } from "./crypto";
-import { HttpError } from "./http";
+import { makeId, nowIso, randomToken, sha256Hex } from "./crypto.ts";
+import { HttpError } from "./http.ts";
 import { enforceNetwork } from "./ip-gate.ts";
-import type { AuthUser, Env } from "./types";
+import type { AuthUser, Env } from "./types.ts";
 
 async function nextUserId(env: Env): Promise<string> {
   const row = await env.DB.prepare("SELECT COUNT(*) AS cnt FROM users").first<{
@@ -68,11 +68,32 @@ export function clearSessionCookieHeader(secure: boolean): string {
 // Session management
 // ---------------------------------------------------------------------------
 
+/** 要求の cookie に載ったセッションの ID。無ければ null(期限・持ち主は見ない)。 */
+function cookieSessionId(request: Request): string | null {
+  const m = (request.headers.get("cookie") ?? "").match(
+    new RegExp(`(?:^|;\\s*)${SESSION_COOKIE}=([^;]+)`),
+  );
+  return m ? m[1] : null;
+}
+
+/**
+ * ログインでセッションを作る。**そのブラウザが持っていたセッションは消して置き換える**(1 つのブラウザに 1 つ)。
+ * 置き換えないと、IP 制限で止められてパスキーで入り直すたびに、前のセッションが cookie を失ったまま
+ * 30 日生きて「ログイン中の端末」に並んだ(2026-11-04・同じ端末が 4 つ並んだ)。前の持ち主が別の利用者でも消す
+ * (そのブラウザはもう前のセッションを名乗れない)。
+ */
 export async function createSession(
   env: Env,
+  request: Request,
   uid: string,
   credentialId: string | null = null,
 ): Promise<string> {
+  const previous = cookieSessionId(request);
+  if (previous) {
+    await env.DB.prepare("DELETE FROM sessions WHERE session_id = ?")
+      .bind(previous)
+      .run();
+  }
   const sessionId = "sess_" + randomToken();
   const now = nowIso();
   const expiresAt = new Date(Date.now() + SESSION_DURATION_MS).toISOString();

@@ -136,16 +136,17 @@ async function profile() {
       "</div></div><input id='darkModeToggle' type='checkbox' class='toggle'" +
       (state.colorMode === "dark" ? " checked" : "") +
       " /></div></div></div>" +
-      // PAT とMCP(2026-11-02 に並べ直した): 左 1/3 に PAT の作成と履歴、右 2/3 に MCP の繋ぎ方(長い URL とコマンドを
-      // 広い方に置く)。狭い画面では PAT が上、MCP が下に並ぶ。部品の id は変えない(下のコピー・作成の動きがそのまま効く)。
+      // PAT とMCP(2026-11-04 に幅を入れ替えた): 左 2/3 に PAT の作成と履歴、右 1/3 に MCP の繋ぎ方。
+      // 狭い画面では PAT が上、MCP が下に並ぶ。部品の id は変えない(下のコピー・作成の動きがそのまま効く)。
       "<div id='panel-pat' class='settingsPanel stack' style='display:none'>" +
       "<div style='display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start'>" +
-      // ── 左 1/3: Personal Access Token ─────────────────────────────────
-      "<div class='panel stack' style='flex:1 1 300px;min-width:0'>" +
-      // 追加のボタンは枠の中の右上(仕様 core-style-s3-8)。
-      "<div style='display:flex;align-items:flex-start;gap:20px'><h3 style='flex:1 1 auto;min-width:0;margin:0'>" +
+      // ── 左 2/3: Personal Access Token ─────────────────────────────────
+      "<div class='panel stack' style='flex:2 1 460px;min-width:0'>" +
+      // 追加のボタンは枠の中の右上(仕様 core-style-s3-8)。見出しは 12em を下回らせず、入らなければボタンを見出しの下へ
+      // 折り返す(見出しを縮めると 1 文字ずつ縦に割れた)。ボタンは枠より広くならないよう、狭いときは文言を折り返す。
+      "<div style='display:flex;flex-wrap:wrap;align-items:center;gap:12px 20px'><h3 style='flex:1 1 12em;margin:0'>" +
       escapeHtml(t("profileApiAccess")) +
-      "</h3><form id='tokenForm' style='flex:0 0 auto;margin:0'><button style='white-space:nowrap'>" +
+      "</h3><form id='tokenForm' style='flex:0 1 auto;max-width:100%;margin:0'><button style='max-width:100%'>" +
       escapeHtml(t("createPatAction")) +
       "</button></form></div><p class='muted' style='margin:-4px 0 2px'>" +
       escapeHtml(t("profileApiAccessLead")) +
@@ -158,8 +159,8 @@ async function profile() {
       "</button></div></div><div class='stack' style='gap:8px'><div class='tokenMeta'>" +
       escapeHtml(t("tokenHistory")) +
       "</div><div id='tokenHistory' class='tokenList'></div></div></div>" +
-      // ── 右 2/3: MCP で繋ぐ(接続先の URL とクライアントの設定) ──────────
-      "<div class='panel stack' style='flex:2 1 460px;min-width:0'><h3>" +
+      // ── 右 1/3: MCP で繋ぐ(接続先の URL とクライアントの設定) ──────────
+      "<div class='panel stack' style='flex:1 1 300px;min-width:0'><h3>" +
       escapeHtml(t("mcpConnectTitle")) +
       "</h3><p class='muted' style='margin:-4px 0 2px'>" +
       escapeHtml(t("mcpConnectLead")) +
@@ -189,9 +190,10 @@ async function profile() {
       "</p><div id='sessionList' class='tokenList'></div></div>" +
       "<div class='panel stack' style='flex:1 1 360px;min-width:0'>" +
       // 追加のボタンは枠の中の右上(仕様 core-style-s3-8)。
-      "<div style='display:flex;align-items:flex-start;gap:20px'><h3 style='flex:1 1 auto;min-width:0;margin:0'>" +
+      // 見出しとボタンは PAT の枠と同じく、入らなければボタンを見出しの下へ折り返す。
+      "<div style='display:flex;flex-wrap:wrap;align-items:center;gap:12px 20px'><h3 style='flex:1 1 12em;margin:0'>" +
       escapeHtml(t("passkeyManageTitle")) +
-      "</h3><form id='addPasskeyForm' style='flex:0 0 auto;margin:0'><button style='white-space:nowrap'>" +
+      "</h3><form id='addPasskeyForm' style='flex:0 1 auto;max-width:100%;margin:0'><button style='max-width:100%'>" +
       escapeHtml(t("addPasskey")) +
       "</button></form></div><p class='muted' style='margin:-4px 0 2px'>" +
       escapeHtml(t("passkeyDevicesLead")) +
@@ -574,7 +576,7 @@ async function profile() {
               s.last_active_at ? formatDateTime(s.last_active_at) : "—",
             );
           return (
-            "<div class='tokenRow'><div style='min-width:0'><b>" +
+            "<div class='tokenRow stacked'><div class='tokenRowName'><b>" +
             escapeHtml(s.device || t("sessionUnknownDevice")) +
             "</b>" +
             (s.current
@@ -582,17 +584,17 @@ async function profile() {
                 escapeHtml(t("sessionThisDevice")) +
                 "</span>"
               : "") +
-            "<div class='tokenMeta'>" +
+            "</div><div class='tokenRowFoot'><div class='tokenMeta'>" +
             meta +
-            "</div></div>" +
+            "</div>" +
             (s.current
               ? ""
-              : "<button class='danger-soft' style='white-space:nowrap' data-revoke-session='" +
+              : "<div class='tokenRowActions'><button class='danger-soft' style='white-space:nowrap' data-revoke-session='" +
                 escapeHtml(s.id) +
                 "'>" +
                 escapeHtml(t("sessionRevoke")) +
-                "</button>") +
-            "</div>"
+                "</button></div>") +
+            "</div></div>"
           );
         })
         .join("") ||
@@ -649,7 +651,7 @@ async function profile() {
                 escapeHtml(formatDateTime(pk.last_used_at))
               : "");
           return (
-            "<div class='tokenRow'><div><b>" +
+            "<div class='tokenRow stacked'><div class='tokenRowName'><b>" +
             escapeHtml(pk.display_name || t("passkeyDevices")) +
             "</b>" +
             (pk.current
@@ -657,9 +659,9 @@ async function profile() {
                 escapeHtml(t("passkeyCurrent")) +
                 "）</span>"
               : "") +
-            "<div class='tokenMeta'>" +
+            "</div><div class='tokenRowFoot'><div class='tokenMeta'>" +
             meta +
-            "</div></div><div style='display:flex;gap:6px'>" +
+            "</div><div class='tokenRowActions'>" +
             "<button class='secondary' data-rename-passkey='" +
             escapeHtml(pk.credential_id) +
             "' data-name='" +
@@ -670,7 +672,7 @@ async function profile() {
             escapeHtml(pk.credential_id) +
             "'>&#128465; " +
             escapeHtml(t("delete")) +
-            "</button></div></div>"
+            "</button></div></div></div>"
           );
         })
         .join("") ||

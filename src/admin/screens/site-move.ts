@@ -1,7 +1,7 @@
 // KuroCMS admin screen module. Concatenated by scripts/build-admin.js.
 //
 // 運用の形(仕様 cms-move-to-self「CMS の画面から」・2026-10-21)。設定の専用のタブ(「基本」の隣)に置く枠。
-// いま委託運用で動いていれば「ご自身の Cloudflare アカウントへ引っ越す」、顧客導入で動いていれば
+// いま委託運用で動いていれば「ご自身の Cloudflare アカウントへ引っ越す」、顧客運用で動いていれば
 // 「Entamy の委託運用へ引っ越す」だけを出す(トグルのように片方)。LP と導入口の頁は、まだ CMS を
 // 持っていない人のためのもので、運用中の人は確かめ・Cloudflare の欄・進み具合・再開までこの枠で済ませる。
 //
@@ -9,7 +9,7 @@
 // 委託のアドレスは最後に案内へ替わるので、サーバーを通すと結果を見届けられない。
 
 const SITE_MOVE_POLL_MS = 3000;
-// 番人(WorkerOps)の鍵は、顧客導入へ移るときにこの端末で作り、終わるまでこの端末にだけ覚える
+// 番人(WorkerOps)の鍵は、顧客運用へ移るときにこの端末で作り、終わるまでこの端末にだけ覚える
 // (引っ越しの結果には載らない。閉じても控え直せるように)。
 const SITE_MOVE_OPS_KEY = "kurocms_site_move_ops";
 
@@ -136,7 +136,7 @@ function siteMoveToken(prefix: string): string {
 }
 
 /**
- * 顧客導入へ移るときの WorkerOps の鍵を、引っ越しの途中で読み込み直しても見せられるように覚える。
+ * 顧客運用へ移るときの WorkerOps の鍵を、引っ越しの途中で読み込み直しても見せられるように覚える。
  * **このタブの間だけ**(sessionStorage・課題 78566a3d)。前は localStorage に置き、引っ越しが済んだ後も
  * ログアウトの後も残っていた。済んだ時・ログアウトの時に消す。前の版が localStorage に置いた鍵も消す。
  */
@@ -212,6 +212,23 @@ async function mountSiteMove(): Promise<void> {
     // 走っていないなら、もう追う必要はない(枠のボタンから開き直せる)。
     if (!lastJob) stop();
   }
+  // 「引っ越しを始める」は、確かめのトグルを入れ、Cloudflare の欄が埋まるまで押せない(2026-11-04・利用者)。
+  // 押してから叱るより、押せない形で見せる。start() の確かめは、そのまま残す(押せる形を飛ばされても止める)。
+  function siteMoveReady(): boolean {
+    if (!(byId("siteMoveConfirm") as Dynamic)?.checked) return false;
+    if (!toSelf) return true;
+    const accountId = String(
+      (byId("siteMoveAccountId") as Dynamic)?.value || "",
+    ).trim();
+    const token = String(
+      (byId("siteMoveToken") as Dynamic)?.value || "",
+    ).trim();
+    return /^[a-f0-9]{32}$/i.test(accountId) && token.length >= 20;
+  }
+  function syncStartButton() {
+    const btn = byId("siteMoveStart") as HTMLButtonElement | null;
+    if (btn) btn.disabled = !siteMoveReady();
+  }
   function openDialog() {
     closeDialog();
     overlay = createPopupBackdrop();
@@ -220,6 +237,9 @@ async function mountSiteMove(): Promise<void> {
     document.body.appendChild(overlay);
     byId("siteMoveCancel")!.addEventListener("click", closeDialog);
     byId("siteMoveStart")!.addEventListener("click", () => void start());
+    overlay.addEventListener("input", syncStartButton);
+    overlay.addEventListener("change", syncStartButton);
+    syncStartButton();
     if (lastJob) {
       showOps(opsKey);
       render(lastJob);
@@ -482,7 +502,7 @@ async function mountSiteMove(): Promise<void> {
     } catch (err) {
       toast(errorMessage(err), true);
     } finally {
-      btn.disabled = false;
+      syncStartButton();
     }
   }
 

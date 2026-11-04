@@ -60,7 +60,7 @@ const GUARDIAN_OFF_RECHECK_MS = 10 * 60_000;
 const MAILER_RETRY_MS = 10 * 60_000;
 
 /**
- * 毎分の仕事。cron(顧客導入の古い導入)か、番人から渡される分(tick・番人の毎分。WorkerOps の tick.ts)で走る。
+ * 毎分の仕事。cron(顧客運用の古い導入)か、番人から渡される分(tick・番人の毎分。WorkerOps の tick.ts)で走る。
  * どちらから来ても同じことをする(core-offering 11 節・2026-10-22: アカウントの cron を 1 本にする)。
  */
 async function runMinute(
@@ -520,7 +520,7 @@ const worker = {
 /**
  * 入口。fetch と cron は worker のまま。tick は番人(WorkerOps)が APP_SERVICE の束縛で呼ぶ毎分 ——
  * 束縛からしか呼べない(公開の URL からは届かない)。番人の版が APP_TICK=1 で呼べるようになったら、
- * 顧客導入は cron を番人の 1 本にまとめる(adoptGuardianMinute)。
+ * 顧客運用は cron を番人の 1 本にまとめる(adoptGuardianMinute)。
  */
 /**
  * 管理画面の HTML。要求ごとの nonce をインラインの script に付け、管理画面の CSP を付ける(課題 dffbd3ff・

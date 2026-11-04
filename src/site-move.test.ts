@@ -1,5 +1,5 @@
 // 運用の形の引っ越し(site-move.ts・仕様 cms-move-to-self「CMS の画面から」)の試験。
-// 確かめるのは —— 委託運用なら顧客導入へ、顧客導入なら委託運用へ頼む、Worker の名前が無い導入(v1)は
+// 確かめるのは —— 委託運用なら顧客運用へ、顧客運用なら委託運用へ頼む、Worker の名前が無い導入(v1)は
 // 頼まずに断る、導入口が断ったら置いた鍵を消して符号のまま返す、走っている引っ越しがあれば鍵を置き替えない。
 import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
@@ -99,7 +99,7 @@ const accepted = {
 
 console.log("site-move");
 {
-  // 顧客導入 → 委託運用。鍵を置き、Worker の名前と鍵と時間帯だけを送る。
+  // 顧客運用 → 委託運用。鍵を置き、Worker の名前と鍵と時間帯だけを送る。
   const { raw, env } = world({ CF_WORKER_NAME: "kurocms-app-0123abcd" });
   const { s, sent } = session(accepted);
   const job = await startSiteMove(
@@ -108,7 +108,7 @@ console.log("site-move");
     "ja",
     s,
   );
-  eq("顧客導入からは委託運用へ", sent[0]?.to, "managed");
+  eq("顧客運用からは委託運用へ", sent[0]?.to, "managed");
   eq("Cloudflare の欄は送らない", "accountId" in (sent[0] ?? {}), false);
   eq("Worker の名前を名乗る", sent[0]?.worker, "kurocms-app-0123abcd");
   const row = raw
@@ -156,7 +156,7 @@ console.log("site-move");
   );
 }
 {
-  // 委託運用 → 顧客導入。Cloudflare の欄も渡す。
+  // 委託運用 → 顧客運用。Cloudflare の欄も渡す。
   const { env } = world({
     CF_WORKER_NAME: "kurocms-app-0123abcd",
     MEDIA_QUOTA_BYTES: "10737418240",
@@ -172,7 +172,7 @@ console.log("site-move");
     "ja",
     s,
   );
-  eq("委託運用からは顧客導入へ", sent[0]?.to, "self");
+  eq("委託運用からは顧客運用へ", sent[0]?.to, "self");
   eq(
     "Cloudflare の欄を渡す",
     [sent[0]?.accountId, sent[0]?.workerOpsToken],

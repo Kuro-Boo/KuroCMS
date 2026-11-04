@@ -267,6 +267,8 @@ function renderNoticePanel() {
             ],
           ]
         : [["", mine]];
+    // 線は行と行の間だけに引く。先頭の行は上のタブの線と重なって 2 本に見えた(2026-11-04・利用者)。
+    let firstRow = true;
     for (const [label, items] of sections) {
       if (!items.length) continue;
       if (label)
@@ -281,8 +283,10 @@ function renderNoticePanel() {
         const row = el(
           "div",
           undefined,
-          "border-top:1px solid var(--line);padding:10px 0",
+          (firstRow ? "" : "border-top:1px solid var(--line);") +
+            "padding:10px 0",
         );
+        firstRow = false;
         row.appendChild(
           el(
             "div",
@@ -431,11 +435,14 @@ function noticeHistoryBox(): HTMLElement {
       e.style.cssText = "color:var(--muted);font-size:13px";
       list.appendChild(e);
     }
-    for (const h of d.items) {
+    for (const [i, h] of d.items.entries()) {
       // 1 行: 日付・題・どうなったか。本文は重ねたときの説明に回す(1 行に収める)。
+      // 線は行と行の間だけ。先頭の行は枠の区切りの線と重なって 2 本に見えた(2026-11-04・利用者)。
       const row = document.createElement("div");
       row.style.cssText =
-        "display:flex;gap:12px;align-items:baseline;border-top:1px solid var(--line);padding:6px 0;font-size:13px;min-width:0";
+        "display:flex;gap:12px;align-items:baseline;" +
+        (i ? "border-top:1px solid var(--line);" : "") +
+        "padding:6px 0;font-size:13px;min-width:0";
       row.title = h.body;
       const when = document.createElement("span");
       const at = new Date(h.at);

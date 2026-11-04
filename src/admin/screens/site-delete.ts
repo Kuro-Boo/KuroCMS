@@ -7,7 +7,7 @@
  * 設定の契約のタブの「サイトの持ち主」の枠の「サイトの削除」(2026-11-02 にプロフィールから移した)。窓は**消えるものを件数で見せ**(/api/system/site-delete)、
  * 消すのは Entamy の契約の頁で行う(Entamy ID でログインした持ち主が識別名を入れて消す・導入口の owner-sites)。
  * この管理画面は Entamy ID のログインを持たず、管理者は持ち主とは限らないので、ここでは消さない。
- * 契約があるサイトは消せない(先に解約)。顧客導入は自分の Cloudflare で片付ける(Entamy の「サイト管理」)。
+ * 契約があるサイトは消せない(先に解約)。顧客運用は自分の Cloudflare で片付ける(Entamy の「サイト管理」)。
  */
 const SITE_DELETE_PAGE = "https://kurocms.entamy.com/contract/";
 const SITE_MANAGE_PAGE = "https://kurocms.entamy.com/manage/";
@@ -81,7 +81,7 @@ async function siteDeleteDialog() {
   go.target = "_blank";
   go.rel = "noopener";
   if (!p.managed) {
-    // 顧客導入: 自分の Cloudflare のサイトは「サイト管理」で片付ける。
+    // 顧客運用: 自分の Cloudflare のサイトは「サイト管理」で片付ける。
     note.textContent = t("siteDeleteSelf");
     go.href = SITE_MANAGE_PAGE;
     go.textContent = t("siteDeleteOpenManage");
@@ -182,7 +182,7 @@ async function accountDeleteDialog() {
     return box;
   };
 
-  // 委託の人には、削除の前に「無料の顧客導入へ引っ越す」道を見せる(費用を止めたいだけなら、ID もサイトも消さずに済む)。
+  // 委託の人には、削除の前に「無料の顧客運用へ引っ越す」道を見せる(費用を止めたいだけなら、ID もサイトも消さずに済む)。
   // 引っ越しの窓は設定の「運用の形」のボタン(siteMoveOpen)が開く —— 持ち主の登録や版の確かめもそちらが持つ。
   const moveBtn = byId("siteMoveOpen") as HTMLButtonElement | null;
   let free: HTMLDivElement | null = null;

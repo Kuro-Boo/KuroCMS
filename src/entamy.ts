@@ -387,17 +387,39 @@ export interface NoticeView {
   stale: boolean;
 }
 
+/**
+ * 委託のこのサイトの導入 ID(委託の Worker の名前 kurocms-app-{導入 ID} から)。顧客運用は null。
+ * 契約がサイトごとの知らせ(cms-pricing 3節)を、このサイトのものだけに絞るのに使う。
+ */
+export function managedSiteId(env: Env): string | null {
+  return (
+    /^kurocms-app-([0-9a-f]{12})$/.exec(
+      (env.CF_WORKER_NAME ?? "").trim(),
+    )?.[1] ?? null
+  );
+}
+
 function noticeView(
   n: Awaited<ReturnType<typeof entamyNoticeFor>>,
   stale: boolean,
+  env: Env,
 ): NoticeView {
   const st = n.state();
+  // 口座宛ての知らせは持ち主の口座に届くので、持ち主の別のサイトの知らせ(site が違う)は出さない ——
+  // 別のサイトの画面で「このサイトを削除する」を押させない(2026-11-04)。
+  const mine = managedSiteId(env);
+  const notices = st.notices.filter((x) => !x.site || x.site === mine);
   return {
-    notices: st.notices as unknown as Array<Record<string, unknown>>,
+    notices: notices as unknown as Array<Record<string, unknown>>,
     acked: st.acked,
     otherEnabled: st.otherEnabled,
-    dialogs: n.dialogs().map((x) => x.id),
-    unread: n.unreadCount(),
+    dialogs: n
+      .dialogs()
+      .filter((x) => !x.site || x.site === mine)
+      .map((x) => x.id),
+    unread: notices.filter(
+      (x) => x.section === "product" && !st.acked.includes(x.id),
+    ).length,
     stale,
   };
 }
@@ -411,7 +433,7 @@ export async function noticeState(
   const n = await entamyNoticeFor(env, lang, tz);
   await n.load();
   const r = await n.refresh();
-  return noticeView(n, !r.ok);
+  return noticeView(n, !r.ok, env);
 }
 
 /** 既読にする。届かなければライブラリーが次に引く時に送り直す。 */
@@ -424,7 +446,7 @@ export async function noticeAck(
   const n = await entamyNoticeFor(env, lang, tz);
   await n.load();
   await n.ack(id);
-  return noticeView(n, false);
+  return noticeView(n, false, env);
 }
 
 /** 「ほかの製品のお知らせを受け取る」(導入ごと)。 */
@@ -438,7 +460,7 @@ export async function noticeSetOther(
   await n.load();
   await n.setOtherEnabled(enabled);
   await n.refresh();
-  return noticeView(n, false);
+  return noticeView(n, false, env);
 }
 
 /**

@@ -402,7 +402,7 @@ async function setupScreen(status: Dynamic, preserve: { email?: string } = {}) {
   email.value = preserve.email || "";
   /**
    * 導入口で入れた導入は、持ち主が導入口でメールを確かめ済み(2026-10-26・利用者の指示)。そのアドレスを
-   * 管理者にして、ここでは聞かない。取れなければ(顧客導入で持ち主が結ばれていない・訊けない)欄を出す。
+   * 管理者にして、ここでは聞かない。取れなければ(顧客運用で持ち主が結ばれていない・訊けない)欄を出す。
    */
   const adminBlock = byId("setupAdminBlock")!;
   const askEmail = () => {

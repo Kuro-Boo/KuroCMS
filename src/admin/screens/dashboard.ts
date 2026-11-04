@@ -77,7 +77,7 @@ async function dashboard() {
       "<div class='panel stack'>" +
       // 見出しの右端に「無料枠 / Paid」の切り替え。下のグラフをその上限で描き直す。
       "<div style='display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap'>" +
-      // 見出しの右に運用の形のバッジ(委託運用 / 顧客導入)。括弧書きで見出しに混ぜない(2026-11-02)。
+      // 見出しの右に運用の形のバッジ(委託運用 / 顧客運用)。括弧書きで見出しに混ぜない(2026-11-02)。
       "<div style='display:flex;align-items:center;gap:10px;flex-wrap:wrap'>" +
       "<h3 id='storageHeading' style='margin:0'>" +
       escapeHtml(t("storageUsage")) +
@@ -168,7 +168,7 @@ async function dashboard() {
       // 版を確認できなかったときに出す一行。**空欄のままにしない** ——
       // 「分からない」を黙って隠すと「最新です」と見分けがつかなくなる。
       "<div id='versionNote' style='display:none;font-size:11px;line-height:1.5;color:var(--muted);border-top:1px solid var(--line);padding-top:8px;margin-top:2px'></div>" +
-      // 公開サイトの CSP の違反の報告(cms-cms-security「CSP」)。報告が無ければ出さない。
+      // 公開サイトと管理画面の CSP の違反の報告(cms-cms-security「CSP」)。報告が無ければ出さない。
       "<div id='cspReports' style='display:none;font-size:11px;line-height:1.5;color:var(--muted);border-top:1px solid var(--line);padding-top:8px;margin-top:2px'></div>" +
       "</div>" +
       "</div>" + // closes version .panel
@@ -266,7 +266,7 @@ async function dashboard() {
     const renderStorage = function () {
       const paid = plan === "paid";
       const heading = byId("storageHeading");
-      // 見出しは委託も顧客導入も「使用状況」だけ。運用の形は右のバッジ、プランは右端の切り替えが示す
+      // 見出しは委託も顧客運用も「使用状況」だけ。運用の形は右のバッジ、プランは右端の切り替えが示す
       // (委託はお客様の Cloudflare の無料枠ではないので、見出しに「無料枠」を書かない・2026-11-02)。
       if (heading) heading.textContent = t("storageUsage");
       const kindBadge = byId("storageKindBadge");
@@ -685,30 +685,81 @@ async function dashboard() {
     }
     const kinds = (d && d.kinds) || [];
     if (!kinds.length) return;
+    // 読み方(2026-11-04・利用者「読み方が分からない」): 指示の名前(connect-src など)と矢印だけでは読めなかった。
+    // 1 件ごとに「何を・どこから」を言葉で出し、止めたか報告だけかを札で、件数と日時を下に置く。
+    // 上に、この欄が何で、どう判断すればよいかの説明を置く。
+    const kindLabel = (directive: string) => {
+      const key = String(directive).replace(/-elem$|-attr$/, "");
+      const map: Record<string, string> = {
+        "connect-src": "cspKindConnect",
+        "script-src": "cspKindScript",
+        "style-src": "cspKindStyle",
+        "img-src": "cspKindImg",
+        "font-src": "cspKindFont",
+        "media-src": "cspKindMedia",
+        "frame-src": "cspKindFrame",
+        "child-src": "cspKindFrame",
+        "worker-src": "cspKindWorker",
+        "form-action": "cspKindForm",
+        "frame-ancestors": "cspKindAncestors",
+      };
+      return map[key] ? t(map[key]) : t("cspKindOther");
+    };
+    const sourceLabel = (blocked: string) => {
+      const map: Record<string, string> = {
+        inline: "cspSourceInline",
+        eval: "cspSourceEval",
+        "wasm-eval": "cspSourceEval",
+      };
+      return map[blocked] ? t(map[blocked]) : blocked;
+    };
+    const when = (ms: unknown) => new Date(Number(ms)).toLocaleString();
     box.innerHTML =
-      "<div style='font-weight:600;margin-bottom:4px'>" +
+      "<div style='font-weight:600;color:var(--ink);font-size:12px'>" +
       escapeHtml(t("cspReportsTitle")) +
+      "</div><div style='margin:4px 0 8px'>" +
+      escapeHtml(t("cspReportsLead")) +
       "</div>" +
-      // 1 件を 2 行に: 1 行目に何が止まるか(指示 ← 相手)、2 行目に件数と最後に届いた時刻。
-      // 表の 3 列にすると、狭い枠で相手のアドレスが 1 文字ずつ折り返されて読めなかった(2026-11-02)。
       kinds
         .map(function (k: Dynamic) {
+          const blocked = String(k.blocked);
+          const enforced = k.disposition === "enforce";
+          const known = sourceLabel(blocked) !== blocked;
           return (
-            "<div style='padding:6px 0;border-top:1px solid var(--line)'>" +
-            "<div style='overflow-wrap:anywhere;color:var(--ink)'><code>" +
-            escapeHtml(String(k.directive)) +
-            "</code> ← <code>" +
-            escapeHtml(String(k.blocked)) +
-            "</code></div><div style='margin-top:2px'>" +
+            "<div style='padding:8px 10px;margin-top:6px;border:1px solid var(--line);border-radius:8px;background:var(--surface-2)'>" +
+            // 1 行目: 何が(種類)・止めたか報告だけか
+            "<div style='display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px'>" +
+            "<span style='color:var(--ink);font-weight:600'>" +
+            escapeHtml(kindLabel(String(k.directive))) +
+            "</span><span style='font-size:10px;font-weight:700;border-radius:999px;padding:0 8px;border:1px solid " +
+            (enforced
+              ? "#e5484d;color:#e5484d'>" + escapeHtml(t("cspBlocked"))
+              : "var(--line-strong);color:var(--muted)'>" +
+                escapeHtml(t("cspReportOnly"))) +
+            "</span></div>" +
+            // 2 行目: どこへ・どこから(相手)
+            "<div style='margin-top:4px;overflow-wrap:anywhere'>" +
+            escapeHtml(t("cspSourceLabel")) +
+            " " +
+            (known
+              ? "<span style='color:var(--ink)'>" +
+                escapeHtml(sourceLabel(blocked)) +
+                "</span>"
+              : "<code style='color:var(--ink)'>" +
+                escapeHtml(blocked) +
+                "</code>") +
+            "</div>" +
+            // 3 行目: 件数・最初と最後・指示の名前(調べるときの手がかり)
+            "<div style='margin-top:2px'>" +
             escapeHtml(
               t("cspReportsMeta")
                 .replace("{n}", String(k.count))
-                .replace(
-                  "{date}",
-                  new Date(Number(k.last_at)).toLocaleString(),
-                ),
+                .replace("{first}", when(k.first_at))
+                .replace("{last}", when(k.last_at)),
             ) +
-            "</div></div>"
+            " · <code>" +
+            escapeHtml(String(k.directive)) +
+            "</code></div></div>"
           );
         })
         .join("");

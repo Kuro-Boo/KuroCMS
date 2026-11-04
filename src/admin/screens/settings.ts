@@ -195,13 +195,13 @@ async function settings() {
 
   // 「基本」(R2 メディアストレージ)は契約のタブへ、「稼働地域」はドメインのタブの右へ移した(2026-11-02・利用者の指示)。
   const tabBar = [
-    // ドメイン(公開ドメイン・Worker の URL・独自ドメイン)。顧客導入でも委託運用でも同じタブ(2026-10-22)。
+    // ドメイン(公開ドメイン・Worker の URL・独自ドメイン)。顧客運用でも委託運用でも同じタブ(2026-10-22)。
     "domain",
     // ビルド(基本言語・時計・自動ビルド・筆者・スマホ)。「基本」が長く、下の項目を見落とすので分けた
     // 「表示」のタブを、2026-11-03 に「ビルド」へ改めた(どれもビルドが作るページを変える)。
     "build",
     // 契約(2026-10-25 に「運用の形」から「契約形式」へ、2026-10-27 に「契約」へ改名・cms-pricing「契約のタブ」)。
-    // いまの契約・無料期間・国ごとの料金・申し込みと解約への入口、持ち主、委託運用 ⇄ 顧客導入の引っ越し。
+    // いまの契約・無料期間・国ごとの料金・申し込みと解約への入口、持ち主、委託運用 ⇄ 顧客運用の引っ越し。
     "hosting",
     // メール送信(サイト全体の設定・管理者だけ)。2026-10-21 にプロフィールから移した。
     "mail",
@@ -239,7 +239,7 @@ async function settings() {
     "<div class='settingsTabBar'>" +
       tabBar +
       "</div>" +
-      // ── ドメイン(公開ドメイン・Worker の URL・独自ドメイン。顧客導入・委託運用で同じタブ) ──
+      // ── ドメイン(公開ドメイン・Worker の URL・独自ドメイン。顧客運用・委託運用で同じタブ) ──
       // 左 2/3 にドメイン、右 1/3 に稼働地域(狭い画面では縦に並ぶ・2026-11-02)。
       "<div id='panel-domain' class='settingsPanel'>" +
       "<div style='display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start'>" +
@@ -270,7 +270,7 @@ async function settings() {
       escapeHtml(t("saveSiteSettings")) +
       "</button>" +
       "</form>" +
-      // 顧客導入: Worker の URL と独自ドメイン(Cloudflare の Custom Domain)。
+      // 顧客運用: Worker の URL と独自ドメイン(Cloudflare の Custom Domain)。
       "<div class='panel stack' id='selfDomainPanel'>" +
       "<div id='workerOriginSection' style='display:none'>" +
       "<div class='panelHead' style='margin-bottom:6px'><h3>" +
@@ -373,10 +373,10 @@ async function settings() {
       "</div>" +
       "</div>" +
       "</div>" +
-      // ── 運用の形(委託運用 ⇄ 顧客導入の引っ越し・site-move.ts) ─────────
+      // ── 運用の形(委託運用 ⇄ 顧客運用の引っ越し・site-move.ts) ─────────
       "<div id='panel-hosting' class='settingsPanel stack' style='display:none'>" +
       siteMoveSectionHtml() +
-      // R2 メディアストレージ(顧客導入の資源・2026-11-02 に「基本」から移した)。委託運用では出さない。
+      // R2 メディアストレージ(顧客運用の資源・2026-11-02 に「基本」から移した)。委託運用では出さない。
       "<div class='panel stack' id='r2Panel'>" +
       "<div id='r2SetupSection'></div>" +
       "</div>" +
@@ -1058,7 +1058,7 @@ async function settings() {
       // 左の列: いまの契約・規約とポリシー・アカウントの削除を縦に。
       "<div class='stack' style='gap:16px'>" +
       "<div class='panel stack' style='gap:14px'>" +
-      // 見出しの右に運用の形(委託運用 / 顧客導入)のバッジ(2026-11-03)。
+      // 見出しの右に運用の形(委託運用 / 顧客運用)のバッジ(2026-11-03)。
       "<div class='panelHead' style='justify-content:flex-start'><h3>" +
       escapeHtml(t("contractNowTitle")) +
       "</h3><span id='contractKindBadge' class='contractBadge'></span></div>" +
@@ -1068,7 +1068,7 @@ async function settings() {
       "<div id='contractRows' class='contractRows'></div>" +
       "<div id='contractNote' class='readonlyBanner' style='display:none;margin:0;flex-wrap:wrap'></div>" +
       "<div id='contractActions' style='display:flex;gap:8px;flex-wrap:wrap;align-items:center'></div>" +
-      // 運用の形を変える(委託運用 ⇄ 顧客導入の引っ越し)。いまの契約の続きとして、この枠に置く。
+      // 運用の形を変える(委託運用 ⇄ 顧客運用の引っ越し)。いまの契約の続きとして、この枠に置く。
       siteMoveControlsHtml() +
       "<div id='contractPageNote' class='muted' style='font-size:12px;line-height:1.7;display:none'>" +
       escapeHtml(t("contractPageNote")) +
@@ -1081,7 +1081,7 @@ async function settings() {
       "<div class='panelHead'><h3>" +
       escapeHtml(t("contractPlansTitle")) +
       "</h3></div>" +
-      // 運用の形の違い(委託運用は有料・顧客導入は無料)を 2 行の見比べで置く。
+      // 運用の形の違い(委託運用は有料・顧客運用は無料)を 2 行の見比べで置く。
       "<div class='contractForms'>" +
       (
         [
@@ -1588,7 +1588,7 @@ async function settings() {
           );
         note.style.display = "";
         note.textContent = t("contractEndedNote") + " ";
-        // 顧客導入への引っ越しは、同じタブの下の引っ越しの節から(この画面の中で進める)。
+        // 顧客運用への引っ越しは、同じタブの下の引っ越しの節から(この画面の中で進める)。
         const move = document.createElement("a");
         move.href = "#";
         move.textContent = t("siteMoveToSelf") + " →";
@@ -1876,7 +1876,7 @@ async function settings() {
 
     // 委託: アドレスは受付が決めたもの({導入ID}.kurocms.site)。表示だけにし、
     // workers.dev・独自ドメイン・R2 の枠は出さない(鍵も持たない・重複する表示も出さない)。
-    // 既定値に戻す: 委託は {導入ID}.kurocms.site、顧客導入は workers.dev のアドレス(サーバーが決める)。
+    // 既定値に戻す: 委託は {導入ID}.kurocms.site、顧客運用は workers.dev のアドレス(サーバーが決める)。
     const resetBtn = byId("resetPublicDomainBtn");
     const defaultPublicDomain = String(s.defaultPublicDomain || "");
     if (resetBtn && defaultPublicDomain) {
@@ -1906,7 +1906,7 @@ async function settings() {
         s.publicDomain || "",
       );
     }
-    // 運用の形(委託運用なら顧客導入へ、顧客導入なら委託運用へ)。引っ越しはこの画面の中で進める。
+    // 運用の形(委託運用なら顧客運用へ、顧客運用なら委託運用へ)。引っ越しはこの画面の中で進める。
     void mountSiteMove();
     void mountMailSettings();
     mountPublishMode();

@@ -1024,8 +1024,8 @@ async function handleApiDispatch(
         (await regionReport(env.DB, request, lang)) as unknown as JsonValue,
       );
     }
-    // 運用の形の引っ越し(仕様 cms-move-to-self「CMS の画面から」・src/site-move.ts)。委託運用なら顧客導入へ、
-    // 顧客導入なら委託運用へ。導入口へはこのサーバーが導入の口座で頼み、進み具合は画面が導入口から直に読む。
+    // 運用の形の引っ越し(仕様 cms-move-to-self「CMS の画面から」・src/site-move.ts)。委託運用なら顧客運用へ、
+    // 顧客運用なら委託運用へ。導入口へはこのサーバーが導入の口座で頼み、進み具合は画面が導入口から直に読む。
     if (
       path === "/api/system/site-move" ||
       path === "/api/system/site-move/resume"
@@ -1117,7 +1117,7 @@ async function handleApiDispatch(
     // 表が無い(古い版から上げたて)・行が無い(受付がまだ書いていない)ときは contract: null。
     if (request.method === "GET" && path === "/api/system/contract") {
       requireAdmin(user);
-      // 料金(Billing の価格表)と、初めに出す地域(要求の国)。顧客導入でも出す —— 委託へ引っ越す人が見る。
+      // 料金(Billing の価格表)と、初めに出す地域(要求の国)。顧客運用でも出す —— 委託へ引っ越す人が見る。
       const country =
         (request as { cf?: { country?: string } }).cf?.country ?? null;
       const pricing = {
@@ -3119,6 +3119,7 @@ async function passkeyRegisterComplete(
 
   const sessionId = await createSession(
     env,
+    request,
     resolvedUid,
     verifyResult.credentialId,
   );
@@ -3277,6 +3278,7 @@ async function passkeyLoginComplete(
 
   const sessionId = await createSession(
     env,
+    request,
     passkeyRow.uid,
     passkeyRow.credential_id,
   );
@@ -4913,7 +4915,7 @@ async function updatePolicy(
 
 /**
  * このサイトの持ち主が開発アカウントか(仕様 core-feature-flags・2026-11-02)。このサイト(導入の口座)のトークンの dev ——
- * ID は持ち主が開発アカウントのときだけ載せる。委託も顧客導入も同じ。分からない(基盤に届かない・古い ID)ときは一般として
+ * ID は持ち主が開発アカウントのときだけ載せる。委託も顧客運用も同じ。分からない(基盤に届かない・古い ID)ときは一般として
  * 扱う(開発版を渡す側に倒さない)。開発版と、開発・安定の切り替えは、開発アカウントのサイトにだけ出す。
  */
 async function ownerIsDeveloper(env: Env): Promise<boolean> {
@@ -5691,7 +5693,7 @@ async function settings(
         // 「既定値に戻す」の値(設定 → ドメイン)。
         defaultPublicDomain: defaultPublicDomain(request, env),
         managedHosting: isManagedHosting(env),
-        // R2 を手で繋ぐ案内に出す Worker の名前(顧客導入だけ)。
+        // R2 を手で繋ぐ案内に出す Worker の名前(顧客運用だけ)。
         workerName: isManagedHosting(env) ? "" : (env.CF_WORKER_NAME ?? ""),
         defaultLang,
         initialLang: (row?.initial_lang as string | undefined) ?? defaultLang,
@@ -11832,12 +11834,12 @@ const RESTORE_KV_WIPE_PAGE = 500; // each KV delete is a subrequest — stay < 1
 const PAGE_KV_PREFIXES = ["pageb:", "page:"] as const;
 const RESTORE_R2_WIPE_PAGE = 1000; // R2 delete takes an array (one subrequest)
 
-// ── 委託運用から顧客導入への引っ越し（src/move.ts・仕様 cms-move-to-self） ─────────────
+// ── 委託運用から顧客運用への引っ越し（src/move.ts・仕様 cms-move-to-self） ─────────────
 //
 // 受付が kmove_ の鍵で叩く口。移す元（source）は読むだけ、移す先（target）は書くだけ。
 // 写す表は、バックアップの表に「利用者（メールと権限）」と「メディアの番号の続き」を足したもの。
 // パスキー・ログインの状態・登録した回線・PAT は持っていかない（ドメインに結び付く・
-// 委託の鍵が顧客導入でそのまま使えるのは危ない）。SNS の連携の鍵は、仕上げで空にする。
+// 委託の鍵が顧客運用でそのまま使えるのは危ない）。SNS の連携の鍵は、仕上げで空にする。
 const MOVE_TABLES = ["users", ...BACKUP_TABLES_INSERT_ORDER, "media_id_seq"];
 const MOVE_TABLE_SET = new Set(MOVE_TABLES);
 /** 移す先の鍵で作るパスキーの登録のリンクの有効期間（引っ越しの後の最初のログインに使う）。 */
@@ -11877,7 +11879,7 @@ async function handleMove(
       version: KUROCMS_VERSION,
       frozen: state.frozen === 1,
       finished: !!state.finished_at,
-      // 移す元の延長(renew)と引き渡し(handoff)の口がある版か(顧客導入 → 委託運用・2026-10-21)。
+      // 移す元の延長(renew)と引き渡し(handoff)の口がある版か(顧客運用 → 委託運用・2026-10-21)。
       moveOut: true,
       r2: !!env.MEDIA_BUCKET,
       buildMode: await getBuildMode(env),
@@ -11976,7 +11978,7 @@ async function handleMove(
       .run();
     return json({ ok: true, frozen: frozen === 1 });
   }
-  // 逆向き(顧客導入 → 委託運用・2026-10-21)。導入口はお客様の D1 に触れないので、鍵の延長と
+  // 逆向き(顧客運用 → 委託運用・2026-10-21)。導入口はお客様の D1 に触れないので、鍵の延長と
   // 引き渡しを移す元の口で頼む。
   if (method === "POST" && head === "renew") {
     await authorizeMove(request, env, ["source"]);
@@ -13799,7 +13801,7 @@ function withJsonHeaders(response: Response): Response {
 
 /**
  * 公開ドメインの既定値(設定 → ドメインの「既定値に戻す」)。委託は導入口が決めたアドレス
- * ({導入ID}.{委託用ドメイン}・Worker の名前 kurocms-app-{導入ID} から)、顧客導入は workers.dev の
+ * ({導入ID}.{委託用ドメイン}・Worker の名前 kurocms-app-{導入ID} から)、顧客運用は workers.dev の
  * アドレス(いま workers.dev で開いているときだけ分かる)。分からなければ空(ボタンを出さない)。
  */
 function defaultPublicDomain(request: Request, env: Env): string {

@@ -6,7 +6,7 @@
  *
  * ここは見せるだけ。消すのは導入口で、Entamy ID でログインした持ち主が契約の頁で識別名を入れたときに、
  * 持ち主であることと契約が無いことを確かめてから消す(KuroCMS の管理者だけでは消せない —— 管理者は
- * 持ち主とは限らない)。契約があるサイトは消せない(先に解約する)。顧客導入は自分の Cloudflare で片付ける。
+ * 持ち主とは限らない)。契約があるサイトは消せない(先に解約する)。顧客運用は自分の Cloudflare で片付ける。
  */
 import { isManagedHosting } from "./media-quota.ts";
 import type { Env } from "./types";

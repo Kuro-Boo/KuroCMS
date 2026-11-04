@@ -55,11 +55,11 @@ console.log("site-domain");
     },
   };
   eq(
-    "顧客導入では not_managed",
+    "顧客運用では not_managed",
     await code(siteDomain(env, "status", undefined, session)),
     "not_managed",
   );
-  eq("顧客導入では導入口へ頼まない", asked, 0);
+  eq("顧客運用では導入口へ頼まない", asked, 0);
 }
 
 {

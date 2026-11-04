@@ -494,7 +494,7 @@ const main = async () => {
     const w = world();
     w.clock.t += 3600_001;
     await adoptGuardianMinute(w.env, w.deps);
-    eq("顧客導入: 番人を毎分にしてから、自分の cron を外す(この順)", w.calls, [
+    eq("顧客運用: 番人を毎分にしてから、自分の cron を外す(この順)", w.calls, [
       "GET /workers/scripts/kurocms-app/settings",
       "PUT /workers/scripts/kurocms-ops/schedules",
       `  ${JSON.stringify([{ cron: "* * * * *" }])}`,

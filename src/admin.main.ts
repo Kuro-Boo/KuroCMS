@@ -1296,7 +1296,7 @@ const i18n = {
     contractRuleRenew:
       "Your subscription renews automatically on the day you subscribed: every month for monthly, every year for yearly. In months without that day (29th–31st), it renews on the last day of the month.",
     contractRuleCancel:
-      "Monthly: usable until the end of the month you paid for, with no refund. Yearly: usable until the end of the contract month that includes the cancellation day, and the remaining months are refunded pro rata.",
+      "Monthly and yearly: usable until the end of the period you paid for, with no refund. If you cancel within 14 days of your first payment, the full amount is refunded and the contract ends at once.",
     contractRuleTrial:
       "Given once per Entamy ID, the first time it uses managed hosting. If you subscribe during the free period, your first payment is on the day it ends.",
     contractRuleUnpaid:
@@ -2075,9 +2075,28 @@ const i18n = {
     tmplDetailDescLabel: "Description",
     tmplDetailDownloadLabel: "Download URL",
     tmplScriptWarnLabel: "Scripts not loaded",
-    cspReportsTitle:
-      "Security policy (CSP) reports from the public site (what it would block)",
-    cspReportsMeta: "{n} reports · last on {date}",
+    cspReportsTitle: "Security policy (CSP) reports",
+    cspReportsLead:
+      "The public site and this admin tell the browser which servers they may load from (CSP). " +
+      "For now the policy only reports and blocks nothing. Below is what it would block once enforced. " +
+      "If it belongs to a feature you use, the policy needs to allow it; if you don't recognize it, it can stay blocked.",
+    cspReportsMeta: "{n} times · first {first} · last {last}",
+    cspReportOnly: "Reported only",
+    cspBlocked: "Blocked",
+    cspSourceLabel: "From:",
+    cspSourceInline: "Code written inside the page (inline)",
+    cspSourceEval: "Code built from text (eval)",
+    cspKindConnect: "Network request (fetch, etc.)",
+    cspKindScript: "Script",
+    cspKindStyle: "Style",
+    cspKindImg: "Image",
+    cspKindFont: "Font",
+    cspKindMedia: "Audio / video",
+    cspKindFrame: "Embedded frame",
+    cspKindWorker: "Background worker",
+    cspKindForm: "Form submission",
+    cspKindAncestors: "Being embedded in another site",
+    cspKindOther: "Other",
     devAccountBadge: "Developer account",
     tmplScriptWarnExternal:
       "External script (not loaded on public pages; paste its code into the template instead): ",
@@ -2877,7 +2896,7 @@ const i18n = {
     contractRuleRenew:
       "契約した日を更新日として、月払いは毎月、年払いは毎年、自動で更新します。その日が無い月（29〜31 日）は、月末に更新します。",
     contractRuleCancel:
-      "月払いは、支払い済みの 1 か月の終わりまで使えます。返金はありません。年払いは、解約した日を含む契約月の終わりまで使え、残りの月の分を月割りで返金します。",
+      "月払いも年払いも、支払い済みの期間の終わりまで使えます。返金はありません。ただし、最初のお支払いから 14 日以内に解約したときは、全額を返金し、その時点で契約を終えます。",
     contractRuleTrial:
       "1 つの Entamy ID につき 1 回、委託運用を初めて使うときに付きます。無料期間中に申し込んだ場合、最初のお支払いは無料期間が終わる日です。",
     contractRuleUnpaid:
@@ -3659,8 +3678,28 @@ const i18n = {
     tmplDetailDescLabel: "説明",
     tmplDetailDownloadLabel: "ダウンロード URL",
     tmplScriptWarnLabel: "読み込まないスクリプト",
-    cspReportsTitle: "公開サイトの守り（CSP）の報告（止めることになるもの）",
-    cspReportsMeta: "{n} 件 · 最後に届いたのは {date}",
+    cspReportsTitle: "読み込みの制限（CSP）の報告",
+    cspReportsLead:
+      "公開サイトとこの管理画面は、どこから読み込んでよいかをブラウザに伝えています（CSP）。" +
+      "いまは報告だけで、何も止めていません。下は、制限を有効にしたら止まる読み込みです。" +
+      "使っている機能のものなら許可に足す必要があり、心当たりが無ければ止まったままで構いません。",
+    cspReportsMeta: "{n} 回 · 最初 {first} · 最後 {last}",
+    cspReportOnly: "報告だけ",
+    cspBlocked: "止めた",
+    cspSourceLabel: "相手:",
+    cspSourceInline: "ページの中に直接書いたコード（インライン）",
+    cspSourceEval: "文字から組み立てたコード（eval）",
+    cspKindConnect: "通信（fetch など）",
+    cspKindScript: "スクリプト",
+    cspKindStyle: "スタイル",
+    cspKindImg: "画像",
+    cspKindFont: "フォント",
+    cspKindMedia: "音声・動画",
+    cspKindFrame: "埋め込みの枠",
+    cspKindWorker: "裏で動く処理（Worker）",
+    cspKindForm: "フォームの送信",
+    cspKindAncestors: "ほかのサイトへの埋め込み",
+    cspKindOther: "その他",
     devAccountBadge: "開発アカウント",
     tmplScriptWarnExternal:
       "外部の JS（公開ページでは読み込みません。使う時は中身をテンプレートに貼り付けてください）: ",
