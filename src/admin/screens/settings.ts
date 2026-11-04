@@ -1280,6 +1280,8 @@ async function settings() {
       .join("");
   }
   async function loadContract() {
+    // 引っ越し終えたサイトは、委託の終わりと自動削除までの日数だけを出す(契約は読みに行かない)。
+    if (paintMovedAwayContract()) return;
     const rows = byId("contractRows");
     const note = byId("contractNote");
     const synced = byId("contractSynced");

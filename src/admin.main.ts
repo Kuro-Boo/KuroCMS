@@ -919,6 +919,12 @@ const i18n = {
     siteMoveResume: "Resume from where it stopped",
     siteMoveAgain: "Try again",
     siteMoveDone: "The move is complete.",
+    siteMovedAwayTitle: "Managed hosting for this site has ended.",
+    siteMovedAwayDays: "It will be deleted automatically in {n} days.",
+    siteMovedAwayLead:
+      "This site moved to your own Cloudflare account. Changes made here are not saved. Use the new admin, which you enter from the link in the email.",
+    siteMovedAwayWrite:
+      "The move is already complete. Please use the new site (enter its admin from the link in the email).",
     siteMoveCheckMail: "Check your email",
     siteMoveCheckMailBody:
       "We sent {n} administrators an email with a link to register a passkey at the new address. You sign in to the new admin panel from that link (valid for 7 days). Passkeys are tied to the address, so the passkey you use here does not work there.",
@@ -2444,6 +2450,12 @@ const i18n = {
     siteMoveResume: "途中から再開",
     siteMoveAgain: "やり直す",
     siteMoveDone: "引っ越しが終わりました。",
+    siteMovedAwayTitle: "委託運用は終了しました。",
+    siteMovedAwayDays: "残り {n} 日で自動削除されます。",
+    siteMovedAwayLead:
+      "このサイトはご自身の Cloudflare アカウントへ引っ越しました。ここでの変更は保存されません。引っ越し先の管理画面（メールで届いたリンクから入ります）をお使いください。",
+    siteMovedAwayWrite:
+      "すでに引っ越しは終わっています。引っ越し先をご利用ください（管理画面にはメールで届いたリンクから入ります）。",
     siteMoveCheckMail: "メールを確かめてください",
     siteMoveCheckMailBody:
       "管理者 {n} 人に、新しいアドレスでパスキーを登録するリンクをメールで送りました。新しい管理画面には、そのリンクから入ります（7 日間有効）。パスキーはアドレスに結び付くので、いまお使いのパスキーでは入れません。",
@@ -4303,7 +4315,70 @@ function noteDataRevision(response: Dynamic) {
   if (activeListReload && !hasUnsavedArticleEdits()) activeListReload();
 }
 
+/**
+ * 委託から顧客運用へ引っ越し終えた(2026-11-04・利用者の指示)。このサイトのアドレスは案内へ替わり、ここでの変更は
+ * どこにも保存されない。間違って書き込まないよう、書き込みの要求は送らずに止め、上に帯を出し、契約の欄を
+ * 「委託運用は終了しました・残り N 日で自動削除」に替える。purgeAt は委託側のデータを消す時刻(導入口が返す)。
+ */
+let siteMovedAway: { purgeAt: number | null } | null = null;
+
+function markSiteMovedAway(purgeAt: number | null) {
+  const first = !siteMovedAway;
+  siteMovedAway = { purgeAt: purgeAt ?? siteMovedAway?.purgeAt ?? null };
+  paintMovedAwayContract();
+  if (!first) return;
+  const bar = document.createElement("div");
+  bar.setAttribute("role", "alert");
+  bar.style.cssText =
+    "position:sticky;top:0;z-index:50;padding:10px 16px;background:var(--danger,#d64545);color:#fff;font-weight:700;font-size:14px;line-height:1.6";
+  bar.textContent = t("siteMovedAwayWrite");
+  document.body.prepend(bar);
+}
+
+/** 契約の欄(設定 → 契約)を、引っ越し終えた形にする。欄が無ければ何もしない(開いたときに loadContract が呼ぶ)。 */
+function paintMovedAwayContract(): boolean {
+  if (!siteMovedAway) return false;
+  const form = byId("contractForm");
+  const badge = byId("contractBadge");
+  const rows = byId("contractRows");
+  if (!form || !badge || !rows) return true;
+  form.textContent = t("siteMovedAwayTitle");
+  const at = siteMovedAway.purgeAt;
+  const days = at
+    ? Math.max(0, Math.ceil((at - Date.now()) / 86_400_000))
+    : null;
+  badge.className = "contractBadge danger";
+  badge.textContent =
+    days === null
+      ? t("siteMovedAwayTitle")
+      : t("siteMovedAwayDays").replace("{n}", String(days));
+  rows.innerHTML =
+    "<span class='muted' style='grid-column:1/-1;font-size:13px;line-height:1.7'>" +
+    escapeHtml(t("siteMovedAwayLead")) +
+    "</span>";
+  for (const id of [
+    "contractActions",
+    "contractTrial",
+    "contractNote",
+    "contractSynced",
+  ]) {
+    const el = byId(id);
+    if (el) {
+      el.textContent = "";
+      el.style.display = "none";
+    }
+  }
+  return true;
+}
+
 async function api(path: Dynamic, options: RequestInit = {}) {
+  // 引っ越し終えたサイトでは、書き込みを送らない(送っても案内の Worker に届くだけで、保存されない)。
+  const method = String(options.method || "GET").toUpperCase();
+  if (siteMovedAway && method !== "GET" && method !== "HEAD") {
+    const e = new Error(t("siteMovedAwayWrite")) as Error & { code?: string };
+    e.code = "site_moved";
+    throw e;
+  }
   const headers = new Headers(options.headers);
   if (!headers.has("content-type")) {
     headers.set("content-type", "application/json");
@@ -4359,6 +4434,8 @@ async function api(path: Dynamic, options: RequestInit = {}) {
     };
     err.code = data?.error?.code;
     err.status = response.status;
+    // 引っ越し終えたアドレス(案内の Worker が答えた)。開いたままの画面から書き込もうとした。
+    if (err.code === "site_moved") markSiteMovedAway(null);
     if (snippet) err.detail = snippet;
     // 登録していない回線から使われた(IP 制限)。確認のメールは送ってあるので、
     // ログインの画面へ戻して理由を出す。パスキーで入り直せば、この回線が登録される。

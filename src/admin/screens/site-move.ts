@@ -352,6 +352,11 @@ async function mountSiteMove(): Promise<void> {
         : t("siteMoveDone");
     paintInline(stateText);
     if (!running) stop();
+    // 顧客運用へ引っ越し終えた: このサイトはもう使わない。書き込みを止め、契約の欄を終わりの形にする。
+    if (job.status === "done" && toSelf) {
+      const at = Number(job.result?.purgeAt);
+      markSiteMovedAway(Number.isFinite(at) && at > 0 ? at : null);
+    }
     if (!overlay) return;
     byId("siteMoveForm")!.style.display = "none";
     byId("siteMoveConfirmRow")!.style.display = "none";
