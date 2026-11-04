@@ -4,7 +4,6 @@
  * 委託契約の頁(申し込み・契約の表示・解約・billing-library 4節・cms-pricing「契約のタブ」)。
  * 宣伝ページの正の置き場(kurocms.entamy.com)にあり、サイトの持ち主の Entamy ID でログインして使う。
  */
-const CONTRACT_PAGE = "https://kurocms.entamy.com/contract/";
 
 /** 設定 → ビルド の「公開設定されている記事を自動ビルドして公開する」。入 = auto、切 = manual。その場で保存し、失敗したら戻す。 */
 function mountPublishMode() {
@@ -1050,7 +1049,7 @@ async function settings() {
   // 左: いまの契約 —— 運用の形・契約の状態・無料期間の棒と、その後の有料の説明・申し込みと解約への入口・日付。
   // 右: 契約の形態と料金 —— 国(日本・米国・欧州)を選ぶと、その通貨の料金に替わる。初めは回線の国(request.cf.country)。
   // 契約の状態は、受付が毎時 Entamy(Admin の導入の記録・Entamy ID)から引いて書いた 1 行(委託だけ)。料金は Billing の価格表。
-  // 申し込み・解約は Entamy の契約の頁(CONTRACT_PAGE)で行う —— この管理画面は Entamy ID のログインを持たず、
+  // 申し込み・解約は Entamy の契約の頁(siteContractUrl・site-delete.ts)で行う —— この管理画面は Entamy ID のログインを持たず、
   // お金の要求は契約の頁から Billing へ直接送る(billing-architecture 2.1節)。
   byId("panel-hosting")?.insertAdjacentHTML(
     "afterbegin",
@@ -1531,12 +1530,15 @@ async function settings() {
         const a = document.createElement("a");
         // 戻り先(この画面の契約のタブ)を渡す。契約の頁は、持ち主の委託のサイトの住所のときだけ「KuroCMS に戻る」を出し、
         // 戻る前に契約の情報をこのサイトへ届け直す(毎時を待たない・2026-11-02)。
-        a.href =
-          CONTRACT_PAGE +
-          "?return=" +
-          encodeURIComponent(
-            location.origin + location.pathname + "?tab=hosting",
-          );
+        // このサイトの管理番号とサイト名も自動で渡す(契約の頁は番号でサイトを決め、名前とアドレスで見せる・2026-11-05)。
+        a.href = siteContractUrl(
+          r.site,
+          null,
+          "return=" +
+            encodeURIComponent(
+              location.origin + location.pathname + "?tab=hosting",
+            ),
+        );
         a.className = primary ? "button" : "button secondary";
         a.textContent = label;
         return a;

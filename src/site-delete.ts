@@ -15,6 +15,8 @@ export interface SiteDeletePreview {
   managed: boolean;
   /** 契約の状態(contract_info・委託だけ)。none なら消せる。 */
   subscription: string | null;
+  /** 契約の頁へ渡す、このサイトの管理番号とサイト名(entamySite)。 */
+  site: { id: string | null; name: string | null };
   counts: {
     documents: number;
     media: number;
@@ -26,6 +28,26 @@ export interface SiteDeletePreview {
 
 const count = async (env: Env, sql: string): Promise<number> =>
   Number((await env.DB.prepare(sql).first<{ n: number }>())?.n ?? 0);
+
+/**
+ * Entamy の契約の頁へ自動で渡す、このサイトの見分け(2026-11-05・利用者)。持ち主は英数字の番号ではサイトを
+ * 見分けられないので、番号(導入 ID の 12 桁・委託の Worker 名 kurocms-app-<12 桁> から)は製品が渡し、
+ * 契約の頁はサイト名とアドレスで見せる。番号が分からない(委託でない・古い導入)ときは null。
+ */
+export async function entamySite(
+  env: Env,
+): Promise<{ id: string | null; name: string | null }> {
+  const id =
+    /^kurocms-app-([0-9a-f]{12})$/.exec(
+      (env.CF_WORKER_NAME ?? "").trim(),
+    )?.[1] ?? null;
+  const row = await env.DB.prepare(
+    "SELECT site_name FROM site_settings WHERE id = 1",
+  )
+    .first<{ site_name: string | null }>()
+    .catch(() => null);
+  return { id, name: (row?.site_name ?? "").trim() || null };
+}
 
 export async function siteDeletePreview(env: Env): Promise<SiteDeletePreview> {
   const managed = isManagedHosting(env);
@@ -39,6 +61,7 @@ export async function siteDeletePreview(env: Env): Promise<SiteDeletePreview> {
   return {
     managed,
     subscription: contract?.subscription ?? null,
+    site: await entamySite(env),
     counts: {
       documents: await count(env, "SELECT COUNT(*) AS n FROM documents"),
       media: await count(env, "SELECT COUNT(*) AS n FROM media_assets"),

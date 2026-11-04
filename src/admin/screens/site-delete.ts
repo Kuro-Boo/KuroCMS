@@ -5,7 +5,8 @@
  *
  * 入口は 2 つで、**どちらもこの窓を開く** —— 無料期間が終わった知らせ(Notice)の「このサイトを削除する」と、
  * 設定の契約のタブの「サイトの持ち主」の枠の「サイトの削除」(2026-11-02 にプロフィールから移した)。窓は**消えるものを件数で見せ**(/api/system/site-delete)、
- * 消すのは Entamy の契約の頁で行う(Entamy ID でログインした持ち主が識別名を入れて消す・導入口の owner-sites)。
+ * 消すのは Entamy の契約の頁で行う(Entamy ID でログインした持ち主が消す・導入口の owner-sites)。契約の頁へは
+ * このサイトの管理番号とサイト名を自動で渡す(持ち主は番号ではサイトを見分けられない・2026-11-05・利用者)。
  * この管理画面は Entamy ID のログインを持たず、管理者は持ち主とは限らないので、ここでは消さない。
  * 契約があるサイトは消せない(先に解約)。顧客運用は自分の Cloudflare で片付ける(Entamy の「サイト管理」)。
  */
@@ -15,6 +16,7 @@ const SITE_MANAGE_PAGE = "https://kurocms.entamy.com/manage/";
 type SiteDeletePreviewView = {
   managed: boolean;
   subscription: string | null;
+  site?: { id: string | null; name: string | null };
   counts: {
     documents: number;
     media: number;
@@ -23,6 +25,22 @@ type SiteDeletePreviewView = {
     categories: number;
   };
 };
+
+/**
+ * 契約の頁のアドレス。このサイトの管理番号とサイト名を自動で付ける。kind が delete なら削除の画面を開く。
+ * 番号が分からなければ付けない(契約の頁が「サイトの管理画面から開いてください」と言う)。
+ */
+function siteContractUrl(
+  site: { id: string | null; name: string | null } | undefined,
+  kind: "delete" | null,
+  extra = "",
+) {
+  const q: string[] = [];
+  if (site?.id) q.push((kind === "delete" ? "delete=" : "site=") + site.id);
+  if (site?.id && site.name) q.push("name=" + encodeURIComponent(site.name));
+  if (extra) q.push(extra);
+  return SITE_DELETE_PAGE + (q.length ? "?" + q.join("&") : "");
+}
 
 async function siteDeleteDialog() {
   let p: SiteDeletePreviewView;
@@ -88,13 +106,12 @@ async function siteDeleteDialog() {
   } else if (p.subscription && p.subscription !== "none") {
     // 契約がある: 先に解約(契約の頁)。
     note.textContent = t("siteDeleteContract");
-    go.href = SITE_DELETE_PAGE;
+    go.href = siteContractUrl(p.site, null);
     go.className = "button secondary";
     go.textContent = t("contractOpenPage");
   } else {
     note.textContent = t("siteDeleteHow");
-    go.href =
-      SITE_DELETE_PAGE + "?delete=" + encodeURIComponent(location.hostname);
+    go.href = siteContractUrl(p.site, "delete");
     go.textContent = t("siteDeleteGo");
   }
   go.addEventListener("click", () => ov.remove());
@@ -263,7 +280,7 @@ async function accountDeleteDialog() {
     page.className = "secondary";
     page.textContent = t("contractOpenPage");
     page.onclick = () => {
-      window.open(SITE_DELETE_PAGE, "_blank", "noopener");
+      window.open(siteContractUrl(p.site, null), "_blank", "noopener");
       ov.remove();
     };
     row.appendChild(page);

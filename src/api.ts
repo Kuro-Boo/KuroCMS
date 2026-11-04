@@ -1,6 +1,6 @@
 import { fromGuardian } from "./vendor/entamy-service/guardian-call.ts";
 import { catalogPrices, regionOf } from "./contract-prices.ts";
-import { siteDeletePreview } from "./site-delete.ts";
+import { entamySite, siteDeletePreview } from "./site-delete.ts";
 import {
   SESSION_COOKIE,
   bootstrapAdmin,
@@ -1140,6 +1140,8 @@ async function handleApiDispatch(
       return json({
         managed: true,
         contract: row ?? null,
+        // 契約の頁へ自動で渡す、このサイトの管理番号とサイト名(持ち主に番号を選ばせない・2026-11-05)。
+        site: (await entamySite(env)) as unknown as JsonValue,
         now: Date.now(),
         ...pricing,
       });
