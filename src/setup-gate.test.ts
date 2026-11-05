@@ -352,6 +352,53 @@ console.log("setup-gate");
 }
 
 {
+  // ログインの上限の寿命(課題 2da5d0d3)。使い続けても、作ってから 90 日で切れる。
+  const w = world();
+  const now = new Date().toISOString();
+  const later = new Date(Date.now() + 3_600_000).toISOString();
+  w.raw
+    .prepare(
+      "INSERT INTO users (uid, email, author_id, is_admin, is_author, created_at, updated_at) VALUES ('usr_001', 'a@example.com', 'au', 1, 1, ?, ?)",
+    )
+    .run(now, now);
+  const old = new Date(Date.now() - 91 * 86_400_000).toISOString();
+  const young = new Date(Date.now() - 89 * 86_400_000).toISOString();
+  for (const [raw, created] of [
+    ["sess_old", old],
+    ["sess_young", young],
+  ]) {
+    w.raw
+      .prepare(
+        "INSERT INTO sessions (session_id, uid, expires_at, created_at, last_active_at) VALUES (?, 'usr_001', ?, ?, ?)",
+      )
+      .run(await sessionKey(raw), later, created, now);
+  }
+  const me = async (raw: string) =>
+    (
+      await call(w, "GET", "/api/me", undefined, {
+        cookie: `kurocms_session=${raw}`,
+      })
+    ).status;
+  eq("作ってから 90 日を過ぎたログインは切れる", await me("sess_old"), 401);
+  eq(
+    "切れたログインは表から消える",
+    w.raw
+      .prepare("SELECT COUNT(*) AS n FROM sessions WHERE session_id = ?")
+      .get(await sessionKey("sess_old")),
+    { n: 0 },
+  );
+  eq("90 日の内なら通る", await me("sess_young"), 200);
+  const exp = w.raw
+    .prepare("SELECT expires_at FROM sessions WHERE session_id = ?")
+    .get(await sessionKey("sess_young")) as { expires_at: string };
+  eq(
+    "延ばしても、作ってから 90 日より先にはならない",
+    Date.parse(exp.expires_at) <= Date.parse(young) + 90 * 86_400_000,
+    true,
+  );
+}
+
+{
   // PAT の範囲と、PAT でできないこと。
   const w = world();
   const now = new Date().toISOString();
