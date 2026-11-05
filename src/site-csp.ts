@@ -125,9 +125,16 @@ export function adminCspHeaders(input: {
     mode: ADMIN_CSP_MODE,
     productId: "cms",
     nonce: input.nonce,
-    reportUri: `${base}${CSP_REPORT_PATH}`,
+    // 管理画面の違反を公開の頁の違反と分けて数える(csp-report.ts・migration 0085)。
+    reportUri: `${base}${CSP_REPORT_PATH}?p=admin`,
     scriptSrc: ["https://cdn.tailwindcss.com"],
-    connectSrc: ["https://kurocms.entamy.com", "https://*.entamy.com"],
+    connectSrc: [
+      "https://kurocms.entamy.com",
+      "https://*.entamy.com",
+      // 初期設定と回線の登録が、族ごとの自分のアドレスを読む先(admin/screens/setup.ts・ip-gate.ts)。
+      "https://1.1.1.1",
+      "https://[2606:4700:4700::1111]",
+    ],
     styleSrc: FONTS_STYLE,
     fontSrc: FONTS_FILE,
     imgSrc: ["https:"],

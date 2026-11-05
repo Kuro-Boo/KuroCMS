@@ -33,7 +33,10 @@ export async function cspReportEndpoint(
     return new Response(null, { status: 405, headers: { allow: "POST" } });
   // 上限まで読んで打ち切る(全部読んでから大きさを見ない・課題 cfaaee70)。超えたら数えない。
   const body = await readLimitedText(request, MAX_BODY).catch(() => "");
-  const fresh = await recordCspReports(env, body);
+  // 管理画面は報告先に ?p=admin を付ける(site-csp.ts)。強制に上げてよいかを、頁の種類ごとに見るため。
+  const page: CspPage =
+    new URL(request.url).searchParams.get("p") === "admin" ? "admin" : "site";
+  const fresh = await recordCspReports(env, body, Date.now(), page);
   if (fresh.length) {
     ctx.waitUntil(
       (async () => {
@@ -55,11 +58,21 @@ export async function cspReportEndpoint(
  * 報告の本文を数える。**初めて見た組**を返す(Defects へ送る分)。決して投げない。
  * ⚠ ここは cloudflare:workers を読まない(node で直接試験する)。
  */
+export type CspPage = "site" | "admin";
+
 export async function recordCspReports(
   env: Pick<Env, "DB">,
   raw: string,
   now = Date.now(),
-): Promise<Array<{ directive: string; blocked: string; disposition: string }>> {
+  page: CspPage = "site",
+): Promise<
+  Array<{
+    page: CspPage;
+    directive: string;
+    blocked: string;
+    disposition: string;
+  }>
+> {
   if (!raw || raw.length > MAX_BODY) return [];
   let body: unknown;
   try {
@@ -68,6 +81,7 @@ export async function recordCspReports(
     return [];
   }
   const fresh: Array<{
+    page: CspPage;
     directive: string;
     blocked: string;
     disposition: string;
@@ -75,21 +89,28 @@ export async function recordCspReports(
   for (const v of parseCspReports(body)) {
     try {
       const seen = await env.DB.prepare(
-        `UPDATE csp_reports SET count = count + 1, last_at = ?4
-          WHERE directive = ?1 AND blocked = ?2 AND disposition = ?3`,
+        `UPDATE csp_page_reports SET count = count + 1, last_at = ?4
+          WHERE directive = ?1 AND blocked = ?2 AND disposition = ?3 AND page = ?5`,
       )
-        .bind(v.directive, v.blocked, v.disposition, now)
+        .bind(v.directive, v.blocked, v.disposition, now, page)
         .run();
       if ((seen.meta?.changes ?? 0) > 0) continue;
       const added = await env.DB.prepare(
-        `INSERT INTO csp_reports (directive, blocked, disposition, count, first_at, last_at)
-         SELECT ?1, ?2, ?3, 1, ?4, ?4
-          WHERE (SELECT COUNT(*) FROM csp_reports) < ?5
-         ON CONFLICT (directive, blocked, disposition) DO NOTHING`,
+        `INSERT INTO csp_page_reports (page, directive, blocked, disposition, count, first_at, last_at)
+         SELECT ?6, ?1, ?2, ?3, 1, ?4, ?4
+          WHERE (SELECT COUNT(*) FROM csp_page_reports) < ?5
+         ON CONFLICT (page, directive, blocked, disposition) DO NOTHING`,
       )
-        .bind(v.directive, v.blocked, v.disposition, now, CSP_REPORT_MAX_KINDS)
+        .bind(
+          v.directive,
+          v.blocked,
+          v.disposition,
+          now,
+          CSP_REPORT_MAX_KINDS,
+          page,
+        )
         .run();
-      if ((added.meta?.changes ?? 0) > 0) fresh.push({ ...v });
+      if ((added.meta?.changes ?? 0) > 0) fresh.push({ page, ...v });
     } catch {
       /* 表がまだ無い(移行前)・書けない —— 報告は捨ててよい */
     }
@@ -100,6 +121,7 @@ export async function recordCspReports(
 /** 管理画面に出す数(版・状態の画面)。多い順。 */
 export async function cspReportSummary(env: Pick<Env, "DB">): Promise<{
   kinds: Array<{
+    page: CspPage;
     directive: string;
     blocked: string;
     disposition: string;
@@ -109,11 +131,12 @@ export async function cspReportSummary(env: Pick<Env, "DB">): Promise<{
   }>;
 }> {
   const rows = await env.DB.prepare(
-    `SELECT directive, blocked, disposition, count, first_at, last_at
-       FROM csp_reports ORDER BY count DESC LIMIT ?1`,
+    `SELECT page, directive, blocked, disposition, count, first_at, last_at
+       FROM csp_page_reports ORDER BY count DESC LIMIT ?1`,
   )
     .bind(CSP_REPORT_MAX_KINDS)
     .all<{
+      page: CspPage;
       directive: string;
       blocked: string;
       disposition: string;

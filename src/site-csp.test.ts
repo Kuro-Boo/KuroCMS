@@ -163,7 +163,7 @@ const directive = (p: string, name: string) =>
   const raw = new DatabaseSync(":memory:");
   raw.exec(
     readFileSync(
-      new URL("../migrations/0080_csp_reports.sql", import.meta.url),
+      new URL("../migrations/0085_csp_page_reports.sql", import.meta.url),
       "utf8",
     ),
   );
@@ -199,6 +199,7 @@ const directive = (p: string, name: string) =>
     first,
     [
       {
+        page: "site",
         directive: "script-src-elem",
         blocked: "inline",
         disposition: "report",
@@ -215,6 +216,7 @@ const directive = (p: string, name: string) =>
     await recordCspReports(env, report("https://evil.example/x.js?a=1"), 3),
     [
       {
+        page: "site",
         directive: "script-src-elem",
         blocked: "evil.example",
         disposition: "report",
@@ -222,8 +224,13 @@ const directive = (p: string, name: string) =>
     ],
     "出どころはホスト名だけ",
   );
+  assert.equal(
+    (await recordCspReports(env, report("inline"), 3, "admin")).length,
+    1,
+    "同じ組でも、管理画面の分は別に数える",
+  );
   const rows = raw
-    .prepare("SELECT * FROM csp_reports ORDER BY first_at")
+    .prepare("SELECT * FROM csp_page_reports ORDER BY first_at")
     .all() as Array<Record<string, unknown>>;
   assert.equal(rows[0]!.count, 2);
   assert.ok(
@@ -240,7 +247,9 @@ const directive = (p: string, name: string) =>
   for (let i = 0; i < CSP_REPORT_MAX_KINDS + 5; i++)
     await recordCspReports(env, report(`https://h${i}.example/x.js`), 10 + i);
   const n = (
-    raw.prepare("SELECT COUNT(*) AS n FROM csp_reports").get() as { n: number }
+    raw.prepare("SELECT COUNT(*) AS n FROM csp_page_reports").get() as {
+      n: number;
+    }
   ).n;
   assert.equal(n, CSP_REPORT_MAX_KINDS, "組の数は上限で止まる(誰でも送れる口)");
 }

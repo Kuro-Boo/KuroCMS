@@ -731,6 +731,8 @@ async function dashboard() {
             "<div style='display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px'>" +
             "<span style='color:var(--ink);font-weight:600'>" +
             escapeHtml(kindLabel(String(k.directive))) +
+            "</span><span style='font-size:10px;border-radius:999px;padding:0 8px;background:var(--surface);border:1px solid var(--line);color:var(--muted)'>" +
+            escapeHtml(t(k.page === "admin" ? "cspPageAdmin" : "cspPageSite")) +
             "</span><span style='font-size:10px;font-weight:700;border-radius:999px;padding:0 8px;border:1px solid " +
             (enforced
               ? "#e5484d;color:#e5484d'>" + escapeHtml(t("cspBlocked"))
