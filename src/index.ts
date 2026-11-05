@@ -2,7 +2,7 @@ import { WorkerEntrypoint } from "cloudflare:workers";
 import { adminHtml } from "./admin-shell";
 import { serveAdminAsset } from "./asset-serve";
 import { serveFont } from "./fonts";
-import { handleApi, unfurlEndpoint } from "./api";
+import { handleApi, recheckGuardianIfBehind, unfurlEndpoint } from "./api";
 import { reportInstall } from "./entamy";
 import { entamyPort, hardenEntamyConnection } from "./entamy-port";
 import { adoptGuardianMinute, guardianAutoTick } from "./guardian-update";
@@ -102,6 +102,14 @@ async function runMinute(
     ctx.waitUntil(
       purgeIpGate(env).catch((err) => {
         console.error("ip gate purge failed:", err);
+      }),
+    );
+  }
+  // 新しい版が出ていたら、番人に 1 日の間隔を待たずに確かめてもらう(1 時間に 1 回・同じ版には 1 回だけ)。
+  if (!retired && new Date(at).getUTCMinutes() === 23) {
+    ctx.waitUntil(
+      recheckGuardianIfBehind(env).catch((err) => {
+        console.error("guardian recheck failed:", err);
       }),
     );
   }

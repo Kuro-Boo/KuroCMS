@@ -49,6 +49,11 @@ export interface Env {
     }>;
     hold?(ttlMs?: number): Promise<{ ok: boolean; reason?: string }>;
     release?(): Promise<void>;
+    /**
+     * 新しい版を見つけたとき、番人に 1 日の間隔を待たずに確かめてもらう(WorkerOps 0.1.34〜・guardian-recheck)。
+     * それより古い番人には無い。
+     */
+    recheck?(): Promise<{ ok: boolean }>;
   };
   /**
    * メディア(R2)の保存上限(バイト)。Entamy 委託の導入にだけ受付が置く(1 導入 10 GB)。

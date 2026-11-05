@@ -5086,6 +5086,33 @@ async function systemVersion(env: Env, refresh = false): Promise<Response> {
 }
 
 /** 配布基盤の stable / dev(KuroCMS の stable / latest)。取れなければ null で、確認できていないと返す。 */
+const GUARDIAN_RECHECK_KEY = "system:guardian_recheck_for";
+
+/**
+ * 新しい版が出たのを見つけたら、自分の番人に「今すぐ確かめて」と頼む(2026-11-05 利用者の指示)。
+ * 番人は配布基盤を 1 日に 1 回しか見ないので、安定版にしてから届くまで最大 1 日かかっていた。
+ * 委託は連絡係(concierge)が毎分これを受け持つので、ここでは頼まない。頼むのは同じ版に 1 回だけ。
+ * 入れるかどうかは番人の決まり(自動更新の入切・版の固定・戻した版)が決める。
+ */
+export async function recheckGuardianIfBehind(env: Env): Promise<string> {
+  if (isManagedHosting(env)) return "managed";
+  if (!env.WORKEROPS?.recheck) return "no_recheck";
+  if (!(await getAutoUpdate(env))) return "auto_off";
+  const check = await fetchUpdateChannels();
+  if (!check.ok) return "check_failed";
+  const channel = await getUpdateChannel(env);
+  const target =
+    (channel === "latest" ? check.channels?.latest : check.channels?.stable) ??
+    null;
+  if (!target || compareVersions(target, KUROCMS_VERSION) <= 0)
+    return "current";
+  if ((await env.PUBLIC_PAGES.get(GUARDIAN_RECHECK_KEY)) === target)
+    return "already";
+  await env.WORKEROPS.recheck();
+  await env.PUBLIC_PAGES.put(GUARDIAN_RECHECK_KEY, target);
+  return "asked";
+}
+
 async function fetchUpdateChannels(): Promise<{
   ok: boolean;
   checkedAt: string;

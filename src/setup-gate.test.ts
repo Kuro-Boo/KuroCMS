@@ -35,8 +35,11 @@ await build({
   outfile: out,
   logLevel: "warning",
 });
-const { handleApi } = (await import(pathToFileURL(out).href)) as {
+const { handleApi, recheckGuardianIfBehind } = (await import(
+  pathToFileURL(out).href
+)) as {
   handleApi: (r: Request, env: unknown, ctx: unknown) => Promise<Response>;
+  recheckGuardianIfBehind: (env: unknown) => Promise<string>;
 };
 
 function world() {
@@ -396,6 +399,55 @@ console.log("setup-gate");
     Date.parse(exp.expires_at) <= Date.parse(young) + 90 * 86_400_000,
     true,
   );
+}
+
+{
+  // 新しい版が出たら番人に今すぐ確かめてもらう(同じ版には 1 回だけ・委託は連絡係に任せる)。
+  const w = world();
+  let asked = 0;
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const u = String(input instanceof Request ? input.url : input);
+    const m = /\/v1\/dist\/([^/]+)\/channels\/(stable|dev)\.json/.exec(u);
+    if (m)
+      return new Response(
+        JSON.stringify({ product_id: m[1], version: "999.0.0" }),
+        { headers: { "content-type": "application/json" } },
+      );
+    return realFetch(input);
+  }) as typeof fetch;
+  try {
+    const env = {
+      ...w.env,
+      WORKEROPS: { recheck: async () => (asked++, { ok: true }) },
+    };
+    eq(
+      "新しい版があれば番人に頼む",
+      await recheckGuardianIfBehind(env),
+      "asked",
+    );
+    eq(
+      "同じ版には 2 回頼まない",
+      await recheckGuardianIfBehind(env),
+      "already",
+    );
+    eq("番人へ頼んだのは 1 回", asked, 1);
+    eq(
+      "委託は連絡係に任せる",
+      await recheckGuardianIfBehind({
+        ...env,
+        MEDIA_QUOTA_BYTES: "10737418240",
+      }),
+      "managed",
+    );
+    eq(
+      "古い番人(recheck なし)には頼まない",
+      await recheckGuardianIfBehind({ ...w.env, WORKEROPS: {} }),
+      "no_recheck",
+    );
+  } finally {
+    globalThis.fetch = realFetch;
+  }
 }
 
 {
