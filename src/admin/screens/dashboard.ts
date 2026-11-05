@@ -524,58 +524,6 @@ async function dashboard() {
   // 直近に表示した内容。更新ボタンが「どのタグへ上げるか」を知るために持つ。
   let lastVersion: Dynamic | null = null;
 
-  function versionCompare(a: string, b: string): number {
-    const pa = String(a).split(".").map(Number);
-    const pb = String(b).split(".").map(Number);
-    for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-      const na = pa[i] || 0;
-      const nb = pb[i] || 0;
-      if (na !== nb) return na - nb;
-    }
-    return 0;
-  }
-
-  /**
-   * サーバ側が版を確認できなかったときに、**ブラウザから確認し直す**。
-   *
-   * ⚠ ここは api.github.com を使ってよい唯一の場所。Worker から叩くと送信元が
-   *   Cloudflare の共有 egress IP になり、60 req/時/IP の枠を世界中の導入と
-   *   食い合って恒常的に枯れる（v1.9.9 の個体が 11 日間「最新です」と誤表示
-   *   したまま固まった原因がこれ）。ブラウザは利用者自身の IP なので枠を
-   *   1 人で使い、実質枯れない。**サーバ経路と故障要因を一切共有しない**のが
-   *   この経路の値打ちで、両方が同時に塞がることはまず起きない。
-   *
-   *   逆向きも成り立つ: Worker が第一候補にする 302 / Atom 経路は CORS を
-   *   返さないのでブラウザからは読めない。だからここだけは API を使う。
-   */
-  async function resolveVersionsInBrowser(
-    repo: string,
-  ): Promise<{ stable: string; latest: string }> {
-    const base = "https://api.github.com/repos/" + repo + "/releases";
-    const get = async (url: string) => {
-      const res = await fetch(url, {
-        headers: { Accept: "application/vnd.github+json" },
-      });
-      if (!res.ok) throw new Error("GitHub API returned " + res.status);
-      return (await res.json()) as Dynamic;
-    };
-    // ⚠ stable を一覧から探さない。通常のリリースは全て prerelease 扱いなので、
-    //   先頭 N 件に非 prerelease が 1 件も無い状態が普通に起きる（2026-08-17
-    //   時点で stable と rolling は 20 件離れている）。GitHub 自身が「最新の
-    //   非 prerelease」を返す /releases/latest を使う。
-    const [list, stable] = await Promise.all([
-      get(base + "?per_page=1"),
-      get(base + "/latest"),
-    ]);
-    const rolling = (list as Dynamic[]).find((r) => !r.draft);
-    if (!rolling || !stable?.tag_name) throw new Error("no published releases");
-    const strip = (tag: string) => String(tag).replace(/^v/, "");
-    return {
-      latest: strip(rolling.tag_name),
-      stable: strip(stable.tag_name),
-    };
-  }
-
   function applyVersionResult(v: Dynamic) {
     lastVersion = v;
     developer = v.developer === true;
@@ -613,7 +561,7 @@ async function dashboard() {
     if (note) {
       // 確認できたなら黙っている。出すのは「確認できていない」ときだけ。
       let check = "";
-      if (!(v.checkOk || v.viaBrowser)) {
+      if (!v.checkOk) {
         const when = v.checkedAt
           ? new Date(String(v.checkedAt)).toLocaleString()
           : "";
@@ -641,24 +589,6 @@ async function dashboard() {
       v = await api("/api/system/version" + (refresh ? "?refresh=1" : ""));
     } catch {
       return;
-    }
-    // サーバから届かなかったときだけ、利用者の回線で確認し直す。
-    // **更新を実行するかどうかは、ここでは決めない** —— 表示を正しくするだけで、
-    // 押すのは今まで通り人間。
-    if (!v.checkOk && v.repo) {
-      try {
-        const b = await resolveVersionsInBrowser(String(v.repo));
-        const target = v.channel === "latest" ? b.latest : b.stable;
-        v = {
-          ...v,
-          stable: b.stable,
-          latest: b.latest,
-          hasUpdate: versionCompare(target, String(v.current)) > 0,
-          viaBrowser: true,
-        };
-      } catch {
-        /* こちらも駄目 → 「確認できません」を出す（applyVersionResult が担当） */
-      }
     }
     applyVersionResult(v);
     const devBadge = byId("devAccountBadge");
@@ -836,8 +766,7 @@ async function dashboard() {
           /* ignore */
         }
         btnUpdate.disabled = false;
-        const resolved =
-          !!lastVersion && (lastVersion.checkOk || lastVersion.viaBrowser);
+        const resolved = !!lastVersion && lastVersion.checkOk;
         if (!ok) {
           btnUpdate.textContent = t("checkForUpdate");
         } else if (!resolved) {
@@ -856,17 +785,7 @@ async function dashboard() {
       btnUpdate.disabled = true;
       btnUpdate.textContent = t("updating");
       try {
-        // サーバがタグを解決できなかった回は、ブラウザで解決したタグを渡す。
-        // 渡さないと Worker 側がもう一度 GitHub へ取りに行って同じ理由で失敗する。
-        const v = lastVersion;
-        const browserTag =
-          v && v.viaBrowser
-            ? "v" + (v.channel === "latest" ? v.latest : v.stable)
-            : null;
-        await api("/api/system/update", {
-          method: "POST",
-          body: browserTag ? JSON.stringify({ tag: browserTag }) : undefined,
-        });
+        await api("/api/system/update", { method: "POST" });
         toast(t("updateSuccessReload"));
         setTimeout(() => location.reload(), 2000);
       } catch (err) {

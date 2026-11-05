@@ -405,8 +405,11 @@ async function siteManagement() {
     if (!browserWindow.html2canvas) {
       await new Promise(function (resolve, reject) {
         const s = document.createElement("script");
-        s.src =
-          "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
+        // 管理画面の資産として配る(外の CDN から読まない・admin-shell.ts が名前を渡す)。
+        s.src = String(
+          (window as unknown as { __KUROCMS_H2C__?: string }).__KUROCMS_H2C__ ??
+            "",
+        );
         s.onload = resolve;
         s.onerror = reject;
         document.head.appendChild(s);

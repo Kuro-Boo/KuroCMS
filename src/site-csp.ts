@@ -130,16 +130,10 @@ export function adminCspHeaders(input: {
     nonce: input.nonce,
     // 管理画面の違反を公開の頁の違反と分けて数える(csp-report.ts・migration 0085)。
     reportUri: `${base}${CSP_REPORT_PATH}?p=admin`,
-    scriptSrc: [
-      "https://cdn.tailwindcss.com",
-      // テンプレートの縮小図を作る部品(admin/screens/site.ts の captureTemplateBlob)。版を名指しで許す。
-      "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js",
-    ],
+    scriptSrc: ["https://cdn.tailwindcss.com"],
     connectSrc: [
       "https://kurocms.entamy.com",
       "https://*.entamy.com",
-      // サーバーが版を確かめられないとき、ブラウザから確かめ直す先(admin/screens/dashboard.ts)。
-      "https://api.github.com",
       // 初期設定と回線の登録が、族ごとの自分のアドレスを読む先(admin/screens/setup.ts・ip-gate.ts)。
       "https://ipv4.cloudflare-dns.com",
       "https://ipv6.cloudflare-dns.com",

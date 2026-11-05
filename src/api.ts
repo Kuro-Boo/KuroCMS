@@ -274,7 +274,7 @@ const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 // Community(テンプレートの共有)は LP の Worker が持つ。正の置き場は kurocms.entamy.com の根
 // (cms-20260730-overview)。内側の道 /kurocms/api/... もそのまま通る。
 const KUROCMS_COMMUNITY_BASE_URL = "https://kurocms.entamy.com";
-/** 取り込んだテンプレートの source_url に残る、移る前の置き場。そこの API も答え続ける。 */
+/** 取り込んだテンプレートの source_url に残る、移る前の置き場。読むときは新しい置き場へ読み替える(旧い API は閉じた)。 */
 const KUROCMS_COMMUNITY_ORIGINS = new Set([
   new URL(KUROCMS_COMMUNITY_BASE_URL).origin,
   "https://kuro.boo",
@@ -10576,6 +10576,10 @@ function assertCommunitySourceUrl(sourceUrl: string): URL {
       "Template source URL must point to the KuroCMS Community template API.",
     );
   }
+  // 移る前の置き場(kuro.boo)の API は 2026-11-05 に閉じた(410)。取り込んだ時の source_url に残っていても、
+  // 同じ道を新しい置き場から読む(課題 9844aba0)。
+  if (url.origin !== new URL(KUROCMS_COMMUNITY_BASE_URL).origin)
+    return new URL(url.pathname + url.search, KUROCMS_COMMUNITY_BASE_URL);
   return url;
 }
 
