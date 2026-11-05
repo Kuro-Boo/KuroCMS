@@ -35,6 +35,7 @@ interface SessionUserRow {
   is_author: number;
   disabled_at: string | null;
   expires_at: string;
+  created_at: string;
   credential_id: string | null;
 }
 
@@ -43,6 +44,11 @@ interface SessionUserRow {
 // ---------------------------------------------------------------------------
 
 const SESSION_DURATION_MS = 30 * 24 * 60 * 60 * 1000; // 30 days sliding
+/**
+ * ログインの上限の寿命。使い続けても、作ってからこれを過ぎたら入り直す(課題 2da5d0d3)。
+ * 滑る期限だけだと、盗まれた cookie も使い続ける限りいつまでも効く(core-security-checklist 3節)。
+ */
+export const SESSION_MAX_LIFETIME_MS = 90 * 24 * 60 * 60 * 1000;
 
 export const SESSION_COOKIE = "kurocms_session";
 
@@ -241,6 +247,7 @@ async function trySessionUser(
       sessions.session_id,
       sessions.uid,
       sessions.expires_at,
+      sessions.created_at,
       sessions.credential_id,
       users.email,
       users.is_admin,
@@ -255,8 +262,11 @@ async function trySessionUser(
 
   if (!row) return null;
 
-  // Check expiry
-  if (Date.parse(row.expires_at) <= Date.now()) {
+  // Check expiry(滑る期限か、上限の寿命のどちらかを過ぎたら切る)
+  if (
+    Date.parse(row.expires_at) <= Date.now() ||
+    Date.parse(row.created_at) + SESSION_MAX_LIFETIME_MS <= Date.now()
+  ) {
     await env.DB.prepare("DELETE FROM sessions WHERE session_id = ?")
       .bind(sessionId)
       .run();
@@ -267,8 +277,14 @@ async function trySessionUser(
     throw new HttpError(403, "user_disabled", "User is disabled.");
   }
 
-  // Sliding window: extend session
-  const newExpiresAt = new Date(Date.now() + SESSION_DURATION_MS).toISOString();
+  // Sliding window: extend session —— ただし作ってから上限の寿命を越えては延ばさない。
+  const hardEnd = Date.parse(row.created_at) + SESSION_MAX_LIFETIME_MS;
+  const newExpiresAt = new Date(
+    Math.min(
+      Date.now() + SESSION_DURATION_MS,
+      Number.isFinite(hardEnd) ? hardEnd : Date.now(),
+    ),
+  ).toISOString();
   const now = nowIso();
   await env.DB.prepare(
     "UPDATE sessions SET expires_at = ?, last_active_at = ? WHERE session_id = ?",
