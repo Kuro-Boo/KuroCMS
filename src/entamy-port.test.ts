@@ -50,11 +50,36 @@ function fakeEnv(
     secret?: string;
     storeKey?: string;
   } = {},
-): Env & { _row: () => string | null; _kv: Map<string, string> } {
+): Env & {
+  _row: () => string | null;
+  _kv: Map<string, string>;
+  _secrets: Map<string, string>;
+} {
   let row: string | null = options.row ?? null;
   const kv = new Map(Object.entries(options.kv ?? {}));
+  const secrets = new Map<string, string>();
   const DB = {
     prepare(sql: string) {
+      if (sql.includes("entamy_secrets")) {
+        return {
+          bind(...args: unknown[]) {
+            const key = String(args[0]);
+            return {
+              async first() {
+                if (options.dbThrows) throw new Error("D1_ERROR: overloaded");
+                const value = secrets.get(key);
+                return value === undefined ? null : { value };
+              },
+              async run() {
+                if (options.dbThrows) throw new Error("D1_ERROR: overloaded");
+                if (/^\s*DELETE/i.test(sql)) secrets.delete(key);
+                else secrets.set(key, String(args[1]));
+                return {};
+              },
+            };
+          },
+        };
+      }
       return {
         bind(...args: unknown[]) {
           return {
@@ -106,7 +131,12 @@ function fakeEnv(
     ...(options.storeKey ? { ENTAMY_STORE_KEY: options.storeKey } : {}),
     _row: () => row,
     _kv: kv,
-  } as unknown as Env & { _row: () => string | null; _kv: Map<string, string> };
+    _secrets: secrets,
+  } as unknown as Env & {
+    _row: () => string | null;
+    _kv: Map<string, string>;
+    _secrets: Map<string, string>;
+  };
 }
 
 const run = async () => {
@@ -225,7 +255,7 @@ const run = async () => {
       "hardened",
     );
     // 保管庫は封じて置く: KV のリフレッシュトークンは平文で残らない。
-    const stored = env10._kv.get("entamy.cms.refresh_token") ?? "";
+    const stored = env10._secrets.get("entamy.cms.refresh_token") ?? "";
     ok(
       "リフレッシュトークンは封じてある",
       stored.startsWith("es1.") && !stored.includes("r_site"),

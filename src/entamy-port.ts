@@ -33,46 +33,60 @@ const LEGACY_INSTALL_KEY = "system:entamy_install_id";
 const LEGACY_ACCOUNT_KEY = "system:entamy_account";
 
 /**
- * 保管庫。**KV に置く**。
+ * 保管庫。**D1 に置く**(entamy_secrets・課題 4e784e65)。
  *
- * ここに入るのは `account_id` / `refresh_token` / SAT / 送信鍵で、
- * どれも失っても `install_id` から取り直せる（`/v1/accounts/anonymous` は
- * `install_id` で冪等）。だから KV が消えても復旧する。
+ * ここに入るのは `account_id` / `refresh_token` / SAT / 送信鍵。リフレッシュトークンは回すたびに変わるので、
+ * 読み直しが必ず最新を返す置き場でなければならない。KV は結果整合で、版の更新で isolate が入れ替わると、
+ * 回した後の古いトークンを読んで ID に断られていた。D1 なら、競り負けた側も読み直して新しい方で回し直せる。
  *
- * ⚠ `install_id` だけはここに置かない。KV は
- *   `siteUnpublish()` / `restoreWipePages()` に全消しされるので、
- *   **消えると別の導入として数え直される**（→ `resolveInstallId`）。
+ * どれも失っても `install_id` から取り直せる（`/v1/accounts/anonymous` は `install_id` で冪等）。
+ * だから読めない・書けないときは、値が無いものとして進む。
  *
- * **封じて置く**(課題 5be5b80e)。KV を読めるだけで送れる資格の組が手に入らないように、
+ * **封じて置く**(課題 5be5b80e)。DB を読めるだけで送れる資格の組が手に入らないように、
  * Worker の Secret `ENTAMY_STORE_KEY` で封じる(entamy-secrets.ts)。鍵がまだ無い導入
  * (委託で導入口が置く前の版に立てたもの)は、封じずに動き続ける —— メールを止めない。
  */
 function storeSecrets(env: Env): EntamySecrets {
   const key = entamySecret(env, "ENTAMY_STORE_KEY");
-  return key ? sealedSecrets(kvSecrets(env), key) : kvSecrets(env);
+  return key ? sealedSecrets(d1Secrets(env), key) : d1Secrets(env);
 }
 
-function kvSecrets(env: Env): EntamySecrets {
+function d1Secrets(env: Env): EntamySecrets {
+  // 前の版が KV に置いた同じ名前の値は、書き換えるときに消す(古い資格を残さない)。
+  const dropFromKv = async (key: string) => {
+    await env.PUBLIC_PAGES.delete(key).catch(() => {});
+  };
   return {
     async read(key) {
       try {
-        return await env.PUBLIC_PAGES.get(key);
+        const row = await env.DB.prepare(
+          "SELECT value FROM entamy_secrets WHERE key = ?",
+        )
+          .bind(key)
+          .first<{ value: string }>();
+        return row?.value ?? null;
       } catch {
-        // KV が読めないことと「値が無い」ことは違うが、呼び出し側から見れば
-        // どちらも「取り直す」で正しく回る（取り直しは冪等）。
         return null;
       }
     },
     async write(key, value) {
       try {
-        await env.PUBLIC_PAGES.put(key, value);
+        await env.DB.prepare(
+          "INSERT INTO entamy_secrets (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+        )
+          .bind(key, value, Date.now())
+          .run();
+        await dropFromKv(key);
       } catch {
         /* 書けなければ次回また取り直す。落とすほどのことではない。 */
       }
     },
     async delete(key) {
       try {
-        await env.PUBLIC_PAGES.delete(key);
+        await env.DB.prepare("DELETE FROM entamy_secrets WHERE key = ?")
+          .bind(key)
+          .run();
+        await dropFromKv(key);
       } catch {
         /* 同上 */
       }
