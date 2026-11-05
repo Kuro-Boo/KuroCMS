@@ -2,11 +2,13 @@
 
 // パスキーで入った直後に、もう片方の族(IPv4 ⇔ IPv6)の回線も登録する(IP 制限・ip-gate.ts)。
 // 登録はその要求が通った族だけなので、ブラウザが後で族を切り替えると止まり、パスキーを
-// 求め直していた。Cloudflare の 1.1.1.1 の族ごとの宛先から自分のアドレスを読んで送る。
+// 求め直していた。Cloudflare の族ごとの宛先(A だけ・AAAA だけの名前)から自分のアドレスを読んで送る。
 // 読めなければ(IPv6 の無い回線など)何もしない。ログインは待たせない(3 秒で諦める)。
 const SIBLING_TRACE_URLS = [
-  "https://1.1.1.1/cdn-cgi/trace",
-  "https://[2606:4700:4700::1111]/cdn-cgi/trace",
+  // 族ごとに 1 つの名前だけを持つ Cloudflare の宛先(A だけ・AAAA だけ)。アドレスを直接書くと、
+  // 管理画面の CSP(connect-src)が IPv6 のアドレスを出どころとして書けず、強制で止まる(2026-11-05)。
+  "https://ipv4.cloudflare-dns.com/cdn-cgi/trace",
+  "https://ipv6.cloudflare-dns.com/cdn-cgi/trace",
 ];
 async function registerSiblingNetwork(): Promise<void> {
   const reads = await Promise.allSettled(

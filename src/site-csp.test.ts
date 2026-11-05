@@ -39,8 +39,8 @@ const directive = (p: string, name: string) =>
   );
   assert.equal(
     directive(plain, "script-src"),
-    "script-src 'self'",
-    "設定の無いサイトは自分のファイルだけ(nonce も unsafe も入れない)",
+    "script-src 'self' https://static.cloudflareinsights.com",
+    "設定の無いサイトは自分のファイルと Cloudflare の Web Analytics だけ(nonce も unsafe も入れない)",
   );
   assert.match(plain, /object-src 'none'/);
   assert.match(plain, /base-uri 'self'/);

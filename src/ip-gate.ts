@@ -249,7 +249,7 @@ export const SIBLING_WINDOW_MS = 2 * 60 * 1000;
  * IPv4 と IPv6 は別の回線として登録され、ログインで登録されるのはその要求が通った族だけ。
  * ブラウザは後で勝手にもう片方へ切り替える（Happy Eyeballs）ので、同じ家の回線でも止まり、
  * パスキーを求め直していた（2026-10-19 の調べ・cms-cms-security）。画面は、Cloudflare の
- * 1.1.1.1 の族ごとの宛先（`https://1.1.1.1/cdn-cgi/trace`・`https://[2606:4700:4700::1111]/cdn-cgi/trace`）
+ * Cloudflare の族ごとの宛先（`https://ipv4.cloudflare-dns.com/cdn-cgi/trace`・`https://ipv6.cloudflare-dns.com/cdn-cgi/trace`）
  * から自分のアドレスを読み、ここへ送る。workers.dev は族ごとの宛先を持たないため。
  *
  * 送られたアドレスはサーバーが見たものではないので、受けるのは次をすべて満たすときだけ。

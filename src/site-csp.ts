@@ -87,10 +87,13 @@ export function siteCspHeaders(input: SiteCspInput): Record<string, string> {
     productId: "cms",
     reportUri: `${base}${CSP_REPORT_PATH}`,
     scriptSrc: [
+      // Cloudflare の Web Analytics(ゾーンで入にすると、Cloudflare が頁に差し込む)。
+      "https://static.cloudflareinsights.com",
       ...(input.ga ? GA_SCRIPT : []),
       ...(input.adsense ? ADSENSE_SCRIPT : []),
     ],
     connectSrc: [
+      "https://cloudflareinsights.com",
       ...(input.ga ? GA_CONNECT : []),
       ...(input.adsense ? ADSENSE_CONNECT : []),
       ...(input.bluesky ? BLUESKY_CONNECT : []),
@@ -114,7 +117,7 @@ export function siteCspHeaders(input: SiteCspInput): Record<string, string> {
  *   - 記事の外の画像・埋め込み(YouTube など)・プレビューの枠(同じ出どころ・srcdoc)
  * 管理画面は枠に入れさせない(frame-ancestors 'none')。
  */
-export const ADMIN_CSP_MODE: "report" | "enforce" = "report";
+export const ADMIN_CSP_MODE: "report" | "enforce" = "enforce";
 
 export function adminCspHeaders(input: {
   publicBase: string;
@@ -127,13 +130,19 @@ export function adminCspHeaders(input: {
     nonce: input.nonce,
     // 管理画面の違反を公開の頁の違反と分けて数える(csp-report.ts・migration 0085)。
     reportUri: `${base}${CSP_REPORT_PATH}?p=admin`,
-    scriptSrc: ["https://cdn.tailwindcss.com"],
+    scriptSrc: [
+      "https://cdn.tailwindcss.com",
+      // テンプレートの縮小図を作る部品(admin/screens/site.ts の captureTemplateBlob)。版を名指しで許す。
+      "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js",
+    ],
     connectSrc: [
       "https://kurocms.entamy.com",
       "https://*.entamy.com",
+      // サーバーが版を確かめられないとき、ブラウザから確かめ直す先(admin/screens/dashboard.ts)。
+      "https://api.github.com",
       // 初期設定と回線の登録が、族ごとの自分のアドレスを読む先(admin/screens/setup.ts・ip-gate.ts)。
-      "https://1.1.1.1",
-      "https://[2606:4700:4700::1111]",
+      "https://ipv4.cloudflare-dns.com",
+      "https://ipv6.cloudflare-dns.com",
     ],
     styleSrc: FONTS_STYLE,
     fontSrc: FONTS_FILE,
