@@ -16,7 +16,7 @@ const SITE_MANAGE_PAGE = "https://kurocms.entamy.com/manage/";
 type SiteDeletePreviewView = {
   managed: boolean;
   subscription: string | null;
-  site?: { id: string | null; name: string | null };
+  site?: { id: string | null; name: string | null; slug?: string | null };
   counts: {
     documents: number;
     media: number;
@@ -101,7 +101,10 @@ async function siteDeleteDialog() {
   if (!p.managed) {
     // 顧客運用: 自分の Cloudflare のサイトは「サイト管理」で片付ける。
     note.textContent = t("siteDeleteSelf");
-    go.href = SITE_MANAGE_PAGE;
+    // 開いていたサイトを、一覧の中で印を付けて先頭に出してもらう(何十もあるとどれか分からない)。
+    go.href = p.site?.slug
+      ? SITE_MANAGE_PAGE + "?from=" + encodeURIComponent(p.site.slug)
+      : SITE_MANAGE_PAGE;
     go.textContent = t("siteDeleteOpenManage");
   } else if (p.subscription && p.subscription !== "none") {
     // 契約がある: 先に解約(契約の頁)。

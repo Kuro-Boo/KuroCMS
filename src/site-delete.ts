@@ -16,7 +16,7 @@ export interface SiteDeletePreview {
   /** 契約の状態(contract_info・委託だけ)。none なら消せる。 */
   subscription: string | null;
   /** 契約の頁へ渡す、このサイトの管理番号とサイト名(entamySite)。 */
-  site: { id: string | null; name: string | null };
+  site: { id: string | null; name: string | null; slug: string | null };
   counts: {
     documents: number;
     media: number;
@@ -36,17 +36,18 @@ const count = async (env: Env, sql: string): Promise<number> =>
  */
 export async function entamySite(
   env: Env,
-): Promise<{ id: string | null; name: string | null }> {
-  const id =
-    /^kurocms-app-([0-9a-f]{12})$/.exec(
-      (env.CF_WORKER_NAME ?? "").trim(),
-    )?.[1] ?? null;
+): Promise<{ id: string | null; name: string | null; slug: string | null }> {
+  const worker = (env.CF_WORKER_NAME ?? "").trim();
+  const id = /^kurocms-app-([0-9a-f]{12})$/.exec(worker)?.[1] ?? null;
+  // 顧客運用の「サイト管理」が、一覧の中でこのサイトに印を付けるための名前(app Worker の名前から接頭辞を除いたもの)。
+  // 古い導入の短い名前もあるので、管理番号(id)とは別に持つ。
+  const slug = /^kurocms-app-([a-z0-9-]{1,63})$/.exec(worker)?.[1] ?? null;
   const row = await env.DB.prepare(
     "SELECT site_name FROM site_settings WHERE id = 1",
   )
     .first<{ site_name: string | null }>()
     .catch(() => null);
-  return { id, name: (row?.site_name ?? "").trim() || null };
+  return { id, name: (row?.site_name ?? "").trim() || null, slug };
 }
 
 export async function siteDeletePreview(env: Env): Promise<SiteDeletePreview> {
