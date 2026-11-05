@@ -19,19 +19,15 @@ import { templateScriptWarnings } from "./template-scripts";
 import { cspReportSummary } from "./csp-report";
 import { contractLocked, lockAllows } from "./contract-lock";
 import {
-  fetchGithubVerified,
   fetchUpdateArtifact,
   fetchUpdateManifest,
-  getReleaseSource,
-  lastFallback,
-  noteFallback,
   reasonOf,
-  ReleaseError,
-  setReleaseSource,
   updateChannelOf,
   updateChannelVersion,
   UPDATE_ORIGIN,
+  UPDATE_PRODUCT,
 } from "./release-source";
+import { releaseToken } from "./release-token";
 import { buildReason, reportBuild, reportRelease } from "./release-report";
 import {
   getGuardianAuto,
@@ -94,12 +90,6 @@ import { nextThreadsTokenRefreshAt } from "./threads-token";
 import { verifyRegistration, verifyAuthentication } from "./webauthn";
 // migrations/ を順番どおりに適用した最終形（スキーマの正本）。ビルド時生成。
 import { SCHEMA_MANIFEST } from "./schema-manifest";
-// GitHub の非 API 経路（レート制限に当たらない）からタグを読む純関数。
-import {
-  parseStableTagFromLocation,
-  parseLatestTagFromAtom,
-  releaseAssetUrl as buildReleaseAssetUrl,
-} from "./github-release";
 import {
   planUniqueRenames,
   backfillDocumentLive,
@@ -270,7 +260,6 @@ import {
 } from "./entamy";
 
 export { KUROCMS_VERSION } from "./version";
-const KUROCMS_GITHUB_REPO = "Kuro-Boo/KuroCMS";
 // Community(テンプレートの共有)は LP の Worker が持つ。正の置き場は kurocms.entamy.com の根
 // (cms-20260730-overview)。内側の道 /kurocms/api/... もそのまま通る。
 const KUROCMS_COMMUNITY_BASE_URL = "https://kurocms.entamy.com";
@@ -377,7 +366,7 @@ async function handleApiDispatch(
     // WorkerOps Contract: apply pending migrations after a guardian-driven deploy.
     // Public + idempotent (run-once tracking). WorkerOps calls this via the service
     // binding with no auth header; safe to call repeatedly (applied migrations skip).
-    // Because it is unauthenticated and each call triggers a GitHub manifest fetch,
+    // Because it is unauthenticated and each call triggers a manifest fetch,
     // a short KV throttle bounds resource abuse from anonymous callers. WorkerOps
     // issues a single post-deploy call, and the admin update path applies
     // migrations directly (systemUpdate → applyPendingMigrations), so the throttle
@@ -930,8 +919,7 @@ async function handleApiDispatch(
 
     if (request.method === "GET" && path === "/api/system/version") {
       requireAdmin(user);
-      const refresh = new URL(request.url).searchParams.get("refresh") === "1";
-      return withJsonHeaders(await systemVersion(env, refresh));
+      return withJsonHeaders(await systemVersion(env));
     }
 
     // 公開サイトの CSP の違反の報告の数(cms-cms-security「CSP」)。
@@ -1250,29 +1238,6 @@ async function handleApiDispatch(
         },
       );
       return json(result as unknown as JsonValue);
-    }
-
-    // 版の取り先(GitHub か配布基盤か)。移行の間だけの切り替え(cms-release)。
-    if (request.method === "PUT" && path === "/api/system/release-source") {
-      requireAdmin(user);
-      const body = await readJson(request);
-      if (body.source !== "github" && body.source !== "update") {
-        throw new HttpError(
-          400,
-          "invalid_source",
-          "source must be github or update.",
-        );
-      }
-      const source = await setReleaseSource(env, body.source);
-      await logActivity(
-        env,
-        user,
-        "system.release_source",
-        "system",
-        "worker",
-        { source },
-      );
-      return json({ ok: true, source });
     }
 
     if (request.method === "GET" && path === "/api/system/custom-domains") {
@@ -4267,15 +4232,20 @@ async function replaceProfileMailBindings(
     });
   }
 
-  const scriptRes = await fetch(
-    `https://github.com/${KUROCMS_GITHUB_REPO}/releases/download/v${KUROCMS_VERSION}/worker.js`,
-    { redirect: "follow", signal: AbortSignal.timeout(30_000) },
-  );
-  if (!scriptRes.ok) {
+  // いま動いている版の Worker を配布基盤から取る(署名と sha256 を確かめる)。
+  let workerScript: string;
+  try {
+    const token = releaseToken(env);
+    const version = KUROCMS_VERSION.replace(/^v/, "");
+    const manifest = await fetchUpdateManifest(version, UPDATE_PRODUCT, token);
+    workerScript = new TextDecoder().decode(
+      await fetchUpdateArtifact(manifest, "worker.js", token),
+    );
+  } catch (err) {
     throw new HttpError(
       502,
       "worker_download_failed",
-      `Failed to download KuroCMS worker.js (HTTP ${scriptRes.status}).`,
+      `Failed to download KuroCMS worker.js (${reasonOf(err)}).`,
     );
   }
   const metadata = {
@@ -4296,7 +4266,7 @@ async function replaceProfileMailBindings(
   );
   form.append(
     "worker.js",
-    new Blob([await scriptRes.text()], {
+    new Blob([workerScript], {
       type: "application/javascript+module",
     }),
     "worker.js",
@@ -4559,420 +4529,7 @@ function compareVersions(a: string, b: string): number {
   return 0;
 }
 
-// GitHub REST headers. When env.GITHUB_TOKEN is set, authenticate to lift the
-// unauthenticated 60 req/hour/IP limit (shared across Cloudflare egress IPs) to
-// 5,000 req/hour/token.
-function githubApiHeaders(env: Env): Record<string, string> {
-  const headers: Record<string, string> = {
-    "User-Agent": "KuroCMS-updater/1.0",
-    Accept: "application/vnd.github+json",
-  };
-  if (env.GITHUB_TOKEN) headers.Authorization = `Bearer ${env.GITHUB_TOKEN}`;
-  return headers;
-}
-
-// ── GitHub API を使わない経路（レート制限に当たらない） ────────────────────
-//
-// ⚠ 未認証の GitHub API 上限は【IP あたり 60 req/時】で、Worker の送信元 IP は
-//   Cloudflare の共有 egress。つまり自分が 1 回も叩いていなくても、同じ IP に
-//   相乗りしている他テナントの分で枯れて 403 が返る（新規インストールで頻発。
-//   KV キャッシュが空なので初回から素通しで当たる）。GITHUB_TOKEN を入れれば
-//   5,000 req/時 になるが、それは利用者ごとに PAT を用意させることになるので
-//   既定解にはできない。
-//
-// そこで API ではない 3 つの経路を用意し、API が駄目でも更新が続けられるように
-// する（いずれも実測でレート制限の対象外）:
-//   - stable のタグ … /releases/latest の 302 Location（API の /releases/latest
-//                     と同じ意味＝prerelease/draft を除いた最新）
-//   - latest のタグ … /releases.atom の先頭 entry（prerelease も含む＝rolling）
-//   - リリース資産  … /releases/download/{tag}/{name}（版固定・不変）
-//
-// ⚠ 資産は必ず /releases/download/{tag}/ の【版固定 URL】を使う。
-//   /releases/latest/download/ は CDN キャッシュで stale を掴むうえ、選択中の
-//   チャンネルに関係なく GitHub の真の最新へ解決してしまう。
-
-/** レート制限の解除時刻（epoch ms）を置く KV キー。 */
-const GITHUB_BACKOFF_KEY = "system:github_backoff_until";
-/** KV の expirationTtl の下限は 60 秒。 */
-const GITHUB_BACKOFF_MIN_TTL = 60;
-/** 待ちすぎないための上限（GitHub の枠は毎時リセット）。 */
-const GITHUB_BACKOFF_MAX_TTL = 3600;
-
-/** レート制限中なら true。API を叩かずに非 API 経路へ回すための判定。 */
-async function githubApiBackedOff(env: Env): Promise<boolean> {
-  try {
-    const until = await env.PUBLIC_PAGES.get(GITHUB_BACKOFF_KEY);
-    return Boolean(until) && Number(until) > Date.now();
-  } catch {
-    return false;
-  }
-}
-
-/**
- * 403/429 を受けたら解除時刻を KV に控える。連打しても API を叩かなくなるので、
- * 枠の回復を自分で妨げない（＝サブリクエストも無駄に使わない）。
- * 解除時刻は GitHub の `x-ratelimit-reset`（epoch 秒）に従う。
- */
-/**
- * GitHub の取得回数の上限に当たったことを表す。
- *
- * **利用者に出すのは原文ではない。** GitHub が返す英語の
- * "API rate limit exceeded for 172.64.215.168 ..." は、読んでも何をすれば
- * よいか分からない。ここで回復の見込み時刻まで持たせて、画面では
- * 「いつ直るか」を日本語で伝える。
- */
-class GithubRateLimitError extends Error {
-  readonly resetAt: number | null;
-  constructor(resetAt: number | null) {
-    super("GitHub rate limit exceeded");
-    this.name = "GithubRateLimitError";
-    this.resetAt = resetAt;
-  }
-}
-
-/** 「約◯分後」。上限は時間単位で戻るので、日をまたぐ案内はしない。 */
-function recoveryHint(resetAt: number | null): string {
-  if (!resetAt) return "1時間ほど待つと自動で回復します";
-  const min = Math.max(1, Math.ceil((resetAt - Date.now()) / 60000));
-  if (min <= 90) return `約${min}分後に自動で回復します`;
-  return `約${Math.ceil(min / 60)}時間後に自動で回復します`;
-}
-
-async function noteGithubRateLimit(env: Env, res: Response): Promise<void> {
-  if (res.status !== 403 && res.status !== 429) return;
-  const resetSec = Number(res.headers.get("x-ratelimit-reset") || "");
-  const seconds = Number.isFinite(resetSec)
-    ? Math.ceil(resetSec - Date.now() / 1000)
-    : GITHUB_BACKOFF_MIN_TTL;
-  const ttl = Math.min(
-    GITHUB_BACKOFF_MAX_TTL,
-    Math.max(GITHUB_BACKOFF_MIN_TTL, seconds),
-  );
-  try {
-    await env.PUBLIC_PAGES.put(
-      GITHUB_BACKOFF_KEY,
-      String(Date.now() + ttl * 1000),
-      { expirationTtl: ttl },
-    );
-  } catch {
-    /* KV が書けなくても更新自体は続けられる（次回また API を試すだけ） */
-  }
-}
-
-/** リリース資産の版固定 URL（API 不要・不変）。 */
-function releaseAssetUrl(tag: string, name: string): string {
-  return buildReleaseAssetUrl(KUROCMS_GITHUB_REPO, tag, name);
-}
-
-/** API を使わずに stable のタグを取る（/releases/latest の 302 Location）。 */
-async function stableTagNoApi(): Promise<string> {
-  const res = await fetch(
-    `https://github.com/${KUROCMS_GITHUB_REPO}/releases/latest`,
-    { redirect: "manual", signal: AbortSignal.timeout(15_000) },
-  );
-  const tag = parseStableTagFromLocation(res.headers.get("location") || "");
-  if (!tag) throw new Error("Could not resolve the stable release tag.");
-  return tag;
-}
-
-/** API を使わずに rolling（prerelease 含む）のタグを取る（releases.atom の先頭）。 */
-async function latestTagNoApi(): Promise<string> {
-  const res = await fetch(
-    `https://github.com/${KUROCMS_GITHUB_REPO}/releases.atom`,
-    { signal: AbortSignal.timeout(15_000) },
-  );
-  if (!res.ok) throw new Error(`releases.atom returned ${res.status}`);
-  const tag = parseLatestTagFromAtom(await res.text());
-  if (!tag) throw new Error("Could not resolve the latest release tag.");
-  return tag;
-}
-
-/** チャンネルのタグを API 抜きで解決する。 */
-async function resolveTagNoApi(channel: "stable" | "latest"): Promise<string> {
-  return channel === "latest" ? latestTagNoApi() : stableTagNoApi();
-}
-
-// Cache the release-channel lookup so the dashboard's per-load + hourly version
-// polling does not hit the GitHub API on every call (was the main rate-limit cause).
-//
-// Two channels, both derived from ONE `GET /releases` list call:
-//  - "latest"  = the newest published release regardless of prerelease (the
-//                rolling channel — every ./github_release_update.sh run lands
-//                here immediately).
-//  - "stable"  = the newest release that is NOT marked prerelease. Routine
-//                releases are created with --prerelease (see
-//                github_release_update.sh), so this stays pinned until a
-//                maintainer explicitly promotes one via --promote-stable
-//                (which clears its prerelease flag on GitHub). This is what
-//                lets an install opt out of every micro-release landing on it
-//                automatically.
-const RELEASE_CHANNELS_CACHE_KEY = "system:release_channels";
-const RELEASE_CHANNELS_CACHE_TTL = 1800; // 30 min
-// 直近に取得できた値。**GitHub へ届かない間の表示に使う**ので、通常のキャッシュより
-// ずっと長く持つ。版は数分で変わるものではなく、古い値の方がエラーより役に立つ。
-const RELEASE_CHANNELS_LAST_GOOD_KEY = "system:release_channels_last_good";
-const RELEASE_CHANNELS_LAST_GOOD_TTL = 30 * 24 * 3600; // 30 日
 const UPDATE_CHANNEL_KEY = "system:update_channel"; // "stable" | "latest"
-
-type ReleaseChannels = { stable: string; latest: string };
-
-/** KV に置く形。`at` は【その値が GitHub から取れた時刻】。 */
-type StoredChannels = ReleaseChannels & { at?: string };
-
-/**
- * 版確認の結果。
- *
- * ⚠ `channels` が null になりうるのが要点。**「分からない」を「最新です」に
- * 丸めない** —— 2026-08 に v1.9.9 のまま 11 日間固まった個体は、確認が失敗する
- * たびに stable/latest を current で埋めていたため、画面上は「最新」と区別が
- * つかず、誰も止まっていることに気づけなかった。
- */
-type ReleaseCheck = {
-  /** 表示に使える値。一度も取得できていなければ null。 */
-  channels: ReleaseChannels | null;
-  /** 今回 GitHub まで届いたか。false なら channels は last-good（か null）。 */
-  ok: boolean;
-  /** channels がいつ取れた値か（ISO）。分からなければ null。 */
-  checkedAt: string | null;
-  /** 届かなかった理由。ok のときは null。 */
-  error: string | null;
-};
-
-/** KV の値を読む。旧い形（`at` の無い `{stable,latest}`）もそのまま受ける。 */
-function readStoredChannels(raw: string | null): StoredChannels | null {
-  if (!raw) return null;
-  try {
-    const v = JSON.parse(raw) as StoredChannels;
-    if (typeof v?.stable !== "string" || typeof v?.latest !== "string")
-      return null;
-    return v;
-  } catch {
-    return null; // stale/corrupt cache entry — 呼び手が取り直す
-  }
-}
-
-/**
- * API 経路と非 API 経路のどちらを先に試すか。
- *
- * 既定（GITHUB_TOKEN 無し）は【非 API を第一候補】にする。未認証 API の枠は
- * IP 単位 60 req/時で、Worker の送信元は Cloudflare の共有 egress ——
- * つまり「早い者勝ちの共有資源」であり、しかも世界中の KuroCMS が同じ枠を
- * 食い合う（自分のリクエストが他インストールの枠を削る）。非 API 経路は同じ
- * 情報を制限なしで返すので、共有資源を最初から使わないのが正しい。
- *
- * GITHUB_TOKEN があるときだけ API を第一候補にする。認証済みは 5,000 req/時
- * かつ【トークン単位】で共有 IP の問題が無く、prerelease フラグを直接読める
- * 最も確かな情報源だから。
- */
-function preferGithubApi(env: Env): boolean {
-  return Boolean(env.GITHUB_TOKEN);
-}
-
-/** GitHub API を 1 回叩く。レート制限は共通の扱いに寄せる。 */
-async function githubApiJson<T>(env: Env, url: string): Promise<T> {
-  if (await githubApiBackedOff(env))
-    throw new Error("GitHub API is rate-limited (backing off).");
-  const res = await fetch(url, { headers: githubApiHeaders(env) });
-  if (!res.ok) {
-    await noteGithubRateLimit(env, res);
-    if (res.status === 403 || res.status === 429) {
-      const resetSec = Number(res.headers.get("x-ratelimit-reset") || "");
-      throw new GithubRateLimitError(
-        Number.isFinite(resetSec) ? resetSec * 1000 : null,
-      );
-    }
-    throw new Error(`GitHub API returned ${res.status}`);
-  }
-  return (await res.json()) as T;
-}
-
-/**
- * API でチャンネルを解決する。
- *
- * ⚠ **stable を一覧から探さない。** 以前は `?per_page=10` を引いて「その中で
- * prerelease でない最初のもの」を stable にしていたが、通常のリリースは
- * すべて `--prerelease` で作られる（github_release_update.sh）ので、stable は
- * 昇格したときだけ進む。つまり一覧の先頭 10 件に非 prerelease が 1 件も無い
- * 状態が普通に起きる —— 実際 2026-08-17 時点で stable は v1.9.41、rolling は
- * v1.9.61 と 20 件離れており、10 件では届かず「No published releases found」
- * で経路ごと落ちていた。件数を増やしても差が開けば同じことなので、
- * **GitHub 自身が「最新の非 prerelease」を返す /releases/latest を使う**。
- */
-async function channelsViaApi(env: Env): Promise<ReleaseChannels> {
-  const base = `https://api.github.com/repos/${KUROCMS_GITHUB_REPO}/releases`;
-  const [rollingList, stableRelease] = await Promise.all([
-    githubApiJson<Array<{ tag_name: string; draft: boolean }>>(
-      env,
-      `${base}?per_page=1`,
-    ),
-    githubApiJson<{ tag_name: string }>(env, `${base}/latest`),
-  ]);
-  const rolling = rollingList.find((r) => !r.draft);
-  if (!rolling || !stableRelease?.tag_name)
-    throw new Error("No published releases found.");
-  return {
-    latest: rolling.tag_name.replace(/^v/, ""),
-    stable: stableRelease.tag_name.replace(/^v/, ""),
-  };
-}
-
-/** 非 API 経路でチャンネルを解決する（302 Location と Atom フィード）。 */
-async function channelsViaUrl(): Promise<ReleaseChannels> {
-  const [latestTag, stableTag] = await Promise.all([
-    latestTagNoApi(),
-    stableTagNoApi(),
-  ]);
-  return {
-    latest: latestTag.replace(/^v/, ""),
-    stable: stableTag.replace(/^v/, ""),
-  };
-}
-
-/**
- * 経路ごとの失敗を1つにまとめる。
- *
- * **最後の失敗だけを投げると、原因を取り違える。** 既定の順は
- * [URL 経路, API 経路] なので、両方落ちると必ず API の文言（大抵は
- * 「rate limit exceeded」）が表に出る —— 実際に直すべきは先に落ちた
- * URL 経路の方なのに、API の枠が原因に見えてしまう。
- */
-function combineAttemptErrors(
-  failures: Array<{ path: string; error: unknown }>,
-  what: string,
-): Error {
-  const detail = failures
-    .map(
-      (f) =>
-        `${f.path}: ${f.error instanceof Error ? f.error.message : String(f.error)}`,
-    )
-    .join(" / ");
-
-  // 上限に当たったなら、それが利用者にとっての原因。**対処は「待つ」だけ**なので、
-  // 何が起きていて、いつ直るかだけを伝える。技術的な詳細は後ろに小さく残す。
-  const limited = failures
-    .map((f) => f.error)
-    .find((e): e is GithubRateLimitError => e instanceof GithubRateLimitError);
-  if (limited) {
-    return new Error(
-      `GitHub の取得回数の上限に達したため、一時的にバージョンを確認できません。` +
-        `${recoveryHint(limited.resetAt)}。表示中の版でそのまま運用できます。（詳細 — ${detail}）`,
-    );
-  }
-  return new Error(`${what}（${detail}）`);
-}
-
-/** 両経路を優先順に試す。片方が駄目でももう片方で解決できる。 */
-async function resolveReleaseChannels(env: Env): Promise<ReleaseChannels> {
-  const attempts: Array<{ path: string; run: () => Promise<ReleaseChannels> }> =
-    preferGithubApi(env)
-      ? [
-          { path: "GitHub API", run: () => channelsViaApi(env) },
-          { path: "URL 経路", run: channelsViaUrl },
-        ]
-      : [
-          { path: "URL 経路", run: channelsViaUrl },
-          { path: "GitHub API", run: () => channelsViaApi(env) },
-        ];
-  const failures: Array<{ path: string; error: unknown }> = [];
-  for (const attempt of attempts) {
-    try {
-      return await attempt.run();
-    } catch (err) {
-      failures.push({ path: attempt.path, error: err });
-    }
-  }
-  throw combineAttemptErrors(failures, "リリース情報を取得できませんでした");
-}
-
-/**
- * 更新対象のタグを優先順に解決する。
- * 資産 URL は API を使わずタグから組めるので（版固定・不変）、更新に必要なのは
- * タグだけ。既定構成では更新経路から API が完全に消える。
- */
-async function resolveChannelTag(
-  env: Env,
-  channel: "stable" | "latest",
-): Promise<string> {
-  const viaUrl = () => resolveTagNoApi(channel);
-  const viaApi = async () => {
-    const channels = await channelsViaApi(env);
-    return `v${channel === "latest" ? channels.latest : channels.stable}`;
-  };
-  const attempts = preferGithubApi(env)
-    ? [
-        { path: "GitHub API", run: viaApi },
-        { path: "URL 経路", run: viaUrl },
-      ]
-    : [
-        { path: "URL 経路", run: viaUrl },
-        { path: "GitHub API", run: viaApi },
-      ];
-  const failures: Array<{ path: string; error: unknown }> = [];
-  for (const attempt of attempts) {
-    try {
-      return await attempt.run();
-    } catch (err) {
-      failures.push({ path: attempt.path, error: err });
-    }
-  }
-  throw combineAttemptErrors(
-    failures,
-    `"${channel}" のリリースを解決できませんでした`,
-  );
-}
-
-async function fetchReleaseChannels(
-  env: Env,
-  refresh = false,
-): Promise<ReleaseCheck> {
-  const cached = readStoredChannels(
-    await env.PUBLIC_PAGES.get(RELEASE_CHANNELS_CACHE_KEY),
-  );
-  if (cached && !refresh) {
-    return {
-      channels: { stable: cached.stable, latest: cached.latest },
-      ok: true,
-      checkedAt: cached.at ?? null,
-      error: null,
-    };
-  }
-
-  try {
-    const channels = await resolveReleaseChannels(env);
-    const at = nowIso();
-    const stored = JSON.stringify({ ...channels, at } satisfies StoredChannels);
-    await env.PUBLIC_PAGES.put(RELEASE_CHANNELS_CACHE_KEY, stored, {
-      expirationTtl: RELEASE_CHANNELS_CACHE_TTL,
-    });
-    // 直近の成功値を長めに残す。**GitHub に届かない間の表示に使う**（下の catch）。
-    await env.PUBLIC_PAGES.put(RELEASE_CHANNELS_LAST_GOOD_KEY, stored, {
-      expirationTtl: RELEASE_CHANNELS_LAST_GOOD_TTL,
-    });
-    return { channels, ok: true, checkedAt: at, error: null };
-  } catch (err) {
-    // **取得できない＝バージョン表示が壊れる、ではない。**
-    //
-    // GitHub 側の一時的な不調や、共有 egress に対する制限で届かないことは普通に
-    // ある。そのたびに画面へ赤いエラーを出すより、直近に分かっていた版を出す方が
-    // 実用的で、しかも正しい（版は数分で変わるものではない）。
-    //
-    // ⚠ ただし【黙って古い値を出さない】。ok:false と checkedAt を必ず添えて
-    //   返し、画面が「いつの情報か」「今は確認できていない」を言えるようにする。
-    //   ここを握りつぶすと、止まっていることに誰も気づけなくなる。
-    const lastGood = readStoredChannels(
-      await env.PUBLIC_PAGES.get(RELEASE_CHANNELS_LAST_GOOD_KEY),
-    );
-    return {
-      channels: lastGood
-        ? { stable: lastGood.stable, latest: lastGood.latest }
-        : null,
-      ok: false,
-      checkedAt: lastGood?.at ?? null,
-      error: err instanceof Error ? err.message : String(err),
-    };
-  }
-}
-
 const AUTO_UPDATE_KEY = "system:auto_update"; // "0" = 切。無い・"1" = 入(既定)
 
 async function getAutoUpdate(env: Env): Promise<boolean> {
@@ -5037,28 +4594,17 @@ async function setUpdateChannel(request: Request, env: Env): Promise<Response> {
  * 版の状態を返す。
  *
  * ⚠ **取得できなかったときに current で埋めない。** 以前はそうしていて、
- * 「GitHub に届かない」が「stable も latest も current と同じ＝最新です」に
+ * 「確かめられない」が「stable も latest も current と同じ＝最新です」に
  * 化けていた。利用者からは正常と区別がつかず、hasUpdate も false のままなので
  * 自動更新も発火せず、インスタンスが永久に取り残される（v1.9.9 の実例）。
  *
  * 分からないときは null を返し、`checkOk` / `checkedAt` / `checkError` で
- * 「今は確認できていない」ことを画面に言わせる。`repo` は管理画面が
- * ブラウザ側（＝利用者自身の IP）から確認し直すときの参照先。
+ * 「今は確認できていない」ことを画面に言わせる。
  */
-async function systemVersion(env: Env, refresh = false): Promise<Response> {
+async function systemVersion(env: Env): Promise<Response> {
   const current = KUROCMS_VERSION;
   const channel = await getUpdateChannel(env);
-  const source = await getReleaseSource(env);
-  let check =
-    source === "update"
-      ? await fetchUpdateChannels()
-      : await fetchReleaseChannels(env, refresh);
-  // update の版が読めなければ GitHub の版で答える(並行の間は同じ版が両方にある)。
-  // 画面を開くたびに走るので Defects には送らず、版の画面の記録にだけ残す。
-  if (source === "update" && !check.ok) {
-    await noteFallback(env, "version check", check.error ?? "unknown");
-    check = await fetchReleaseChannels(env, refresh);
-  }
+  const check = await fetchUpdateChannels(env);
   const stable = check.channels?.stable ?? null;
   const latest = check.channels?.latest ?? null;
   const target = channel === "latest" ? latest : stable;
@@ -5078,10 +4624,6 @@ async function systemVersion(env: Env, refresh = false): Promise<Response> {
     checkOk: check.ok,
     checkedAt: check.checkedAt,
     checkError: check.ok ? null : (check.error ?? null),
-    repo: KUROCMS_GITHUB_REPO,
-    // 版の取り先と、update から取れずに GitHub へ落ちた最後の記録(カナリアで見る)。
-    releaseSource: source,
-    releaseSourceFallback: (await lastFallback(env)) as JsonValue,
   });
 }
 
@@ -5098,7 +4640,7 @@ export async function recheckGuardianIfBehind(env: Env): Promise<string> {
   if (isManagedHosting(env)) return "managed";
   if (!env.WORKEROPS?.recheck) return "no_recheck";
   if (!(await getAutoUpdate(env))) return "auto_off";
-  const check = await fetchUpdateChannels();
+  const check = await fetchUpdateChannels(env);
   if (!check.ok) return "check_failed";
   const channel = await getUpdateChannel(env);
   const target =
@@ -5113,7 +4655,7 @@ export async function recheckGuardianIfBehind(env: Env): Promise<string> {
   return "asked";
 }
 
-async function fetchUpdateChannels(): Promise<{
+async function fetchUpdateChannels(env: Env): Promise<{
   ok: boolean;
   checkedAt: string;
   error?: string;
@@ -5123,12 +4665,17 @@ async function fetchUpdateChannels(): Promise<{
   try {
     const [stable, dev] = await Promise.all([
       updateChannelVersion("stable"),
-      updateChannelVersion("dev"),
+      // 開発版の版は開発アカウントのサイトにだけ答える(core-feature-flags 2節)。一般のサイトは「無い」で、失敗ではない。
+      updateChannelVersion("dev", UPDATE_PRODUCT, releaseToken(env)).catch(
+        (err: unknown) => {
+          if (reasonOf(err) === "not_found") return null;
+          throw err;
+        },
+      ),
     ]);
     return {
       ok: true,
       checkedAt,
-      // GitHub の経路と同じく「v」を付けない(current と比べるため)。
       channels: { stable, latest: dev },
     };
   } catch (err) {
@@ -5140,17 +4687,19 @@ async function fetchUpdateChannels(): Promise<{
   }
 }
 
-/** 自分の版の migration の一覧。update から入った導入は update の成果物、そうでなければ従来どおり。 */
+/** 自分の版の migration の一覧。配布基盤の成果物から取る。取れなければ 0 件で素通しし、Defects へ送る。 */
 async function ownMigrationsSource(
   env: Env,
-): Promise<
-  string | { migrations: Array<{ name: string; sql: string }> } | undefined
-> {
-  if ((await getReleaseSource(env)) !== "update") return undefined;
+): Promise<{ migrations: Array<{ name: string; sql: string }> }> {
   const version = KUROCMS_VERSION.replace(/^v/, "");
   try {
-    const manifest = await fetchUpdateManifest(version);
-    const buf = await fetchUpdateArtifact(manifest, "migrations-manifest.json");
+    const token = releaseToken(env);
+    const manifest = await fetchUpdateManifest(version, UPDATE_PRODUCT, token);
+    const buf = await fetchUpdateArtifact(
+      manifest,
+      "migrations-manifest.json",
+      token,
+    );
     const parsed = JSON.parse(new TextDecoder().decode(buf)) as {
       migrations: Array<{ name: string; sql: string }>;
     };
@@ -5160,33 +4709,12 @@ async function ownMigrationsSource(
     });
     return parsed;
   } catch (err) {
-    await noteFallback(env, "migrations", err);
-    // 落ちた先(GitHub)で取れたかまでを Defects へ送るため、ここで取る。GitHub の中身は配布基盤の
-    // 署名つきの一覧に照らしてから使う(一覧が取れなければ当てない・課題 7abbf662)。
-    const reason = reasonOf(err);
-    const parsed = await fetchUpdateManifest(version)
-      .then((signed) =>
-        fetchGithubVerified(
-          `https://github.com/${KUROCMS_GITHUB_REPO}/releases/download/v${version}/migrations-manifest.json`,
-          signed,
-          "migrations-manifest.json",
-        ),
-      )
-      .then(
-        (buf) =>
-          JSON.parse(new TextDecoder().decode(buf)) as {
-            migrations?: Array<{ name: string; sql: string }>;
-          },
-      )
-      .catch(() => null);
-    const ok = Array.isArray(parsed?.migrations);
-    await reportRelease(
-      env,
-      ok ? "release_fallback_github_ok" : "release_fallback_github_failed",
-      { what: "migrations", version, reason },
-    );
-    // 取れなければ当てるものは無い(従来どおり 0 件で素通し)。
-    return { migrations: ok ? parsed!.migrations! : [] };
+    await reportRelease(env, "release_update_failed", {
+      what: "migrations",
+      version,
+      reason: reasonOf(err),
+    });
+    return { migrations: [] };
   }
 }
 
@@ -5277,35 +4805,8 @@ async function reconcileSchema(
 // idempotent. Shared by systemUpdate and the WorkerOps Contract POST /api/migrate.
 async function applyPendingMigrations(
   env: Env,
-  manifestSource?:
-    | string
-    | { migrations: Array<{ name: string; sql: string }> },
+  manifest: { migrations: Array<{ name: string; sql: string }> },
 ): Promise<number> {
-  // 配布基盤から取った一覧(確かめ済み)はそのまま使う。
-  const given = typeof manifestSource === "object" ? manifestSource : null;
-  const manifestUrl =
-    typeof manifestSource === "string" ? manifestSource : undefined;
-  // Prefer an immutable, version-pinned asset URL (passed by systemUpdate from
-  // the GitHub API). The `latest/download` redirect is CDN-cached and the
-  // Worker's own fetch() can be served a STALE manifest from Cloudflare's cache,
-  // silently skipping freshly-released migrations. Cache-bust the fallback.
-  const url =
-    manifestUrl ??
-    `https://github.com/${KUROCMS_GITHUB_REPO}/releases/latest/download/migrations-manifest.json?_cb=${Date.now()}`;
-  let manifest: { migrations: Array<{ name: string; sql: string }> };
-  if (given) {
-    manifest = given;
-  } else {
-    const mRes = await fetch(url, {
-      redirect: "follow",
-      signal: AbortSignal.timeout(15_000),
-      cf: { cacheTtl: 0 },
-    });
-    if (!mRes.ok) return 0;
-    manifest = (await mRes.json()) as {
-      migrations: Array<{ name: string; sql: string }>;
-    };
-  }
   // Build applied set from both wrangler's d1_migrations and our _kurocms_migrations
   const appliedNames = new Set<string>();
   for (const tbl of ["d1_migrations", "_kurocms_migrations"]) {
@@ -5354,78 +4855,6 @@ async function applyPendingMigrations(
   return applied;
 }
 
-/**
- * GitHub Release から取る(取り先が github の導入と、update から取れなかったときの退路)。
- * `fallbackTag` は update で決まった版。落ちたときも同じ版を取るために渡す。
- */
-async function fetchFromGithub(
-  env: Env,
-  channel: "stable" | "latest",
-  requestedTag: string | undefined,
-  fallbackTag: string | undefined,
-): Promise<{
-  resolvedTag: string;
-  migrationsApplied: number;
-  schemaDrift: SchemaDriftReport;
-  scriptContent: string;
-}> {
-  let resolvedTag = fallbackTag ?? requestedTag;
-  if (!resolvedTag) {
-    try {
-      resolvedTag = await resolveChannelTag(env, channel);
-    } catch (err) {
-      throw new HttpError(
-        502,
-        "github_unreachable",
-        `Could not resolve the "${channel}" release from GitHub: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
-      );
-    }
-  }
-  const workerUrl = releaseAssetUrl(resolvedTag, "worker.js");
-  const manifestUrl = releaseAssetUrl(resolvedTag, "migrations-manifest.json");
-
-  // GitHub の中身は、配布基盤の署名つきの一覧(同じ版)に照らしてから当てる(課題 7abbf662)。
-  // 一覧が取れない・合わない時は何も当てない(閉じる側に倒す)。migration は Worker より先に当たるので、
-  // 両方を確かめてから当てる。
-  const version = resolvedTag.replace(/^v/, "");
-  let workerBuf: ArrayBuffer;
-  let migrations: { migrations: Array<{ name: string; sql: string }> };
-  try {
-    const signed = await fetchUpdateManifest(version);
-    workerBuf = await fetchGithubVerified(workerUrl, signed, "worker.js");
-    migrations = JSON.parse(
-      new TextDecoder().decode(
-        await fetchGithubVerified(
-          manifestUrl,
-          signed,
-          "migrations-manifest.json",
-        ),
-      ),
-    ) as { migrations: Array<{ name: string; sql: string }> };
-  } catch (err) {
-    throw new HttpError(
-      502,
-      requestedTag &&
-        err instanceof ReleaseError &&
-        err.reason === "github_http_404"
-        ? "release_not_found"
-        : "release_unverified",
-      `The ${resolvedTag} release could not be verified against the signed release list (${reasonOf(err)}). Nothing was applied.`,
-    );
-  }
-
-  // Apply pending migrations directly via D1 binding (run-once, additive-only).
-  const migrationsApplied = await applyPendingMigrations(env, migrations);
-  // ⚠ migration の後に必ずスキーマを突き合わせる。履歴（d1_migrations）は
-  //   復元で失われうるので、履歴ではなく現物を正とする。
-  const schemaDrift = await reconcileSchema(env, true);
-
-  const scriptContent = new TextDecoder().decode(workerBuf);
-  return { resolvedTag, migrationsApplied, schemaDrift, scriptContent };
-}
-
 async function systemUpdate(
   request: Request,
   env: Env,
@@ -5442,12 +4871,7 @@ async function systemUpdate(
     );
   }
 
-  // Optional explicit target: { tag: "vX.Y.Z" }. The release pipeline passes
-  // the tag it JUST published so the lookup is a per-tag point read —
-  // /releases/tags/{tag} is visible immediately after publish, unlike the
-  // /releases list below, which is eventually consistent and kept returning
-  // the PREVIOUS release for seconds after a publish (the update then
-  // "successfully" reinstalled the old version).
+  // 版の名指し: { tag: "vX.Y.Z" }。リリースの台本は、いま出した版を名指しする。
   const body = await readJson(request).catch(
     () => ({}) as Record<string, unknown>,
   );
@@ -5456,104 +4880,73 @@ async function systemUpdate(
     throw new HttpError(400, "invalid_tag", "tag must look like vX.Y.Z.");
   }
 
-  // Without an explicit tag (dashboard "今すぐ更新"), fetch the release for the
-  // currently selected channel. "stable" reuses GitHub's own /releases/latest
-  // (which already skips prerelease/draft); "latest" takes the newest release
-  // regardless of prerelease. Both come back as full release objects (with
-  // assets), unlike the lightweight tag-only lookup cached by
-  // fetchReleaseChannels for the dashboard display.
+  // 名指しが無ければ(画面の「今すぐ更新」)、選んでいるチャンネルの指す版。
+  // 配布基盤の一覧の署名と成果物の sha256 を確かめてから入れる。
   const channel = await getUpdateChannel(env);
-
-  // 解決したいのは「タグ」と「worker.js / migrations-manifest.json の URL」だけ。
-  // 必要なのは【タグ】だけ。資産は /releases/download/{tag}/... の版固定 URL で
-  // 取れるので（不変＝CDN の stale もチャンネル取り違えも起きない）、API から
-  // browser_download_url を貰う必要がない。既定構成では更新経路から GitHub API が
-  // 完全に消える（resolveChannelTag は非 API を第一候補にする）。
-  // 版の取り先(cms-release)。update なら、チャンネルの指す版の manifest の署名と
-  // 成果物の sha256 を確かめてから入れる。並行の間、GitHub の経路はそのまま残す。
-  const configured = await getReleaseSource(env);
-  // 実際に取った先(応答と活動記録に残す)。update で取れなければ github になる。
-  let source: "github" | "update" = configured;
   let resolvedTag = requestedTag;
-  let scriptContent = "";
-  let migrationsApplied = 0;
-  let schemaDrift: SchemaDriftReport | null = null;
-  // update で取れなかった理由(GitHub へ落ちたときに Defects へ添える)。
-  let updateFailure: string | null = null;
-  let fromUpdate: {
+  let fetched: {
     workerBuf: ArrayBuffer;
     migrations: { migrations: Array<{ name: string; sql: string }> };
-  } | null = null;
-  if (configured === "update") {
-    try {
-      const version = requestedTag
-        ? requestedTag.slice(1)
-        : await updateChannelVersion(updateChannelOf(channel));
-      // **前方のみ。** 取得口はチャンネルの応答を拠点ごとに数分キャッシュするので、
-      // 上げた直後は古い版を読むことがある(2026-10-11 のカナリアで実際に 1.10.18 を読んだ)。
-      // 版を名指ししない更新で今より古い版を読んだら、入れずに断る。名指しは管理者の意図として受ける。
-      if (
-        !requestedTag &&
-        compareVersions(version, KUROCMS_VERSION.replace(/^v/, "")) < 0
-      ) {
-        throw new HttpError(
-          409,
-          "not_newer",
-          `${UPDATE_ORIGIN} の ${updateChannelOf(channel)} が ${version} を指しています(今は ${KUROCMS_VERSION})。古い版には戻しません。数分おいてもう一度試してください。`,
+  };
+  try {
+    const token = releaseToken(env);
+    const version = requestedTag
+      ? requestedTag.slice(1)
+      : await updateChannelVersion(
+          updateChannelOf(channel),
+          UPDATE_PRODUCT,
+          token,
         );
-      }
-      // 版が決まれば、GitHub へ落ちても**同じ版**を取る(チャンネルを読み直さない)。
-      resolvedTag = "v" + version;
-      const manifest = await fetchUpdateManifest(version);
-      const workerBuf = await fetchUpdateArtifact(manifest, "worker.js");
-      const migrations = JSON.parse(
-        new TextDecoder().decode(
-          await fetchUpdateArtifact(manifest, "migrations-manifest.json"),
-        ),
-      ) as { migrations: Array<{ name: string; sql: string }> };
-      fromUpdate = { workerBuf, migrations };
-      await reportRelease(env, "release_update_ok", {
-        what: "worker",
-        version: manifest.version,
-      });
-    } catch (err) {
-      if (err instanceof HttpError) throw err;
-      // **確かめの通らないバイト列は入れない。** 同じ版を GitHub から取り直す(並行の間の退路)。
-      // 落ちた事実は Defects と版の画面に残すので、update の不具合は隠れない。
-      updateFailure = reasonOf(err);
-      source = "github";
-      await noteFallback(env, "worker", err);
+    // **前方のみ。** 取得口はチャンネルの応答を拠点ごとに数分キャッシュするので、
+    // 上げた直後は古い版を読むことがある(2026-10-11 のカナリアで実際に 1.10.18 を読んだ)。
+    // 版を名指ししない更新で今より古い版を読んだら、入れずに断る。名指しは管理者の意図として受ける。
+    if (
+      !requestedTag &&
+      compareVersions(version, KUROCMS_VERSION.replace(/^v/, "")) < 0
+    ) {
+      throw new HttpError(
+        409,
+        "not_newer",
+        `${UPDATE_ORIGIN} の ${updateChannelOf(channel)} が ${version} を指しています(今は ${KUROCMS_VERSION})。古い版には戻しません。数分おいて、もう一度お試しください。`,
+      );
     }
-  }
-  if (fromUpdate) {
-    // 当てるのは確かめが済んでから。ここで落ちても update の経路の失敗ではない。
-    migrationsApplied = await applyPendingMigrations(
-      env,
-      fromUpdate.migrations,
+    resolvedTag = "v" + version;
+    const manifest = await fetchUpdateManifest(version, UPDATE_PRODUCT, token);
+    const workerBuf = await fetchUpdateArtifact(manifest, "worker.js", token);
+    const migrations = JSON.parse(
+      new TextDecoder().decode(
+        await fetchUpdateArtifact(manifest, "migrations-manifest.json", token),
+      ),
+    ) as { migrations: Array<{ name: string; sql: string }> };
+    fetched = { workerBuf, migrations };
+    await reportRelease(env, "release_update_ok", {
+      what: "worker",
+      version: manifest.version,
+    });
+  } catch (err) {
+    if (err instanceof HttpError) throw err;
+    const reason = reasonOf(err);
+    await reportRelease(env, "release_update_failed", {
+      what: "worker",
+      version: (resolvedTag || "unknown").replace(/^v/, ""),
+      reason,
+    });
+    // **確かめの通らないバイト列は入れない。** 名指しの版が無いときだけ、別の符号で答える。
+    throw new HttpError(
+      502,
+      requestedTag && reason === "not_found"
+        ? "release_not_found"
+        : "release_unavailable",
+      `The ${resolvedTag || channel} release could not be fetched from ${UPDATE_ORIGIN} (${reason}). Nothing was changed.`,
     );
-    schemaDrift = await reconcileSchema(env, true);
-    scriptContent = new TextDecoder().decode(fromUpdate.workerBuf);
   }
-  if (source === "github") {
-    try {
-      ({ resolvedTag, migrationsApplied, schemaDrift, scriptContent } =
-        await fetchFromGithub(env, channel, requestedTag, resolvedTag));
-    } catch (err) {
-      if (updateFailure)
-        await reportRelease(env, "release_fallback_github_failed", {
-          what: "worker",
-          version: resolvedTag?.slice(1) ?? "unknown",
-          reason: updateFailure,
-        });
-      throw err;
-    }
-    if (updateFailure)
-      await reportRelease(env, "release_fallback_github_ok", {
-        what: "worker",
-        version: (resolvedTag ?? "unknown").replace(/^v/, ""),
-        reason: updateFailure,
-      });
-  }
+  // 当てるのは確かめが済んでから。migration は Worker より先に当たる。
+  const migrationsApplied = await applyPendingMigrations(
+    env,
+    fetched.migrations,
+  );
+  const schemaDrift = await reconcileSchema(env, true);
+  const scriptContent = new TextDecoder().decode(fetched.workerBuf);
 
   // Read current settings to preserve compatibility_date and non-secret bindings.
   // type:"inherit" for secrets is Enterprise-only — instead we upload without
@@ -5652,11 +5045,8 @@ async function systemUpdate(
   await logActivity(env, user, "system.update", "system", "worker", {
     version: resolvedTag,
     channel,
-    source,
     migrationsApplied,
   });
-  // Invalidate the cached channel lookup so the next check reflects reality now.
-  await env.PUBLIC_PAGES.delete(RELEASE_CHANNELS_CACHE_KEY).catch(() => {});
   // **更新できたことは、間隔を待たずに知らせる。** 「どの版へ上がったか」は
   // 更新の直後にしか分からず、翌日の定期報告まで待つと移行の様子が追えない。
   //
@@ -5667,8 +5057,6 @@ async function systemUpdate(
     ok: true,
     version: resolvedTag,
     channel,
-    // どこから取ったか(github / update)。カナリアでは update と出ること。
-    source,
     migrationsApplied,
     schema: schemaDrift as unknown as JsonValue,
   });
@@ -13256,11 +12644,6 @@ async function restoreFinish(env: Env): Promise<Response> {
   // ⚠ 履歴ではなく現物を正として、スキーマも突き合わせる。バックアップには
   //   d1_migrations が入っていないので、履歴を信じると食い違う。
   const schema = await reconcileSchema(env, true);
-  // Public pages were wiped from KV; drop the version cache so the next visit /
-  // build regenerates everything from the restored D1 data.
-  if (env.PUBLIC_PAGES) {
-    await env.PUBLIC_PAGES.delete(RELEASE_CHANNELS_CACHE_KEY).catch(() => {});
-  }
   return json({ ok: true, bootstraps, schema: schema as unknown as JsonValue });
 }
 

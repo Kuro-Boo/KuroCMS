@@ -2,7 +2,7 @@ export interface Env {
   DB: D1Database;
   DEBUG_DB?: D1Database;
   // ⚠ optional。ローカル開発（public/ を wrangler が配る）にだけ存在し、
-  //    **インストール済みの本番 Worker には無い**（アセットは KV → GitHub release で解決する）。
+  //    **インストール済みの本番 Worker には無い**（アセットは KV → 配布基盤で解決する）。
   //    必須で宣言すると、無い環境で `env.ASSETS.fetch` が
   //    "Cannot read properties of undefined" を投げるのを型検査が見逃す。
   ASSETS?: Fetcher;
@@ -64,8 +64,6 @@ export interface Env {
   DEBUG_LOG_ENABLED?: string;
   SITE_DEFAULT_LANG?: string;
   ACCESS_ADMIN_URL?: string;
-  GITHUB_TOKEN?: string;
-  GITHUB_REPO?: string;
   BLUESKY_HANDLE?: string;
   BLUESKY_APP_PASSWORD?: string;
   CF_API_TOKEN?: string;

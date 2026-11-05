@@ -12,7 +12,7 @@ Report privately through GitHub's **Private Vulnerability Reporting**:
 
 When reporting, please include where possible:
 
-- The affected version (see the [Releases](https://github.com/Kuro-Boo/KuroCMS/releases) page).
+- The affected version (shown in the admin Dashboard).
 - A clear description and step-by-step reproduction.
 - The potential impact, if known.
 
@@ -23,8 +23,8 @@ informed as we work on a fix.
 
 KuroCMS is delivered as a rolling release. Only the **latest published release**
 receives security fixes. See the
-[Releases](https://github.com/Kuro-Boo/KuroCMS/releases) page for the
-current version.
+[tags](https://github.com/Kuro-Boo/KuroCMS/tags) for the
+current stable version.
 
 ## Scope
 

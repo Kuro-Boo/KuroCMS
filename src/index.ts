@@ -1,4 +1,5 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
+import { releaseToken } from "./release-token";
 import { adminHtml } from "./admin-shell";
 import { serveAdminAsset } from "./asset-serve";
 import { serveFont } from "./fonts";
@@ -559,6 +560,14 @@ export default class KuroCms extends WorkerEntrypoint<Env> {
 
   scheduled(controller: ScheduledController): Promise<void> {
     return worker.scheduled(controller, this.env, this.ctx);
+  }
+
+  /**
+   * 番人が開発版を取るときのトークン(持ち主が開発アカウントのときだけ)。tick と同じく束縛からしか呼べない。
+   * 番人は、配布基盤が 404 を返した時にだけ訊く(WorkerOps の dist-release.ts)。
+   */
+  releaseToken(): Promise<string | null> {
+    return releaseToken(this.env)();
   }
 
   async tick(at: number): Promise<void> {

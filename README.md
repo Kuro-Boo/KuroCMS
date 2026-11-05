@@ -4,10 +4,10 @@
 
 **The Cloudflare-native, ultra-fast headless CMS — run a multilingual blog for ¥0.**
 
-[![Latest release](https://img.shields.io/github/v/release/Kuro-Boo/KuroCMS?label=release&color=157a6e)](https://github.com/Kuro-Boo/KuroCMS/releases)
+[![Latest stable](https://img.shields.io/github/v/tag/Kuro-Boo/KuroCMS?label=stable&color=157a6e)](https://github.com/Kuro-Boo/KuroCMS/tags)
 [![License: Kuro License](https://img.shields.io/badge/license-Kuro%20License-blue)](./LICENSE.txt)
 
-[**🚀 Install**](https://kurocms.entamy.com/) ・ [**📖 Read the story (EN)**](https://kuro.boo/blog/kurocms-003/?lang=en) ・ [**🏷️ Releases**](https://github.com/Kuro-Boo/KuroCMS/releases) ・ [**🔒 Security**](./SECURITY.md)
+[**🚀 Install**](https://kurocms.entamy.com/) ・ [**📖 Read the story (EN)**](https://kuro.boo/blog/kurocms-003/?lang=en) ・ [**🏷️ Versions**](https://github.com/Kuro-Boo/KuroCMS/tags) ・ [**🔒 Security**](./SECURITY.md)
 
 </div>
 
@@ -59,9 +59,9 @@ above.
 | `src/` | Cloudflare Worker source (the CMS itself) |
 | `migrations/` | D1 database schema migrations |
 
-Release history — versions, change notes, and the built `worker.js` — lives on the
-[Releases](https://github.com/Kuro-Boo/KuroCMS/releases) page. Build tooling,
-configuration, and maintainer scripts are intentionally omitted (source‑review mirror,
+Each stable version is marked with a [tag](https://github.com/Kuro-Boo/KuroCMS/tags). Built
+releases are distributed with a signature from `update.entamy.com`, not from this repository. Build
+tooling, configuration, and maintainer scripts are intentionally omitted (source‑review mirror,
 not a build target).
 
 ## 🔄 Self-update & release channels
@@ -72,8 +72,8 @@ one of two channels:
 
 | Channel | Tracks | Moves forward |
 |---|---|---|
-| **Stable** *(default)* | The newest release **not** marked [Pre-release](https://github.com/Kuro-Boo/KuroCMS/releases) on GitHub | Only when the maintainer explicitly promotes a release — so a same-day regression doesn't reach every install automatically |
-| **Latest** | Every release, including Pre-release-tagged ones | Immediately, on every release |
+| **Stable** *(default)* | The newest release the maintainer has promoted | Only when the maintainer explicitly promotes a release — so a same-day regression doesn't reach every install automatically |
+| **Latest** | Every release, including ones not yet promoted | Immediately, on every release |
 
 Flip **“Always update to latest”** in Dashboard → KuroCMS to switch to the Latest
 channel; leave it off to stay on Stable. Both the installed, stable, and latest
@@ -95,7 +95,7 @@ attribution requirement).
 See [LICENSE.txt](./LICENSE.txt) for the full text.
 
 The Kuro License covers the source code in this repository. The release builds
-(`worker.js` on GitHub Releases) also contain components of the Entamy platform
+(`worker.js` from `update.entamy.com`) also contain components of the Entamy platform
 (the `entamy-connect` library), which are not part of this repository and are not
 covered by the Kuro License — in this repository they are replaced by a stub
 (`src/vendor/entamy-client/`). Using Entamy services such as Entamy ID or hosting

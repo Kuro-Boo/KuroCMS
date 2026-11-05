@@ -6,10 +6,12 @@ import {
   updateChannelVersion,
 } from "./release-source";
 import { reportGuardian } from "./release-report";
+import { releaseToken } from "./release-token";
 import type { Env } from "./types";
 import { KUROCMS_VERSION } from "./version";
 
 export function guardianDeps(env: Env): GuardianDeps {
+  const token = releaseToken(env);
   return {
     fetch: (input, init) => fetch(input, init),
     sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
@@ -17,15 +19,19 @@ export function guardianDeps(env: Env): GuardianDeps {
     report: (code, detail) => reportGuardian(env, code, detail),
     appVersion: KUROCMS_VERSION,
     channelVersion: (channel) =>
-      updateChannelVersion(channel, GUARDIAN_PRODUCT),
+      updateChannelVersion(channel, GUARDIAN_PRODUCT, token),
     fetchCode: async (version) => {
-      const manifest = await fetchUpdateManifest(version, GUARDIAN_PRODUCT);
+      const manifest = await fetchUpdateManifest(
+        version,
+        GUARDIAN_PRODUCT,
+        token,
+      );
       const mainModule =
         (manifest as unknown as { main_module?: string }).main_module ||
         "worker.js";
       return {
         mainModule,
-        code: await fetchUpdateArtifact(manifest, mainModule),
+        code: await fetchUpdateArtifact(manifest, mainModule, token),
       };
     },
   };

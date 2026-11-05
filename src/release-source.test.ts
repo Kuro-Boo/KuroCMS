@@ -4,10 +4,10 @@
 import {
   canonical,
   checkArtifactBytes,
-  fetchGithubVerified,
   ReleaseError,
   reasonOf,
   updateChannelOf,
+  updateChannelVersion,
 } from "./release-source.ts";
 
 let failed = 0;
@@ -82,22 +82,44 @@ check("それ以外は other", reasonOf("x") === "other");
     (await reason(checkArtifactBytes(signed, "other.js", body.buffer))) ===
       "artifact_missing",
   );
+}
+
+// 開発版の門(core-feature-flags 2節): 404 の時にだけトークンを訊き、添えてもう一度見る。
+{
   const realFetch = globalThis.fetch;
-  globalThis.fetch = (async () => new Response(evil)) as typeof fetch;
+  const seen: Array<string | null> = [];
+  globalThis.fetch = (async (_u: string, init?: RequestInit) => {
+    const auth = new Headers(init?.headers).get("authorization");
+    seen.push(auth);
+    return auth === "Bearer dev"
+      ? Response.json({ product_id: "cms", channel: "dev", version: "1.2.3" })
+      : new Response("{}", { status: 404 });
+  }) as typeof fetch;
+  let asked = 0;
+  const v = await updateChannelVersion("dev", "cms", async () => {
+    asked++;
+    return "dev";
+  });
   check(
-    "GitHub から取った中身が違えば使わない",
-    (await reason(
-      fetchGithubVerified("https://github.example/w.js", signed, "worker.js"),
-    )) === "digest_mismatch",
+    "開発版: 公開の口で 404 なら、トークンを添えて取れる",
+    v === "1.2.3" && asked === 1 && seen[0] === null && seen.length === 2,
   );
+  const none = await updateChannelVersion("dev", "cms", async () => null).catch(
+    (e: unknown) => reasonOf(e),
+  );
+  check("開発アカウントでなければ not_found のまま", none === "not_found");
   globalThis.fetch = (async () =>
-    new Response("", { status: 404 })) as typeof fetch;
-  check(
-    "GitHub に無ければ github_http_404",
-    (await reason(
-      fetchGithubVerified("https://github.example/w.js", signed, "worker.js"),
-    )) === "github_http_404",
-  );
+    Response.json({
+      product_id: "cms",
+      channel: "stable",
+      version: "1.0.0",
+    })) as typeof fetch;
+  asked = 0;
+  await updateChannelVersion("stable", "cms", async () => {
+    asked++;
+    return "dev";
+  });
+  check("安定版はトークンを訊かない", asked === 0);
   globalThis.fetch = realFetch;
 }
 

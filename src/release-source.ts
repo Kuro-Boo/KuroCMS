@@ -1,11 +1,7 @@
 /**
- * 版の取り先 —— GitHub Release か、Entamy の配布基盤(update)か(仕様 cms-release・2026-10-11)。
+ * 版の取り先 —— Entamy の配布基盤(update)だけ(仕様 cms-release・2026-11-05 に GitHub Release をやめた)。
  *
- * KuroCMS は GitHub Release から配布基盤へ移る途中にある。移り終わるまで(1 年以上)**両方へ出し**、
- * 取るのは update から(既定・2026-10-12)。取れなければ GitHub へ落ち、結果は Defects へ送る。
- * 導入ごとに github だけへ戻すこともできる(PUT /api/system/release-source)。
- *
- * update から取るときは、
+ * 取るときは、
  *   ① チャンネルの指す版を読み(stable → stable、latest → dev)
  *   ② 版の manifest の**署名を手元の公開鍵で確かめ**(鍵はここに持つ。公開鍵なので隠さない)
  *   ③ 成果物を sha256 と大きさで manifest に照らす
@@ -14,12 +10,9 @@
  * 版に入っているもの: worker.js・migrations-manifest.json・管理画面のアセット(admin-app.*.js など)。
  * 番人(WorkerOps)の版も同じ鍵・同じ確かめ方で取る(product = "workerops"・guardian-update.ts)。
  */
-import type { Env } from "./types";
 
 export const UPDATE_ORIGIN = "https://update.entamy.com";
 export const UPDATE_PRODUCT = "cms";
-const SOURCE_KEY = "system:release_source";
-const FALLBACK_KEY = "system:release_source_fallback";
 
 /**
  * 発行の署名を確かめる公開鍵(Entamy/.env の ENTAMY_RELEASE_PUBKEYS と同じ)。
@@ -32,30 +25,23 @@ const RELEASE_PUBKEYS: { key_id: string; pub: string }[] = [
   },
 ];
 
-export type ReleaseSource = "github" | "update";
-
 /**
- * 既定は update(2026-10-12)。GitHub Release への並行の公開は 1 年以上続けるが、取るのは
- * 最新の版から順次 update にし、取れなければ GitHub へ落ちる。結果はすべて Defects へ送る
- * (release-report)。GitHub だけから取るのは、管理者が明示的に github を選んだ導入だけ。
+ * 開発版を取るときのトークン(release-token.ts)。開発版は開発アカウントのサイトにだけ渡され、
+ * ほかには 404 が返る(core-feature-flags 2節)。無ければ公開の版だけを取る。
  */
-export async function getReleaseSource(env: Env): Promise<ReleaseSource> {
-  try {
-    return (await env.PUBLIC_PAGES.get(SOURCE_KEY)) === "github"
-      ? "github"
-      : "update";
-  } catch {
-    return "update";
-  }
-}
+export type ReleaseToken = () => Promise<string | null>;
 
-export async function setReleaseSource(
-  env: Env,
-  source: unknown,
-): Promise<ReleaseSource> {
-  const v: ReleaseSource = source === "github" ? "github" : "update";
-  await env.PUBLIC_PAGES.put(SOURCE_KEY, v);
-  return v;
+/** まず公開の口で取り、404 ならトークンを添えてもう一度だけ見る。安定版の取得はトークンに頼らない。 */
+async function distFetch(
+  url: string,
+  init: RequestInit,
+  token?: ReleaseToken,
+): Promise<Response> {
+  const first = await fetch(url, init);
+  if (first.status !== 404 || !token) return first;
+  const t = await token();
+  if (!t) return first;
+  return fetch(url, { ...init, headers: { authorization: `Bearer ${t}` } });
 }
 
 /** KuroCMS のチャンネル名 → update のチャンネル名。 */
@@ -132,11 +118,15 @@ export function canonical(m: Record<string, unknown>): string {
   return JSON.stringify(sort(rest));
 }
 
-async function getJson(path: string): Promise<unknown> {
-  const r = await fetch(UPDATE_ORIGIN + path, {
-    signal: AbortSignal.timeout(15_000),
-    cf: { cacheTtl: 0 },
-  });
+async function getJson(path: string, token?: ReleaseToken): Promise<unknown> {
+  const r = await distFetch(
+    UPDATE_ORIGIN + path,
+    {
+      signal: AbortSignal.timeout(15_000),
+      cf: { cacheTtl: 0 },
+    } as RequestInit,
+    token,
+  );
   if (r.status === 404)
     throw new ReleaseError("not_found", `not found: ${path}`);
   if (!r.ok)
@@ -148,8 +138,12 @@ async function getJson(path: string): Promise<unknown> {
 export async function updateChannelVersion(
   channel: "stable" | "dev",
   product: string = UPDATE_PRODUCT,
+  token?: ReleaseToken,
 ): Promise<string> {
-  const p = (await getJson(`/v1/dist/${product}/channels/${channel}.json`)) as {
+  const p = (await getJson(
+    `/v1/dist/${product}/channels/${channel}.json`,
+    token,
+  )) as {
     product_id?: string;
     version?: string;
   };
@@ -162,11 +156,13 @@ export async function updateChannelVersion(
 export async function fetchUpdateManifest(
   version: string,
   product: string = UPDATE_PRODUCT,
+  token?: ReleaseToken,
 ): Promise<UpdateManifest> {
   if (!VERSION_RE.test(version))
     throw new ReleaseError("bad_version", "version is invalid");
   const m = (await getJson(
     `/v1/dist/${product}/${version}/manifest.json`,
+    token,
   )) as UpdateManifest;
   if (
     !m ||
@@ -228,34 +224,11 @@ export async function checkArtifactBytes(
     throw new ReleaseError("digest_mismatch", `${name} digest does not match`);
 }
 
-/**
- * GitHub の版固定の成果物を取り、配布基盤の署名つきの一覧(同じ版)に照らしてから返す(課題 7abbf662)。
- * 一覧が取れない・合わない時は投げる(閉じる側に倒す)—— GitHub は配布基盤が落ちた時の退路だが、
- * 確かめの通らないコードと migration は入れない。前は GitHub から取ったものをそのまま当てていた。
- */
-export async function fetchGithubVerified(
-  url: string,
-  manifest: UpdateManifest,
-  name: string,
-): Promise<ArrayBuffer> {
-  const r = await fetch(url, {
-    redirect: "follow",
-    signal: AbortSignal.timeout(30_000),
-  });
-  if (!r.ok)
-    throw new ReleaseError(
-      `github_http_${r.status}`,
-      `${name} fetch from GitHub failed: HTTP ${r.status}`,
-    );
-  const buf = await r.arrayBuffer();
-  await checkArtifactBytes(manifest, name, buf);
-  return buf;
-}
-
 /** 成果物の中身。sha256 と大きさを manifest に照らす(圧縮して置かれていれば解く)。 */
 export async function fetchUpdateArtifact(
   manifest: UpdateManifest,
   name: string,
+  token?: ReleaseToken,
 ): Promise<ArrayBuffer> {
   const a = manifest.artifacts.find((x) => x.name === name);
   if (!a)
@@ -263,9 +236,10 @@ export async function fetchUpdateArtifact(
       "artifact_missing",
       `${name} is not in release ${manifest.version}`,
     );
-  const r = await fetch(
+  const r = await distFetch(
     `${UPDATE_ORIGIN}/v1/dist/${manifest.product}/blobs/${a.sha256}`,
     { signal: AbortSignal.timeout(30_000) },
+    token,
   );
   if (!r.ok || !r.body)
     throw new ReleaseError(
@@ -279,40 +253,4 @@ export async function fetchUpdateArtifact(
   const buf = await new Response(body).arrayBuffer();
   await checkArtifactBytes(manifest, name, buf);
   return buf;
-}
-
-/**
- * update から取れずに GitHub へ落ちたことを残す(並行の間だけの退路)。
- * **黙って落ちない** —— カナリアの目的は update の経路の不具合を見つけることなので、
- * 落ちた事実を版の画面(/api/system/version)に出す。
- */
-export async function noteFallback(
-  env: Env,
-  what: string,
-  error: unknown,
-): Promise<void> {
-  const detail = {
-    what,
-    error: error instanceof Error ? error.message : String(error),
-    at: new Date().toISOString(),
-  };
-  console.error("release source fallback", detail);
-  try {
-    await env.PUBLIC_PAGES.put(FALLBACK_KEY, JSON.stringify(detail), {
-      expirationTtl: 30 * 24 * 3600,
-    });
-  } catch {
-    /* 記録できなくても続ける */
-  }
-}
-
-export async function lastFallback(
-  env: Env,
-): Promise<Record<string, string> | null> {
-  try {
-    const v = await env.PUBLIC_PAGES.get(FALLBACK_KEY);
-    return v ? (JSON.parse(v) as Record<string, string>) : null;
-  } catch {
-    return null;
-  }
 }
