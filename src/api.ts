@@ -6727,7 +6727,8 @@ async function threadsConnectComplete(
   const now = nowIso();
   await saveSettings(env, {
     threads_token: exchanged.accessToken,
-    threads_user_id: exchanged.userId,
+    // 投稿先の ID は投稿の時に /me から文字列で引く(交換の応答の user_id は 17 桁の数値で、JSON.parse で丸まる)。
+    threads_user_id: "",
     threads_token_updated_at: now,
     threads_token_refresh_attempted_at: "",
     threads_token_error: "",
