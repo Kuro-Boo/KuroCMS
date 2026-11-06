@@ -206,7 +206,7 @@ export async function exchangeThreadsCode(
     code: string;
   },
   fetcher: typeof fetch = fetch,
-): Promise<{ accessToken: string; userId: string; expiresIn: number }> {
+): Promise<{ accessToken: string; expiresIn: number }> {
   const form = new URLSearchParams({
     client_id: input.appId,
     client_secret: input.appSecret,
@@ -219,9 +219,10 @@ export async function exchangeThreadsCode(
     body: form,
     signal: AbortSignal.timeout(15_000),
   });
+  // 応答の user_id は使わない: 17 桁の数値で届き、JSON.parse で末尾が丸まって別の ID になる
+  // (2026-11-06・kuro.boo で投稿が code 100/33 で断られた)。投稿先の ID は投稿の時に /me から文字列で引く。
   const shortBody = (await shortRes.json().catch(() => null)) as {
     access_token?: unknown;
-    user_id?: unknown;
   } | null;
   const shortToken =
     typeof shortBody?.access_token === "string" ? shortBody.access_token : "";
@@ -232,11 +233,6 @@ export async function exchangeThreadsCode(
       metaCode(shortBody),
       `threads code exchange failed: ${shortRes.status}`,
     );
-  const userId =
-    shortBody?.user_id === undefined || shortBody?.user_id === null
-      ? ""
-      : String(shortBody.user_id);
-
   const longUrl = new URL(`${THREADS_GRAPH}/access_token`);
   longUrl.searchParams.set("grant_type", "th_exchange_token");
   longUrl.searchParams.set("client_secret", input.appSecret);
@@ -258,5 +254,5 @@ export async function exchangeThreadsCode(
       metaCode(longBody),
       `threads long-lived exchange failed: ${longRes.status}`,
     );
-  return { accessToken, userId, expiresIn };
+  return { accessToken, expiresIn };
 }

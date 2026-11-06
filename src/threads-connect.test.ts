@@ -182,7 +182,8 @@ console.log("code を長期トークンへ替える");
     });
     if (calls.length === 1)
       return new Response(
-        JSON.stringify({ access_token: "short", user_id: 17841400000000000 }),
+        // 本物の応答と同じく、user_id は 2^53 を超える数値(JSON.parse で丸まる)。
+        '{"access_token":"short","user_id":27308171085518283}',
         { status: 200 },
       );
     return new Response(
@@ -198,9 +199,8 @@ console.log("code を長期トークンへ替える");
     { appId: "123", appSecret: "sec", redirectUri, code: "abc" },
     fake,
   );
-  check("長期トークンを返す", got, {
+  check("長期トークンを返し、丸まる user_id は返さない", got, {
     accessToken: "long",
-    userId: "17841400000000000",
     expiresIn: 5_183_944,
   });
   check(
