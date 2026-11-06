@@ -2,6 +2,12 @@ import { fromGuardian } from "./vendor/entamy-service/guardian-call.ts";
 import { catalogPrices, regionOf } from "./contract-prices.ts";
 import { entamySite, siteDeletePreview } from "./site-delete.ts";
 import {
+  callSiteContract,
+  NEEDS_REAUTH,
+  sessionIsFresh,
+  type SiteContractAction,
+} from "./site-contract.ts";
+import {
   SESSION_COOKIE,
   bootstrapAdmin,
   clearSessionCookieHeader,
@@ -27,8 +33,13 @@ import {
   UPDATE_ORIGIN,
   UPDATE_PRODUCT,
 } from "./release-source";
-import { releaseToken } from "./release-token";
-import { buildReason, reportBuild, reportRelease } from "./release-report";
+import { ownerIsDeveloper, releaseToken } from "./release-token";
+import {
+  buildReason,
+  reportBuild,
+  reportRelease,
+  reportThreads,
+} from "./release-report";
 import {
   getGuardianAuto,
   guardianInfo,
@@ -71,9 +82,11 @@ import { listMeSessions, revokeMeSession } from "./me-sessions";
 import { checkSiteProof } from "./site-proof";
 import {
   CONTACT_CONSENT_VERSION,
+  applyOwnerEmailChange,
   contactState,
   declineContact,
   ownerEmail,
+  startOwnerEmailChange,
   removeContact,
   startContact,
 } from "./owner-contact";
@@ -86,7 +99,26 @@ import {
   parseMediaQuota,
   isManagedHosting,
 } from "./media-quota";
-import { nextThreadsTokenRefreshAt } from "./threads-token";
+import { cmsFlagOn } from "./feature-flags";
+import {
+  THREADS_CALLBACK_PATH,
+  THREADS_STATE_TTL_MS,
+  ThreadsConnectError,
+  checkThreadsConnectUrls,
+  exchangeThreadsCode,
+  signThreadsState,
+  threadsAuthorizeUrl,
+  threadsCallbackRedirect,
+  verifyThreadsState,
+} from "./threads-connect";
+import {
+  clearThreadsTokenRejected,
+  isThreadsTokenRejected,
+  nextThreadsTokenRefreshAt,
+  parseMetaError,
+  recordThreadsTokenError,
+  redactThreadsToken,
+} from "./threads-token";
 import { verifyRegistration, verifyAuthentication } from "./webauthn";
 // migrations/ を順番どおりに適用した最終形（スキーマの正本）。ビルド時生成。
 import { SCHEMA_MANIFEST } from "./schema-manifest";
@@ -430,11 +462,7 @@ async function handleApiDispatch(
           },
           endpoints: {
             public: ["GET /api/health", "GET /api/help"],
-            setup: [
-              "GET /api/setup/status",
-              "POST /api/setup",
-              "POST /api/setup/owner",
-            ],
+            setup: ["GET /api/setup/status", "POST /api/setup"],
             auth: [
               "GET /api/auth/session",
               "GET /api/auth/invite/:token",
@@ -599,10 +627,6 @@ async function handleApiDispatch(
       return withJsonHeaders(await setup(request, env));
     }
 
-    if (request.method === "POST" && path === "/api/setup/owner") {
-      return withJsonHeaders(await setupOwner(request, env));
-    }
-
     if (request.method === "GET" && path === "/api/auth/session") {
       return withJsonHeaders(await authSession(request, env));
     }
@@ -691,6 +715,13 @@ async function handleApiDispatch(
     }
     if (request.method === "GET" && path === "/api/unfurl") {
       return unfurlEndpoint(request, env);
+    }
+
+    // 「Threads と接続」で Meta から戻る口(threads-connect.ts)。ログインの cookie は SameSite=Strict で
+    // 外から戻ったこの要求には付かないので、ここでは何も書かない。state の署名を確かめてから、
+    // code を # に載せて設定の画面へ送り返す(保存は画面がログインしたまま complete の口で行う)。
+    if (request.method === "GET" && path === THREADS_CALLBACK_PATH) {
+      return threadsConnectCallback(request, env);
     }
 
     const user = await requireAuth(env, request);
@@ -857,6 +888,7 @@ async function handleApiDispatch(
     if (request.method === "POST" && path === "/api/system/contact") {
       requireAdmin(user);
       const body = await readJson(request);
+      await refuseWhenOwned(env);
       const result = await startContact(env, {
         email: typeof body.email === "string" ? body.email : "",
         consent: body.consent === true,
@@ -881,6 +913,7 @@ async function handleApiDispatch(
     }
     if (request.method === "POST" && path === "/api/system/contact/remove") {
       requireAdmin(user);
+      await refuseWhenOwned(env);
       const result = await removeContact(env);
       if (!result.ok) {
         throw new HttpError(503, "unavailable", "unavailable");
@@ -1137,6 +1170,118 @@ async function handleApiDispatch(
         ...pricing,
       });
     }
+    // 持ち主のアドレスの変更(cms-pricing 4 節)。持ち主本人が、パスキーで確かめ直してから。確認のメールで両方が変わる。
+    if (request.method === "POST" && path === "/api/system/owner-email") {
+      requireAdmin(user);
+      requireInteractiveUser(user);
+      const owner = await ownerAddressForGuard(env);
+      if (!owner || owner !== user.email.toLowerCase())
+        throw new HttpError(
+          403,
+          "owner_only",
+          "Only the site owner can do this.",
+        );
+      const session = await env.DB.prepare(
+        "SELECT created_at FROM sessions WHERE session_id = ?",
+      )
+        .bind(user.sessionId ?? "")
+        .first<{ created_at: string }>();
+      if (!sessionIsFresh(session?.created_at))
+        throw new HttpError(
+          403,
+          "reauth_required",
+          "Confirm with your passkey to continue.",
+        );
+      const body = await readJson(request);
+      const email = requireString(body, "email", {
+        min: 3,
+        max: 254,
+      }).toLowerCase();
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email))
+        throw new HttpError(
+          400,
+          "invalid_email",
+          "email must be a valid email address.",
+        );
+      const taken = await env.DB.prepare(
+        "SELECT uid FROM users WHERE lower(email) = ? AND uid != ?",
+      )
+        .bind(email, user.uid)
+        .first();
+      if (taken)
+        throw new HttpError(
+          409,
+          "email_taken",
+          "email is already used by another user.",
+        );
+      const r = await startOwnerEmailChange(env, {
+        uid: user.uid,
+        email,
+        lang: typeof body.lang === "string" ? body.lang : "en",
+        site: new URL(request.url).origin,
+      });
+      if (!r.ok) throw new HttpError(r.status, r.error, r.error);
+      await logActivity(
+        env,
+        user,
+        "system.owner_email_change",
+        "system",
+        "contact",
+        {},
+      );
+      return json({ ok: true });
+    }
+
+    // CMS の中の契約と削除(site-contract.ts)。持ち主の管理者だけ。
+    const siteContractMatch = path.match(
+      /^\/api\/system\/contract\/(catalog|subscriptions|start|confirm|cancel-quote|cancel|delete|sync)$/,
+    );
+    if (siteContractMatch) {
+      requireAdmin(user);
+      requireInteractiveUser(user);
+      if (!isManagedHosting(env))
+        throw new HttpError(404, "not_managed", "This site is not managed.");
+      const route = siteContractMatch[1];
+      const action: SiteContractAction =
+        route === "subscriptions" ? "list" : (route as SiteContractAction);
+      const readOnly = action === "list" || action === "catalog";
+      if (request.method !== (readOnly ? "GET" : "POST"))
+        throw new HttpError(405, "method_not_allowed", "Method not allowed.");
+      const owner = await ownerAddressForGuard(env);
+      if (!owner || owner !== user.email.toLowerCase())
+        throw new HttpError(
+          403,
+          "owner_only",
+          "Only the site owner can do this.",
+        );
+      if (NEEDS_REAUTH.has(action)) {
+        const row = await env.DB.prepare(
+          "SELECT created_at FROM sessions WHERE session_id = ?",
+        )
+          .bind(user.sessionId ?? "")
+          .first<{ created_at: string }>();
+        if (!sessionIsFresh(row?.created_at))
+          throw new HttpError(
+            403,
+            "reauth_required",
+            "Confirm with your passkey to continue.",
+          );
+      }
+      const body = readOnly ? {} : await readJson(request);
+      const result = await callSiteContract(env, action, body);
+      if (!result.ok)
+        throw new HttpError(result.status, result.code, result.code);
+      if (NEEDS_REAUTH.has(action))
+        await logActivity(
+          env,
+          user,
+          "system.contract_" + action,
+          "system",
+          "contract",
+          {},
+        );
+      return json(result.value as JsonValue);
+    }
     if (request.method === "GET" && path === "/api/system/ip-gate") {
       requireAdmin(user);
       return json({
@@ -1380,6 +1525,18 @@ async function handleApiDispatch(
         return withJsonHeaders(await deleteUser(env, user, userUidMatch[1]));
     }
 
+    // このアドレスが持ち主のものか(プロフィールの欄を変えられなくする)。訊けないときは変更の時にサーバーが断る。
+    if (request.method === "GET" && path === "/api/me/email-locked") {
+      const owner = await ownerAddressForGuard(env).catch(() => null);
+      const row = await env.DB.prepare("SELECT email FROM users WHERE uid = ?")
+        .bind(user.uid)
+        .first<{ email: string }>();
+      return withJsonHeaders(
+        json({
+          locked: !!owner && owner === (row?.email ?? "").toLowerCase(),
+        }),
+      );
+    }
     if (path === "/api/me") {
       return withJsonHeaders(await me(request, env, user));
     }
@@ -1458,6 +1615,13 @@ async function handleApiDispatch(
 
     if (path === "/api/settings") {
       return withJsonHeaders(await settings(request, env, user));
+    }
+
+    if (path === "/api/settings/threads/connect/start") {
+      return withJsonHeaders(await threadsConnectStart(request, env, user));
+    }
+    if (path === "/api/settings/threads/connect/complete") {
+      return withJsonHeaders(await threadsConnectComplete(request, env, user));
     }
 
     if (path === "/api/settings/timezone-init") {
@@ -3422,12 +3586,24 @@ async function updateUser(
       "cannot_modify_self",
       "自分自身の権限は変更できません。",
     );
-  const target = await env.DB.prepare("SELECT uid FROM users WHERE uid = ?")
+  const target = await env.DB.prepare(
+    "SELECT uid, email FROM users WHERE uid = ?",
+  )
     .bind(uid)
-    .first();
+    .first<{ uid: string; email: string }>();
   if (!target)
     throw new HttpError(404, "user_not_found", "ユーザーが見つかりません。");
   const body = await readJson(request);
+  // 持ち主の管理者は、アドレスの変更・管理者を外す・無効にするを受けない。ほかの人が持ち主のアドレスにもなれない(課題 58399959)。
+  const nextEmail =
+    typeof body.email === "string" ? body.email.trim().toLowerCase() : null;
+  const emailChanges =
+    nextEmail !== null && nextEmail !== target.email.toLowerCase();
+  if (emailChanges || body.isAdmin === false || body.disabled === true) {
+    const owner = await ownerAddressForGuard(env);
+    if (owner && (target.email.toLowerCase() === owner || nextEmail === owner))
+      throw ownerLocked();
+  }
   const updates: string[] = [];
   const values: (string | number | null)[] = [];
   if (typeof body.isAdmin === "boolean") {
@@ -3499,11 +3675,15 @@ async function deleteUser(
       "cannot_delete_self",
       "自分自身は削除できません。",
     );
-  const target = await env.DB.prepare("SELECT uid FROM users WHERE uid = ?")
+  const target = await env.DB.prepare(
+    "SELECT uid, email FROM users WHERE uid = ?",
+  )
     .bind(uid)
-    .first();
+    .first<{ uid: string; email: string }>();
   if (!target)
     throw new HttpError(404, "user_not_found", "ユーザーが見つかりません。");
+  if (target.email.toLowerCase() === (await ownerAddressForGuard(env)))
+    throw ownerLocked();
   await env.DB.prepare("DELETE FROM users WHERE uid = ?").bind(uid).run();
   await logActivity(env, user, "user.delete", "user", uid, {});
   return json({ ok: true });
@@ -3539,18 +3719,51 @@ async function setupStatus(env: Env): Promise<Response> {
  * アドレスを返す。**初期設定の鍵を持つ人にだけ返す** —— 状態の口(/api/setup/status)は誰でも読めるので、
  * そこには載せない。
  */
-async function setupOwner(request: Request, env: Env): Promise<Response> {
-  if (
-    (await countPasskeys(env)) > 0 ||
-    (await moveTargetPending(env)) ||
-    (await moveTargetDone(env))
-  ) {
-    return json({ email: null });
-  }
-  const body = await readJson(request);
-  await requireSetupToken(env, optionalString(body, "setupToken") ?? "");
-  return json({ email: await ownerEmail(env).catch(() => null) });
+/**
+ * 持ち主のアドレス(変更を断る判定に使う)。持ち主を結んでいない導入は null。訊けないときは断る側に倒す
+ * (確かめられないのに変えさせると、持ち主の管理者が分からなくなる)。
+ */
+export async function ownerAddressForGuard(env: Env): Promise<string | null> {
+  const state = await contactState(env);
+  if (state.state === "unavailable")
+    throw new HttpError(
+      503,
+      "owner_unavailable",
+      "The owner's address could not be read. Please try again.",
+    );
+  const owner =
+    state.state === "linked"
+      ? state.email.toLowerCase()
+      : state.state === "installer"
+        ? await ownerEmail(env)
+        : null;
+  // 持ち主のアドレスの変更が確認されていたら、先に CMS の行を揃える。
+  if (owner) await applyOwnerEmailChange(env, owner);
+  return owner;
 }
+
+/**
+ * 持ち主が決まっているサイトでは、連絡先の登録で持ち主を付け替えさせない。付け替えられると、どの管理者でも
+ * 持ち主の管理者になれてしまう(課題 58399959)。登録できるのは持ち主のいない古い導入だけ。
+ */
+async function refuseWhenOwned(env: Env): Promise<void> {
+  const state = await contactState(env);
+  if (state.state === "unavailable")
+    throw new HttpError(
+      503,
+      "owner_unavailable",
+      "The owner's address could not be read. Please try again.",
+    );
+  if (state.state === "linked" || state.state === "installer")
+    throw ownerLocked();
+}
+
+const ownerLocked = () =>
+  new HttpError(
+    409,
+    "owner_locked",
+    "The first administrator uses the site owner's Entamy ID address and cannot be changed or removed.",
+  );
 
 async function setup(request: Request, env: Env): Promise<Response> {
   if (await moveTargetPending(env)) {
@@ -3574,12 +3787,8 @@ async function setup(request: Request, env: Env): Promise<Response> {
   // 初期設定の鍵(導入口が置いたもの・課題 4dea81be)。持つ人だけが最初の管理者になれる。
   // ここでは使い切らない —— 最初のパスキーが登録できた時に使い切る(passkeyRegisterComplete)。
   await requireSetupToken(env, optionalString(body, "setupToken") ?? "");
-  // 欄が空なら、持ち主の確かめ済みのアドレス(導入口で入れた導入・画面は欄を出さない)。
-  const given = (optionalString(body, "adminEmail") ?? "").trim().toLowerCase();
-  const email = given || ((await ownerEmail(env).catch(() => null)) ?? "");
-  if (email.length > 254) {
-    throw new HttpError(400, "invalid_email", "adminEmail is too long.");
-  }
+  // 最初の管理者のアドレスは、持ち主の Entamy ID のアドレス。聞かない・受け取らない(課題 58399959)。
+  const email = (await ownerEmail(env).catch(() => null)) ?? "";
   const publicDomain = optionalString(body, "publicDomain") ?? "";
   const defaultLang =
     optionalString(body, "defaultLang") ?? env.SITE_DEFAULT_LANG ?? "en";
@@ -3592,10 +3801,11 @@ async function setup(request: Request, env: Env): Promise<Response> {
   const setupTimezone = (optionalString(body, "siteTimezone") ?? "").trim();
   const siteTimezone = isValidTimeZone(setupTimezone) ? setupTimezone : "";
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+    // 一時的に Entamy ID へ届かないとき。持ち主は必ずいるので、聞き直さずやり直してもらう。
     throw new HttpError(
-      400,
-      "invalid_email",
-      "adminEmail must be a valid email address.",
+      503,
+      "owner_unavailable",
+      "The owner's address could not be read. Please try again.",
     );
   }
   if (publicDomain) validateDomain(publicDomain, "publicDomain");
@@ -4552,15 +4762,6 @@ async function updatePolicy(
  * ID は持ち主が開発アカウントのときだけ載せる。委託も顧客運用も同じ。分からない(基盤に届かない・古い ID)ときは一般として
  * 扱う(開発版を渡す側に倒さない)。開発版と、開発・安定の切り替えは、開発アカウントのサイトにだけ出す。
  */
-async function ownerIsDeveloper(env: Env): Promise<boolean> {
-  try {
-    const port = await entamyPort(env);
-    return (await port.session.claims())?.developer === true;
-  } catch {
-    return false;
-  }
-}
-
 /** 開発版を選べるのは開発アカウントのサイトだけ。一般のサイトは保存した値にかかわらず安定版。 */
 async function getUpdateChannel(env: Env): Promise<"stable" | "latest"> {
   const v = await env.PUBLIC_PAGES.get(UPDATE_CHANNEL_KEY);
@@ -5209,9 +5410,18 @@ async function settings(
         // 記事末尾の筆者表示。列の無い（0072 以前の）install は表示扱い。
         showByline: (row?.show_byline as number | undefined) !== 0,
         threadsTokenSet: !!(row?.threads_token as string | undefined),
+        // 「Threads と接続」(旗 threads-connect)。旗が切れているサイトには、アプリの欄もボタンも出さない。
+        threadsConnect: await threadsConnectOn(env),
+        threadsAppId: (row?.threads_app_id as string | undefined) ?? "",
+        threadsAppSecretSet: !!(row?.threads_app_secret as string | undefined),
         threadsTokenUpdatedAt,
         threadsTokenNextRefreshAt:
           nextThreadsTokenRefreshAt(threadsTokenUpdatedAt) ?? "",
+        // 最後に Meta へ断られた理由と、最後に自動更新を試した時刻(画面の赤い 1 行・migration 0087)。
+        threadsTokenError:
+          (row?.threads_token_error as string | undefined) ?? "",
+        threadsTokenRefreshAttemptedAt:
+          (row?.threads_token_refresh_attempted_at as string | undefined) ?? "",
         siteIsPublished: (row?.site_is_published as number | undefined) === 1,
         templateId: (row?.template_id as string | undefined) ?? "",
       },
@@ -5318,7 +5528,7 @@ async function settings(
       );
     }
 
-    const settingsToSave: Record<string, string | number> = {
+    const settingsToSave: SettingsPatch = {
       site_name: siteName,
       public_domain: publicDomain,
       default_lang: defaultLang,
@@ -5341,6 +5551,22 @@ async function settings(
       settingsToSave.threads_user_id = "";
       settingsToSave.threads_token_updated_at = nowIso();
       settingsToSave.threads_token_refresh_attempted_at = "";
+      settingsToSave.threads_token_error = "";
+    }
+    // 「Threads と接続」の Meta のアプリ。シークレットは空なら変えない(再表示しない欄)。旗が切れていれば受けない。
+    if (
+      ("threadsAppId" in body || "threadsAppSecret" in body) &&
+      (await threadsConnectOn(env))
+    ) {
+      if ("threadsAppId" in body)
+        settingsToSave.threads_app_id = (
+          optionalString(body, "threadsAppId") ?? ""
+        ).trim();
+      const threadsAppSecret = (
+        optionalString(body, "threadsAppSecret") ?? ""
+      ).trim();
+      if (threadsAppSecret)
+        settingsToSave.threads_app_secret = threadsAppSecret;
     }
     if (xApiKey) settingsToSave.x_api_key = xApiKey;
     if (xApiSecret) settingsToSave.x_api_secret = xApiSecret;
@@ -6343,6 +6569,218 @@ function trimToLen(s: string, max: number): string {
   );
 }
 
+// ─── 「Threads と接続」(旗 threads-connect・threads-connect.ts) ─────────────────
+
+async function threadsConnectOn(env: Env): Promise<boolean> {
+  return cmsFlagOn("threads-connect", await ownerIsDeveloper(env));
+}
+
+async function threadsApp(
+  env: Env,
+): Promise<{ appId: string; appSecret: string }> {
+  const row = await env.DB.prepare(
+    "SELECT threads_app_id, threads_app_secret FROM site_settings WHERE id = 1",
+  ).first<{
+    threads_app_id: string | null;
+    threads_app_secret: string | null;
+  }>();
+  return {
+    appId: (row?.threads_app_id ?? "").trim(),
+    appSecret: (row?.threads_app_secret ?? "").trim(),
+  };
+}
+
+/** POST /api/settings/threads/connect/start { redirectUri, returnUrl } → { authorizeUrl } */
+async function threadsConnectStart(
+  request: Request,
+  env: Env,
+  user: AuthUser,
+): Promise<Response> {
+  requireAdmin(user);
+  if (request.method !== "POST")
+    throw new HttpError(405, "method_not_allowed", "Method not allowed.");
+  if (!(await threadsConnectOn(env)))
+    throw new HttpError(404, "not_found", "Not found.");
+  const body = await readJson(request);
+  const urls = checkThreadsConnectUrls(
+    request.url,
+    optionalString(body, "redirectUri") ?? "",
+    optionalString(body, "returnUrl") ?? "",
+  );
+  if (!urls)
+    throw new HttpError(
+      400,
+      "threads_connect_bad_url",
+      "The return address must be an https address on this site.",
+    );
+  const { appId, appSecret } = await threadsApp(env);
+  if (!appId || !appSecret)
+    throw new HttpError(
+      400,
+      "threads_app_not_configured",
+      "Enter the Threads app ID and app secret, save, and try again.",
+    );
+  const state = await signThreadsState(appSecret, {
+    uid: user.uid,
+    redirectUri: urls.redirectUri,
+    returnUrl: urls.returnUrl,
+    exp: Date.now() + THREADS_STATE_TTL_MS,
+    nonce: makeId("tc"),
+  });
+  return json({
+    authorizeUrl: threadsAuthorizeUrl(appId, urls.redirectUri, state),
+  });
+}
+
+/** GET {base}/api/sns/threads/callback?code&state(Meta から戻る口・ログインなし・書き込みなし) */
+async function threadsConnectCallback(
+  request: Request,
+  env: Env,
+): Promise<Response> {
+  const url = new URL(request.url);
+  const fallback = `${url.origin}${adminBasePath(env)}/settings`;
+  const { appSecret } = await threadsApp(env);
+  const state = appSecret
+    ? await verifyThreadsState(
+        appSecret,
+        url.searchParams.get("state") ?? "",
+        Date.now(),
+      )
+    : null;
+  // 戻り先は署名した state のものだけ。確かめられなければ設定の画面へ、失敗として返す。
+  const returnUrl =
+    state && new URL(state.returnUrl).origin === url.origin
+      ? state.returnUrl
+      : null;
+  if (!returnUrl) {
+    const back = new URL(fallback);
+    back.hash = "threads-error=state";
+    return Response.redirect(back.toString(), 302);
+  }
+  return Response.redirect(
+    threadsCallbackRedirect(returnUrl, url.searchParams),
+    302,
+  );
+}
+
+/** POST /api/settings/threads/connect/complete { code, state } → 長期トークンを保存 */
+async function threadsConnectComplete(
+  request: Request,
+  env: Env,
+  user: AuthUser,
+): Promise<Response> {
+  requireAdmin(user);
+  if (request.method !== "POST")
+    throw new HttpError(405, "method_not_allowed", "Method not allowed.");
+  if (!(await threadsConnectOn(env)))
+    throw new HttpError(404, "not_found", "Not found.");
+  const body = await readJson(request);
+  const code = (optionalString(body, "code") ?? "").trim();
+  const { appId, appSecret } = await threadsApp(env);
+  if (!appId || !appSecret)
+    throw new HttpError(
+      400,
+      "threads_app_not_configured",
+      "Enter the Threads app ID and app secret, save, and try again.",
+    );
+  const state = await verifyThreadsState(
+    appSecret,
+    optionalString(body, "state") ?? "",
+    Date.now(),
+  );
+  // 始めた本人の、この site で始めた往復だけを受ける。
+  if (
+    !state ||
+    state.uid !== user.uid ||
+    new URL(state.redirectUri).origin !== new URL(request.url).origin ||
+    !code
+  )
+    throw new HttpError(
+      400,
+      "threads_connect_state",
+      "This connection attempt has expired or was started elsewhere. Press “Connect to Threads” again.",
+    );
+  let exchanged: Awaited<ReturnType<typeof exchangeThreadsCode>>;
+  try {
+    exchanged = await exchangeThreadsCode({
+      appId,
+      appSecret,
+      redirectUri: state.redirectUri,
+      code,
+    });
+  } catch (error) {
+    const detail: Record<string, string | number> = {
+      step:
+        error instanceof ThreadsConnectError ? error.step : "connect_network",
+    };
+    if (error instanceof ThreadsConnectError) {
+      detail.status = error.status;
+      if (error.code !== null) detail.code = error.code;
+    }
+    await reportThreads(env, "threads_connect_failed", detail);
+    throw new HttpError(
+      502,
+      "threads_connect_failed",
+      `Meta did not issue a token (${detail.step}${detail.status ? ` ${detail.status}` : ""}${detail.code ? ` code ${detail.code}` : ""}). Check the app ID, app secret and the redirect URI registered in Meta, then try again.`,
+    );
+  }
+  const now = nowIso();
+  await saveSettings(env, {
+    threads_token: exchanged.accessToken,
+    threads_user_id: exchanged.userId,
+    threads_token_updated_at: now,
+    threads_token_refresh_attempted_at: "",
+    threads_token_error: "",
+  });
+  await logActivity(
+    env,
+    user,
+    "settings.threads_connect",
+    "settings",
+    "threads",
+    {
+      expiresIn: exchanged.expiresIn,
+    },
+  );
+  await reportThreads(env, "threads_connected", {
+    expiresIn: exchanged.expiresIn,
+  });
+  return json({
+    ok: true,
+    updatedAt: now,
+    expiresAt: new Date(Date.now() + exchanged.expiresIn * 1000).toISOString(),
+  });
+}
+
+/** Threads API の失敗。段と番号を持ち、文からはトークンを伏せる。 */
+class ThreadsApiError extends Error {
+  constructor(
+    readonly step: "me" | "container" | "publish",
+    readonly status: number,
+    readonly code: number | null,
+    readonly subcode: number | null,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+async function threadsApiError(
+  step: "me" | "container" | "publish",
+  res: Response,
+  token: string,
+): Promise<ThreadsApiError> {
+  const text = await res.text().catch(() => "");
+  const meta = parseMetaError(text);
+  return new ThreadsApiError(
+    step,
+    res.status,
+    meta.code,
+    meta.subcode,
+    `threads ${step} failed: ${res.status} ${redactThreadsToken(text, token).slice(0, 300)}`,
+  );
+}
+
 async function postToThreads(
   token: string,
   userId: string,
@@ -6363,18 +6801,14 @@ async function postToThreads(
       method: "POST",
       body: params,
     });
-    if (!res.ok) {
-      throw new Error(
-        `threads container failed: ${res.status} ${(await res.text()).slice(0, 300)}`,
-      );
-    }
+    if (!res.ok) throw await threadsApiError("container", res, token);
     const j = (await res.json()) as { id?: string };
     if (!j.id) throw new Error("threads container returned no id");
     return j.id;
   };
   const publish = async (creationId: string): Promise<void> => {
     // Image containers can take a moment to become ready — retry briefly.
-    let lastErr = "";
+    let lastErr: ThreadsApiError | null = null;
     for (let i = 0; i < 4; i++) {
       const params = new URLSearchParams();
       params.set("access_token", token);
@@ -6384,10 +6818,12 @@ async function postToThreads(
         body: params,
       });
       if (res.ok) return;
-      lastErr = `${res.status} ${(await res.text()).slice(0, 300)}`;
+      lastErr = await threadsApiError("publish", res, token);
+      // トークンが断られたら、待っても通らない。
+      if (isThreadsTokenRejected(lastErr.code)) break;
       await new Promise((r) => setTimeout(r, 2500));
     }
-    throw new Error(`threads publish failed: ${lastErr}`);
+    throw lastErr ?? new Error("threads publish failed");
   };
 
   if (imageUrl) {
@@ -6398,6 +6834,12 @@ async function postToThreads(
       await publish(await create(true));
       return;
     } catch (error) {
+      // トークンが断られたのなら、文字だけにしても通らない。
+      if (
+        error instanceof ThreadsApiError &&
+        isThreadsTokenRejected(error.code)
+      )
+        throw error;
       console.warn(
         JSON.stringify({
           event: "threads_image_post_failed_fallback_text",
@@ -6425,6 +6867,37 @@ type ThreadsPostResult =
         | "post_failed";
     };
 
+/**
+ * 投稿の失敗を残す。console に加えて Defects へ(waitUntil の中はほかから読めない)。
+ * Meta がトークンを断った(code 190)なら、設定の画面に「登録し直す」を出す(threads_token_error)。
+ */
+async function threadsPostFailed(
+  env: Env,
+  token: string,
+  did: string,
+  error: unknown,
+): Promise<void> {
+  const message = redactThreadsToken(
+    error instanceof Error ? error.message : String(error),
+    token,
+  );
+  console.warn(
+    JSON.stringify({ event: "threads_post_failed", did, error: message }),
+  );
+  const detail: Record<string, string | number> = { did };
+  if (error instanceof ThreadsApiError) {
+    detail.step = error.step;
+    detail.status = error.status;
+    if (error.code !== null) detail.code = error.code;
+    if (error.subcode !== null) detail.subcode = error.subcode;
+    if (isThreadsTokenRejected(error.code))
+      await recordThreadsTokenError(env, token, "token_invalid");
+  } else {
+    detail.step = "network";
+  }
+  await reportThreads(env, "threads_post_failed", detail);
+}
+
 /** Threads twin of postBlueskyForDoc / postXForDoc — sns_threads_posted_at. */
 async function postThreadsForDoc(
   env: Env,
@@ -6450,6 +6923,7 @@ async function postThreadsForDoc(
   // Resolve and cache the Threads user id on first use.
   let userId = (s?.threads_user_id ?? "").trim();
   if (!userId) {
+    let meError: ThreadsApiError | null = null;
     try {
       const res = await fetch(
         `${THREADS_API}/me?fields=id&access_token=${encodeURIComponent(token)}`,
@@ -6457,11 +6931,16 @@ async function postThreadsForDoc(
       if (res.ok) {
         const j = (await res.json()) as { id?: string };
         userId = (j.id ?? "").trim();
+      } else {
+        meError = await threadsApiError("me", res, token);
       }
     } catch {
       /* handled below */
     }
-    if (!userId) return { ok: false, code: "not_configured" };
+    if (!userId) {
+      if (meError) await threadsPostFailed(env, token, did, meError);
+      return { ok: false, code: "not_configured" };
+    }
     await env.DB.prepare(
       "UPDATE site_settings SET threads_user_id = ? WHERE id = 1",
     )
@@ -6552,15 +7031,11 @@ async function postThreadsForDoc(
   try {
     await postToThreads(token, userId, text, imageUrl);
   } catch (error) {
-    console.warn(
-      JSON.stringify({
-        event: "threads_post_failed",
-        did,
-        error: error instanceof Error ? error.message : String(error),
-      }),
-    );
+    await threadsPostFailed(env, token, did, error);
     return { ok: false, code: "post_failed" };
   }
+  // 通ったのなら、このトークンは受け付けられている。「受け付けません」の印を外す。
+  await clearThreadsTokenRejected(env, token);
 
   // The posted flag is already set (claimed at queue time), so nothing to
   // write here — the claim simply "sticks" now that the post succeeded.
@@ -7090,6 +7565,14 @@ async function me(
         "invalid_email",
         "email must be a valid email address.",
       );
+    }
+    const mine = await env.DB.prepare("SELECT email FROM users WHERE uid = ?")
+      .bind(user.uid)
+      .first<{ email: string }>();
+    if (mine && mine.email.toLowerCase() !== email) {
+      const owner = await ownerAddressForGuard(env);
+      if (owner && (mine.email.toLowerCase() === owner || email === owner))
+        throw ownerLocked();
     }
     // author_id（所有者判定 ID）。指定があれば更新（既存公開テンプレ更新時に合わせる用途）。
     // 未指定なら変更しない。
@@ -12828,7 +13311,12 @@ function isSensitiveDebugKey(key: string): boolean {
   );
 }
 
-const SETTINGS_COLS = new Set([
+/**
+ * saveSettings が書いてよい列。**型で縛る**: 一覧に無い列を渡すと型検査で落ちる。
+ * 以前は実行時に黙って捨てていたので、threads_token_error を一覧に足し忘れた時、トークンを登録し直しても
+ * 「受け付けません」の印が消えないまま、誰にも分からなかった(2026-11-06)。
+ */
+const SETTINGS_COL_LIST = [
   "site_name",
   "site_description",
   "ga4_measurement_id",
@@ -12854,6 +13342,9 @@ const SETTINGS_COLS = new Set([
   "threads_user_id",
   "threads_token_updated_at",
   "threads_token_refresh_attempted_at",
+  "threads_token_error",
+  "threads_app_id",
+  "threads_app_secret",
   "setup_completed_at",
   "strapi_url",
   "strapi_token",
@@ -12868,15 +13359,21 @@ const SETTINGS_COLS = new Set([
   "fonts_json",
   "base_font",
   "font_configs_json",
-]);
+] as const;
+type SettingsCol = (typeof SETTINGS_COL_LIST)[number];
+type SettingsPatch = Partial<Record<SettingsCol, string | number | boolean>>;
+const SETTINGS_COLS: ReadonlySet<string> = new Set(SETTINGS_COL_LIST);
 
-async function saveSettings(
-  env: Env,
-  settings: Record<string, string | number | boolean>,
-): Promise<void> {
-  const entries = Object.entries(settings).filter(([k]) =>
-    SETTINGS_COLS.has(k),
+async function saveSettings(env: Env, settings: SettingsPatch): Promise<void> {
+  const entries = Object.entries(settings).filter(
+    (e): e is [string, string | number | boolean] => e[1] !== undefined,
   );
+  // 型を外して渡された列も、黙って捨てずに止める(列名は SQL に入るので一覧の外は通さない)。
+  const unknown = entries.filter(([k]) => !SETTINGS_COLS.has(k));
+  if (unknown.length > 0)
+    throw new Error(
+      `saveSettings: unknown column ${unknown.map(([k]) => k).join(", ")}`,
+    );
   if (entries.length === 0) return;
   const now = nowIso();
   const setClauses = [
@@ -13184,7 +13681,7 @@ async function fonts(
       );
     }
 
-    const settingsToSave: Record<string, string> = {};
+    const settingsToSave: SettingsPatch = {};
     const current = await readFontConfig(env);
     if (lang) {
       const configs = { ...current.configs };

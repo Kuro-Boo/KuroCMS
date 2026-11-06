@@ -3,7 +3,12 @@ import { releaseToken } from "./release-token";
 import { adminHtml } from "./admin-shell";
 import { serveAdminAsset } from "./asset-serve";
 import { serveFont } from "./fonts";
-import { handleApi, recheckGuardianIfBehind, unfurlEndpoint } from "./api";
+import {
+  handleApi,
+  ownerAddressForGuard,
+  recheckGuardianIfBehind,
+  unfurlEndpoint,
+} from "./api";
 import { reportInstall } from "./entamy";
 import { entamyPort, hardenEntamyConnection } from "./entamy-port";
 import { adoptGuardianMinute, guardianAutoTick } from "./guardian-update";
@@ -12,6 +17,7 @@ import { noteRunningVersion } from "./version-since";
 import { KUROCMS_VERSION } from "./version";
 import { purgeIpGate } from "./ip-gate";
 import { runScheduledThreadsTokenRefresh } from "./threads-token";
+import { reportThreads } from "./release-report";
 import { html, notFound, notFoundPage, preparingPage } from "./http";
 import { reactionEndpoint } from "./reactions";
 import { cspReportEndpoint } from "./csp-report";
@@ -86,7 +92,12 @@ async function runMinute(
   // duplicate Cron deliveries.
   // 引っ越しを終えた移す元は、もうこのサイトの本体ではない。基盤への報告と鍵の更新をしない(moveRetired)。
   const retired = await moveRetired(env).catch(() => false);
-  if (!retired) ctx.waitUntil(runScheduledThreadsTokenRefresh(env, at));
+  if (!retired)
+    ctx.waitUntil(
+      runScheduledThreadsTokenRefresh(env, at, (code, detail) =>
+        reportThreads(env, code, detail),
+      ),
+    );
   // データを消す 7 日前と前日のメールは、Notice が持ち主へ送る(notice-delivery 7.8)。ここでは送らない。
   // 引き渡し済みなら、残っている公開ページを下ろす(済んでいれば 1 回読むだけ)。
   // 1.10.91 までに引き渡した導入も、更新されたこの版がここで下ろす。
@@ -113,6 +124,8 @@ async function runMinute(
         console.error("guardian recheck failed:", err);
       }),
     );
+    // 持ち主のアドレスの変更が確認されていたら、CMS の行も揃える(誰も開かなくても、復旧のメールが古いアドレスへ行かないように)。
+    ctx.waitUntil(ownerAddressForGuard(env).catch(() => null));
   }
   // いまの版がいつ入ったか(ダッシュボードの KuroCMS の枠)。どの経路で入っても 1 分以内に残る。
   if (versionNoted !== KUROCMS_VERSION)

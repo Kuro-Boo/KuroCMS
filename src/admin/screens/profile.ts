@@ -98,7 +98,7 @@ async function profile() {
       "<div style='display:flex;gap:8px;align-items:center;flex-wrap:wrap'>" +
       "<input id='profileEmail' type='email' style='flex:1;min-width:220px' />" +
       "<div id='profileEmailVerify'></div></div>" +
-      "<div class='muted' style='font-size:12px;line-height:1.6'>" +
+      "<div id='profileEmailHelpText' class='muted' style='font-size:12px;line-height:1.6'>" +
       escapeHtml(t("profileEmailHelp")) +
       "</div></label>" +
       "<div><div class='fieldLabel'>" +
@@ -305,6 +305,22 @@ async function profile() {
     // ユーザID（= author_id）。GET /api/me が未設定なら自動付番して返す（遅延補完はこの1箇所のみ）。
     byId("profileAuthorId")!.textContent = meUser.authorId || "-";
     byId("profileEmail")!.value = meUser.email || "";
+    // 持ち主の Entamy ID のアドレスは変えられない(サーバーも断る・課題 58399959)。
+    void api("/api/me/email-locked")
+      .then((r: Dynamic) => {
+        if (!r?.locked) return;
+        const input = byId("profileEmail") as HTMLInputElement | null;
+        if (input) input.readOnly = true;
+        const help = byId("profileEmailHelpText");
+        if (help) help.textContent = t("profileEmailLocked");
+        const change = document.createElement("button");
+        change.type = "button";
+        change.className = "secondary";
+        change.textContent = t("ownerEmailChangeOpen");
+        change.onclick = () => openOwnerEmailChange();
+        input?.insertAdjacentElement("afterend", change);
+      })
+      .catch(() => {});
     paintEmailVerified(meUser);
     // 単一ロール表示（ユーザ管理画面と統一）。admin は author 権限を内包するため「管理者」のみ表示。
     byId("profileRoles")!.textContent = meUser.isAdmin

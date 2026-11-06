@@ -35,6 +35,93 @@ function mountPublishMode() {
   });
 }
 
+/** Meta から戻る口(サーバーの THREADS_CALLBACK_PATH と同じ)。Meta のアプリに登録してもらう。 */
+function threadsRedirectUri(): string {
+  return location.origin + withBase("/api/sns/threads/callback");
+}
+
+/**
+ * 「Threads と接続」(旗 threads-connect・src/threads-connect.ts)。
+ * ボタン → start で Meta の許可画面へ → Meta が戻る口へ → 戻る口が # に code を載せてこの画面へ → complete で保存。
+ */
+function mountThreadsConnect(s: Dynamic) {
+  const box = byId("threadsConnectBox");
+  if (!box) return;
+  if (!s?.threadsConnect) {
+    box.style.display = "none";
+    return;
+  }
+  box.style.display = "";
+  const appId = byId("threadsAppId") as HTMLInputElement | null;
+  if (appId) appId.value = String(s.threadsAppId || "");
+  if (s.threadsAppSecretSet)
+    byId("threadsAppSecret")!.placeholder =
+      "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022 \u2713";
+  const redirect = threadsRedirectUri();
+  byId("threadsRedirectUri")!.textContent = redirect;
+  byId("threadsRedirectCopyBtn")?.addEventListener(
+    "click",
+    async function (e: Dynamic) {
+      try {
+        await navigator.clipboard.writeText(redirect);
+        toast(t("copySuccess"), false, e.currentTarget);
+      } catch {
+        toast(t("copyFailed"), true);
+      }
+    },
+  );
+  const btn = byId("threadsConnectBtn") as HTMLButtonElement | null;
+  // Meta の画面から「戻る」で帰ると、ブラウザは押した直後(押せない)の頁をそのまま出す(bfcache)。押せる形へ戻す。
+  window.addEventListener("pageshow", function (e: PageTransitionEvent) {
+    if (e.persisted && btn) btn.disabled = false;
+  });
+  btn?.addEventListener("click", async function () {
+    btn.disabled = true;
+    try {
+      const d = await api("/api/settings/threads/connect/start", {
+        method: "POST",
+        body: JSON.stringify({
+          redirectUri: redirect,
+          returnUrl: location.origin + location.pathname,
+        }),
+      });
+      location.href = String(d.authorizeUrl);
+    } catch (error) {
+      btn.disabled = false;
+      toast(errorMessage(error), true, btn);
+    }
+  });
+}
+
+/** Meta から戻ってきた(# に threads-code / threads-error)。保存まで済ませて、# を消す。 */
+async function finishThreadsConnect(): Promise<boolean> {
+  const hash = new URLSearchParams(location.hash.replace(/^#/, ""));
+  const code = hash.get("threads-code");
+  const error = hash.get("threads-error");
+  if (!code && !error) return false;
+  history.replaceState(null, "", location.pathname + location.search);
+  if (error) {
+    toast(
+      error === "state"
+        ? t("threadsConnectExpired")
+        : t("threadsConnectDenied").replace("{reason}", error),
+      true,
+    );
+    return false;
+  }
+  try {
+    await api("/api/settings/threads/connect/complete", {
+      method: "POST",
+      body: JSON.stringify({ code, state: hash.get("threads-state") || "" }),
+    });
+    toast(t("threadsConnectDone"), false);
+    return true;
+  } catch (e) {
+    toast(errorMessage(e), true);
+    return false;
+  }
+}
+
 async function settings() {
   // Import article-list sort order (shared by the Strapi / KuroCMS lists).
   // Default: publish date, newest first.
@@ -527,6 +614,34 @@ async function settings() {
       "<span class='muted'>" +
       escapeHtml(t("threadsTokenNextRefreshAt")) +
       "</span><span id='threadsTokenNextRefreshAt'>—</span>" +
+      "</div>" +
+      "<div id='threadsTokenError' role='alert' style='display:none;margin:0 0 10px;font-size:12px;color:var(--danger)'></div>" +
+      // 「Threads と接続」(旗 threads-connect)。旗が効くサイトにだけ出す(サーバーも旗を見る)。
+      "<div id='threadsConnectBox' style='display:none;margin:0 0 12px;padding:10px 12px;background:var(--surface-2);border-radius:8px'>" +
+      "<div class='fieldLabel' style='margin:0 0 4px'>" +
+      escapeHtml(t("threadsConnectTitle")) +
+      "</div>" +
+      "<div class='muted' style='font-size:11px;margin-bottom:8px'>" +
+      escapeHtml(t("threadsConnectHelp")) +
+      "</div>" +
+      "<label style='margin-bottom:8px'>" +
+      escapeHtml(t("threadsAppId")) +
+      "<input id='threadsAppId' type='text' autocomplete='off' inputmode='numeric' /></label>" +
+      "<label style='margin-bottom:8px'>" +
+      escapeHtml(t("threadsAppSecret")) +
+      "<input id='threadsAppSecret' type='password' autocomplete='off' /></label>" +
+      "<div style='display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:12px'>" +
+      "<span class='fieldLabel' style='margin:0;white-space:nowrap'>" +
+      escapeHtml(t("threadsRedirectUri")) +
+      "</span>" +
+      "<code id='threadsRedirectUri' style='flex:1;font-size:11px;color:var(--fg);word-break:break-all'>-</code>" +
+      "<button type='button' id='threadsRedirectCopyBtn' class='secondary' style='font-size:11px;padding:3px 8px;white-space:nowrap'>" +
+      escapeHtml(t("copy")) +
+      "</button>" +
+      "</div>" +
+      "<button type='button' id='threadsConnectBtn'>" +
+      escapeHtml(t("threadsConnectButton")) +
+      "</button>" +
       "</div>" +
       "<div class='muted' style='margin-bottom:10px;font-size:11px'>" +
       escapeHtml(t("threadsTokenRefreshHelp")) +
@@ -1049,8 +1164,7 @@ async function settings() {
   // 左: いまの契約 —— 運用の形・契約の状態・無料期間の棒と、その後の有料の説明・申し込みと解約への入口・日付。
   // 右: 契約の形態と料金 —— 国(日本・米国・欧州)を選ぶと、その通貨の料金に替わる。初めは回線の国(request.cf.country)。
   // 契約の状態は、受付が毎時 Entamy(Admin の導入の記録・Entamy ID)から引いて書いた 1 行(委託だけ)。料金は Billing の価格表。
-  // 申し込み・解約は Entamy の契約の頁(siteContractUrl・site-delete.ts)で行う —— この管理画面は Entamy ID のログインを持たず、
-  // お金の要求は契約の頁から Billing へ直接送る(billing-architecture 2.1節)。
+  // 申し込み・解約はこの画面の窓で行う(contract-flow.ts・cms-pricing 2 節)。
   byId("panel-hosting")?.insertAdjacentHTML(
     "afterbegin",
     "<div id='contractSection' class='contractGrid'>" +
@@ -1523,25 +1637,28 @@ async function settings() {
         html += line(t("contractTrialFinal"), contractDate(finalAt), true);
         html += line(t("contractPaidFrom"), paidFrom);
       }
-      // 申し込み・解約は Entamy の契約の頁で(同じタブ・2026-11-02。新しいタブで開くと、契約の頁の「KuroCMS に戻る」で
-      // 往復するたびに CMS のタブが増えた。戻り先を渡すので、同じタブで行き来する)。契約が有れば「解約する」、無ければ「申し込む」
-      // (無料期間中も申し込める。最初の請求は無料期間の終わり —— Billing の申し込みが試用の終わりまで待つ)。
+      // 申し込み・解約はこの画面の窓で行う(contract-flow.ts)。持ち主の管理者だけに出す。
+      // 無料期間中も申し込める。最初の請求は無料期間の終わり —— Billing の申し込みが試用の終わりまで待つ。
+      const locked = await api("/api/me/email-locked").catch(() => null);
+      if (!locked?.locked) {
+        const only = document.createElement("div");
+        only.className = "muted";
+        only.style.cssText = "flex-basis:100%;font-size:13px;line-height:1.7";
+        only.textContent = t("contractOwnerOnly");
+        actions.append(only);
+        return;
+      }
       const link = (label: string, primary: boolean) => {
-        const a = document.createElement("a");
-        // 戻り先(この画面の契約のタブ)を渡す。契約の頁は、持ち主の委託のサイトの住所のときだけ「KuroCMS に戻る」を出し、
-        // 戻る前に契約の情報をこのサイトへ届け直す(毎時を待たない・2026-11-02)。
-        // このサイトの管理番号とサイト名も自動で渡す(契約の頁は番号でサイトを決め、名前とアドレスで見せる・2026-11-05)。
-        a.href = siteContractUrl(
-          r.site,
-          null,
-          "return=" +
-            encodeURIComponent(
-              location.origin + location.pathname + "?tab=hosting",
-            ),
-        );
-        a.className = primary ? "button" : "button secondary";
-        a.textContent = label;
-        return a;
+        const b = document.createElement("button");
+        b.type = "button";
+        if (!primary) b.className = "secondary";
+        b.textContent = label;
+        b.onclick = () =>
+          void openContractWindow(() => {
+            contractLoaded = false;
+            void loadContract();
+          });
+        return b;
       };
       if (c.subscription === "active") {
         actions.append(link(t("contractCancel"), false));
@@ -1845,6 +1962,8 @@ async function settings() {
       };
       languageOptions = ["en", "ja", "de", "fr"];
     } else {
+      // Meta から戻ってきたなら、先にトークンを保存してから読む(読み込む設定に新しい日付が載る)。
+      await finishThreadsConnect();
       const [settingsData, langData] = await Promise.all([
         api("/api/settings"),
         api("/api/languages").catch(() => ({ languages: [] })),
@@ -1921,6 +2040,24 @@ async function settings() {
         `.settingsTab[data-tab="${want.replace(/[^a-z]/g, "")}"]`,
       );
       if (want && btn && btn.style.display !== "none") btn.click();
+    }
+    // 決済の画面から戻ってきた(導入口が渡した戻り先)。契約の情報を毎時を待たずに届け直してもらう。
+    if (new URLSearchParams(location.search).get("contract") === "back") {
+      history.replaceState(null, "", location.pathname + "?tab=hosting");
+      let preSale = false;
+      try {
+        preSale = sessionStorage.getItem("contractPreSale") === "1";
+        sessionStorage.removeItem("contractPreSale");
+      } catch {
+        /* 残せない環境 */
+      }
+      toast(t(preSale ? "contractBackPreSale" : "contractBack"));
+      void api("/api/system/contract/sync", { method: "POST", body: "{}" })
+        .catch(() => {})
+        .then(() => {
+          contractLoaded = false;
+          void loadContract();
+        });
     }
 
     // Worker origin URL + CNAME guide
@@ -2113,15 +2250,40 @@ async function settings() {
       byId("threadsToken")!.placeholder =
         "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022 \u2713";
     }
-    const threadsTokenPendingText = s.threadsTokenSet
-      ? t("threadsTokenUpdatePending")
-      : "—";
+    // 更新日はトークンの登録か自動更新の成功で必ず入る。トークンがあるのに空なら、それ自体が異常
+    // (自動更新が 1 度も通っていない)。「確認待ち」と正常に見せて、失効まで気づけなかった(2026-11-06)。
+    const threadsNoRecord = s.threadsTokenSet && !s.threadsTokenUpdatedAt;
+    const threadsEmptyText = threadsNoRecord ? t("threadsTokenNoRecord") : "—";
     byId("threadsTokenUpdatedAt")!.textContent = s.threadsTokenUpdatedAt
       ? formatDateTime(s.threadsTokenUpdatedAt)
-      : threadsTokenPendingText;
+      : threadsEmptyText;
     byId("threadsTokenNextRefreshAt")!.textContent = s.threadsTokenNextRefreshAt
       ? formatDateTime(s.threadsTokenNextRefreshAt)
-      : threadsTokenPendingText;
+      : threadsEmptyText;
+    mountThreadsConnect(s);
+    // Meta に断られている(失効・自動更新の失敗)・更新日の記録が無いときは、欄と 1 行を赤くする。
+    const threadsErrorEl = byId("threadsTokenError")!;
+    const threadsError = s.threadsTokenSet
+      ? String(s.threadsTokenError || "")
+      : "";
+    const threadsErrorText =
+      threadsError === "token_invalid"
+        ? t("threadsTokenErrorInvalid")
+        : threadsError === "refresh_failed"
+          ? t("threadsTokenErrorRefresh").replace(
+              "{at}",
+              s.threadsTokenRefreshAttemptedAt
+                ? formatDateTime(s.threadsTokenRefreshAttemptedAt)
+                : "—",
+            )
+          : threadsNoRecord
+            ? t("threadsTokenErrorNoRecord")
+            : "";
+    threadsErrorEl.textContent = threadsErrorText;
+    threadsErrorEl.style.display = threadsErrorText ? "" : "none";
+    byId("threadsToken")!.style.borderColor = threadsErrorText
+      ? "var(--danger)"
+      : "";
     // Auto-generate Bluesky SID if not set
     if (!s.blueskySid && s.blueskyHandle) {
       s.blueskySid = "sns-001";
@@ -3364,6 +3526,15 @@ async function settings() {
             showByline: byId("showByline")?.checked !== false,
             xLinkInReply: !!byId("xLinkInReply")?.checked,
             threadsToken: (byId("threadsToken")?.value || "").trim(),
+            // 「Threads と接続」の欄は、旗が効いて出ている時だけ送る(サーバーも旗を見る)。
+            ...(s?.threadsConnect
+              ? {
+                  threadsAppId: (byId("threadsAppId")?.value || "").trim(),
+                  threadsAppSecret: (
+                    byId("threadsAppSecret")?.value || ""
+                  ).trim(),
+                }
+              : {}),
             ...extraFields,
           }),
         });

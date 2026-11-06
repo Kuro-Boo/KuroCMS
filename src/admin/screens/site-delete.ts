@@ -5,12 +5,9 @@
  *
  * 入口は 2 つで、**どちらもこの窓を開く** —— 無料期間が終わった知らせ(Notice)の「このサイトを削除する」と、
  * 設定の契約のタブの「サイトの持ち主」の枠の「サイトの削除」(2026-11-02 にプロフィールから移した)。窓は**消えるものを件数で見せ**(/api/system/site-delete)、
- * 消すのは Entamy の契約の頁で行う(Entamy ID でログインした持ち主が消す・導入口の owner-sites)。契約の頁へは
- * このサイトの管理番号とサイト名を自動で渡す(持ち主は番号ではサイトを見分けられない・2026-11-05・利用者)。
- * この管理画面は Entamy ID のログインを持たず、管理者は持ち主とは限らないので、ここでは消さない。
+ * 消せるのは持ち主の管理者だけで、押す直前に CMS のパスキーで確かめ直す(contract-flow.ts・cms-pricing 2 節)。
  * 契約があるサイトは消せない(先に解約)。顧客運用は自分の Cloudflare で片付ける(Entamy の「サイト管理」)。
  */
-const SITE_DELETE_PAGE = "https://kurocms.entamy.com/contract/";
 const SITE_MANAGE_PAGE = "https://kurocms.entamy.com/manage/";
 
 type SiteDeletePreviewView = {
@@ -25,22 +22,6 @@ type SiteDeletePreviewView = {
     categories: number;
   };
 };
-
-/**
- * 契約の頁のアドレス。このサイトの管理番号とサイト名を自動で付ける。kind が delete なら削除の画面を開く。
- * 番号が分からなければ付けない(契約の頁が「サイトの管理画面から開いてください」と言う)。
- */
-function siteContractUrl(
-  site: { id: string | null; name: string | null } | undefined,
-  kind: "delete" | null,
-  extra = "",
-) {
-  const q: string[] = [];
-  if (site?.id) q.push((kind === "delete" ? "delete=" : "site=") + site.id);
-  if (site?.id && site.name) q.push("name=" + encodeURIComponent(site.name));
-  if (extra) q.push(extra);
-  return SITE_DELETE_PAGE + (q.length ? "?" + q.join("&") : "");
-}
 
 async function siteDeleteDialog() {
   let p: SiteDeletePreviewView;
@@ -94,30 +75,56 @@ async function siteDeleteDialog() {
   close.className = "secondary";
   close.textContent = t("contractWindowClose");
   close.onclick = () => ov.remove();
-  const go = document.createElement("a");
-  go.className = "button danger";
-  go.target = "_blank";
-  go.rel = "noopener";
+  let go: HTMLElement;
   if (!p.managed) {
     // 顧客運用: 自分の Cloudflare のサイトは「サイト管理」で片付ける。
     note.textContent = t("siteDeleteSelf");
+    const a = document.createElement("a");
+    a.className = "button danger";
+    a.target = "_blank";
+    a.rel = "noopener";
     // 開いていたサイトを、一覧の中で印を付けて先頭に出してもらう(何十もあるとどれか分からない)。
-    go.href = p.site?.slug
+    a.href = p.site?.slug
       ? SITE_MANAGE_PAGE + "?from=" + encodeURIComponent(p.site.slug)
       : SITE_MANAGE_PAGE;
-    go.textContent = t("siteDeleteOpenManage");
+    a.textContent = t("siteDeleteOpenManage");
+    a.addEventListener("click", () => ov.remove());
+    go = a;
   } else if (p.subscription && p.subscription !== "none") {
-    // 契約がある: 先に解約(契約の頁)。
+    // 契約がある: 先に解約。
     note.textContent = t("siteDeleteContract");
-    go.href = siteContractUrl(p.site, null);
-    go.className = "button secondary";
-    go.textContent = t("contractOpenPage");
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "secondary";
+    b.textContent = t("contractOpenPage");
+    b.onclick = () => {
+      ov.remove();
+      void openContractWindow();
+    };
+    go = b;
   } else {
     note.textContent = t("siteDeleteHow");
-    go.href = siteContractUrl(p.site, "delete");
-    go.textContent = t("siteDeleteGo");
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "danger";
+    b.textContent = t("siteDeleteGo");
+    b.onclick = async () => {
+      b.disabled = true;
+      note.textContent = t("siteDeleteRunning");
+      try {
+        await deleteManagedSite(() => {
+          list.remove();
+          lead.textContent = "";
+          note.textContent = t("siteDeleteStarted");
+          b.remove();
+        });
+      } catch (err) {
+        b.disabled = false;
+        note.textContent = errorMessage(err) || t("apiFailed");
+      }
+    };
+    go = b;
   }
-  go.addEventListener("click", () => ov.remove());
   row.append(close, go);
   card.append(h, lead, list, note, row);
   ov.appendChild(card);
@@ -283,8 +290,8 @@ async function accountDeleteDialog() {
     page.className = "secondary";
     page.textContent = t("contractOpenPage");
     page.onclick = () => {
-      window.open(siteContractUrl(p.site, null), "_blank", "noopener");
       ov.remove();
+      void openContractWindow();
     };
     row.appendChild(page);
   }

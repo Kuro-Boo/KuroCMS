@@ -97,3 +97,37 @@ export function buildReason(err: unknown): string {
   const s = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
   return s.slice(0, 500);
 }
+
+/**
+ * Threads の長期トークンの自動更新と、記事の投稿(cms-cms-sns・2026-11-06)。どちらも cron か waitUntil の中で起き、
+ * console にしか残らなかったので、自動更新が 60 日失敗し続けてトークンが失効するまで誰も気づけなかった。
+ *
+ *   threads_token_refreshed       自動更新が通った(記録 —— 不具合ではない)
+ *   threads_token_refresh_failed  自動更新が通らなかった(kind: network / meta / invalid_response。code 190 は失効)
+ *   threads_post_failed           記事の投稿が通らなかった(step・status・code)
+ *   threads_connected             「Threads と接続」で長期トークンを受け取った(記録)
+ *   threads_connect_failed        「Threads と接続」で Meta がトークンを出さなかった(step・status・code)
+ *
+ * detail は符号と番号だけ。トークン・本文・Meta の文は載せない。
+ */
+export async function reportThreads(
+  env: Env,
+  code:
+    | "threads_token_refreshed"
+    | "threads_token_refresh_failed"
+    | "threads_post_failed"
+    | "threads_connected"
+    | "threads_connect_failed",
+  detail: Record<string, string | number>,
+): Promise<void> {
+  try {
+    const { defects } = await entamyPort(env);
+    await defects.report(code, {
+      detail: { ...detail, source: "threads" },
+      record:
+        code === "threads_token_refreshed" || code === "threads_connected",
+    });
+  } catch {
+    /* 報告が通らないことは、報告したかった事実より軽い */
+  }
+}

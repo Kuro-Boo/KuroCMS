@@ -726,10 +726,10 @@ const i18n = {
     siteDeleteSettings: "Settings, templates, fonts and build history",
     siteDeleteAddress: "The address {host} (and any custom domain)",
     siteDeleteHow:
-      "Deletion is done on the Entamy subscription page. Sign in with the site owner's Entamy ID and type the site identifier to delete it.",
-    siteDeleteGo: "Sign in with Entamy ID to delete",
+      "Press the button below to delete this site. You may be asked to confirm with your passkey.",
+    siteDeleteGo: "Delete this site",
     siteDeleteContract:
-      "This site has a subscription, so it cannot be deleted. Cancel it on the subscription page first.",
+      "This site has a contract, so it cannot be deleted. Open the contract and cancel it first.",
     siteDeleteSelf:
       "This site runs on your own Cloudflare account. Delete it from Entamy's site management page.",
     siteDeleteOpenManage: "Open site management",
@@ -853,10 +853,8 @@ const i18n = {
     setupPasskeyNext:
       'Next, you will create the passkey for signing in to this site\'s admin. The window that opens next shows it as "{name}".',
     setupPasskeyTwo:
-      'It is separate from the "Entamy ID（KuroCMS契約）" passkey you created during installation. Use this passkey to write articles and change settings. Applying for or cancelling the contract and changing the owner\'s address are important steps, so they are confirmed with your Entamy ID passkey in a separate window.',
+      "Use this passkey to sign in to this site, and to confirm subscribing, cancelling, deleting the site or changing the owner address.",
     setupPasskeyGo: "Continue and create the passkey",
-    administrator: "Administrator",
-    adminEmail: "Admin Email",
     completeSetup: "Complete Setup",
     subtitle: "Cloudflare-first headless CMS",
     apiFailed: "API request failed",
@@ -1190,9 +1188,9 @@ const i18n = {
     accountDeleteSiteTitle: "This site must be deleted first",
     accountDeleteContractTitle: "Contract",
     accountDeleteContractBlock:
-      "There is a managed hosting contract that renews automatically (including one already applied for). Cancel it on the contract page before deleting the site.",
+      "There is a managed hosting contract that renews automatically (including one already applied for). Open the contract and cancel it before deleting the site.",
     accountDeleteContractUnknown:
-      "The contract status cannot be confirmed yet. Please check it on the contract page.",
+      "The contract status cannot be confirmed yet. Open the contract and check its status.",
     accountDeleteContractCancelled:
       "There is a cancelled managed hosting contract. The site can be deleted once the contract ends.",
     accountDeleteContractNone: "There is no ongoing managed hosting contract.",
@@ -1204,7 +1202,7 @@ const i18n = {
       "KuroCMS runs connected to the Entamy platform, so this site cannot keep running without its owner's Entamy ID. The site must therefore be deleted before the ID. While the site exists, the ID cannot be deleted.",
     accountDeleteStepsTitle: "Steps",
     accountDeleteStepContract:
-      "If a managed hosting contract is ongoing, cancel it on the contract page.",
+      "If a managed hosting contract is ongoing, open the contract and cancel it.",
     accountDeleteStepSiteManaged:
       'Use "Delete this site" to delete this site (articles, images, users and settings).',
     accountDeleteStepSiteSelf:
@@ -1225,14 +1223,54 @@ const i18n = {
     contractEnds: "Contract ends on",
     contractApply: "Subscribe to managed hosting",
     contractApplyLead:
-      "There is no managed hosting contract yet. To keep using this site after the free period, subscribe on Entamy's contract page.",
+      "There is no managed hosting contract yet. To keep using this site after the free period, subscribe here.",
     contractCancel: "Cancel the contract",
-    contractOpenPage: "Open the contract page",
+    contractOpenPage: "Open the contract",
     contractPageNote:
-      "Subscribing and cancelling happen on Entamy's contract page (a new tab), signed in with the site owner's Entamy ID. It can take up to an hour to show here.",
+      "You subscribe and cancel from this screen. Only the card entry moves to the payment service's screen.",
     contractTrialFinal: "Final free period ends",
     contractSubActive: "Active (renews automatically)",
     contractWindowClose: "Close",
+    ownerEmailChangeOpen: "Change",
+    ownerEmailChangeTitle: "Change the owner's email address",
+    ownerEmailChangeLead:
+      "Enter the new address. A confirmation email goes there. When it is opened, the address changes for both this CMS and the Entamy ID. Your contract continues as it is.",
+    ownerEmailChangeSend: "Send the confirmation email",
+    ownerEmailChangeSent:
+      "A confirmation email was sent to {email}. Nothing changes until it is opened.",
+    contractPreSale:
+      "This product is not on sale yet. You can go as far as entering a card, but no contract starts and nothing is charged.",
+    contractBackPreSale:
+      "Back from the payment screen. This product is not on sale yet, so no contract was started and nothing was charged.",
+    err_sale_not_open:
+      "This product is not on sale yet, so it cannot be purchased.",
+    contractBack:
+      "Back from the payment screen. The contract will appear here shortly.",
+    contractWindowTitle: "Managed hosting contract",
+    contractNoPrices:
+      "No prices are available right now. Please try again later.",
+    contractNext: "Next",
+    contractConfirmTitle: "Final confirmation",
+    contractTestCard:
+      "This is a test billing account. No real money moves. Use the test card.",
+    contractProceed: "Continue to enter your card",
+    contractAgree: "I have checked the above and agree.",
+    contractRedirecting: "Going to the payment screen…",
+    contractCancelTitle: "Cancel the contract",
+    contractCancelConfirm: "Cancel the contract",
+    contractCancelAgree: "I have checked the above and want to cancel.",
+    contractCancelling: "Cancelling…",
+    contractCancelDone: "The contract has been cancelled.",
+    contractRefundNote: "{amount} will be refunded.",
+    contractPrice: "Price",
+    contractResumeLead:
+      "This contract is already cancelled. To keep using managed hosting after it ends, subscribe again.",
+    contractApplyWindowLead:
+      "Choose how to pay. The first charge is shown on the next screen.",
+    contractOwnerOnly: "Only the site owner can subscribe or cancel.",
+    siteDeleteRunning: "Deleting…",
+    siteDeleteStarted:
+      "Deleting this site. It will stop working shortly, including this admin screen.",
     contractGrace: "Waiting before data deletion",
     contractLastDay: "Last day",
     contractDeleteAt: "Data deletion date",
@@ -1271,7 +1309,7 @@ const i18n = {
     contractBadgeNone: "No contract",
     contractBadgeScheduled: "Subscribed · paid from {date}",
     contractScheduledNote:
-      "You have subscribed to managed hosting. The first payment is made when the free period ends ({date}), and you can keep using the site without interruption. To cancel or check payments, use the Entamy contract page.",
+      "You have subscribed to managed hosting. The first payment is made when the free period ends ({date}), and you can keep using the site without interruption. To cancel, open the contract here.",
     contractApplied: "Subscribed on",
     contractFirstCharge: "First payment",
     contractBadgeInherited:
@@ -1294,7 +1332,7 @@ const i18n = {
     contractRegionUs: "United States and others (USD)",
     contractRegionEu: "Europe (EUR)",
     contractRegionDetected:
-      "Chosen to match the country of your connection ({country}). The exact amount you pay is confirmed on the contract page.",
+      "Chosen to match the country of your connection ({country}). The exact amount is shown on the confirmation screen when you subscribe.",
     contractPerMonth: "{amount} / month",
     contractPerYear: "{amount} / year",
     contractYearPerMonth: "{amount} per month",
@@ -1303,7 +1341,7 @@ const i18n = {
     contractPricesNotYet:
       "Prices for this region are still being prepared, so you cannot subscribe here yet.",
     contractPricesUnavailable:
-      "Prices could not be loaded. Please check them on the contract page.",
+      "Prices could not be loaded. Please try again later.",
     contractRuleRenew:
       "Your subscription renews automatically on the day you subscribed: every month for monthly, every year for yearly. In months without that day (29th–31st), it renews on the last day of the month.",
     contractRuleCancel:
@@ -1777,6 +1815,12 @@ const i18n = {
     err_r2_not_configured:
       "Media storage (R2) is not set up. See Settings → Contract → R2 media storage.",
     err_cf_creds_missing: "Cloudflare credentials are not configured.",
+    err_owner_locked:
+      "The first administrator uses the site owner's Entamy ID address and cannot be changed or removed.",
+    err_owner_unavailable:
+      "The owner's address could not be read. Please try again.",
+    profileEmailLocked:
+      "This is the site owner's Entamy ID address, so it cannot be changed here.",
     err_custom_domain_required: "Assign a custom domain first.",
     err_email_routing_destination_unverified:
       "The destination address is not verified. Verify it in Cloudflare Email Routing.",
@@ -1828,7 +1872,25 @@ const i18n = {
       "Enter a long-lived Threads API access token (create an app in Meta for Developers with the threads_basic and threads_content_publish permissions). The token is stored server-side and never shown again.",
     threadsTokenUpdatedAt: "Last token update",
     threadsTokenNextRefreshAt: "Next automatic update (estimate)",
-    threadsTokenUpdatePending: "Waiting for automatic confirmation",
+    threadsTokenNoRecord: "No record",
+    threadsConnectTitle: "Connect to Threads",
+    threadsConnectHelp:
+      "Get a long-lived token through Meta's consent screen instead of pasting one. Enter your Meta app's ID and app secret (App settings → Basic in the Threads use case), and register the redirect address below as a Redirect Callback URL in the app's Threads settings. When the token has expired, just press the button again.",
+    threadsAppId: "Threads app ID",
+    threadsAppSecret: "Threads app secret",
+    threadsRedirectUri: "Redirect address",
+    threadsConnectButton: "Connect to Threads",
+    threadsConnectDone:
+      "Connected to Threads. A new long-lived token has been saved.",
+    threadsConnectDenied: "Threads connection was not completed ({reason}).",
+    threadsConnectExpired:
+      "The connection attempt expired or could not be verified. Press “Connect to Threads” again.",
+    threadsTokenErrorNoRecord:
+      "There is no record of when this token was saved or last updated, so the automatic update has never succeeded and the token may already have expired. Issue a new long-lived token in Meta for Developers and save it here.",
+    threadsTokenErrorInvalid:
+      "Meta rejected this token (expired or revoked). Posting to Threads will fail until you issue a new long-lived token in Meta for Developers and save it here.",
+    threadsTokenErrorRefresh:
+      "The automatic update on {at} failed. It will be retried tomorrow; if it keeps failing, issue a new long-lived token and save it here.",
     threadsTokenRefreshHelp:
       "The token is refreshed automatically 30 days after the last successful update. The next date is an estimate calculated from the last successful update.",
     threadsPostNote:
@@ -2340,10 +2402,10 @@ const i18n = {
     siteDeleteSettings: "設定・テンプレート・フォント・ビルドの記録",
     siteDeleteAddress: "アドレス {host}（独自ドメインを結んでいればそれも）",
     siteDeleteHow:
-      "削除は Entamy の契約の頁で行います。サイトの持ち主の Entamy ID でログインし、サイトの識別名を入れると消せます。",
-    siteDeleteGo: "Entamy ID でログインして削除する",
+      "下のボタンで、このサイトを削除します。パスキーでの確かめを求められることがあります。",
+    siteDeleteGo: "このサイトを削除する",
     siteDeleteContract:
-      "契約があるため削除できません。先に契約の頁で解約してください。",
+      "契約があるため削除できません。先に契約を開いて解約してください。",
     siteDeleteSelf:
       "このサイトはご自身の Cloudflare アカウントで動いています。Entamy の「サイト管理」から削除してください。",
     siteDeleteOpenManage: "サイト管理を開く",
@@ -2389,10 +2451,8 @@ const i18n = {
     setupPasskeyNext:
       "次に、このサイトの管理画面に入るためのパスキーを作ります。このあと出る窓には「{name}」と表示されます。",
     setupPasskeyTwo:
-      "導入のときに作った「Entamy ID（KuroCMS契約）」のパスキーとは別のものです。記事を書く・設定を変えるときは、こちらのパスキーを使います。契約の申し込み・解約・持ち主のアドレスの変更は大事な手続きなので、別の窓で Entamy ID のパスキーで確かめます。",
+      "このサイトへのログインと、契約の申し込み・解約・サイトの削除・持ち主のアドレスの変更の確認に、このパスキーを使います。",
     setupPasskeyGo: "確認して、パスキーを作る",
-    administrator: "管理者",
-    adminEmail: "管理者メール",
     completeSetup: "初期設定を完了",
     subtitle: "Cloudflare優先のヘッドレスCMS",
     apiFailed: "APIリクエストに失敗しました",
@@ -2805,9 +2865,9 @@ const i18n = {
     accountDeleteSiteTitle: "先にこのサイトの削除が必要です",
     accountDeleteContractTitle: "契約",
     accountDeleteContractBlock:
-      "自動更新の続く委託契約（申し込み済みを含む）があります。サイトを削除する前に、契約の頁で解約してください。",
+      "自動更新の続く委託契約（申し込み済みを含む）があります。サイトを削除する前に、契約を開いて解約してください。",
     accountDeleteContractUnknown:
-      "契約の状態をまだ確かめられません。契約の頁で状態を確かめてください。",
+      "契約の状態をまだ確かめられません。契約を開いて状態を確かめてください。",
     accountDeleteContractCancelled:
       "解約済みの委託契約があります。契約が終わると、サイトを削除できます。",
     accountDeleteContractNone: "続いている委託契約はありません。",
@@ -2818,7 +2878,8 @@ const i18n = {
     accountDeleteSiteRequired:
       "KuroCMS は Entamy 基盤とつながって動いているため、持ち主の Entamy ID が無いと、このサイトは動き続けられません。そのため、ID を削除する前に、このサイトを削除する必要があります。サイトが残っている間は、ID を削除できません。",
     accountDeleteStepsTitle: "削除の手順",
-    accountDeleteStepContract: "委託契約が続いていれば、契約の頁で解約します。",
+    accountDeleteStepContract:
+      "委託契約が続いていれば、契約を開いて解約します。",
     accountDeleteStepSiteManaged:
       "「このサイトを削除する」から、このサイト（記事・画像・利用者・設定）を削除します。",
     accountDeleteStepSiteSelf:
@@ -2839,14 +2900,51 @@ const i18n = {
     contractEnds: "契約の終わる日",
     contractApply: "委託契約を申し込む",
     contractApplyLead:
-      "委託の契約はまだありません。無料期間の後も使い続けるには、Entamy の契約の頁で申し込んでください。",
+      "委託の契約はまだありません。無料期間の後も使い続けるには、ここから申し込んでください。",
     contractCancel: "解約する",
-    contractOpenPage: "契約の頁を開く",
+    contractOpenPage: "契約を開く",
     contractPageNote:
-      "申し込み・解約は Entamy の契約の頁（新しいタブ）で、サイトの持ち主の Entamy ID でログインして行います。ここに出るまで最長 1 時間かかります。",
+      "申し込み・解約は、この画面から行います。カードの入力だけ、決済サービスの画面へ移ります。",
     contractTrialFinal: "最後の無料期間の終わり",
     contractSubActive: "契約中（自動で更新）",
     contractWindowClose: "閉じる",
+    ownerEmailChangeOpen: "変更する",
+    ownerEmailChangeTitle: "持ち主のメールアドレスの変更",
+    ownerEmailChangeLead:
+      "新しいアドレスを入れてください。確認のメールを送ります。開くと、この CMS と Entamy ID の両方のアドレスが変わります。契約はそのまま続きます。",
+    ownerEmailChangeSend: "確認のメールを送る",
+    ownerEmailChangeSent:
+      "{email} へ確認のメールを送りました。開くまで何も変わりません。",
+    contractPreSale:
+      "この製品は発売前です。カードの入力までは進めますが、契約は始まらず、請求もされません。",
+    contractBackPreSale:
+      "決済の画面から戻りました。発売前のため、契約は始まっておらず、請求もされていません。",
+    err_sale_not_open: "この製品は発売前のため、まだ申し込めません。",
+    contractBack: "決済の画面から戻りました。契約はまもなくここに出ます。",
+    contractWindowTitle: "委託の契約",
+    contractNoPrices: "いまは料金を出せません。時間をおいてお試しください。",
+    contractNext: "次へ",
+    contractConfirmTitle: "最終確認",
+    contractTestCard:
+      "テスト課金の口座です。本当のお金は動きません。試験のカードをお使いください。",
+    contractProceed: "カードの入力へ進む",
+    contractAgree: "内容を確かめ、同意します。",
+    contractRedirecting: "決済の画面へ移ります…",
+    contractCancelTitle: "解約",
+    contractCancelConfirm: "解約する",
+    contractCancelAgree: "内容を確かめ、解約します。",
+    contractCancelling: "解約しています…",
+    contractCancelDone: "解約しました。",
+    contractRefundNote: "{amount} を返金します。",
+    contractPrice: "料金",
+    contractResumeLead:
+      "この契約は解約済みです。終わった後も委託を使うには、もう一度申し込みます。",
+    contractApplyWindowLead:
+      "払い方を選んでください。最初のお支払いの日は次の画面に出ます。",
+    contractOwnerOnly: "申し込みと解約は、サイトの持ち主だけが行えます。",
+    siteDeleteRunning: "削除しています…",
+    siteDeleteStarted:
+      "このサイトの削除を始めました。この管理画面を含めて、まもなく使えなくなります。",
     contractGrace: "データ削除の待機期間",
     contractLastDay: "最終日",
     contractDeleteAt: "データを消す日",
@@ -2885,7 +2983,7 @@ const i18n = {
     contractBadgeNone: "契約なし",
     contractBadgeScheduled: "申し込み済み・{date} から有料",
     contractScheduledNote:
-      "委託契約を申し込み済みです。無料期間が終わる {date} に最初のお支払いをし、そのまま使い続けられます。解約や支払いの確認は、Entamy の契約の頁で行います。",
+      "委託契約を申し込み済みです。無料期間が終わる {date} に最初のお支払いをし、そのまま使い続けられます。解約は、ここから契約を開いて行います。",
     contractApplied: "申し込んだ日",
     contractFirstCharge: "最初のお支払い",
     contractBadgeInherited: "前の契約から引き継いだ期間・{date} まで",
@@ -2907,7 +3005,7 @@ const i18n = {
     contractRegionUs: "米国ほか（米ドル）",
     contractRegionEu: "欧州（ユーロ）",
     contractRegionDetected:
-      "お使いの回線の国（{country}）に合わせて選んでいます。実際のお支払い額は、契約の頁で確定します。",
+      "お使いの回線の国（{country}）に合わせて選んでいます。実際のお支払い額は、申し込みの確認の画面でお見せします。",
     contractPerMonth: "{amount} / 月",
     contractPerYear: "{amount} / 年",
     contractYearPerMonth: "月あたり {amount}",
@@ -2916,7 +3014,7 @@ const i18n = {
     contractPricesNotYet:
       "この地域の料金は準備中のため、まだお申し込みいただけません。",
     contractPricesUnavailable:
-      "料金を読み込めませんでした。契約の頁でご確認ください。",
+      "料金を読み込めませんでした。時間をおいてもう一度お試しください。",
     contractRuleRenew:
       "契約した日を更新日として、月払いは毎月、年払いは毎年、自動で更新します。その日が無い月（29〜31 日）は、月末に更新します。",
     contractRuleCancel:
@@ -3392,6 +3490,12 @@ const i18n = {
     err_r2_not_configured:
       "画像の保存先（R2）が未設定です。「設定 → 契約」の「R2 メディアストレージ」の手順でつないでください。",
     err_cf_creds_missing: "Cloudflare の資格情報が未設定です。",
+    err_owner_locked:
+      "最初の管理者のアドレスはサイトの持ち主の Entamy ID のアドレスなので、変更・削除できません。",
+    err_owner_unavailable:
+      "持ち主のアドレスを確かめられませんでした。もう一度お試しください。",
+    profileEmailLocked:
+      "サイトの持ち主の Entamy ID のアドレスなので、ここでは変更できません。",
     err_custom_domain_required: "先にカスタムドメインを割り当ててください。",
     err_email_routing_destination_unverified:
       "宛先アドレスが未認証です。Cloudflare の Email Routing で認証してください。",
@@ -3444,7 +3548,25 @@ const i18n = {
       "Threads API の長期アクセストークンを入力します（Meta for Developers でアプリを作成し、threads_basic と threads_content_publish 権限が必要）。値はサーバー側に保存され、再表示されません。",
     threadsTokenUpdatedAt: "トークン更新完了日",
     threadsTokenNextRefreshAt: "次回自動更新予定（目安）",
-    threadsTokenUpdatePending: "自動更新の確認待ち",
+    threadsTokenNoRecord: "記録なし",
+    threadsConnectTitle: "Threads と接続",
+    threadsConnectHelp:
+      "トークンを貼る代わりに、Meta の許可画面から長期トークンを受け取ります。Meta のアプリの「Threads アプリ ID」と「Threads App Secret」（Threads のユースケースの設定）を入れ、下の戻り先のアドレスを、アプリの Threads の設定の「コールバック URL をリダイレクト」に登録してください。トークンが切れたら、このボタンを押し直すだけで取り直せます。",
+    threadsAppId: "Threads アプリ ID",
+    threadsAppSecret: "Threads App Secret",
+    threadsRedirectUri: "戻り先のアドレス",
+    threadsConnectButton: "Threads と接続",
+    threadsConnectDone:
+      "Threads と接続しました。新しい長期トークンを保存しました。",
+    threadsConnectDenied: "Threads との接続は完了しませんでした（{reason}）。",
+    threadsConnectExpired:
+      "接続の手続きの期限が切れたか、確かめられませんでした。「Threads と接続」を押し直してください。",
+    threadsTokenErrorNoRecord:
+      "このトークンを登録した日時・更新した日時の記録がありません。自動更新が一度も成功しておらず、失効している可能性があります。Meta for Developers で長期トークンを発行し直し、ここで保存してください。",
+    threadsTokenErrorInvalid:
+      "Meta がこのトークンを受け付けません（失効・取り消し）。Meta for Developers で長期トークンを発行し直し、ここで保存するまで Threads へは投稿できません。",
+    threadsTokenErrorRefresh:
+      "{at} の自動更新に失敗しました。翌日また試します。失敗が続く場合は、長期トークンを発行し直してここで保存してください。",
     threadsTokenRefreshHelp:
       "最終更新の成功から30日後に自動更新します。次回予定日は、更新完了日から算出した目安です。",
     threadsPostNote:
@@ -5517,7 +5639,7 @@ const helpContent: Record<string, Dynamic> = {
     title: "契約と引っ越し",
     role: "このサイトがどこで動いているか（委託運用か顧客運用か）と、持ち主を確かめるタブです。もう一方の形への引っ越しもここで行います。",
     canDo:
-      "いまの運用の形と委託の契約の状態・払い方（月払い・年払い）・契約日・次の更新日を見る / 無料期間の残りを棒で見る / 国（日本・米国・欧州）を選んで料金を見る（初めは回線の国） / 委託契約の申し込み・解約は、Entamy の契約の頁（新しいタブ・サイトの持ち主の Entamy ID でログイン）で行う / 持ち主（Entamy ID）のメールアドレスを登録・変更・取り消す / いまの運用の形を確かめる / 委託運用から、ご自身の Cloudflare アカウントへ引っ越す（顧客運用・無料） / 顧客運用から、Entamy の委託運用へ引っ越す（有料・最初に無料期間がある） / 引っ越しの工程と進み具合をダイアログで見る / 止まった引っ越しを「途中から再開」で続ける",
+      "いまの運用の形と委託の契約の状態・払い方（月払い・年払い）・契約日・次の更新日を見る / 無料期間の残りを棒で見る / 国（日本・米国・欧州）を選んで料金を見る（初めは回線の国） / 委託契約の申し込み・解約は、この画面から行う（カードの入力だけ決済サービスの画面） / 持ち主（Entamy ID）のメールアドレスを登録・変更・取り消す / いまの運用の形を確かめる / 委託運用から、ご自身の Cloudflare アカウントへ引っ越す（顧客運用・無料） / 顧客運用から、Entamy の委託運用へ引っ越す（有料・最初に無料期間がある） / 引っ越しの工程と進み具合をダイアログで見る / 止まった引っ越しを「途中から再開」で続ける",
     notes:
       "導入口で入れたサイトは、そのときログインした Entamy ID が持ち主です。それより前に入れたサイトは、先に持ち主のメールアドレスを登録します。確認のメールが 1 通届きます。引っ越すには、KuroCMS を新しい版へ更新しておく必要があります。足りないときは画面が知らせます。写している間もサイトはそのまま使えます。止まるのは最後の突き合わせの数分だけです。ダイアログを閉じても引っ越しは止まりません。終わると、古いアドレスは新しいアドレスへの案内に替わり、管理者全員に、新しいアドレスでパスキーを登録するリンクがメールで届きます。持っていかないものは、パスキー・ログインの状態・登録した回線・PAT・SNS の連携の鍵・操作の記録です。更新の方式と IP 制限は、引っ越し先では既定に戻ります。委託運用の無料期間は、登録メールアカウントごとに 1 回です。委託運用へ移った後も、ご自身の Cloudflare に入れた KuroCMS は消しません。要らなければご自身で消してください。",
   },
@@ -6366,16 +6488,10 @@ async function renderContactPanel(el: HTMLElement | null) {
         "</span>"
       : "") +
     "</span>" +
-    (info.state === "linked" || info.state === "none"
+    // 持ち主がいるサイトでは付け替えない(課題 58399959)。アドレスの変更はプロフィールから。
+    (info.state === "none"
       ? "<button type='button' class='secondary' id='contactEditBtn'>" +
-        escapeHtml(
-          info.state === "linked" ? t("contactChange") : t("contactRegister"),
-        ) +
-        "</button>"
-      : "") +
-    (info.state === "linked"
-      ? "<button type='button' class='danger' id='contactRemoveBtn'>" +
-        escapeHtml(t("contactRemove")) +
+        escapeHtml(t("contactRegister")) +
         "</button>"
       : "") +
     "</div>" +

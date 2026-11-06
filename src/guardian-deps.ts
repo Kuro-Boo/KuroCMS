@@ -6,7 +6,7 @@ import {
   updateChannelVersion,
 } from "./release-source";
 import { reportGuardian } from "./release-report";
-import { releaseToken } from "./release-token";
+import { ownerIsDeveloper, releaseToken } from "./release-token";
 import type { Env } from "./types";
 import { KUROCMS_VERSION } from "./version";
 
@@ -18,6 +18,7 @@ export function guardianDeps(env: Env): GuardianDeps {
     now: () => Date.now(),
     report: (code, detail) => reportGuardian(env, code, detail),
     appVersion: KUROCMS_VERSION,
+    developer: () => ownerIsDeveloper(env),
     channelVersion: (channel) =>
       updateChannelVersion(channel, GUARDIAN_PRODUCT, token),
     fetchCode: async (version) => {

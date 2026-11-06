@@ -25,6 +25,35 @@ const eq = (name: string, got: unknown, want: unknown) => {
   }
 };
 
+// Entamy ID の代役。最初の管理者のアドレスは、ここが答える持ち主のアドレス。
+let ownerAddress: string | null = "a@example.com";
+const networkFetch = globalThis.fetch;
+globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+  const url = new URL(String(input instanceof Request ? input.url : input));
+  const reply = (body: unknown) =>
+    new Response(JSON.stringify(body), {
+      headers: { "content-type": "application/json" },
+    });
+  if (url.pathname === "/v1/owner/change-email") return reply({ ok: true });
+  if (url.pathname === "/v1/owner")
+    return reply({
+      owner: ownerAddress ? { email: ownerAddress, linked_at: "x" } : null,
+    });
+  if (
+    url.pathname === "/v1/token/refresh" ||
+    url.pathname === "/v1/accounts/anonymous"
+  ) {
+    const b64 = (o: unknown) => btoa(JSON.stringify(o)).replace(/=+$/, "");
+    return reply({
+      account_id: "acc_site",
+      refresh_token: "r",
+      expires_in: 600,
+      access_token: `${b64({ alg: "EdDSA" })}.${b64({ exp: Math.floor(Date.now() / 1000) + 600 })}.s`,
+    });
+  }
+  return networkFetch(input, init);
+}) as typeof fetch;
+
 const out = join(mkdtempSync(join(tmpdir(), "kurocms-setup-gate-")), "api.mjs");
 await build({
   entryPoints: [new URL("./api.ts", import.meta.url).pathname],
@@ -144,18 +173,27 @@ console.log("setup-gate");
   );
   const ok = await call(w, "POST", "/api/setup", {
     setupToken: SETUP,
-    adminEmail: "a@example.com",
+    adminEmail: "other@example.com",
   });
   eq("鍵があれば作れる", ok.status, 200);
+  eq(
+    "送られたアドレスは使わず、持ち主のアドレスにする",
+    w.raw.prepare("SELECT email FROM users").get(),
+    { email: "a@example.com" },
+  );
   const uid = ok.json.uid as string;
   eq(
     "やり直しても管理者は 1 人(アドレスを直す)",
     [
       (
-        await call(w, "POST", "/api/setup", {
-          setupToken: SETUP,
-          adminEmail: "b@example.com",
-        })
+        await (async () => {
+          ownerAddress = "b@example.com";
+          const again = await call(w, "POST", "/api/setup", {
+            setupToken: SETUP,
+          });
+          ownerAddress = "a@example.com";
+          return again;
+        })()
       ).status,
       w.raw.prepare("SELECT COUNT(*) AS n, MAX(email) AS e FROM users").get(),
     ],
@@ -797,6 +835,268 @@ console.log("setup-gate");
     (await write()).code === "contract_required",
     false,
   );
+}
+
+{
+  // 最初の管理者のアドレスは持ち主の Entamy ID のアドレスで、変えられない(課題 58399959)。
+  const w = world();
+  const now = new Date().toISOString();
+  const addUser = (uid: string, email: string) =>
+    w.raw
+      .prepare(
+        "INSERT INTO users (uid, email, author_id, is_admin, is_author, created_at, updated_at) VALUES (?, ?, ?, 1, 1, ?, ?)",
+      )
+      .run(uid, email, uid, now, now);
+  const signIn = async (raw: string, uid: string) => {
+    w.raw
+      .prepare(
+        "INSERT INTO sessions (session_id, uid, expires_at, created_at, last_active_at) VALUES (?, ?, ?, ?, ?)",
+      )
+      .run(
+        await sessionKey(raw),
+        uid,
+        new Date(Date.now() + 3_600_000).toISOString(),
+        now,
+        now,
+      );
+    return { cookie: `kurocms_session=${raw}`, origin: "https://site.example" };
+  };
+  addUser("usr_001", "a@example.com");
+  addUser("usr_002", "c@example.com");
+  const owner = await signIn("sess_owner", "usr_001");
+  const other = await signIn("sess_other", "usr_002");
+  const code = async (
+    m: string,
+    path: string,
+    body: unknown,
+    who: Record<string, string>,
+  ) => (await call(w, m, path, body, who)).code;
+  eq(
+    "持ち主がいるサイトでは、連絡先の登録で付け替えられない",
+    await code(
+      "POST",
+      "/api/system/contact",
+      { email: "x@example.com", consent: true },
+      other,
+    ),
+    "owner_locked",
+  );
+  eq(
+    "持ち主がいるサイトでは、連絡先を外せない",
+    await code("POST", "/api/system/contact/remove", {}, other),
+    "owner_locked",
+  );
+  eq(
+    "持ち主は自分のアドレスを変えられない",
+    await code("PUT", "/api/me", { email: "new@example.com" }, owner),
+    "owner_locked",
+  );
+  eq(
+    "他の管理者も持ち主のアドレスを変えられない",
+    await code(
+      "PUT",
+      "/api/users/usr_001",
+      { email: "new@example.com" },
+      other,
+    ),
+    "owner_locked",
+  );
+  eq(
+    "持ち主を管理者から外せない",
+    await code("PUT", "/api/users/usr_001", { isAdmin: false }, other),
+    "owner_locked",
+  );
+  eq(
+    "持ち主を無効にできない",
+    await code("PUT", "/api/users/usr_001", { disabled: true }, other),
+    "owner_locked",
+  );
+  eq(
+    "持ち主を削除できない",
+    await code("DELETE", "/api/users/usr_001", undefined, other),
+    "owner_locked",
+  );
+  w.raw.prepare("DELETE FROM users WHERE uid = 'usr_001'").run();
+  eq(
+    "ほかの人が持ち主のアドレスになれない",
+    await code("PUT", "/api/me", { email: "a@example.com" }, other),
+    "owner_locked",
+  );
+  eq(
+    "ほかの管理者は今までどおり変えられる",
+    (await call(w, "PUT", "/api/me", { email: "d@example.com" }, other)).status,
+    200,
+  );
+  addUser("usr_003", "e@example.com");
+  eq(
+    "ほかの管理者は削除できる",
+    (await call(w, "DELETE", "/api/users/usr_003", undefined, other)).status,
+    200,
+  );
+}
+
+{
+  // CMS の中の契約(課題 474d7514)。持ち主の管理者だけ・お金の操作はパスキーで確かめ直した直後だけ。
+  const w = world();
+  (w.env as Record<string, unknown>).CF_WORKER_NAME =
+    "kurocms-app-057b6e1e6ade";
+  (w.env as Record<string, unknown>).MEDIA_QUOTA_BYTES = "1000000";
+  const now = new Date().toISOString();
+  const old = new Date(Date.now() - 3_600_000).toISOString();
+  const seen: Array<Record<string, unknown>> = [];
+  const earlier = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const u = String(input instanceof Request ? input.url : input);
+    if (u.includes("/site-contract")) {
+      const body =
+        input instanceof Request
+          ? await input.clone().json()
+          : JSON.parse(String(init?.body));
+      seen.push(body as Record<string, unknown>);
+      return new Response(
+        JSON.stringify({
+          subscriptions: [],
+          redirect_url: "https://pay.example/",
+        }),
+        {
+          headers: { "content-type": "application/json" },
+        },
+      );
+    }
+    return earlier(input, init);
+  }) as typeof fetch;
+  const signIn = async (
+    raw: string,
+    uid: string,
+    email: string,
+    at: string,
+  ) => {
+    w.raw
+      .prepare(
+        "INSERT INTO users (uid, email, author_id, is_admin, is_author, created_at, updated_at) VALUES (?, ?, ?, 1, 1, ?, ?)",
+      )
+      .run(uid, email, uid, now, now);
+    w.raw
+      .prepare(
+        "INSERT INTO sessions (session_id, uid, expires_at, created_at, last_active_at) VALUES (?, ?, ?, ?, ?)",
+      )
+      .run(
+        await sessionKey(raw),
+        uid,
+        new Date(Date.now() + 3_600_000).toISOString(),
+        at,
+        at,
+      );
+    return { cookie: `kurocms_session=${raw}`, origin: "https://site.example" };
+  };
+  try {
+    const stale = await signIn("sess_o1", "usr_001", "a@example.com", old);
+    const other = await signIn("sess_o2", "usr_002", "c@example.com", now);
+    const start = {
+      price_id: "p",
+      lang: "ja",
+      idempotency_key: "cms-12345678",
+      account_id: "acc_evil",
+    };
+    eq(
+      "ほかの管理者は持ち主の操作ができない",
+      (await call(w, "POST", "/api/system/contract/start", start, other)).code,
+      "owner_only",
+    );
+    eq(
+      "読むだけなら確かめ直しは要らない",
+      (
+        await call(
+          w,
+          "GET",
+          "/api/system/contract/subscriptions",
+          undefined,
+          stale,
+        )
+      ).status,
+      200,
+    );
+    eq(
+      "お金の操作は確かめ直しが要る",
+      (await call(w, "POST", "/api/system/contract/start", start, stale)).code,
+      "reauth_required",
+    );
+    eq(
+      "削除も確かめ直しが要る",
+      (await call(w, "POST", "/api/system/contract/delete", {}, stale)).code,
+      "reauth_required",
+    );
+    w.raw
+      .prepare("UPDATE sessions SET created_at = ? WHERE uid = 'usr_001'")
+      .run(now);
+    eq(
+      "確かめ直した直後は通る",
+      (await call(w, "POST", "/api/system/contract/start", start, stale))
+        .status,
+      200,
+    );
+    const last = seen[seen.length - 1]!;
+    eq(
+      "証と Worker の名前を添えて導入口へ頼む",
+      [last.action, last.worker, String(last.proof).startsWith("kproof_")],
+      ["start", "kurocms-app-057b6e1e6ade", true],
+    );
+    // 持ち主のアドレスの変更(cms-pricing 4 節)。確認されるまで行は変わらず、確認されたら揃う。
+    eq(
+      "ほかの管理者は持ち主のアドレスを変えられない",
+      (
+        await call(
+          w,
+          "POST",
+          "/api/system/owner-email",
+          { email: "n@example.com" },
+          other,
+        )
+      ).code,
+      "owner_only",
+    );
+    eq(
+      "ほかの人が使っているアドレスには変えられない",
+      (
+        await call(
+          w,
+          "POST",
+          "/api/system/owner-email",
+          { email: "c@example.com" },
+          stale,
+        )
+      ).code,
+      "email_taken",
+    );
+    eq(
+      "変更を頼むと確認のメールへ",
+      (
+        await call(
+          w,
+          "POST",
+          "/api/system/owner-email",
+          { email: "n@example.com", lang: "ja" },
+          stale,
+        )
+      ).status,
+      200,
+    );
+    eq(
+      "確認されるまで CMS の行は変わらない",
+      w.raw.prepare("SELECT email FROM users WHERE uid = 'usr_001'").get(),
+      { email: "a@example.com" },
+    );
+    ownerAddress = "n@example.com";
+    await call(w, "GET", "/api/me/email-locked", undefined, stale);
+    eq(
+      "確認されたら CMS の行も同じアドレスになる",
+      w.raw.prepare("SELECT email FROM users WHERE uid = 'usr_001'").get(),
+      { email: "n@example.com" },
+    );
+    ownerAddress = "a@example.com";
+  } finally {
+    globalThis.fetch = earlier;
+  }
 }
 
 if (failed) {

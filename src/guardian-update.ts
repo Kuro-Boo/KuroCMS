@@ -22,6 +22,7 @@
  */
 import type { Env } from "./types";
 import { reasonOf, updateChannelOf } from "./release-source.ts";
+import { effectiveChannel } from "./update-channel.ts";
 
 export const GUARDIAN_PRODUCT = "workerops";
 const CHANNEL_KEY = "system:guardian_channel";
@@ -79,6 +80,8 @@ export interface GuardianDeps {
   ) => Promise<void>;
   /** 稼働中の KuroCMS の版(KUROCMS_VERSION)。 */
   appVersion: string;
+  /** 持ち主が開発アカウントか。分からない時は false(core-feature-flags 2節)。 */
+  developer: () => Promise<boolean>;
   /** 配布基盤の番人のチャンネルが指す版(X.Y.Z)。 */
   channelVersion: (channel: "stable" | "dev") => Promise<string>;
   /** 版の本体。manifest の署名と、成果物の sha256・大きさを確かめてから返す(release-source.ts)。 */
@@ -114,10 +117,17 @@ export function canUpdate(
   return !current || compareVersions(target, current) > 0;
 }
 
-export async function getGuardianChannel(env: Env): Promise<GuardianChannel> {
-  return (await env.PUBLIC_PAGES.get(CHANNEL_KEY)) === "latest"
-    ? "latest"
-    : "stable";
+/**
+ * 実際に使う道。開発版は開発アカウントのサイトだけで、一般のサイトは保存した値が開発版でも安定版を入れる
+ * (core-feature-flags 2節)。そのまま開発版を読むと配布基盤の門で 404 になり、番人が安定版へも上がれない。
+ */
+export async function getGuardianChannel(
+  env: Env,
+  deps: Pick<GuardianDeps, "developer">,
+): Promise<GuardianChannel> {
+  const stored = await env.PUBLIC_PAGES.get(CHANNEL_KEY);
+  if (stored !== "latest") return "stable";
+  return effectiveChannel(stored, await deps.developer());
 }
 
 export async function setGuardianChannel(
@@ -185,7 +195,7 @@ export async function guardianInfo(
   env: Env,
   deps: GuardianDeps,
 ): Promise<Record<string, unknown>> {
-  const channel = await getGuardianChannel(env);
+  const channel = await getGuardianChannel(env, deps);
   const autoUpdate = await getGuardianAuto(env);
   const last = await lastResult(env);
   const missing = missingSetup(env);
@@ -199,7 +209,11 @@ export async function guardianInfo(
   try {
     [stable, latest] = await Promise.all([
       deps.channelVersion("stable"),
-      deps.channelVersion("dev"),
+      // 開発版の版は開発アカウントのサイトにだけ答える。一般のサイトは「無い」で、失敗ではない。
+      deps.channelVersion("dev").catch((err: unknown) => {
+        if (reasonOf(err) === "not_found") return null;
+        throw err;
+      }),
     ]);
   } catch (err) {
     checkOk = false;
@@ -419,7 +433,7 @@ export async function guardianUpdate(
   const from = status?.version ?? null;
   let to: string | null = null;
   try {
-    const channel = await getGuardianChannel(env);
+    const channel = await getGuardianChannel(env, deps);
     to = await deps.channelVersion(updateChannelOf(channel));
     if (!canUpdate(from, to))
       return done({ outcome: "up_to_date", from, to, error: null });

@@ -99,6 +99,80 @@ export async function ownerEmail(env: Env): Promise<string | null> {
   return s.state === "linked" && s.email ? s.email.toLowerCase() : null;
 }
 
+/** 持ち主のアドレスの変更の確認を待っている間の控え(誰の行を変えるか)。KV に置く。 */
+const K_EMAIL_CHANGE = "system:owner_email_change";
+
+const CHANGE_WORDING = {
+  ja: {
+    subject: "KuroCMS 持ち主のメールアドレスの変更の確認",
+    text: (site: string) =>
+      `KuroCMS（${site}）の持ち主のメールアドレスを、このアドレスへ変える申し込みがありました。\n\n` +
+      "次のリンクを開き、「確認する」を押すと変わります（有効期限は30分・一度だけ使用できます）。このアドレスの人がサイトの持ち主になり、契約もそのまま続きます。\n\n" +
+      "{{link}}\n\n" +
+      "心当たりが無い場合は、このメールを破棄してください。何も変わりません。",
+  },
+  en: {
+    subject: "Confirm the new KuroCMS owner email address",
+    text: (site: string) =>
+      `A request was made to change the owner email address of KuroCMS (${site}) to this address.\n\n` +
+      "Open the link below and press Confirm to change it (valid for 30 minutes, one use only). The person with this address becomes the owner of the site, and the contract continues as it is.\n\n" +
+      "{{link}}\n\n" +
+      "If you did not request this, please ignore this email. Nothing will change.",
+  },
+};
+
+/**
+ * 持ち主のアドレスの変更を始める(cms-pricing 4 節・課題 a22374d4)。確認のメールを開くまで何も変わらない。
+ * 開いたら Entamy ID が変わり、CMS の持ち主の行は [applyOwnerEmailChange] が揃える。
+ */
+export async function startOwnerEmailChange(
+  env: Env,
+  input: { uid: string; email: string; lang: string; site: string },
+): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+  const lang = input.lang === "ja" ? "ja" : "en";
+  const w = CHANGE_WORDING[lang];
+  const port = await entamyPort(env);
+  const res = await port.session.changeOwnerEmail(
+    input.email,
+    `${OWNER_PAGE}?lang=${lang}`,
+    { subject: w.subject, text: w.text(input.site) },
+  );
+  if (!res.ok) {
+    const f = res.failure;
+    if (f.kind === "rate_limited")
+      return { ok: false, status: 429, error: "rate_limited" };
+    if (f.kind === "conflict")
+      return { ok: false, status: 409, error: f.message ?? "email_in_use" };
+    if (f.kind === "invalid")
+      return { ok: false, status: 400, error: "invalid_email" };
+    return { ok: false, status: 503, error: "unavailable" };
+  }
+  await env.PUBLIC_PAGES.put(
+    K_EMAIL_CHANGE,
+    JSON.stringify({ uid: input.uid, email: input.email }),
+    { expirationTtl: 3600 * 24 },
+  );
+  return { ok: true };
+}
+
+/** 確認されて Entamy ID のアドレスが変わっていたら、CMS の持ち主の行も同じアドレスにする。 */
+export async function applyOwnerEmailChange(
+  env: Env,
+  ownerAddress: string,
+): Promise<void> {
+  const raw = await env.PUBLIC_PAGES.get(K_EMAIL_CHANGE).catch(() => null);
+  if (!raw) return;
+  const p = JSON.parse(raw) as { uid: string; email: string };
+  if (p.email.toLowerCase() !== ownerAddress.toLowerCase()) return;
+  const at = new Date().toISOString();
+  await env.DB.prepare(
+    "UPDATE users SET email = ?, email_verified_at = ?, updated_at = ? WHERE uid = ?",
+  )
+    .bind(ownerAddress.toLowerCase(), at, at, p.uid)
+    .run();
+  await env.PUBLIC_PAGES.delete(K_EMAIL_CHANGE);
+}
+
 const WORDING = {
   ja: {
     subject: "KuroCMS 連絡先メールアドレスの確認",

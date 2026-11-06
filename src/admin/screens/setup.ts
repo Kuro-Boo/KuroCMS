@@ -335,11 +335,6 @@ async function recoverScreen(token: Dynamic) {
   }
 }
 
-function captureSetupState() {
-  const email = byId("setupAdminEmail");
-  return { email: email?.value || "" };
-}
-
 /**
  * 初期設定の鍵(導入の完了画面のリンクの #setup=…・課題 4dea81be)。# の後ろはサーバーに届かず、ログに残らない。
  * 読んだらアドレス欄から消し、このタブの間だけ持つ(言語の切り替えなどで描き直しても続けられる)。
@@ -364,7 +359,7 @@ function takeSetupLinkToken(): string {
   }
 }
 
-async function setupScreen(status: Dynamic, preserve: { email?: string } = {}) {
+async function setupScreen(status: Dynamic) {
   setSidebarMode("setup");
   const setupLinkToken = takeSetupLinkToken();
   app.innerHTML =
@@ -376,12 +371,7 @@ async function setupScreen(status: Dynamic, preserve: { email?: string } = {}) {
     escapeHtml(t("selectLanguage")) +
     "</span></div>" +
     localeSelectHtml() +
-    // 管理者の欄は、持ち主のアドレスが取れなかった時だけ出す(下の /api/setup/owner)。
-    "<div id='setupAdminBlock' hidden><div><span class='sectionLabel'>" +
-    escapeHtml(t("administrator")) +
-    "</span></div><label>" +
-    escapeHtml(t("adminEmail")) +
-    "<input id='setupAdminEmail' type='email' autocomplete='username' placeholder='admin@example.com' /></label></div><div style='margin-top:12px'><span class='sectionLabel'>" +
+    "<div style='margin-top:12px'><span class='sectionLabel'>" +
     escapeHtml(t("adminUrlLabel")) +
     "</span><div class='muted' style='margin:6px 0 4px;font-size:13px'>" +
     escapeHtml(t("adminUrlDerivedFromBootstrap")) +
@@ -389,7 +379,6 @@ async function setupScreen(status: Dynamic, preserve: { email?: string } = {}) {
     "<div class='toolbar'><button id='setupSubmit' type='submit'>" +
     escapeHtml(t("completeSetup")) +
     "</button></div></form></div></section>";
-  const email = byId("setupAdminEmail")!;
   const submit = byId("setupSubmit")!;
   // 初期設定の鍵が無ければ進めない(誰でも先に管理者になれる口を閉じた・課題 4dea81be)。
   if (!setupLinkToken) {
@@ -401,35 +390,6 @@ async function setupScreen(status: Dynamic, preserve: { email?: string } = {}) {
         "</div>",
     );
   }
-  email.value = preserve.email || "";
-  /**
-   * 導入口で入れた導入は、持ち主が導入口でメールを確かめ済み(2026-10-26・利用者の指示)。そのアドレスを
-   * 管理者にして、ここでは聞かない。取れなければ(顧客運用で持ち主が結ばれていない・訊けない)欄を出す。
-   */
-  const adminBlock = byId("setupAdminBlock")!;
-  const askEmail = () => {
-    adminBlock.hidden = false;
-    email.setAttribute("required", "");
-  };
-  // 導入口で入れた導入(持ち主が Entamy ID のパスキーを作り済み)。パスキーを作る前に、2 つ目である理由を言う。
-  let fromInstaller = false;
-  if (setupLinkToken) {
-    submit.disabled = true;
-    try {
-      const owner = (await api("/api/setup/owner", {
-        method: "POST",
-        body: JSON.stringify({ setupToken: setupLinkToken }),
-      })) as { email?: string | null };
-      if (!owner?.email) askEmail();
-      else fromInstaller = true;
-    } catch {
-      askEmail();
-    } finally {
-      submit.disabled = false;
-    }
-  } else {
-    askEmail();
-  }
   const derivedPublicDomain = (() => {
     const path = location.pathname;
     const idx = path.lastIndexOf("/kurocms/");
@@ -440,7 +400,7 @@ async function setupScreen(status: Dynamic, preserve: { email?: string } = {}) {
   if (adminUrlDisplay)
     adminUrlDisplay.textContent =
       location.origin + normalizedAdminEntryPath + "/";
-  bindLocaleSelect(() => setupScreen(status, captureSetupState()));
+  bindLocaleSelect(() => setupScreen(status));
   byId("setupForm")!.addEventListener("submit", async (event) => {
     event.preventDefault();
     const submitBtn = byId("setupSubmit")!;
@@ -452,8 +412,6 @@ async function setupScreen(status: Dynamic, preserve: { email?: string } = {}) {
         method: "POST",
         body: JSON.stringify({
           setupToken: setupLinkToken,
-          // 欄を出していなければ送らない(サーバーが持ち主のアドレスを使う)。
-          ...(adminBlock.hidden ? {} : { adminEmail: email.value }),
           publicDomain: derivedPublicDomain,
           defaultLang: setupLang,
           initialLang: setupLang,
@@ -478,9 +436,9 @@ async function setupScreen(status: Dynamic, preserve: { email?: string } = {}) {
           t("setupPasskeyNext").replace("{name}", String(beginData.rp.name)),
         ) +
         "</p>" +
-        (fromInstaller
-          ? "<p>" + escapeHtml(t("setupPasskeyTwo")) + "</p>"
-          : "") +
+        "<p>" +
+        escapeHtml(t("setupPasskeyTwo")) +
+        "</p>" +
         "<div class='toolbar'><button id='setupPasskeyGo' type='button'>" +
         escapeHtml(t("setupPasskeyGo")) +
         "</button></div></div>";
@@ -531,10 +489,7 @@ async function setupScreen(status: Dynamic, preserve: { email?: string } = {}) {
     } catch (err) {
       submitBtn.disabled = false;
       submitBtn.textContent = originalText;
-      const msg = (errorMessage(err) || "").toLowerCase();
-      if (msg.includes("email"))
-        fieldError("setupAdminEmail", errorMessage(err));
-      else toast(errorMessage(err) || t("apiFailed"), true);
+      toast(errorMessage(err) || t("apiFailed"), true);
     }
   });
 }

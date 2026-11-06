@@ -234,6 +234,21 @@ export class EntamySession {
   rekeyInstall(_newInstallId: string): Promise<EntamyResult<{ rekeyed: boolean }>> {
     return refuse<{ rekeyed: boolean }>();
   }
+  changeOwnerEmail(
+    _email: string,
+    _continueUrl: string,
+    _options: { subject: string; text: string },
+  ): Promise<EntamyResult<void>> {
+    return refuse<void>();
+  }
+  /** 委託運用の契約(導入口)。基盤が無いので訊けない。 */
+  siteContract(
+    _worker: string,
+    _proof: string,
+    _body: Record<string, unknown>,
+  ): Promise<EntamyResult<Record<string, unknown>>> {
+    return refuse<Record<string, unknown>>();
+  }
 }
 
 /**

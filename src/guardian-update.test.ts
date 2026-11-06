@@ -9,6 +9,7 @@ import {
   guardianUpdate,
   type GuardianDeps,
 } from "./guardian-update.ts";
+import { ReleaseError } from "./release-source.ts";
 import type { Env } from "./types";
 
 let failed = 0;
@@ -48,6 +49,8 @@ function world(
     noToken?: boolean;
     /** cron の付け替えが Cloudflare に断られる。 */
     schedulesFail?: boolean;
+    /** 持ち主が開発アカウントか。false なら配布基盤の門が開発版に 404 を返す。 */
+    developer?: boolean;
   } = {},
 ): World {
   const kv = new Map<string, string>(Object.entries(opts.kv ?? {}));
@@ -191,7 +194,12 @@ function world(
     report: async (code, detail) =>
       void calls.push(`report ${code} ${detail.reason ?? ""}`.trim()),
     appVersion: opts.appVersion ?? "1.10.50",
-    channelVersion: async (c) => channels[c],
+    developer: async () => opts.developer ?? false,
+    channelVersion: async (c) => {
+      if (c === "dev" && !(opts.developer ?? false))
+        throw new ReleaseError("not_found", "not found: channels/dev.json");
+      return channels[c];
+    },
     fetchCode: async (v) => {
       calls.push(`fetchCode ${v}`);
       uploadedVersion = v;
@@ -248,9 +256,33 @@ const main = async () => {
     ]);
   }
   {
+    // 配布基盤の門(core-feature-flags 2節): 一般のサイトは保存した値が開発版でも安定版を入れる
     const w = world({ kv: { "system:guardian_channel": "latest" } });
     const r = await guardianUpdate(w.env, w.deps, "manual");
-    eq("最新版のチャンネルなら update の dev(0.1.25)", r.to, "0.1.25");
+    eq(
+      "一般のサイトは保存が開発版でも安定版へ上がり、失敗を報告しない",
+      [
+        r.outcome,
+        r.to,
+        w.calls.some((c) => c.startsWith("report guardian_update_failed")),
+      ],
+      ["updated", "0.1.24", false],
+    );
+    const fresh = world({ kv: { "system:guardian_channel": "latest" } });
+    const i = await guardianInfo(fresh.env, fresh.deps);
+    eq(
+      "一般のサイトの枠は安定版で、開発版の 404 を確認の失敗にしない",
+      [i.channel, i.stable, i.latest, i.checkOk, i.checkError],
+      ["stable", "0.1.24", null, true, null],
+    );
+  }
+  {
+    const w = world({
+      developer: true,
+      kv: { "system:guardian_channel": "latest" },
+    });
+    const r = await guardianUpdate(w.env, w.deps, "manual");
+    eq("開発アカウントのサイトは update の dev(0.1.25)", r.to, "0.1.25");
     eq(
       "上げた版の binding に自己更新の切が入る",
       (w.uploads[0].bindings as Array<{ name: string; text?: string }>).find(
