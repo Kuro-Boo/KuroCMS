@@ -1,0 +1,11 @@
+-- Threads の長期トークンが最後に Meta へ断られた理由(仕様 cms-cms-sns・2026-11-06)。
+--
+-- 0070 の updated_at / attempted_at だけでは、自動更新が失敗し続けても画面は「自動更新の確認待ち」のままで、
+-- トークンが失効しても誰も気づけなかった(kuro.boo で 60 日後に投稿が止まった)。
+--   threads_token_error  NULL / '' = 断られていない
+--                        'token_invalid' = Meta がトークンを受け付けない(code 190: 失効・取り消し)。登録し直すまで直らない
+--                        'refresh_failed' = 自動更新が失敗した(network / meta / invalid_response)。翌日また試す
+-- 自動更新が成功した時と、管理画面から登録し直した時に消す。投稿が code 190 で断られた時も 'token_invalid' を書く。
+--
+-- restore: 不要 — 列を足すだけ。次の自動更新か投稿で書き直される。
+ALTER TABLE site_settings ADD COLUMN threads_token_error TEXT;

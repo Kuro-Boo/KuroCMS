@@ -18,6 +18,21 @@ type ThreadsTokenRow = {
   threads_token_refresh_attempted_at: string | null;
 };
 
+/** 画面に出す、最後に断られた理由(migration 0087 の threads_token_error)。 */
+export type ThreadsTokenError = "token_invalid" | "refresh_failed";
+
+/**
+ * Defects へ送る口(release-report.ts の reportThreads)。呼ぶ側から渡す。
+ * この部品を node の試験から読めるよう、基盤へのつなぎをここで import しない。
+ */
+export type ThreadsReport = (
+  code:
+    | "threads_token_refreshed"
+    | "threads_token_refresh_failed"
+    | "threads_post_failed",
+  detail: Record<string, string | number>,
+) => Promise<void>;
+
 function record(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -66,6 +81,57 @@ export function isThreadsTokenDailyCheckTime(scheduledTime: number): boolean {
   );
 }
 
+/**
+ * 更新の呼び先。トークンは説明書どおり access_token の引数で渡す
+ * (2026-11-06: Authorization: Bearer の見出しで渡していた間、60 日間 1 度も更新できず、kuro.boo のトークンが失効した)。
+ * URL にトークンが載るので、この URL・応答・例外の文字列はログや Defects へ出さない(redact を通す)。
+ */
+export function threadsTokenRefreshUrl(token: string): URL {
+  const url = new URL(`${THREADS_TOKEN_API}/refresh_access_token`);
+  url.searchParams.set("grant_type", "th_refresh_token");
+  url.searchParams.set("access_token", token);
+  return url;
+}
+
+/** 文字列からトークンを伏せる(URL に符号化された形も)。 */
+export function redactThreadsToken(text: string, token: string): string {
+  if (!token) return text;
+  return text
+    .replaceAll(token, "[redacted]")
+    .replaceAll(encodeURIComponent(token), "[redacted]");
+}
+
+/** Meta(Graph API)のエラー応答から、番号だけを読む。 */
+export function parseMetaError(value: unknown): {
+  code: number | null;
+  subcode: number | null;
+  type: string;
+} {
+  let body: unknown = value;
+  if (typeof value === "string") {
+    try {
+      body = JSON.parse(value);
+    } catch {
+      body = null;
+    }
+  }
+  const error = record(record(body)?.error);
+  return {
+    code: typeof error?.code === "number" ? error.code : null,
+    subcode:
+      typeof error?.error_subcode === "number" ? error.error_subcode : null,
+    type: typeof error?.type === "string" ? error.type.slice(0, 60) : "",
+  };
+}
+
+/**
+ * トークンそのものが断られたか。code 190 は OAuthException の「トークンが無効」
+ * (失効・取り消し・パスワード変更など)で、更新でも投稿でも、登録し直すまで直らない。
+ */
+export function isThreadsTokenRejected(code: number | null): boolean {
+  return code === 190;
+}
+
 function metaError(
   value: unknown,
   status: number,
@@ -75,14 +141,43 @@ function metaError(
   const error = record(body?.error);
   return {
     status,
-    code: typeof error?.code === "number" ? error.code : null,
-    subcode:
-      typeof error?.error_subcode === "number" ? error.error_subcode : null,
+    ...parseMetaError(value),
     message:
       typeof error?.message === "string"
-        ? error.message.replaceAll(secret, "[redacted]").slice(0, 300)
+        ? redactThreadsToken(error.message, secret).slice(0, 300)
         : "Threads token refresh failed",
   };
+}
+
+/** 投稿が通った時: このトークンへの「受け付けません」の印を外す(登録し直さずに直った場合)。 */
+export async function clearThreadsTokenRejected(
+  env: Env,
+  token: string,
+): Promise<void> {
+  await env.DB.prepare(
+    `UPDATE site_settings SET threads_token_error = NULL
+      WHERE id = 1 AND threads_token = ? AND threads_token_error = 'token_invalid'`,
+  )
+    .bind(token)
+    .run()
+    .catch(() => {});
+}
+
+/**
+ * 断られた理由を残す(画面の赤い 1 行)。保存の最中に登録し直されたトークンには書かない。
+ */
+export async function recordThreadsTokenError(
+  env: Env,
+  token: string,
+  error: ThreadsTokenError,
+): Promise<void> {
+  await env.DB.prepare(
+    `UPDATE site_settings SET threads_token_error = ?
+      WHERE id = 1 AND threads_token = ?`,
+  )
+    .bind(error, token)
+    .run()
+    .catch(() => {});
 }
 
 /**
@@ -91,10 +186,12 @@ function metaError(
  * - attempted_at の条件付き UPDATE が日次ロック。Cron の重複配信でも1回だけ呼ぶ。
  * - 保存時にも古いトークンを WHERE に含め、途中の手動登録を上書きしない。
  * - Meta の失敗では現行トークンを一切変更せず、翌日の日次確認で再試行する。
+ * - 失敗は理由を threads_token_error に残し(画面)、Defects へ送る(cron の中はほかから読めない)。
  */
 export async function runScheduledThreadsTokenRefresh(
   env: Env,
   scheduledTime: number,
+  report: ThreadsReport,
 ): Promise<void> {
   if (!isThreadsTokenDailyCheckTime(scheduledTime)) return;
 
@@ -122,46 +219,65 @@ export async function runScheduledThreadsTokenRefresh(
     .run();
   if ((claim.meta?.changes ?? 0) === 0) return;
 
+  const failed = async (
+    detail: Record<string, string | number>,
+    error: ThreadsTokenError,
+  ): Promise<void> => {
+    console.error(
+      JSON.stringify({ event: "threads_token_refresh_failed", ...detail }),
+    );
+    await recordThreadsTokenError(env, currentToken, error);
+    // Defects へは符号と番号だけ(Meta の文は載せない)。
+    const numbers = { ...detail };
+    delete numbers.message;
+    await report("threads_token_refresh_failed", numbers);
+  };
+
   let response: Response;
   let responseBody: unknown;
   try {
-    const url = new URL(`${THREADS_TOKEN_API}/refresh_access_token`);
-    url.searchParams.set("grant_type", "th_refresh_token");
-    response = await fetch(url, {
-      headers: { Authorization: `Bearer ${currentToken}` },
+    response = await fetch(threadsTokenRefreshUrl(currentToken), {
       signal: AbortSignal.timeout(15_000),
     });
     responseBody = await response.json().catch(() => null);
   } catch (error) {
-    console.error(
-      JSON.stringify({
-        event: "threads_token_refresh_failed",
+    await failed(
+      {
         kind: "network",
-        error: error instanceof Error ? error.message.slice(0, 300) : "unknown",
-      }),
+        message: redactThreadsToken(
+          error instanceof Error ? error.message : "unknown",
+          currentToken,
+        ).slice(0, 300),
+      },
+      "refresh_failed",
     );
     return;
   }
 
   if (!response.ok) {
-    console.error(
-      JSON.stringify({
-        event: "threads_token_refresh_failed",
-        kind: "meta",
-        ...metaError(responseBody, response.status, currentToken),
-      }),
+    const meta = metaError(responseBody, response.status, currentToken);
+    const detail: Record<string, string | number> = {
+      kind: "meta",
+      status: response.status,
+      message: String(meta.message),
+    };
+    if (typeof meta.code === "number") detail.code = meta.code;
+    if (typeof meta.subcode === "number") detail.subcode = meta.subcode;
+    if (meta.type) detail.type = String(meta.type);
+    await failed(
+      detail,
+      isThreadsTokenRejected(typeof meta.code === "number" ? meta.code : null)
+        ? "token_invalid"
+        : "refresh_failed",
     );
     return;
   }
 
   const refreshed = parseThreadsTokenRefreshPayload(responseBody);
   if (!refreshed) {
-    console.error(
-      JSON.stringify({
-        event: "threads_token_refresh_failed",
-        kind: "invalid_response",
-        status: response.status,
-      }),
+    await failed(
+      { kind: "invalid_response", status: response.status },
+      "refresh_failed",
     );
     return;
   }
@@ -169,7 +285,8 @@ export async function runScheduledThreadsTokenRefresh(
   const completedAt = new Date().toISOString();
   const saved = await env.DB.prepare(
     `UPDATE site_settings
-        SET threads_token = ?, threads_token_updated_at = ?
+        SET threads_token = ?, threads_token_updated_at = ?,
+            threads_token_error = NULL
       WHERE id = 1 AND threads_token = ?`,
   )
     .bind(refreshed.accessToken, completedAt, currentToken)
@@ -192,4 +309,5 @@ export async function runScheduledThreadsTokenRefresh(
       expiresIn: refreshed.expiresIn,
     }),
   );
+  await report("threads_token_refreshed", { expiresIn: refreshed.expiresIn });
 }
