@@ -49,3 +49,47 @@ export async function noteRunningVersion(
   await env.PUBLIC_PAGES.put(KEY, JSON.stringify(next));
   return next;
 }
+
+const PAGES_KEY = "system:pages_for_version";
+
+/**
+ * 版が変わったら、公開の頁を作り直す(課題 ad495461・2026-11-07)。
+ *
+ * 公開の頁の HTML は、その版のコードで描く(テンプレートの属性のハンドラーを外のファイルへ移す・
+ * CSP の見出し `_headers` を付ける、など)。版を上げただけでビルドを待つと、新しい CSP と古い HTML が
+ * 混ざる —— 強制の CSP が、まだ移していないハンドラーを止める。だから版が変わったら毎分の自動ビルドの
+ * 仕組みで頁を作り直し、**最後の回で頁と見出しを一緒に**番人へ渡す(見出しだけを先に渡さない)。
+ *
+ * 作り直しは、公開の状態を変えない:
+ * - 自動の方式(auto)のサイトは、もともと公開の切り替えを毎分反映するので、いつもの全体ビルド("window")
+ * - 手動の方式(manual)のサイトは、いま公開している状態(`documents.live`)のまま描き直すだけ("live")。
+ *   持ち主がまだビルドしていない公開・非公開の切り替えは出さない
+ */
+export type MinuteBuild = "window" | "live" | null;
+
+export function minuteBuildPlan(input: {
+  mode: "auto" | "manual";
+  /** 自動の方式で、公開の切り替えか資産の登録が残っている。 */
+  windowPending: boolean;
+  /** 頁がまだこの版で作り直されていない。 */
+  versionPending: boolean;
+}): MinuteBuild {
+  if (input.mode === "auto" && (input.windowPending || input.versionPending))
+    return "window";
+  if (input.versionPending) return "live";
+  return null;
+}
+
+/** 頁を作り直し終えた版(無ければ null)。 */
+export async function pagesBuiltFor(
+  env: Pick<Env, "PUBLIC_PAGES">,
+): Promise<string | null> {
+  return env.PUBLIC_PAGES.get(PAGES_KEY);
+}
+
+export async function markPagesBuilt(
+  env: Pick<Env, "PUBLIC_PAGES">,
+  version = KUROCMS_VERSION,
+): Promise<void> {
+  await env.PUBLIC_PAGES.put(PAGES_KEY, version);
+}
