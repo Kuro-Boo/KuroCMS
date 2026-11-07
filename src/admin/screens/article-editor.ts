@@ -1293,7 +1293,7 @@ async function newArticle(editDid: Dynamic) {
       escapeHtml(adminHref("/articles")) +
       "' title='" +
       escapeHtml(t("backToArticles")) +
-      "' style='flex-shrink:0;display:flex;align-items:center;justify-content:center;width:40px;height:40px;font-size:26px;color:var(--ink);text-decoration:none;border-radius:50%;transition:background 0.15s' onmouseenter=\"this.style.background='var(--surface-2)'\" onmouseleave=\"this.style.background=''\">&#8592;</a>" +
+      "' class='editorBackLink'>&#8592;</a>" +
       "<div><h2>" +
       escapeHtml(art.did ? art.title || t("newArticle") : t("newArticle")) +
       "</h2><p class='pageLead'>" +

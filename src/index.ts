@@ -138,6 +138,9 @@ async function runMinute(
           console.error("version note failed:", err);
         }),
     );
+  // 版が変わった時の公開の頁の作り直し(CSP の見出しも一緒に渡る)は、上の runScheduledAutoBuild が行う
+  // (version-since.ts の minuteBuildPlan・課題 ad495461)。見出しだけを先に渡すと、強制の CSP が
+  // まだ作り直していない頁のハンドラーを止める。
   if (at >= guardianIdleUntil)
     ctx.waitUntil(
       guardianAutoTick(env, guardianDeps(env), (why) => {

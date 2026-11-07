@@ -101,6 +101,9 @@ export function adminHtml(
       nav.sidebarNav { display: grid; gap: 4px; }
       nav.sidebarNav a { position: relative; display: flex; align-items: center; gap: 11px; min-height: 42px; padding: 10px 12px; border-radius: 10px; color: var(--nav-link); font-size: 14px; font-weight: 600; transition: all 150ms ease; }
       nav.sidebarNav a:hover { background: var(--surface-2); color: var(--ink); }
+      /* 記事の編集画面の「←」。乗せた時の色は CSS で(属性のハンドラーは管理画面の CSP が止める・課題 dffbd3ff)。 */
+      .editorBackLink { flex-shrink:0; display:flex; align-items:center; justify-content:center; width:40px; height:40px; font-size:26px; color:var(--ink); text-decoration:none; border-radius:50%; transition:background 0.15s; }
+      .editorBackLink:hover { background: var(--surface-2); }
       nav.sidebarNav a.active { background: var(--nav-active-bg); color: var(--nav-active-fg); font-weight: 700; }
       nav.sidebarNav svg { flex-shrink: 0; width: 18px; height: 18px; opacity: 0.7; }
       nav.sidebarNav a.active svg { color: #ffffff; opacity: 1; }

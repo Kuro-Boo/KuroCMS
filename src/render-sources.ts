@@ -66,5 +66,9 @@ export const NOT_RENDER: Readonly<Record<string, string>> = {
     "応答のヘッダーと静的資産の _headers だけ(_headers は全体ビルドが済むたびに登録し直す)",
   "src/stale-fallback.ts": "配信の予備の道",
   "src/types.ts": "型だけ",
+  "src/version.ts":
+    "版の番号。頁を作り直し終えた版の印に使うだけ(描き方の違いは RENDER_FINGERPRINT が持つ)",
+  "src/version-since.ts":
+    "版が変わった時に毎分のビルドで作り直すかを決める(HTML は変えない)",
   "src/templates/types.ts": "型だけ",
 };

@@ -13,6 +13,7 @@ import {
 } from "./site-csp.ts";
 import {
   externalizeTemplateScripts,
+  templateHandlerScript,
   templateScriptBody,
   templateScriptWarnings,
   scriptHash,
@@ -28,7 +29,11 @@ const directive = (p: string, name: string) =>
 
 // ── 組み立て ────────────────────────────────────────────────────────────
 {
-  assert.equal(SITE_CSP_MODE, "report", "最初の版は報告だけ(core-csp §4)");
+  assert.equal(
+    SITE_CSP_MODE,
+    "enforce",
+    "報告で漏れが無いと確かめて強制にした(課題 ad495461)",
+  );
   const plain = policyOf(
     siteCspHeaders({
       publicBase: "",
@@ -85,7 +90,7 @@ const directive = (p: string, name: string) =>
       bluesky: false,
     }),
   );
-  assert.ok(file.startsWith("/*\n  content-security-policy-report-only: "));
+  assert.ok(file.startsWith("/*\n  content-security-policy: "));
   assert.ok(
     !file.includes("reporting-endpoints"),
     "報告は report-uri だけ(report-to は届かずに失われた)",
@@ -307,6 +312,187 @@ const directive = (p: string, name: string) =>
   // report-only の間も、枠に入れさせないことは強制する(課題 97b74d87)。
   assert.match(h["content-security-policy"] ?? "", /frame-ancestors 'none'/);
   assert.equal(h["x-frame-options"], "DENY");
+}
+
+// ── GA は標準の機能: Google の案内の一覧を最初から全部許す(2026-11-07 利用者の指摘) ──────────
+{
+  const on = directive(
+    policyOf(
+      siteCspHeaders({
+        publicBase: "",
+        ga: true,
+        adsense: false,
+        bluesky: false,
+      }),
+    ),
+    "connect-src",
+  );
+  for (const src of [
+    "https://*.google-analytics.com",
+    "https://*.analytics.google.com",
+    "https://*.googletagmanager.com",
+    "https://*.g.doubleclick.net",
+    "https://*.google.com",
+  ])
+    assert.ok(on.split(" ").includes(src), `GA の接続先 ${src}`);
+  const off = directive(
+    policyOf(
+      siteCspHeaders({
+        publicBase: "",
+        ga: false,
+        adsense: false,
+        bluesky: false,
+      }),
+    ),
+    "connect-src",
+  );
+  assert.doesNotMatch(off, /google/, "GA を使わないサイトには許さない");
+  // 標準の機能を全部入れても、静的資産の `_headers` の 1 行は Cloudflare の上限(2,000 文字)に収まる
+  // (1.10.208 で国ごとの Google を足して超え、資産の登録が落ちた)。
+  const file = siteHeadersFile(
+    siteCspHeaders({
+      publicBase: "/blog-with-a-long-base-path",
+      ga: true,
+      adsense: true,
+      bluesky: true,
+    }),
+  );
+  for (const line of file.split("\n"))
+    assert.ok(
+      line.length <= 2000,
+      `_headers の行が ${line.length} 文字(上限 2,000)`,
+    );
+}
+
+// ── 属性のハンドラーをファイルへ移す(課題 dffbd3ff・entamy.com の携帯のメニュー) ─────────────
+{
+  const src =
+    `<html><body><button class="m" onclick="var m=document.getElementById('d');if(m){m.classList.toggle(&quot;open&quot;)}return false">≡</button>` +
+    `<a href="/x" onmouseover='this.dataset.h="1"' onclick="go([[page.id]])">x</a>` +
+    `<script>var a = '<b onclick="no">';</script><!-- <i onclick="no"> --></body></html>`;
+  const out = await externalizeTemplateScripts(src, "tmpl_1", "");
+  // 移したものは印だけになり、[[…]] を含むものは残る。script と注記の中には触らない。
+  assert.match(out, /<button class="m" data-kt-on="0">≡<\/button>/);
+  assert.match(
+    out,
+    /<a href="\/x" onclick="go\(\[\[page\.id\]\]\)" data-kt-on="1">x<\/a>/,
+  );
+  assert.doesNotMatch(out, /onmouseover/);
+  assert.match(out, /<!-- <i onclick="no"> -->/);
+  const m = out.match(
+    /<script src="(\/_tjs\/tmpl_1\.([0-9a-f]{16})\.js)"><\/script><\/body>/,
+  );
+  assert.ok(m, "ファイルは </body> の直前で読む");
+  const body = await templateScriptBody(src, m![2]);
+  assert.ok(body, "同じハッシュでファイルの中身を引き当てられる");
+  // 静的資産に置くファイルと、頁が指すファイルが同じ。
+  assert.deepEqual(await templateHandlerScript(src), { hash: m![2], body });
+  // 文字参照を戻して JS にしている。
+  assert.match(body!, /m\.classList\.toggle\("open"\)/);
+  // ファイルを動かして、this・event・return false が属性のときと同じに効くこと。
+  const listeners: Array<{
+    el: { dataset: Record<string, string>; tag: string };
+    ev: string;
+    fn: (e: unknown) => void;
+  }> = [];
+  const els = [
+    {
+      tag: "button",
+      attrs: { "data-kt-on": "0" },
+      dataset: {} as Record<string, string>,
+    },
+    {
+      tag: "a",
+      attrs: { "data-kt-on": "1" },
+      dataset: {} as Record<string, string>,
+    },
+  ];
+  let toggled = 0;
+  const fakeDoc = {
+    readyState: "complete",
+    getElementById: () => ({ classList: { toggle: () => toggled++ } }),
+    querySelectorAll: () =>
+      els.map((e) => ({
+        getAttribute: (k: string) => (e.attrs as Record<string, string>)[k],
+        dataset: e.dataset,
+        addEventListener: (ev: string, fn: (e: unknown) => void) =>
+          listeners.push({ el: e as never, ev, fn }),
+      })),
+    addEventListener: () => {},
+  };
+  new Function("document", body!)(fakeDoc);
+  assert.deepEqual(
+    listeners.map((l) => [l.el.tag, l.ev]),
+    [
+      ["button", "click"],
+      ["a", "mouseover"],
+    ],
+  );
+  let prevented = false;
+  listeners[0]!.fn.call({}, { preventDefault: () => (prevented = true) });
+  assert.equal(toggled, 1);
+  assert.equal(prevented, true, "return false は既定の動きを止める");
+  const target = { dataset: {} as Record<string, string> };
+  listeners[1]!.fn.call(target, { preventDefault: () => {} });
+  assert.equal(target.dataset.h, "1", "this は要素");
+  // [[…]] を含むハンドラーは警告に出る。
+  assert.deepEqual(
+    (await templateScriptWarnings(src)).filter(
+      (w) => w.kind === "handler_token",
+    ),
+    [{ kind: "handler_token", detail: "go([[page.id]])" }],
+  );
+  // ハンドラーが無ければ、何も足さない。
+  assert.equal(
+    await externalizeTemplateScripts("<p>x</p>", "t", ""),
+    "<p>x</p>",
+  );
+}
+
+// ── 管理画面のコードに属性のハンドラーを書かない(管理画面の CSP が止める・2026-11-06 に「←」の色で踏んだ) ──
+{
+  const { readdirSync } = await import("node:fs");
+  const files = [
+    "./admin.main.ts",
+    "./admin-shell.ts",
+    ...["screens", "lib"].flatMap((d) =>
+      readdirSync(new URL(`./admin/${d}/`, import.meta.url)).map(
+        (f) => `./admin/${d}/${f}`,
+      ),
+    ),
+  ].filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"));
+  for (const f of files) {
+    const text = readFileSync(new URL(f, import.meta.url), "utf8");
+    assert.doesNotMatch(
+      text,
+      /[ '"]on[a-z]{3,}=[\\"']/,
+      `${f} に属性のハンドラーがある`,
+    );
+  }
+}
+
+// ── テンプレートのプレビューを管理画面と同じ origin で動かさない(課題 dffbd3ff) ──────────
+// テンプレート(他人の作った Community のものも)のスクリプトが、管理画面の画面・cookie 付きの API に届かないこと。
+{
+  const api = readFileSync(new URL("./api.ts", import.meta.url), "utf8");
+  assert.match(
+    api,
+    /export const TEMPLATE_PREVIEW_CSP = "sandbox allow-scripts";/,
+  );
+  assert.match(api, /"Content-Security-Policy": TEMPLATE_PREVIEW_CSP,/);
+  const site = readFileSync(
+    new URL("./admin/screens/site.ts", import.meta.url),
+    "utf8",
+  );
+  assert.doesNotMatch(
+    site,
+    /sandbox=["']allow-same-origin/,
+    "縮小図の枠に allow-same-origin を付けない",
+  );
+  assert.doesNotMatch(
+    site,
+    /sandbox=["'][^"']*allow-same-origin[^"']*allow-scripts/,
+  );
 }
 
 console.log("site CSP contract OK");

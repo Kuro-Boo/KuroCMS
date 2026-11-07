@@ -1,8 +1,8 @@
 <div align="center">
 
-# 🐰 KuroCMS
+# 🐰 KuroCMS 2.0
 
-**The Cloudflare-native, ultra-fast headless CMS — run a multilingual blog for ¥0.**
+**The Cloudflare-native headless CMS — multilingual sites at the edge, free on your own Cloudflare account.**
 
 [![Latest stable](https://img.shields.io/github/v/tag/Kuro-Boo/KuroCMS?label=stable&color=157a6e)](https://github.com/Kuro-Boo/KuroCMS/tags)
 [![License: Kuro License](https://img.shields.io/badge/license-Kuro%20License-blue)](./LICENSE.txt)
@@ -13,46 +13,52 @@
 
 ![KuroCMS admin — article management](docs/admin-screenshot.jpg)
 
-> KuroCMS admin · article management — multilingual, per‑article SNS publish state, and one‑click build.
+> KuroCMS admin · article management — languages, per‑article SNS status, and one‑click build.
 
-KuroCMS is a lightweight headless CMS that runs **entirely on the Cloudflare global
-network** (Workers + D1 + KV + R2). It pairs a polished admin with high‑performance
-edge delivery — and is designed so a typical blog runs comfortably **within
-Cloudflare's free tier**.
+KuroCMS runs **entirely on Cloudflare** (Workers, D1, KV and R2). You write in the admin,
+KuroCMS builds your public pages, and Cloudflare serves them from the edge. There is no
+server or database to look after.
 
-## ✨ Why KuroCMS
+## ✨ Features
 
-- 🚀 **Cloudflare‑native & fast** — Workers + D1 + KV + R2, edge‑cached static delivery.
-- 💸 **Runs for ¥0** — built around Cloudflare's free tier: no rental server, no DB ops.
-- 🧩 **PC‑free web installer** — provisions D1 / KV / R2 / Worker into *your* Cloudflare account straight from the browser. No CLI, no build.
-- 🌐 **Multilingual by design** — one shared article identity, per‑language static output, AI‑friendly translation API.
-- ✍️ **Rich WYSIWYG editor (KuroEditor)** — callouts, round boxes, tables, media — with **passkey (WebAuthn)** sign‑in and multi‑device recovery.
-- 🎨 **Community templates** — pick a shareable template and make it yours.
-- 🤖 **AI‑ready REST API + MCP server** — clean JSON endpoints, plus a built‑in **MCP (Model Context Protocol)** server at `/api/mcp` so Claude / Claude Code can create, update, publish, and build content conversationally (PAT‑authenticated, same permissions as REST).
-- 🔑 **Zero runtime dependencies** — vanilla TypeScript on the Workers runtime.
+- ✍️ **Writing** — rich editor (KuroEditor), autosave, revision history, cover images, categories, hashtags and scheduled publishing.
+- 🌐 **Multilingual** — one article with a translation per language, a URL per language, and right‑to‑left language support.
+- 🎨 **Site design** — community templates, direct HTML editing, per‑language site text, web fonts and GA4.
+- 🖼️ **Media** — images, video and audio, with optional automatic image downsizing.
+- ⚡ **Build and publish** — manual builds, or automatic builds for scheduled and published posts.
+- 📣 **Social** — post articles to Bluesky, X and Threads, and track what was posted per article.
+- 🤖 **REST API and MCP** — JSON endpoints, plus an MCP server at `/api/mcp` so AI tools can create, update, publish and build content. Both authenticate with a PAT.
+- 🔐 **No passwords** — admin sign‑in uses passkeys (WebAuthn), with email recovery. Optional IP restriction.
+- 👥 **Team and data** — invite admins and authors, and back up or restore the whole site as one ZIP.
 
 ## 🚀 Get started
 
-KuroCMS installs into **your own** Cloudflare account from the browser — no PC setup, no CLI, no build:
-
 ### → [Open the web installer at kurocms.entamy.com](https://kurocms.entamy.com/)
 
-Want the backstory and a feature tour? Read
-**[“Finally Released! Development of a New Headless CMS Vol. 3” (English)](https://kuro.boo/blog/kurocms-003/?lang=en)**.
+Installation runs in the browser, with no CLI or build. Choose where the site runs:
+
+- **Your own Cloudflare account** — free. A typical site fits within Cloudflare's free plan.
+  Media storage needs R2 enabled on your account.
+- **Hosted by Entamy** — paid, with the first 3 months free.
+
+You can move a site between the two later, from its admin.
 
 ## 🛠️ Tech stack
 
 - **Runtime**: [Cloudflare Workers](https://workers.cloudflare.com/)
 - **Database**: [Cloudflare D1](https://developers.cloudflare.com/d1/)
-- **Storage**: Cloudflare KV (rendered pages) + R2 (media)
-- **Language**: TypeScript — **no framework, zero runtime dependencies**
+- **Storage**: Cloudflare KV (rendered pages) and R2 (media)
+- **Language**: TypeScript, with no framework and no third‑party npm packages in the Worker
+
+Each install has its own Worker, D1 database and KV namespaces. Updates and recovery are
+handled by a separate Worker (WorkerOps), so a failed update can be rolled back even if
+KuroCMS itself can't start.
 
 ## 📦 About this repository
 
-This repository publishes the **core source code of KuroCMS for transparency** — so
-anyone (especially the security‑minded) can review what the software actually does.
-**You don't build or deploy from here** — installation is the one‑click web installer
-above.
+This repository publishes the **core source code of KuroCMS for transparency**, so anyone
+can review what the software does. **You don't build or deploy from here** — use the web
+installer above.
 
 | Path | Contents |
 |---|---|
@@ -60,24 +66,13 @@ above.
 | `migrations/` | D1 database schema migrations |
 
 Each stable version is marked with a [tag](https://github.com/Kuro-Boo/KuroCMS/tags). Built
-releases are distributed with a signature from `update.entamy.com`, not from this repository. Build
-tooling, configuration, and maintainer scripts are intentionally omitted (source‑review mirror,
-not a build target).
+releases are signed and distributed from `update.entamy.com`, not from this repository. Build
+tooling, configuration and maintainer scripts are intentionally omitted.
 
-## 🔄 Self-update & release channels
+## 🔄 Updates
 
-The admin Dashboard checks for updates and applies them with one click — no CLI,
-no build. Releases publish frequently (often several a day), so installs choose
-one of two channels:
-
-| Channel | Tracks | Moves forward |
-|---|---|---|
-| **Stable** *(default)* | The newest release the maintainer has promoted | Only when the maintainer explicitly promotes a release — so a same-day regression doesn't reach every install automatically |
-| **Latest** | Every release, including ones not yet promoted | Immediately, on every release |
-
-Flip **“Always update to latest”** in Dashboard → KuroCMS to switch to the Latest
-channel; leave it off to stay on Stable. Both the installed, stable, and latest
-version numbers are shown on the same card.
+The admin Dashboard shows the installed and stable versions, and installs updates with one
+click or automatically.
 
 ## 🔒 Security
 
@@ -89,7 +84,7 @@ instructions. Do not file public issues for security problems.
 KuroCMS is licensed under the **Kuro License** (an MIT‑based license with an
 attribution requirement).
 
-> When the Software is used to provide a public‑facing interface, the phrase
+> When the Software is used to provide a public‑facing or user‑facing interface, the phrase
 > **“with KuroCMS”** must be shown in an appropriate attribution area.
 
 See [LICENSE.txt](./LICENSE.txt) for the full text.

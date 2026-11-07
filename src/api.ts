@@ -9923,9 +9923,17 @@ async function siteTemplatePreview(
     headers: {
       "Content-Type": "text/html; charset=utf-8",
       "X-Frame-Options": "SAMEORIGIN",
+      // テンプレートの中身(他人の作った Community のテンプレートも)を、管理画面と同じ origin で動かさない
+      // (課題 dffbd3ff)。枠に入れても URL を直に開いても、文書は不透明な origin になり、管理画面の画面・
+      // ログインの cookie 付きの API・保存領域に届かない。見た目を出すためにスクリプトだけは動かす。
+      "Content-Security-Policy": TEMPLATE_PREVIEW_CSP,
+      "Cache-Control": "no-store",
     },
   });
 }
+
+/** テンプレートのプレビューの応答の CSP(siteTemplatePreview)。`allow-same-origin` は付けない。 */
+export const TEMPLATE_PREVIEW_CSP = "sandbox allow-scripts";
 
 function templatePreviewUnavailable(): Response {
   return new Response(

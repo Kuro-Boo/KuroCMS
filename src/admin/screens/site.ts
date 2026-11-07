@@ -748,7 +748,7 @@ async function siteManagement() {
                 "<div style='width:100%;height:160px;overflow:hidden;position:relative;background:var(--surface-2)'>" +
                 "<iframe src='" +
                 escapeHtml(previewSrc) +
-                "' loading='lazy' sandbox='allow-same-origin allow-scripts' style='width:1000px;height:615px;transform:scale(0.26);transform-origin:top left;border:none;pointer-events:none'></iframe>" +
+                "' loading='lazy' sandbox='allow-scripts' style='width:1000px;height:615px;transform:scale(0.26);transform-origin:top left;border:none;pointer-events:none'></iframe>" +
                 "</div>";
             } else if (tm.preview_url) {
               // not installed — show community gallery image as preview
@@ -1307,13 +1307,13 @@ async function siteManagement() {
           ? "<div style='width:100%;height:1024px;overflow:hidden;background:var(--surface-2)'>" +
             "<iframe src='" +
             escapeHtml(previewSrc) +
-            "' style='width:125%;height:1280px;transform:scale(0.8);transform-origin:top left;border:none;pointer-events:none' loading='lazy' sandbox='allow-same-origin allow-scripts'></iframe>" +
+            "' style='width:125%;height:1280px;transform:scale(0.8);transform-origin:top left;border:none;pointer-events:none' loading='lazy' sandbox='allow-scripts'></iframe>" +
             "</div>"
           : "<div style='display:flex;justify-content:center;padding:20px 0;background:var(--surface-2)'>" +
             "<div style='width:390px;height:813px;overflow:hidden;border-radius:12px;border:1px solid var(--line);box-shadow:0 4px 20px rgba(0,0,0,.18)'>" +
             "<iframe src='" +
             escapeHtml(previewSrc) +
-            "' style='width:488px;height:1016px;transform:scale(0.8);transform-origin:top left;border:none;pointer-events:none' loading='lazy' sandbox='allow-same-origin allow-scripts'></iframe>" +
+            "' style='width:488px;height:1016px;transform:scale(0.8);transform-origin:top left;border:none;pointer-events:none' loading='lazy' sandbox='allow-scripts'></iframe>" +
             "</div>" +
             "</div>";
         list.innerHTML =
@@ -1377,7 +1377,9 @@ async function siteManagement() {
             t(
               w.kind === "external"
                 ? "tmplScriptWarnExternal"
-                : "tmplScriptWarnToken",
+                : w.kind === "handler_token"
+                  ? "tmplScriptWarnHandlerToken"
+                  : "tmplScriptWarnToken",
             ),
           ) +
           "<code>" +

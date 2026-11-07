@@ -601,8 +601,8 @@ async function dashboard() {
   showCspReports();
 
   /**
-   * 公開サイトの CSP の違反の報告(cms-cms-security「CSP」)。いまは報告だけの段で、
-   * 何が止まりうるかを見て、強制にしてよいかを判断するための数。
+   * 公開サイトと管理画面の CSP の違反の報告(cms-cms-security「CSP」)。どちらも強制で、
+   * 止めた読み込みを数える(報告だけだった時期の行も残る)。
    */
   async function showCspReports() {
     const box = byId("cspReports");

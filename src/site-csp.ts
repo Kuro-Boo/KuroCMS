@@ -17,8 +17,10 @@ import { cspHeaders } from "./vendor/entamy-client/index.ts";
 /**
  * 報告だけ(試験の段階)か、強制か。**版の違いとして配る**(core-csp §6): 顧客の CF に強制が
  * 入るのは、委託運用で漏れが無いことを確かめた版を顧客が上げた時だけ。
+ * 2026-11-07 に強制へ(課題 ad495461): kuro.boo・harmo-life の頁に止まるものが無く、
+ * 残った報告が CMS の直し済みのもの・拡張機能やアプリ内ブラウザの差し込みだけと確かめた。
  */
-export const SITE_CSP_MODE: "report" | "enforce" = "report";
+export const SITE_CSP_MODE: "report" | "enforce" = "enforce";
 
 /** 報告を受けるサイト自身の口(`{publicBase}/_csp`)。 */
 export const CSP_REPORT_PATH = "/_csp";
@@ -37,10 +39,18 @@ export interface SiteCspInput {
 
 // GA4(Google の「Content Security Policy での Google タグ」の一覧)。
 const GA_SCRIPT = ["https://*.googletagmanager.com"];
+// GA は CMS の標準の機能(設定の測定 ID から CMS が埋め込む)。Google の案内の一覧を、Google シグナル
+// (doubleclick・google.com)まで最初から許す。報告が出てから足さない(2026-11-07 利用者の指摘・前は
+// www.google.com が漏れて kuro.boo で報告が続いた)。
+// ⚠ 国ごとの Google(*.google.co.jp など 187 件)は書けない: 静的資産の `_headers` は 1 行 2,000 文字まで
+//   (Cloudflare・2026-11-07 に 1.10.208 で超えて資産の登録が 100324 で落ちた)。CSP は見出しを分けると
+//   両方を満たすものしか通らないので、分けても広がらない。漏れは報告に出るので、そのときに見直す。
 const GA_CONNECT = [
   "https://*.google-analytics.com",
   "https://*.analytics.google.com",
   "https://*.googletagmanager.com",
+  "https://*.g.doubleclick.net",
+  "https://*.google.com",
 ];
 // AdSense。広告は配信のたびに読む先が変わるので、Google の広告の出どころをまとめて許す。
 // 漏れは報告だけの期間に Defects へ上がる(core-csp §4)。

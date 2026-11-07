@@ -32,6 +32,7 @@ import { siteCspHeaders, siteHeadersFile } from "./site-csp";
 import { AUTO_BUILD_MAX_PER_INVOCATION, nextAutoBuildSize } from "./build-size";
 import {
   externalizeTemplateScripts,
+  templateHandlerScript,
   templateScriptBody,
   templateScriptPath,
   templateScripts,
@@ -103,6 +104,12 @@ import {
 } from "./lang-path";
 import { buildReason, reportBuild } from "./release-report.ts";
 import { buildModeForMinute } from "./build-mode.ts";
+import { KUROCMS_VERSION } from "./version.ts";
+import {
+  markPagesBuilt,
+  minuteBuildPlan,
+  pagesBuiltFor,
+} from "./version-since.ts";
 import {
   markMediaGateReady,
   type AssetsProgress,
@@ -4138,6 +4145,17 @@ export async function publishSiteAssets(
             body: t.body,
           });
         }
+        // 属性のハンドラーを移したファイルも(template-scripts.ts の templateHandlerScript)。
+        const handlers = await templateHandlerScript(template.sourceHtml);
+        if (handlers)
+          scripts.push({
+            path: templateScriptPath(
+              settings.base_path || "",
+              template.id,
+              handlers.hash,
+            ),
+            body: handlers.body,
+          });
         return {
           // 委託運用へ引き渡した後は、ページを 1 枚も置かない(静的資産は Worker の手前で
           // 返るので、残すと案内が出ない —— 2026-10-21 に 8210de で見つけた)。
@@ -4552,6 +4570,12 @@ export async function buildAllPublicPages(
   maxLangs = Number.POSITIVE_INFINITY,
   /** 最後の回の資産の登録で、1 回に読むページの数(publishAssets の maxReads)。 */
   maxAssetReads?: number,
+  /**
+   * "window"(既定): 公開の期間と公開の印から描き、終わりに documents.live を揃える(公開の切り替えを出す)。
+   * "live": いま公開している状態のまま描き直すだけ。documents.live を変えない(版が変わった時の作り直し・
+   * version-since.ts の minuteBuildPlan)。
+   */
+  filter: PubFilter = "window",
 ): Promise<{
   built: number;
   skipped: number;
@@ -4565,10 +4589,10 @@ export async function buildAllPublicPages(
   const settings = await fetchSettings(env);
   const template = await loadTemplate(env, settings.template_id);
   const staticPages = parseStaticPages(template.sourceHtml);
-  // The full build is the sole materializer of the publish flag: it renders
-  // from mode within the publish window and syncs documents.live at the end,
-  // so serving ("live" filter) follows.
-  const filter: PubFilter = "window";
+  // The full build ("window") is the sole materializer of the publish flag: it
+  // renders from mode within the publish window and syncs documents.live at the
+  // end, so serving ("live" filter) follows. A "live" rebuild re-renders the
+  // current live set and leaves documents.live alone.
   // Fold a hash of the template SOURCE into the cache key so editing the
   // template (same id) invalidates every page's build hash and forces a rebuild
   // (the per-page hashes are `${ts}:${tplId}`, otherwise blind to template edits).
@@ -5233,7 +5257,7 @@ export async function buildAllPublicPages(
   // build fully drains, flag changes stay invisible to visitors. A chunked
   // pass (more:true) keeps the old snapshot; the mode/live disagreement also
   // lets the auto-build cron detect that a build is still pending.
-  if (!more) {
+  if (!more && filter === "window") {
     const liveCase = liveCaseSql();
     await env.DB.prepare(
       `UPDATE documents SET live = ${liveCase} WHERE live <> ${liveCase}`,
@@ -5361,16 +5385,33 @@ export {
  */
 export async function runScheduledAutoBuild(env: Env): Promise<void> {
   if (!env.PUBLIC_PAGES) return;
-  if ((await buildModeForMinute(env)) !== "auto") return;
+  const mode = await buildModeForMinute(env);
+
+  // 版が変わったら頁を作り直す(version-since.ts)。作り直し終えた版はこの isolate で覚え、毎分 KV を読まない。
+  let versionPending = false;
+  if (pagesDoneFor !== KUROCMS_VERSION) {
+    const builtFor = await pagesBuiltFor(env);
+    if (builtFor === KUROCMS_VERSION) pagesDoneFor = KUROCMS_VERSION;
+    else if (builtFor === null && !(await hasBuiltPages(env))) {
+      // まだ一度もビルドしていないサイトは、作り直すものが無い(持ち主の最初のビルドを先回りしない)。
+      await markPagesBuilt(env);
+      pagesDoneFor = KUROCMS_VERSION;
+    } else versionPending = true;
+  }
 
   // Must mirror the build's live-sync CASE exactly, or the cron would loop or
   // stall. Both come from liveCaseSql.
-  const pending = await env.DB.prepare(
-    `SELECT COUNT(*) AS cnt FROM documents WHERE live <> (${liveCaseSql()})`,
-  ).first<{ cnt: number }>();
-  // A build that finished but is not yet registered as Static Assets is not
-  // finished: run it again (pages skip via the build cache; it registers).
-  if ((pending?.cnt ?? 0) === 0 && !(await assetsPending(env))) return;
+  let windowPending = false;
+  if (mode === "auto") {
+    const pending = await env.DB.prepare(
+      `SELECT COUNT(*) AS cnt FROM documents WHERE live <> (${liveCaseSql()})`,
+    ).first<{ cnt: number }>();
+    // A build that finished but is not yet registered as Static Assets is not
+    // finished: run it again (pages skip via the build cache; it registers).
+    windowPending = (pending?.cnt ?? 0) > 0 || (await assetsPending(env));
+  }
+  const filter = minuteBuildPlan({ mode, windowPending, versionPending });
+  if (!filter) return;
 
   // 回の量(課題 a408a584)。回を始めるときに「作業中」の印を残し、終わったら消す。次の回で印が
   // 残っていれば、前の回は CPU の上限で打ち切られた(応答も後始末も無く止まる)—— 量を半分にし、
@@ -5393,13 +5434,19 @@ export async function runScheduledAutoBuild(env: Env): Promise<void> {
     size.budget < AUTO_BUILD_MAX_PER_INVOCATION
       ? Math.max(2, size.budget * 2)
       : undefined,
+    filter,
   ).catch(async (err: unknown) => {
     await reportBuild(env, "build_failed", {
       reason: buildReason(err),
-      trigger: "auto",
+      trigger: versionPending ? "version" : "auto",
     });
     throw err;
   });
+  // 最後の回まで済めば、頁はこの版のコードで描かれている(描き方の指紋 RENDER_FINGERPRINT が変わった頁は作り直した)。
+  if (!r.more) {
+    await markPagesBuilt(env);
+    pagesDoneFor = KUROCMS_VERSION;
+  }
   if (r.more)
     await env.PUBLIC_PAGES.put(
       AUTO_BUILD_SIZE_KEY,
@@ -5409,6 +5456,19 @@ export async function runScheduledAutoBuild(env: Env): Promise<void> {
 }
 
 const AUTO_BUILD_SIZE_KEY = "system:auto_build_size";
+
+/** 頁を作り直し終えた版(この isolate の控え・runScheduledAutoBuild)。 */
+let pagesDoneFor: string | null = null;
+
+/** 一度でもビルドした頁があるか(page_build_cache は頁を作るたびに行が入る)。 */
+async function hasBuiltPages(env: Env): Promise<boolean> {
+  const row = await env.DB.prepare(
+    "SELECT 1 AS x FROM page_build_cache LIMIT 1",
+  )
+    .first<{ x: number }>()
+    .catch(() => null);
+  return !!row;
+}
 
 async function fetchRegisteredLangCount(env: Env): Promise<number> {
   const row = await env.DB.prepare(

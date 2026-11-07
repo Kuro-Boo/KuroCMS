@@ -2151,8 +2151,8 @@ const i18n = {
     cspReportsTitle: "Security policy (CSP) reports",
     cspReportsLead:
       "The public site and this admin tell the browser which servers they may load from (CSP). " +
-      "For now the policy only reports and blocks nothing. Below is what it would block once enforced. " +
-      "If it belongs to a feature you use, the policy needs to allow it; if you don't recognize it, it can stay blocked.",
+      "Loads from anywhere else are blocked. Below is what was blocked (or, before enforcement, reported). " +
+      "Loads you don't recognize are usually added by browser extensions or in-app browsers and can stay blocked.",
     cspReportsMeta: "{n} times · first {first} · last {last}",
     cspReportOnly: "Reported only",
     cspPageAdmin: "Admin screen",
@@ -2177,6 +2177,8 @@ const i18n = {
       "External script (not loaded on public pages; paste its code into the template instead): ",
     tmplScriptWarnToken:
       "Script containing [[…]] (blocked by the site's security policy; pass values through data- attributes): ",
+    tmplScriptWarnHandlerToken:
+      "Event attribute (onclick etc.) containing [[…]] (blocked by the site's security policy; pass values through data- attributes): ",
     tmplScriptWarnToast:
       "This template has scripts that public pages will not run. See the template detail.",
     tmplDetailClose: "Close",
@@ -3827,8 +3829,8 @@ const i18n = {
     cspReportsTitle: "読み込みの制限（CSP）の報告",
     cspReportsLead:
       "公開サイトとこの管理画面は、どこから読み込んでよいかをブラウザに伝えています（CSP）。" +
-      "いまは報告だけで、何も止めていません。下は、制限を有効にしたら止まる読み込みです。" +
-      "使っている機能のものなら許可に足す必要があり、心当たりが無ければ止まったままで構いません。",
+      "それ以外からの読み込みは止めています。下は、止めた読み込み（報告だけだった時期のものを含む）です。" +
+      "心当たりの無いものは、たいていブラウザの拡張機能やアプリの中のブラウザが差し込んだもので、止まったままで構いません。",
     cspReportsMeta: "{n} 回 · 最初 {first} · 最後 {last}",
     cspReportOnly: "報告だけ",
     cspPageAdmin: "管理画面",
@@ -3853,6 +3855,8 @@ const i18n = {
       "外部の JS（公開ページでは読み込みません。使う時は中身をテンプレートに貼り付けてください）: ",
     tmplScriptWarnToken:
       "[[…]] を含むスクリプト（サイトの守り（CSP）で止まります。値は data- 属性で渡してください）: ",
+    tmplScriptWarnHandlerToken:
+      "[[…]] を含む属性のハンドラー（onclick など。サイトの守り（CSP）で止まります。値は data- 属性で渡してください）: ",
     tmplScriptWarnToast:
       "公開ページで動かないスクリプトがあります。テンプレートの詳細をご覧ください。",
     tmplDetailClose: "閉じる",
