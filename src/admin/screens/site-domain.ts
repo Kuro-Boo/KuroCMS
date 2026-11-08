@@ -1,9 +1,9 @@
 // KuroCMS admin screen module. Concatenated by scripts/build-admin.js.
 //
 // 委託の独自ドメイン(core-offering 14 節・2026-10-22)。設定の「ドメイン」タブの、委託運用だけに出す枠。
-// 委託用ゾーン(kurocms.site)の Cloudflare for SaaS で、お客様のドメインを付ける:
+// 委託用ゾーン(kurocms.com)の Cloudflare for SaaS で、お客様のドメインを付ける:
 //   準備する(Custom Hostname を作る) → お客様が TXT を足す → 状態を確かめる(証明書が発行済みか)
-//   → ドメインを切り替える(kurocms.site 側のルートをこの導入へ) → お客様が CNAME を向ける → 有効
+//   → ドメインを切り替える(kurocms.com 側のルートをこの導入へ) → お客様が CNAME を向ける → 有効
 //   → 保存して全ページをビルド
 // ドメイン名を入れる欄は上の公開ドメインの 1 つだけ(2026-10-22 利用者の指示)。「準備する」はその欄から
 // 読むだけで保存しない。有効になる前の保存は止める(全ページのリンクがまだ開けないアドレスに向くので・
@@ -42,7 +42,7 @@ function hostOfDomainInput(value: string): string {
 
 /** 委託の枠が見ている状態(保存の前の確かめに使う)。委託でなければ null のまま。 */
 let ownDomainWatch: {
-  /** 委託のアドレス({導入ID}.kurocms.site)。 */
+  /** 委託のアドレス({導入ID}.kurocms.com)。 */
   fallbackHost: string;
   /** いま保存されている公開ドメイン。 */
   savedHost: string;
@@ -109,7 +109,7 @@ async function mountOwnDomain(
   const panel = byId("ownDomainPanel");
   if (!panel) return;
   panel.style.display = "";
-  // 向け先は導入口が返す。準備する前は、委託のアドレス({導入ID}.kurocms.site)のホスト名を出す。
+  // 向け先は導入口が返す。準備する前は、委託のアドレス({導入ID}.kurocms.com)のホスト名を出す。
   const fallbackTarget = hostOfDomainInput(defaultDomain);
   let savedValue = savedDomain;
   let savedHost = hostOfDomainInput(savedDomain);
