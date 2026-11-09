@@ -93,3 +93,15 @@ export async function markPagesBuilt(
 ): Promise<void> {
   await env.PUBLIC_PAGES.put(PAGES_KEY, version);
 }
+
+/**
+ * 頁を作り直し終えた印を消す。次の分から毎分の作り直し(minuteBuildPlan の versionPending)が、
+ * 番人の打ち切りに合わせて量を減らしながら全ページを作り直す。公開ドメインを替えた時に使う
+ * (委託のアドレスの付け替え・readdress.ts)。外から 1 回ずつ叩くと、Free の口座では 1 頁でも CPU の
+ * 上限で切られた(2026-11-09・1102)。
+ */
+export async function forgetPagesBuilt(
+  env: Pick<Env, "PUBLIC_PAGES">,
+): Promise<void> {
+  await env.PUBLIC_PAGES.delete(PAGES_KEY);
+}
