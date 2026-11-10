@@ -3,12 +3,16 @@ import { HttpError } from "./http.ts";
 import { enforceNetwork } from "./ip-gate.ts";
 import type { AuthUser, Env } from "./types.ts";
 
-async function nextUserId(env: Env): Promise<string> {
+/**
+ * 新しい利用者の番号。最初の 1 人だけ usr_001、その後は乱数にする。
+ * 人数から数えると、消した人の番号が次に招いた人へ回り、その番号で残した記録
+ * (許した回線・操作の記録)を別の人が引き継いでしまう(課題 4ace3c76)。
+ */
+export async function nextUserId(env: Env): Promise<string> {
   const row = await env.DB.prepare("SELECT COUNT(*) AS cnt FROM users").first<{
     cnt: number;
   }>();
-  const n = (row?.cnt ?? 0) + 1;
-  return `usr_${String(n).padStart(3, "0")}`;
+  return (row?.cnt ?? 0) === 0 ? "usr_001" : makeId("usr");
 }
 
 // ---------------------------------------------------------------------------

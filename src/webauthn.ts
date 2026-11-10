@@ -257,9 +257,35 @@ export interface VerifyRegistrationResult {
   aaguid: string;
 }
 
+/**
+ * 署名された origin が、この要求を受けた origin(scheme・ホスト・ポート)と同じで、
+ * 別サイトの枠の中からの操作でないことを確かめる。ホスト名だけの比べでは、同じホストの
+ * 別のポートや http の頁で作った署名も通ってしまう(課題 4ace3c76)。
+ */
+export function assertClientOrigin(
+  clientData: Record<string, unknown>,
+  expectedOrigin: string,
+): void {
+  let origin: string;
+  try {
+    origin = new URL(String(clientData.origin ?? "")).origin;
+  } catch {
+    origin = "";
+  }
+  if (!origin || origin !== expectedOrigin) {
+    throw new Error(
+      `WebAuthn: origin "${origin}" does not match "${expectedOrigin}"`,
+    );
+  }
+  if (clientData.crossOrigin === true) {
+    throw new Error("WebAuthn: cross-origin ceremony is not accepted");
+  }
+}
+
 export async function verifyRegistration(
   challenge: string,
   rpId: string,
+  expectedOrigin: string,
   response: {
     clientDataJSON: string; // base64url
     attestationObject: string; // base64url
@@ -280,14 +306,7 @@ export async function verifyRegistration(
     throw new Error("WebAuthn: challenge mismatch");
   }
 
-  // Verify origin hostname matches rpId
-  const origin = String(clientData.origin ?? "");
-  const originHostname = new URL(origin).hostname;
-  if (originHostname !== rpId) {
-    throw new Error(
-      `WebAuthn: origin hostname "${originHostname}" does not match rpId "${rpId}"`,
-    );
-  }
+  assertClientOrigin(clientData, expectedOrigin);
 
   // 2. Decode attestationObject (CBOR map)
   const attestationBytes = b64uDecode(response.attestationObject);
@@ -375,6 +394,7 @@ function derToRawEcdsaSignature(sig: Uint8Array): Uint8Array {
 export async function verifyAuthentication(
   challenge: string,
   rpId: string,
+  expectedOrigin: string,
   storedSpki: string,
   storedSignCount: number,
   response: {
@@ -398,14 +418,7 @@ export async function verifyAuthentication(
     throw new Error("WebAuthn: challenge mismatch");
   }
 
-  // Verify origin hostname matches rpId
-  const origin = String(clientData.origin ?? "");
-  const originHostname = new URL(origin).hostname;
-  if (originHostname !== rpId) {
-    throw new Error(
-      `WebAuthn: origin hostname "${originHostname}" does not match rpId "${rpId}"`,
-    );
-  }
+  assertClientOrigin(clientData, expectedOrigin);
 
   // 2. Parse authenticatorData
   const authDataBytes = b64uDecode(response.authenticatorData);

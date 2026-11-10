@@ -1,2 +1,2 @@
 /** リリーススクリプトが VERSION と同時に更新する、実行時バージョンの正本。 */
-export const KUROCMS_VERSION = "2.0.0";
+export const KUROCMS_VERSION = "2.0.3";
