@@ -3,6 +3,9 @@ import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { renderTemplate } from "./templates/html-template.ts";
 import {
+  VOTES_PER_NETWORK_HOUR,
+  VOTES_PER_SITE_HOUR,
+  networkOf,
   placeReactionSlot,
   reactionEndpoint,
   renderReactionWidget,
@@ -30,7 +33,13 @@ sqlite.exec(
   ),
 );
 sqlite.exec(
-  "INSERT INTO documents (did, live) VALUES ('a', 1), ('b', 1), ('c', 1), ('draft', 0)",
+  readFileSync(
+    new URL("../migrations/0091_reaction_rate.sql", import.meta.url),
+    "utf8",
+  ),
+);
+sqlite.exec(
+  "INSERT INTO documents (did, live) VALUES ('a', 1), ('b', 1), ('c', 1), ('draft', 0), ('flood', 1)",
 );
 
 const db = {
@@ -307,6 +316,89 @@ assert.equal(
   // 口が受け付けない id は、動きようがないので出さない(誤りの札だけが残る)
   assert.equal(renderReactionWidget("bad id!", "", "ja"), "");
 }
+
+{
+  // Cookie を毎回替えても、同じ回線からの新しい投票は 1 時間の上限で止まる(課題 b299a24e)。
+  const vote = (ip: string) =>
+    api("flood", {
+      method: "POST",
+      headers: {
+        Origin: "https://example.com",
+        "Content-Type": "application/json",
+        Cookie: `kuro_reaction_id=${crypto.randomUUID()}`,
+        "CF-Connecting-IP": ip,
+      },
+      body: JSON.stringify({ type: "like" }),
+    });
+  const before = () =>
+    (
+      sqlite
+        .prepare(
+          "SELECT COUNT(*) AS n FROM article_reactions WHERE did = 'flood'",
+        )
+        .get() as { n: number }
+    ).n;
+  for (let i = 0; i < VOTES_PER_NETWORK_HOUR; i++)
+    assert.equal((await vote("198.51.100.7")).status, 200, `vote ${i}`);
+  const blocked = await vote("198.51.100.7");
+  assert.equal(blocked.status, 429, "同じ回線は Cookie を替えても止まる");
+  assert.equal(blocked.data.error, "rate_limited");
+  assert.equal(before(), VOTES_PER_NETWORK_HOUR, "止めた投票は書かない");
+  // IPv6 は /64 で 1 つ(末尾を替えても同じ回線)。
+  for (let i = 0; i < VOTES_PER_NETWORK_HOUR; i++)
+    assert.equal(
+      (await vote(`2001:db8:1:2::${(i + 1).toString(16)}`)).status,
+      200,
+    );
+  assert.equal((await vote("2001:db8:1:2:ffff::1")).status, 429);
+  // 別の回線は通る。
+  assert.equal((await vote("203.0.113.9")).status, 200);
+  // 数え札に回線そのものは残さない。
+  const buckets = sqlite.prepare("SELECT bucket FROM reaction_rate").all() as {
+    bucket: string;
+  }[];
+  assert.ok(buckets.length > 0);
+  assert.ok(
+    buckets.every((b) => /^[0-9a-f]{32}$/.test(b.bucket)),
+    "数え札は鍵付きのハッシュだけ",
+  );
+  // 期限の過ぎた数え札は、次の投票で消える。
+  sqlite.exec(
+    "UPDATE reaction_rate SET expires_at = '2000-01-01T00:00:00.000Z'",
+  );
+  assert.equal(
+    (await vote("198.51.100.7")).status,
+    200,
+    "1 時間たてばまた入れる",
+  );
+  assert.equal(
+    (
+      sqlite
+        .prepare(
+          "SELECT COUNT(*) AS n FROM reaction_rate WHERE expires_at <= '2000-01-01T00:00:00.000Z'",
+        )
+        .get() as { n: number }
+    ).n,
+    0,
+  );
+  // サイト全体の上限: 回線を替え続けても、1 時間に書けるのは上限まで(D1 の書き込みの量の上限)。
+  sqlite.exec("DELETE FROM reaction_rate");
+  let ok = 0;
+  let limited = 0;
+  for (let i = 0; i < VOTES_PER_SITE_HOUR + 5; i++) {
+    const r = await vote(`10.${(i >> 16) & 255}.${(i >> 8) & 255}.${i & 255}`);
+    if (r.status === 200) ok++;
+    else if (r.status === 429) limited++;
+  }
+  assert.equal(ok, VOTES_PER_SITE_HOUR);
+  assert.equal(limited, 5);
+}
+
+assert.equal(networkOf("198.51.100.7"), "198.51.100.7");
+assert.equal(networkOf("2001:DB8:0001:0002:aaaa::1"), "2001:db8:1:2::/64");
+assert.equal(networkOf("2001:db8::1"), "2001:db8:0:0::/64");
+assert.equal(networkOf("::1"), "0:0:0:0::/64");
+assert.equal(networkOf(null), "unknown");
 
 console.log(
   "reaction migration, widget, public API and duplicate-vote contract OK",

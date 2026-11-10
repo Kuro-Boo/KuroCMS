@@ -1,3 +1,4 @@
+import { randomToken } from "./crypto.ts";
 import type { Env } from "./types";
 
 type ReactionType = "like" | "useful" | "excellent";
@@ -6,6 +7,17 @@ const TYPES: ReactionType[] = ["like", "useful", "excellent"];
 const COOKIE = "kuro_reaction_id";
 const COOKIE_AGE = 365 * 24 * 60 * 60;
 const MAX_BODY = 1024;
+
+/**
+ * 新しい投票の 1 時間の上限(課題 b299a24e)。Cookie は外から好きな値を名乗れるので、Cookie ごとの上限
+ * (VOTES_PER_COOKIE_HOUR)だけでは値を替えて抜けられる。そこで、接続元の回線ごと(IPv4 は 1 つ・IPv6 は /64)と、
+ * サイト全体の数も数える。サイト全体の上限が、外からの要求で増やせる D1 の書き込みの量の上限になる。
+ * 回線の上限は、同じ回線の後ろに人が多い所(学校・会社)でも普通の読者を止めない程度にする。
+ */
+export const VOTES_PER_COOKIE_HOUR = 20;
+export const VOTES_PER_NETWORK_HOUR = 30;
+export const VOTES_PER_SITE_HOUR = 600;
+const HOUR_MS = 60 * 60 * 1000;
 
 /**
  * Keep manually positioned slots; make older DB templates work unchanged.
@@ -177,6 +189,90 @@ async function readBody(request: Request): Promise<string | null> {
   return new TextDecoder().decode(body);
 }
 
+/** 接続元の回線。IPv6 は利用者ごとに /64 を渡されることが多いので、/64 で 1 つに数える。 */
+export function networkOf(ip: string | null): string {
+  const v = (ip || "").trim().toLowerCase();
+  if (!v) return "unknown";
+  if (!v.includes(":")) return v;
+  // 省略(::)を広げて、先頭の 4 組だけを取る。
+  const [head, tail = ""] = v.split("::", 2);
+  const h = head ? head.split(":") : [];
+  const t = v.includes("::") ? (tail ? tail.split(":") : []) : [];
+  const full = v.includes("::")
+    ? [...h, ...Array(Math.max(0, 8 - h.length - t.length)).fill("0"), ...t]
+    : h;
+  return (
+    full
+      .slice(0, 4)
+      .map((g) => g.replace(/^0+(?=.)/, ""))
+      .join(":") + "::/64"
+  );
+}
+
+// 数え札の鍵。数え札に回線をそのまま置かないための、サイトごとの非公開の乱数(KV に一度だけ作る)。
+// 公開ミラーに載る定数を鍵にしない(誰でも同じハッシュを作れる)。unfurl.ts の鍵とは分ける。
+const RATE_KEY_KV = "reaction:ratekey:v1";
+let cachedRateKey: CryptoKey | null = null;
+
+async function rateKey(env: Env): Promise<CryptoKey> {
+  if (cachedRateKey) return cachedRateKey;
+  let material = env.PUBLIC_PAGES
+    ? (await env.PUBLIC_PAGES.get(RATE_KEY_KV)) || ""
+    : "";
+  if (!material) {
+    material = randomToken();
+    if (env.PUBLIC_PAGES) await env.PUBLIC_PAGES.put(RATE_KEY_KV, material);
+  }
+  cachedRateKey = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode("kurocms-reaction-rate-v1:" + material),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  return cachedRateKey;
+}
+
+async function bucketOf(env: Env, label: string): Promise<string> {
+  const sig = await crypto.subtle.sign(
+    "HMAC",
+    await rateKey(env),
+    new TextEncoder().encode(label),
+  );
+  return Array.from(new Uint8Array(sig).slice(0, 16), (b) =>
+    b.toString(16).padStart(2, "0"),
+  ).join("");
+}
+
+/**
+ * 回線とサイト全体の、この 1 時間の新しい投票を 1 つ数え、どちらかが上限を超えたら false。
+ * 期限の過ぎた数え札は先に消す(1 時間より長く残さない)。超えた試みも数える(繰り返すほど開かない)。
+ */
+async function withinRate(
+  env: Env,
+  request: Request,
+  now: number,
+): Promise<boolean> {
+  const window = Math.floor(now / HOUR_MS);
+  const expires = new Date((window + 1) * HOUR_MS).toISOString();
+  await env.DB.prepare("DELETE FROM reaction_rate WHERE expires_at <= ?")
+    .bind(new Date(now).toISOString())
+    .run();
+  const network = networkOf(request.headers.get("CF-Connecting-IP"));
+  const take = async (label: string): Promise<number> => {
+    const row = await env.DB.prepare(
+      "INSERT INTO reaction_rate (bucket, n, expires_at) VALUES (?, 1, ?) ON CONFLICT(bucket) DO UPDATE SET n = n + 1 RETURNING n",
+    )
+      .bind(await bucketOf(env, label), expires)
+      .first<{ n: number }>();
+    return row?.n ?? 0;
+  };
+  const byNetwork = await take(`net:${window}:${network}`);
+  if (byNetwork > VOTES_PER_NETWORK_HOUR) return false;
+  const bySite = await take(`site:${window}`);
+  return bySite <= VOTES_PER_SITE_HOUR;
+}
+
 async function snapshot(
   env: Env,
   did: string,
@@ -262,7 +358,11 @@ export async function reactionEndpoint(
     )
       .bind(voterHash)
       .first<{ n: number }>();
-    if ((recent?.n || 0) >= 20) return response({ error: "rate_limited" }, 429);
+    if ((recent?.n || 0) >= VOTES_PER_COOKIE_HOUR)
+      return response({ error: "rate_limited" }, 429);
+    // Cookie は好きな値を名乗れるので、回線とサイト全体でも数える(課題 b299a24e)。
+    if (!(await withinRate(env, request, Date.now())))
+      return response({ error: "rate_limited" }, 429);
     const inserted = await env.DB.prepare(
       "INSERT INTO article_reactions (id, did, reaction_type, voter_hash, created_at) VALUES (?, ?, ?, ?, datetime('now')) ON CONFLICT(did, voter_hash) DO NOTHING",
     )
