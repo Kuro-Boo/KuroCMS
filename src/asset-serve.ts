@@ -10,12 +10,17 @@ import {
   fetchUpdateArtifact,
   fetchUpdateManifest,
   reasonOf,
+  type ReleaseToken,
+  type UpdateManifest,
 } from "./release-source";
 import { reportRelease } from "./release-report";
 
-const ASSET_RE =
-  /^(admin-app|ke|ke-content|kuro-links|kuro-code-copy|kuro-head|kuro-site|html2canvas)\.[a-z0-9.]+\.(js|css)$/;
-const KV_PREFIX = "admin:asset:";
+import {
+  ASSET_RE,
+  KV_PREFIX,
+  prefillAssets,
+  type PrefillResult,
+} from "./asset-prefill.ts";
 const IMMUTABLE = "public, max-age=31536000, immutable";
 
 function contentType(filename: string): string {
@@ -105,4 +110,35 @@ export async function serveAdminAsset(
   }
 
   return new Response("Admin asset unavailable", { status: 503 });
+}
+
+/** 番人が配った後の migrate の口から: 自分の版の部品を取り寄せておく。 */
+export async function prefillOwnAdminAssets(env: Env): Promise<void> {
+  const version = KUROCMS_VERSION.replace(/^v/, "");
+  const token = releaseToken(env);
+  try {
+    await prefillAdminAssets(
+      env,
+      await fetchUpdateManifest(version, undefined, token),
+      token,
+    );
+  } catch (err) {
+    await reportRelease(env, "release_update_failed", {
+      what: "asset_prefill",
+      version,
+      reason: reasonOf(err),
+    });
+  }
+}
+
+/** 版の一覧(確かめ済み)から、管理画面の部品を取り寄せておく。Worker を入れ替える前に呼ぶ。 */
+export function prefillAdminAssets(
+  env: Env,
+  manifest: UpdateManifest,
+  token?: ReleaseToken,
+): Promise<PrefillResult> {
+  return prefillAssets(env.PUBLIC_PAGES, manifest, {
+    fetchArtifact: (name) => fetchUpdateArtifact(manifest, name, token),
+    report: (code, detail) => reportRelease(env, code, detail),
+  });
 }
