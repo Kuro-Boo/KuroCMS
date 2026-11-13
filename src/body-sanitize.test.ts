@@ -8,7 +8,7 @@
 //    後でエディタで開いたときに形が化ける（＝トラブルの元）。
 // ② 守りを通す場所が抜けていないこと（ソースを読んで縛る。経路を足したら足す）。
 import { readFileSync } from "node:fs";
-import { sanitizeContentHtml } from "./kuroeditor/normalize.js";
+import { sanitizeContentHtml } from "../../KuroEditor/src/normalize.js";
 
 let failures = 0;
 const check = (name: string, ok: boolean, detail = "") => {

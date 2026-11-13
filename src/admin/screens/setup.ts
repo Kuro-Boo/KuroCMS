@@ -1,0 +1,495 @@
+// KuroCMS admin screen module. Concatenated by scripts/build-admin.js.
+
+// パスキーで入った直後に、もう片方の族(IPv4 ⇔ IPv6)の回線も登録する(IP 制限・ip-gate.ts)。
+// 登録はその要求が通った族だけなので、ブラウザが後で族を切り替えると止まり、パスキーを
+// 求め直していた。Cloudflare の族ごとの宛先(A だけ・AAAA だけの名前)から自分のアドレスを読んで送る。
+// 読めなければ(IPv6 の無い回線など)何もしない。ログインは待たせない(3 秒で諦める)。
+const SIBLING_TRACE_URLS = [
+  // 族ごとに 1 つの名前だけを持つ Cloudflare の宛先(A だけ・AAAA だけ)。アドレスを直接書くと、
+  // 管理画面の CSP(connect-src)が IPv6 のアドレスを出どころとして書けず、強制で止まる(2026-11-05)。
+  "https://ipv4.cloudflare-dns.com/cdn-cgi/trace",
+  "https://ipv6.cloudflare-dns.com/cdn-cgi/trace",
+];
+async function registerSiblingNetwork(): Promise<void> {
+  const reads = await Promise.allSettled(
+    SIBLING_TRACE_URLS.map(async (u) => {
+      const r = await fetch(u, {
+        cache: "no-store",
+        credentials: "omit",
+        signal: AbortSignal.timeout(3000),
+      });
+      const m = new RegExp("^ip=(.+)$", "m").exec(await r.text());
+      return m ? m[1]!.trim() : "";
+    }),
+  );
+  const ips = reads.flatMap((x) =>
+    x.status === "fulfilled" && x.value ? [x.value] : [],
+  );
+  if (!ips.length) return;
+  try {
+    await api("/api/auth/networks/sibling", {
+      method: "POST",
+      body: JSON.stringify({ ips }),
+    });
+  } catch {
+    /* 登録できなくても、族が切り替わったときにパスキーを求めるだけ */
+  }
+}
+
+// 引っ越しの先で、受付が写している間(仕様 cms-move-to-self)。初期化もログインも出さない ——
+// 終わると、利用者全員へパスキーを登録するリンクがメールで届く。
+function movingScreen() {
+  setSidebarMode("setup");
+  app.innerHTML =
+    "<section class='setup'><div class='setupHero'><h2>" +
+    escapeHtml(t("moveReceivingTitle")) +
+    "</h2><p>" +
+    escapeHtml(t("moveReceivingLead")) +
+    "</p></div></section>";
+}
+
+async function loginScreen(errorMsg = "") {
+  setSidebarMode("setup");
+  app.innerHTML =
+    "<section class='setup'><div class='setupHero'><h2>" +
+    escapeHtml(t("loginTitle")) +
+    "</h2><p>" +
+    escapeHtml(t("loginLead")) +
+    "</p></div><div class='setupLayout'><div class='stack panel'>" +
+    (errorMsg
+      ? "<div class='notice error'>" + escapeHtml(errorMsg) + "</div>"
+      : "") +
+    "<div class='toolbar' style='justify-content:center'><button id='passkeyLoginBtn' style='min-width:220px'>" +
+    escapeHtml(t("loginWithPasskey")) +
+    "</button></div>" +
+    // ── 新しくデバイスを登録する場合（メールのワンタイムリンク）— 常時表示 ──
+    "<div style='margin-top:18px;padding-top:16px;border-top:1px solid var(--border,#2a2f3a)'><div style='font-weight:600;margin-bottom:6px'>" +
+    escapeHtml(t("loginNewDeviceTitle")) +
+    "</div><div class='muted' style='font-size:13px;margin-bottom:8px'>" +
+    escapeHtml(t("recoverRequestLead")) +
+    "</div><form id='recoverForm' class='stack' style='gap:8px'><input id='recoverEmail' type='email' autocomplete='username' placeholder='admin@example.com' /><button type='submit'>" +
+    escapeHtml(t("recoverSendLink")) +
+    "</button><div id='recoverReqStatus'></div></form><div class='muted' style='font-size:12px;margin-top:10px;line-height:1.6'>" +
+    escapeHtml(t("loginNewDeviceAfter")) +
+    "</div></div>" +
+    "</div></div></section>";
+  /**
+   * 送信結果の表示。**順調なら「送信しました」だけ**を出す。
+   * 代送・上限・失敗のときだけ、その理由を足す。
+   */
+  function recoverStatusHtml(delivery: Dynamic): string {
+    const sent =
+      "<div class='notice'>" + escapeHtml(t("recoverSent")) + "</div>";
+    if (!delivery) return sent;
+    const reason = (label: string, value: string): string =>
+      value
+        ? "<div class='muted' style='font-size:12px;margin-top:4px'>" +
+          escapeHtml(label + ": " + value) +
+          "</div>"
+        : "";
+    // 上限に達した場合は、待てば戻ることを伝える（設定の誤りと区別する）。
+    const quota =
+      typeof delivery.kuroBooError === "string" &&
+      /quota|rate|limit/i.test(delivery.kuroBooError);
+    if (!delivery.delivered) {
+      return (
+        "<div class='notice' style='border-color:var(--danger,#b42318)'>" +
+        escapeHtml(t("recoverNotDelivered")) +
+        (quota ? " " + escapeHtml(t("recoverQuota")) : "") +
+        "</div>" +
+        reason(t("recoverRelayedReason"), delivery.ownDomainError || "") +
+        reason(t("recoverReason"), delivery.kuroBooError || "")
+      );
+    }
+    if (delivery.relayed) {
+      return (
+        sent +
+        "<div class='notice' style='margin-top:6px'>" +
+        escapeHtml(t("recoverRelayed")) +
+        "</div>" +
+        reason(t("recoverRelayedReason"), delivery.ownDomainError || "")
+      );
+    }
+    return sent;
+  }
+
+  byId("recoverForm")?.addEventListener("submit", async (e: Dynamic) => {
+    e.preventDefault();
+    const btn = e.submitter || e.target.querySelector("button[type=submit]");
+    const email = (byId("recoverEmail")?.value || "").trim();
+    if (!email) return;
+    if (btn) btn.disabled = true;
+    try {
+      const res = await api("/api/auth/recover/request", {
+        method: "POST",
+        // ⚠ **いま見ている画面の言語を一緒に送る。** 管理画面の言語は
+        //   localStorage にしか無く、サーバーは知らない。送らないと、
+        //   ログインできなくなった人が**読めない言語の復旧メール**を受け取る。
+        body: JSON.stringify({ email, lang: state.uiLang }),
+      });
+      const st = byId("recoverReqStatus");
+      if (st) st.innerHTML = recoverStatusHtml(res?.delivery);
+    } catch (err) {
+      // 宛先が登録済みかどうかは相変わらず伏せる（同じ文面を出す）。
+      // ⚠ ただし**配送そのものの不調は伝える** —— ここは管理画面に入れなく
+      //   なった人の最後の手段で、「送信しました」と言われたまま何も届かない
+      //   のが一番困る。理由が読めれば、待てばよいのか設定を直すべきなのかが
+      //   判断できる。
+      const st = byId("recoverReqStatus");
+      if (st) st.innerHTML = recoverStatusHtml(null);
+      void err;
+    }
+  });
+  byId("passkeyLoginBtn")!.addEventListener("click", async () => {
+    const btn = byId("passkeyLoginBtn");
+    if (btn) btn.disabled = true;
+    try {
+      const beginData = await api("/api/auth/passkey/login/begin", {
+        method: "POST",
+        body: "{}",
+      });
+      const credential = await navigator.credentials.get({
+        publicKey: {
+          challenge: b64uDecode(beginData.challenge),
+          rpId: beginData.rpId,
+          userVerification: "required",
+          timeout: 60000,
+        },
+      });
+      await api("/api/auth/passkey/login/complete", {
+        method: "POST",
+        body: JSON.stringify({
+          challengeId: beginData.challengeId,
+          credential: serializeCredentialForAuthentication(
+            credential as PublicKeyCredential,
+          ),
+        }),
+      });
+      await registerSiblingNetwork();
+      render();
+    } catch (err) {
+      loginScreen(errorMessage(err) || t("apiFailed"));
+    }
+  });
+}
+
+async function inviteScreen(token: Dynamic) {
+  setSidebarMode("setup");
+  app.innerHTML =
+    "<section class='setup'><div class='setupHero'><h2>" +
+    escapeHtml(t("registerPasskey")) +
+    "</h2></div><div class='setupLayout'><div class='stack panel' id='inviteContent'><p>" +
+    escapeHtml(t("loginLead")) +
+    "</p></div></div></section>";
+  const content = byId("inviteContent")!;
+  try {
+    const invite = await api("/api/auth/invite/" + encodeURIComponent(token));
+    content.innerHTML =
+      "<p><b>" +
+      escapeHtml(invite.email) +
+      "</b></p><div class='toolbar' style='justify-content:center'><button id='inviteRegBtn' style='min-width:220px'>" +
+      escapeHtml(t("registerPasskey")) +
+      "</button></div><div id='inviteStatus'></div>";
+    byId("inviteRegBtn")!.addEventListener("click", async () => {
+      const btn = byId("inviteRegBtn");
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = t("registeringPasskey");
+      }
+      try {
+        const beginData = await api("/api/auth/passkey/register/begin", {
+          method: "POST",
+          body: JSON.stringify({ invitationToken: token }),
+        });
+        const credential = await navigator.credentials.create({
+          publicKey: {
+            challenge: b64uDecode(beginData.challenge),
+            rp: beginData.rp,
+            user: {
+              id: b64uDecode(beginData.user.id),
+              name: beginData.user.name,
+              displayName: beginData.user.displayName,
+            },
+            pubKeyCredParams: beginData.pubKeyCredParams,
+            timeout: beginData.timeout,
+            attestation: beginData.attestation,
+            authenticatorSelection: beginData.authenticatorSelection,
+          },
+        });
+        await api("/api/auth/passkey/register/complete", {
+          method: "POST",
+          body: JSON.stringify({
+            challengeId: beginData.challengeId,
+            credential: serializeCredentialForRegistration(
+              credential as PublicKeyCredential,
+            ),
+            invitationToken: token,
+          }),
+        });
+        const url = new URL(location.href);
+        url.searchParams.delete("invite");
+        await registerSiblingNetwork();
+        history.replaceState(null, "", url.toString());
+        render();
+      } catch (err) {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = t("registerPasskey");
+        }
+        const st = byId("inviteStatus");
+        if (st)
+          st.innerHTML =
+            "<div class='notice error'>" +
+            escapeHtml(errorMessage(err) || t("apiFailed")) +
+            "</div>";
+      }
+    });
+  } catch (err) {
+    content.innerHTML =
+      "<div class='notice error'>" +
+      escapeHtml(errorMessage(err) || t("apiFailed")) +
+      "</div>";
+  }
+}
+
+// Recovery via emailed magic link: register a NEW passkey for an existing,
+// locked-out account. Mirrors inviteScreen but uses a recoveryToken.
+async function recoverScreen(token: Dynamic) {
+  setSidebarMode("setup");
+  app.innerHTML =
+    "<section class='setup'><div class='setupHero'><h2>" +
+    escapeHtml(t("recoverTitle")) +
+    "</h2></div><div class='setupLayout'><div class='stack panel' id='recoverContent'><p>" +
+    escapeHtml(t("loginLead")) +
+    "</p></div></div></section>";
+  const content = byId("recoverContent")!;
+  try {
+    const info = await api("/api/auth/recover/" + encodeURIComponent(token));
+    content.innerHTML =
+      "<p>" +
+      escapeHtml(t("recoverLead")) +
+      "</p><p><b>" +
+      escapeHtml(info.email) +
+      "</b></p><div class='toolbar' style='justify-content:center'><button id='recoverRegBtn' style='min-width:220px'>" +
+      escapeHtml(t("registerPasskey")) +
+      "</button></div><div id='recoverStatus'></div>";
+    byId("recoverRegBtn")!.addEventListener("click", async () => {
+      const btn = byId("recoverRegBtn");
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = t("registeringPasskey");
+      }
+      try {
+        const beginData = await api("/api/auth/passkey/register/begin", {
+          method: "POST",
+          body: JSON.stringify({ recoveryToken: token }),
+        });
+        const credential = await navigator.credentials.create({
+          publicKey: {
+            challenge: b64uDecode(beginData.challenge),
+            rp: beginData.rp,
+            user: {
+              id: b64uDecode(beginData.user.id),
+              name: beginData.user.name,
+              displayName: beginData.user.displayName,
+            },
+            pubKeyCredParams: beginData.pubKeyCredParams,
+            timeout: beginData.timeout,
+            attestation: beginData.attestation,
+            authenticatorSelection: beginData.authenticatorSelection,
+          },
+        });
+        await api("/api/auth/passkey/register/complete", {
+          method: "POST",
+          body: JSON.stringify({
+            challengeId: beginData.challengeId,
+            credential: serializeCredentialForRegistration(
+              credential as PublicKeyCredential,
+            ),
+            recoveryToken: token,
+          }),
+        });
+        const url = new URL(location.href);
+        url.searchParams.delete("recover");
+        await registerSiblingNetwork();
+        history.replaceState(null, "", url.toString());
+        render();
+      } catch (err) {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = t("registerPasskey");
+        }
+        const st = byId("recoverStatus");
+        if (st)
+          st.innerHTML =
+            "<div class='notice error'>" +
+            escapeHtml(errorMessage(err) || t("apiFailed")) +
+            "</div>";
+      }
+    });
+  } catch (err) {
+    content.innerHTML =
+      "<div class='notice error'>" +
+      escapeHtml(errorMessage(err) || t("apiFailed")) +
+      "</div>";
+  }
+}
+
+/**
+ * 初期設定の鍵(導入の完了画面のリンクの #setup=…・課題 4dea81be)。# の後ろはサーバーに届かず、ログに残らない。
+ * 読んだらアドレス欄から消し、このタブの間だけ持つ(言語の切り替えなどで描き直しても続けられる)。
+ */
+function takeSetupLinkToken(): string {
+  const key = "kurocms-setup-token";
+  const prefix = "#setup=";
+  if (location.hash.startsWith(prefix)) {
+    const token = decodeURIComponent(location.hash.slice(prefix.length));
+    history.replaceState(null, "", location.pathname + location.search);
+    try {
+      sessionStorage.setItem(key, token);
+    } catch {
+      /* 保存できなくても、この描画の間は使える */
+    }
+    return token;
+  }
+  try {
+    return sessionStorage.getItem(key) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+async function setupScreen(status: Dynamic) {
+  setSidebarMode("setup");
+  const setupLinkToken = takeSetupLinkToken();
+  app.innerHTML =
+    "<section class='setup'><div class='setupHero'><h2>" +
+    escapeHtml(t("setupTitle")) +
+    "</h2><p>" +
+    escapeHtml(t("setupLead")) +
+    "</p></div><div class='setupLayout'><form class='stack panel' id='setupForm'><div><span class='sectionLabel'>" +
+    escapeHtml(t("selectLanguage")) +
+    "</span></div>" +
+    localeSelectHtml() +
+    "<div style='margin-top:12px'><span class='sectionLabel'>" +
+    escapeHtml(t("adminUrlLabel")) +
+    "</span><div class='muted' style='margin:6px 0 4px;font-size:13px'>" +
+    escapeHtml(t("adminUrlDerivedFromBootstrap")) +
+    "</div><div id='setupAdminUrlDisplay' style='padding:10px 12px;background:var(--surface-2);border-radius:10px;font-size:13px;font-family:ui-monospace,monospace;color:var(--ink)'></div></div>" +
+    "<div class='toolbar'><button id='setupSubmit' type='submit'>" +
+    escapeHtml(t("completeSetup")) +
+    "</button></div></form></div></section>";
+  const submit = byId("setupSubmit")!;
+  // 初期設定の鍵が無ければ進めない(誰でも先に管理者になれる口を閉じた・課題 4dea81be)。
+  if (!setupLinkToken) {
+    submit.disabled = true;
+    byId("setupForm")?.insertAdjacentHTML(
+      "afterbegin",
+      "<div class='notice error'>" +
+        escapeHtml(t("setupLinkMissing")) +
+        "</div>",
+    );
+  }
+  const derivedPublicDomain = (() => {
+    const path = location.pathname;
+    const idx = path.lastIndexOf("/kurocms/");
+    if (idx > 0) return location.origin + path.slice(0, idx) + "/";
+    return location.origin + "/";
+  })();
+  const adminUrlDisplay = byId("setupAdminUrlDisplay");
+  if (adminUrlDisplay)
+    adminUrlDisplay.textContent =
+      location.origin + normalizedAdminEntryPath + "/";
+  bindLocaleSelect(() => setupScreen(status));
+  byId("setupForm")!.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const submitBtn = byId("setupSubmit")!;
+    const originalText = submitBtn.textContent;
+    submitBtn.disabled = true;
+    try {
+      const setupLang = state.uiLang || "en";
+      await api("/api/setup", {
+        method: "POST",
+        body: JSON.stringify({
+          setupToken: setupLinkToken,
+          publicDomain: derivedPublicDomain,
+          defaultLang: setupLang,
+          initialLang: setupLang,
+          // サイトの時計。立ち上げている本人のブラウザの TZ をそのまま採る
+          // （新規サイトはこれで設定画面を一度も開かずに正しくなる）。
+          // 検出できない環境では送らず、サーバー側で UTC 既定になる。
+          siteTimezone: detectBrowserTimezone(),
+        }),
+      });
+      submitBtn.textContent = t("registeringPasskey");
+      const beginPasskey = () =>
+        api("/api/auth/passkey/register/begin", {
+          method: "POST",
+          body: JSON.stringify({ setupToken: setupLinkToken }),
+        });
+      let beginData = await beginPasskey();
+      // OS のパスキーの窓を出す前に、何を作るかを言い、押させる(cms-cms-auth「パスキーの名前」)。
+      // 窓はこの押下の直後に出す —— 待ちを挟むと、押した直後と見なさずに断るブラウザがある。
+      byId("setupForm")!.outerHTML =
+        "<div class='stack panel' id='setupPasskeyConfirm'><p>" +
+        escapeHtml(
+          t("setupPasskeyNext").replace("{name}", String(beginData.rp.name)),
+        ) +
+        "</p>" +
+        "<p>" +
+        escapeHtml(t("setupPasskeyTwo")) +
+        "</p>" +
+        "<div class='toolbar'><button id='setupPasskeyGo' type='button'>" +
+        escapeHtml(t("setupPasskeyGo")) +
+        "</button></div></div>";
+      const go = byId("setupPasskeyGo")!;
+      go.addEventListener("click", async () => {
+        go.disabled = true;
+        try {
+          const credential = await navigator.credentials.create({
+            publicKey: {
+              challenge: b64uDecode(beginData.challenge),
+              rp: beginData.rp,
+              user: {
+                id: b64uDecode(beginData.user.id),
+                name: beginData.user.name,
+                displayName: beginData.user.displayName,
+              },
+              pubKeyCredParams: beginData.pubKeyCredParams,
+              timeout: beginData.timeout,
+              attestation: beginData.attestation,
+              authenticatorSelection: beginData.authenticatorSelection,
+            },
+          });
+          await api("/api/auth/passkey/register/complete", {
+            method: "POST",
+            body: JSON.stringify({
+              challengeId: beginData.challengeId,
+              credential: serializeCredentialForRegistration(
+                credential as PublicKeyCredential,
+              ),
+              setupToken: setupLinkToken,
+            }),
+          });
+          await registerSiblingNetwork();
+          try {
+            sessionStorage.removeItem("kurocms-setup-token");
+          } catch {
+            /* 使えなくてもよい(鍵はもう使い切った) */
+          }
+          history.pushState(null, "", adminHref("") + "/");
+          render();
+        } catch (err) {
+          toast(errorMessage(err) || t("apiFailed"), true);
+          // 押し直せるように、使った challenge を取り替えておく(1 回きり)。
+          beginData = await beginPasskey().catch(() => beginData);
+          go.disabled = false;
+        }
+      });
+    } catch (err) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = originalText;
+      toast(errorMessage(err) || t("apiFailed"), true);
+    }
+  });
+}

@@ -5,7 +5,7 @@ import { checkRecipeCards } from "./recipe-guard.ts";
 import {
   buildRecipeCardHtml,
   normalizeRecipe,
-} from "./kuroeditor/recipe.js";
+} from "../../KuroEditor/src/recipe.js";
 
 const RECIPE = normalizeRecipe({
   yield: "2人分",

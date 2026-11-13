@@ -2,7 +2,7 @@
 //
 // javascript: などの押すと動く URL は空にする。判定は KuroEditor の isSafeUrl
 // (エディタと同じ1つ)で、ここでは再実装しない。& < > " は文字参照にする。
-import { isSafeUrl } from "./kuroeditor/kuro-links.js";
+import { isSafeUrl } from "../../KuroEditor/src/kuro-links.js";
 
 export function urlAttr(u: string, kind: "href" | "src" = "href"): string {
   const v = isSafeUrl(u, kind) ? String(u ?? "") : "";
