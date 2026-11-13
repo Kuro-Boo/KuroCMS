@@ -360,6 +360,46 @@
   // ── 記事の検索([[search]]) ─────────────────────────────────────────
   function search(root: HTMLElement): void {
     const EP = root.getAttribute("data-ks-ep") || "/_search";
+    // 登録した頁だけを配るサイト(旗 static-only)は、表題の一覧を 1 度読み込んで、ここで絞り込む
+    // (表題だけの検索・cms-cms-build「登録した頁だけを配る」)。サーバーに問い合わせない。
+    const IDX = root.getAttribute("data-ks-index") || "";
+    let idx: Promise<Array<{ t: string; u: string }>> | null = null;
+    const PAGE = 10;
+    const ask = (
+      q: string,
+      offset: number,
+    ): Promise<{
+      results?: Hit[];
+      next_offset?: number | null;
+      total?: number;
+    }> => {
+      if (!IDX)
+        return fetch(
+          EP +
+            "?q=" +
+            encodeURIComponent(q) +
+            "&lang=" +
+            encodeURIComponent(LANG) +
+            (offset ? "&offset=" + offset : ""),
+        ).then((r) => (r.ok ? r.json() : { results: [] }));
+      if (!idx)
+        idx = fetch(IDX)
+          .then((r) => (r.ok ? r.json() : []))
+          .catch(() => []);
+      const needle = q.toLowerCase();
+      return idx.then((all) => {
+        const hits = (Array.isArray(all) ? all : []).filter(
+          (x) => typeof x?.t === "string" && x.t.toLowerCase().includes(needle),
+        );
+        const page = hits.slice(offset, offset + PAGE);
+        const next = offset + PAGE < hits.length ? offset + PAGE : null;
+        return {
+          results: page.map((x) => ({ url: x.u, title: x.t })),
+          next_offset: next,
+          total: hits.length,
+        };
+      });
+    };
     const LANG = root.getAttribute("data-ks-lang") || "";
     const EMPTY = root.getAttribute("data-ks-empty") || "";
     const MORE = root.getAttribute("data-ks-more") || "";
@@ -419,17 +459,13 @@
         return;
       }
       const my = offset ? seq : ++seq;
-      fetch(
-        EP +
-          "?q=" +
-          encodeURIComponent(q) +
-          "&lang=" +
-          encodeURIComponent(LANG) +
-          (offset ? "&offset=" + offset : ""),
-      )
-        .then((r) => (r.ok ? r.json() : { results: [] }))
+      ask(q, offset || 0)
         .then(
-          (d: { results?: Hit[]; next_offset?: number; total?: number }) => {
+          (d: {
+            results?: Hit[];
+            next_offset?: number | null;
+            total?: number;
+          }) => {
             if (my !== seq) return;
             render(box, d && d.results, !!offset);
             if (d && typeof d.next_offset === "number") {
