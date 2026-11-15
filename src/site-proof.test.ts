@@ -1,5 +1,5 @@
 // このサイトの短い証(site-proof.ts)の試験。確かめるのは —— 置いた証だけが通る、期限が切れたら通らない、
-// 消したら通らない、KV にはハッシュだけを置く。
+// 消したら通らない、KV にはハッシュだけを置く、同時の頼みが互いの証を上書き・消ししない。
 import { checkSiteProof, clearSiteProof, makeSiteProof } from "./site-proof.ts";
 import type { Env } from "./types";
 
@@ -45,8 +45,23 @@ eq(
   await checkSiteProof(req(proof), env, 1000 + 10 * 60 * 1000 + 1),
   false,
 );
-await clearSiteProof(env);
+// 同時に走る 2 つの頼み: 後から置いた証が先の証を消さない・片方を消しても、もう片方は通る。
+const other = await makeSiteProof(env, 1000);
+eq(
+  "後から置いても先の証は通る",
+  await checkSiteProof(req(proof), env, 2000),
+  true,
+);
+await clearSiteProof(env, other);
+eq(
+  "別の頼みが自分の証を消しても通る",
+  await checkSiteProof(req(proof), env, 2000),
+  true,
+);
+eq("消した証は通らない", await checkSiteProof(req(other), env, 2000), false);
+await clearSiteProof(env, proof);
 eq("消したら通らない", await checkSiteProof(req(proof), env, 2000), false);
+eq("消したら何も残らない", kv.size, 0);
 
 if (failed) {
   console.log(`\n${failed} failed`);
