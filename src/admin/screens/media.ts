@@ -243,7 +243,7 @@ function loadMediaList(apiPath: Dynamic) {
             const versionedPath =
               (item.publicPath || "") +
               (item.cacheVersion ? "?v=" + item.cacheVersion : "");
-            const imgUrl = escapeHtml(publicBase + versionedPath);
+            const imgUrl = escapeHtml(mediaUrl(versionedPath));
             const thumb =
               item.kind === "image"
                 ? "<img src='" +

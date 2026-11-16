@@ -1395,7 +1395,7 @@ async function newArticle(editDid: Dynamic) {
           "</span>"
         : art.coverMid
           ? "<img src='" +
-            escapeHtml(publicBase + (art.coverVersionedPath || art.coverPath)) +
+            escapeHtml(mediaUrl(art.coverVersionedPath || art.coverPath)) +
             "' style='width:100%;height:100%;object-fit:cover' />"
           : "<span style='font-size:36px;color:var(--muted)'>&#128444;</span><span style='font-size:11px;color:var(--muted)'>" +
             escapeHtml(t("coverDropHint")) +
@@ -1922,8 +1922,7 @@ async function newArticle(editDid: Dynamic) {
             // ?v=cache_version 付き（data.url）で保持する。mid の URL は
             // immutable キャッシュされるため、素の publicPath だと（過去に
             // 同じパスが存在した場合）古いキャッシュ画像が表示される。
-            bodyMidUrlCache[data.mid] =
-              publicBase + (data.url || data.publicPath);
+            bodyMidUrlCache[data.mid] = mediaUrl(data.url || data.publicPath);
             // 中身が同一の既存画像に集約された場合はその旨を通知（重複登録防止）
             if (data.reused)
               toast(
@@ -1997,10 +1996,10 @@ async function newArticle(editDid: Dynamic) {
           results.forEach(function (d) {
             (d.items || []).forEach(function (item) {
               if (item.id && item.publicPath)
-                bodyMidUrlCache[item.id] =
-                  publicBase +
+                bodyMidUrlCache[item.id] = mediaUrl(
                   item.publicPath +
-                  (item.cacheVersion ? "?v=" + item.cacheVersion : "");
+                    (item.cacheVersion ? "?v=" + item.cacheVersion : ""),
+                );
             });
           });
           bodyMediaLoaded = true;

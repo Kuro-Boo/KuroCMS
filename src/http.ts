@@ -102,22 +102,21 @@ export function notFound(): Response {
   return jsonError(404, "not_found", "The requested resource was not found.");
 }
 
-// A browser navigating to a stray/typo'd URL (e.g. an old bookmark, a scanned
-// QR code) previously got the raw notFound() JSON body — Safari/Chrome can't
-// render that, so mobile browsers offer it as a "download" (looks broken).
-// Only requests that actually ask for HTML get this page; fetch()/XHR clients
-// (Accept: application/json or none) keep getting the plain JSON error.
-export function notFoundPage(
-  request: Request,
+/**
+ * 迷い込んだ道の 404 の頁(HTML)。Worker の応答と、ビルドが静的資産に置く `/404.html`(旗 static-404・
+ * cms-cms-build「登録した頁だけを配る」)の両方がこれを使う。`noindex` は静的資産の側だけに付ける ——
+ * `/404.html` は資産として 200 でも開けるので、検索エンジンに載せない。
+ */
+export function notFoundHtml(
   links: { homeHref: string; adminHref: string },
-): Response {
-  const accept = request.headers.get("accept") || "";
-  if (!accept.includes("text/html")) return notFound();
-  const body = `<!doctype html>
+  opts: { noindex?: boolean } = {},
+): string {
+  const robots = opts.noindex ? '\n<meta name="robots" content="noindex">' : "";
+  return `<!doctype html>
 <html lang="ja">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1">${robots}
 <title>404 Not Found</title>
 <style>
   body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center; background:#0f172a; color:#f1f5f9; font-family:ui-sans-serif,system-ui,sans-serif; }
@@ -137,6 +136,20 @@ export function notFoundPage(
   </div>
 </body>
 </html>`;
+}
+
+// A browser navigating to a stray/typo'd URL (e.g. an old bookmark, a scanned
+// QR code) previously got the raw notFound() JSON body — Safari/Chrome can't
+// render that, so mobile browsers offer it as a "download" (looks broken).
+// Only requests that actually ask for HTML get this page; fetch()/XHR clients
+// (Accept: application/json or none) keep getting the plain JSON error.
+export function notFoundPage(
+  request: Request,
+  links: { homeHref: string; adminHref: string },
+): Response {
+  const accept = request.headers.get("accept") || "";
+  if (!accept.includes("text/html")) return notFound();
+  const body = notFoundHtml(links);
   return html(body, { status: 404 });
 }
 

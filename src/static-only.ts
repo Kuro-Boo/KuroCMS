@@ -5,25 +5,43 @@
  * この isolate で 10 分控える —— 公開の道の入口から毎回 ID へ問い合わせない(入口は D1 にも KV にも触れない)。
  */
 import { lastRegisteredStatic } from "./assets-publish";
-import { cmsFlagOn } from "./feature-flags";
+import { cmsFlagOn, type CmsFlag } from "./feature-flags";
 import { ownerIsDeveloper } from "./release-token";
 import type { Env } from "./types";
 
 const HOLD_MS = 10 * 60_000;
-let held: { on: boolean; until: number } | null = null;
+const held = new Map<CmsFlag, { on: boolean; until: number }>();
+
+async function heldFlag(env: Env, id: CmsFlag, now: number): Promise<boolean> {
+  if (cmsFlagOn(id, false)) return true;
+  const h = held.get(id);
+  if (h && now < h.until) return h.on;
+  const on = cmsFlagOn(id, await ownerIsDeveloper(env));
+  held.set(id, { on, until: now + HOLD_MS });
+  return on;
+}
 
 export async function staticOnlyOn(
   env: Env,
   now = Date.now(),
 ): Promise<boolean> {
-  if (cmsFlagOn("static-only", false)) return true;
-  if (held && now < held.until) return held.on;
-  const on = cmsFlagOn("static-only", await ownerIsDeveloper(env));
-  held = { on, until: now + HOLD_MS };
-  return on;
+  return heldFlag(env, "static-only", now);
 }
 
-export { staticDynamicPath } from "./static-paths";
+/** 登録に無い道で Worker を呼ばない設定・探りを待たせる(旗 static-404)。static-only が効くサイトだけ。 */
+export async function static404On(
+  env: Env,
+  now = Date.now(),
+): Promise<boolean> {
+  return (await staticOnlyOn(env, now)) && heldFlag(env, "static-404", now);
+}
+
+export {
+  staticDynamicPath,
+  probePath,
+  PROBE_HOLD_MS,
+  assetRouting,
+} from "./static-paths";
 
 let registered: { on: boolean; until: number } | null = null;
 
@@ -50,6 +68,6 @@ export async function staticServing(
 
 /** 試験専用。控えを捨てる。 */
 export function __resetStaticOnlyForTest(): void {
-  held = null;
+  held.clear();
   registered = null;
 }
