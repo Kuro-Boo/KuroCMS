@@ -273,7 +273,9 @@ const TOOLS: ToolDef[] = [
         summary: { type: "string", description: "<=200 chars." },
         seo: {
           type: "object",
-          description: "SEO object (e.g. { coverPath }).",
+          description:
+            "SEO object. It REPLACES the stored SEO fields, except the cover: when it has neither coverMid nor coverPath, the stored cover image is kept. " +
+            'Send { coverMid: "", coverPath: "" } to remove the cover on purpose.',
         },
         hashtags: { type: "array", items: { type: "string" } },
       },

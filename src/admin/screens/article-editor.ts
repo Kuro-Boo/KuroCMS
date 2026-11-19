@@ -167,6 +167,9 @@ async function newArticle(editDid: Dynamic) {
     // 素の coverPath は immutable キャッシュに対して無防備なため、分かる場合は
     // こちらを優先して表示する。
     coverVersionedPath: "",
+    // 保存済みの seo の、表紙の外の欄(外の道具が入れた ogp・keywords など)。
+    // 保存の時に表紙と重ねて送り、画面の保存で消さない(2026-11-19・利用者)。
+    seoExtra: {},
     title: "",
     summary: "",
     body: "",
@@ -288,6 +291,10 @@ async function newArticle(editDid: Dynamic) {
           }
           try {
             const sj = JSON.parse(tData.translation.seo_json || "{}");
+            if (sj && typeof sj === "object" && !Array.isArray(sj)) {
+              const { coverMid: _m, coverPath: _p, ...extra } = sj;
+              art.seoExtra = extra;
+            }
             if (sj.coverMid) {
               art.coverMid = sj.coverMid;
               art.coverPath = sj.coverPath || "";
@@ -517,9 +524,12 @@ async function newArticle(editDid: Dynamic) {
           return h.trim().replace(/^#/, "");
         })
         .filter(Boolean);
-      const seo = art.coverMid
-        ? { coverMid: art.coverMid, coverPath: art.coverPath }
-        : {};
+      // 表紙は外したときも空を明示して送る(表紙の欄の無い seo では、サーバーが保存済みの表紙を残す)。
+      const seo = {
+        ...art.seoExtra,
+        coverMid: art.coverMid || "",
+        coverPath: art.coverMid ? art.coverPath : "",
+      };
       const payload: Dynamic = {
         title: art.title,
         summary: art.summary,
