@@ -921,7 +921,6 @@ export function adminHtml(
       } /* end @layer kurocms */
 
     </style>
-    <link rel="stylesheet" id="ke-css" href="${base}/_admin/ke.${KE_VERSION}.css" />
   </head>
   <body>
     <div class="app">
@@ -948,8 +947,54 @@ export function adminHtml(
       <div class="mobileNavBar" id="mobileNavBar" aria-hidden="true" style="display:none"><div class="mobileNavThumb" id="mobileNavThumb"></div></div>
     </div>
     <script>window.__ACCESS_ADMIN_URL__ = ${JSON.stringify(accessAdminUrl)};window.__KUROCMS_VERSION__ = ${JSON.stringify(KUROCMS_VERSION)};window.__KUROCMS_ADMIN_LOGO__ = ${JSON.stringify(ADMIN_LOGO_DATA_URL)};window.__KUROCMS_H2C__ = ${JSON.stringify(`${base}/_admin/${HTML2CANVAS_FILE}`)};</script>
-    <script src="${base}/_admin/ke.${KE_VERSION}.js"></script>
-    <script src="${base}/_admin/admin-app.${ADMIN_APP_HASH}.js"></script>
+    <script>
+    /* 管理画面の部品の読み込み係(2026-11-21)。新しい導入・更新の直後は、部品がまだサイトに届いていないことがある。
+       サイトは待たせずに「準備中」(503)を返すので、ここで案内を出して頼み直す。頼み直しのたびに、サイトは
+       取り寄せが止まっていれば始め直す(asset-serve.ts)。前は <script src> を並べただけで、部品が来ないと
+       「Now Loading」のまま何も起きなかった。順番(ke → admin-app)は onload で繋いで守る。
+       ⚠ この中に正規表現リテラルを書かない(テンプレートリテラルの中で壊れる)。 */
+    (function () {
+      var ja = String(navigator.language || "").toLowerCase().indexOf("ja") === 0;
+      var preparing = ja
+        ? "管理画面の部品を取り寄せています。このままお待ちください…"
+        : "Preparing the admin screen. Please keep this page open…";
+      function say(text) {
+        var el = document.querySelector(".initialLoaderLabel");
+        if (el) el.textContent = text;
+      }
+      function pace(n) { return Math.min(15000, 1000 * Math.pow(2, Math.min(n, 4))); }
+      function addCss(n) {
+        var link = document.createElement("link");
+        link.rel = "stylesheet";
+        link.id = "ke-css";
+        link.href = ${JSON.stringify(`${base}/_admin/ke.${KE_VERSION}.css`)};
+        link.onerror = function () {
+          link.remove();
+          setTimeout(function () { addCss(n + 1); }, pace(n));
+        };
+        document.head.appendChild(link);
+      }
+      var files = [
+        ${JSON.stringify(`${base}/_admin/ke.${KE_VERSION}.js`)},
+        ${JSON.stringify(`${base}/_admin/admin-app.${ADMIN_APP_HASH}.js`)}
+      ];
+      function load(i, n) {
+        if (i >= files.length) return;
+        var s = document.createElement("script");
+        s.src = files[i];
+        s.async = false;
+        s.onload = function () { load(i + 1, 0); };
+        s.onerror = function () {
+          s.remove();
+          say(preparing);
+          setTimeout(function () { load(i, n + 1); }, pace(n));
+        };
+        document.body.appendChild(s);
+      }
+      addCss(0);
+      load(0, 0);
+    })();
+    </script>
   </body>
 </html>`;
 }
