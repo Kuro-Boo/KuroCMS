@@ -12,6 +12,7 @@ import {
   formatSalary,
   jobIsOpen,
   openingsCount,
+  renderJobPreview,
   type Job,
 } from "../../KuroEditor/src/job.js";
 import { checkJobCards } from "./block-guard.ts";
@@ -70,6 +71,20 @@ export function toJobData(job: Job, today: string): JobData {
   };
 }
 
+/**
+ * JobPosting の description。本文(求人カードを除く)が仕事の説明。本文がカードだけのとき(事業所の説明を
+ * 一覧の頁に置くサイトなど)は、カードの表 —— 頁に見えている条件 —— を説明にする(説明の無い求人は載らないため)。
+ * 公開物に編集用の内部の印(data-bid)を出さない(cms-cms-build・stripInternalIds)。
+ */
+export function jobDescription(job: Job, bodyHtml: string): string {
+  const body = stripInternalIds(bodyWithoutJobCard(bodyHtml)).trim();
+  if (body.replace(/<[^>]*>/g, "").trim()) return body;
+  const table = /<table class="kuro-job__table">[\s\S]*<\/table>/.exec(
+    renderJobPreview(job),
+  );
+  return table ? table[0] : "";
+}
+
 /** 本文から求人カードを外した HTML(JobPosting の description は仕事の説明 = 本文だけ)。 */
 export function bodyWithoutJobCard(bodyHtml: string): string {
   return parseBlocks(bodyHtml ?? "")
@@ -120,8 +135,7 @@ export function jobPostingLd(args: {
     "@context": "https://schema.org",
     "@type": "JobPosting",
     title: args.title,
-    // 公開物に編集用の内部の印(data-bid)を出さない(cms-cms-build・stripInternalIds)
-    description: stripInternalIds(bodyWithoutJobCard(args.bodyHtml)),
+    description: jobDescription(job, args.bodyHtml),
     ...(job.openedAt ? { datePosted: job.openedAt } : {}),
     ...(job.validThrough
       ? { validThrough: `${job.validThrough}T23:59:59` }

@@ -148,6 +148,21 @@ assert.equal(
   assert.equal(toJobData(more, "2026-11-25").openings, "3名");
 }
 
+// 本文がカードだけのときは、カードの表(頁に見えている条件)を説明にする
+{
+  const only = jobPostingLd({
+    job: JOB,
+    today: "2026-11-25",
+    title: "x",
+    bodyHtml: card(),
+    siteName: "s",
+    siteUrl: "u",
+  })!;
+  assert.match(String(only.description), /^<table class="kuro-job__table">/);
+  assert.match(String(only.description), /時給 1,500円〜/);
+  assert.doesNotMatch(String(only.description), /募集中/);
+}
+
 // 募集を止めた・期限を過ぎた求人は JobPosting を出さない
 assert.equal(
   jobPostingLd({
