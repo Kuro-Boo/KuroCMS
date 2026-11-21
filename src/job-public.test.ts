@@ -113,6 +113,41 @@ assert.equal(
   "<p>ガイドヘルパーの仕事です。</p><p>見学もできます。</p>",
 );
 
+// 待遇・募集人数・問い合わせ先: カードに見える値から。「数名」は人数にしない
+{
+  const more = normalizeJob({
+    ...JOB,
+    benefits: "賞与 年2回\n労災保険",
+    openings: "3名",
+    contact: "04-7192-6511(本部)",
+  });
+  const m = jobPostingLd({
+    job: more,
+    today: "2026-11-25",
+    title: "x",
+    bodyHtml: card(more),
+    siteName: "s",
+    siteUrl: "u",
+  })!;
+  assert.equal(m.jobBenefits, "賞与 年2回\n労災保険");
+  assert.equal(m.totalJobOpenings, 3);
+  assert.deepEqual(m.applicationContact, {
+    "@type": "ContactPoint",
+    description: "04-7192-6511(本部)",
+    telephone: "04-7192-6511",
+  });
+  const vague = jobPostingLd({
+    job: normalizeJob({ ...more, openings: "数名" }),
+    today: "2026-11-25",
+    title: "x",
+    bodyHtml: "",
+    siteName: "s",
+    siteUrl: "u",
+  })!;
+  assert.equal(vague.totalJobOpenings, undefined);
+  assert.equal(toJobData(more, "2026-11-25").openings, "3名");
+}
+
 // 募集を止めた・期限を過ぎた求人は JobPosting を出さない
 assert.equal(
   jobPostingLd({

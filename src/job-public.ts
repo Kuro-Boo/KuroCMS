@@ -6,10 +6,12 @@
 import { parseBlocks, stripInternalIds } from "../../KuroEditor/src/blocks.js";
 import {
   JOB_BLOCK,
+  contactTelephone,
   employmentLabels,
   formatLocation,
   formatSalary,
   jobIsOpen,
+  openingsCount,
   type Job,
 } from "../../KuroEditor/src/job.js";
 import { checkJobCards } from "./block-guard.ts";
@@ -27,6 +29,9 @@ export interface JobData {
   locationText: string;
   hours: string;
   requirements: string;
+  benefits: string;
+  openings: string;
+  contact: string;
 }
 
 /** サイトの時計の今日(YYYY-MM-DD)。 */
@@ -59,6 +64,9 @@ export function toJobData(job: Job, today: string): JobData {
     locationText: formatLocation(job),
     hours: job.hours ?? "",
     requirements: job.requirements ?? "",
+    benefits: job.benefits ?? "",
+    openings: job.openings ?? "",
+    contact: job.contact ?? "",
   };
 }
 
@@ -89,6 +97,8 @@ export function jobPostingLd(args: {
   const { job } = args;
   if (!jobIsOpen(job, args.today)) return null;
   const l = job.location;
+  const openings = openingsCount(job);
+  const tel = contactTelephone(job);
   const salary =
     job.salary && typeof job.salary.min === "number"
       ? {
@@ -140,6 +150,18 @@ export function jobPostingLd(args: {
     ...salary,
     ...(job.requirements ? { qualifications: job.requirements } : {}),
     ...(job.hours ? { workHours: job.hours } : {}),
+    ...(job.benefits ? { jobBenefits: job.benefits } : {}),
+    // 人数は「3名」のように数だけのときだけ。「数名」を数に言い換えない(見えない値を作らない)。
+    ...(openings !== null ? { totalJobOpenings: openings } : {}),
+    ...(job.contact
+      ? {
+          applicationContact: {
+            "@type": "ContactPoint",
+            description: job.contact,
+            ...(tel ? { telephone: tel } : {}),
+          },
+        }
+      : {}),
     ...(args.canonical ? { url: args.canonical } : {}),
   };
 }
