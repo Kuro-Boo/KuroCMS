@@ -3,7 +3,7 @@
 // ⚠ 表示も構造化データも同じ 1 つの正本(data-job)から作る。見えない値を構造化データにだけ入れない。
 // ⚠ 募集中か(open)と期限(validThrough)は、頁を作る日(サイトの時計)で決める。
 
-import { parseBlocks } from "../../KuroEditor/src/blocks.js";
+import { parseBlocks, stripInternalIds } from "../../KuroEditor/src/blocks.js";
 import {
   JOB_BLOCK,
   employmentLabels,
@@ -110,7 +110,8 @@ export function jobPostingLd(args: {
     "@context": "https://schema.org",
     "@type": "JobPosting",
     title: args.title,
-    description: bodyWithoutJobCard(args.bodyHtml),
+    // 公開物に編集用の内部の印(data-bid)を出さない(cms-cms-build・stripInternalIds)
+    description: stripInternalIds(bodyWithoutJobCard(args.bodyHtml)),
     ...(job.openedAt ? { datePosted: job.openedAt } : {}),
     ...(job.validThrough
       ? { validThrough: `${job.validThrough}T23:59:59` }

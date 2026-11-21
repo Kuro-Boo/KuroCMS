@@ -92,6 +92,21 @@ assert.equal(
   "期限の無い求人は validThrough を出さない",
 );
 assert.doesNotMatch(String(ld.description), /data-kuro-block/);
+{
+  const withBid = jobPostingLd({
+    job: JOB,
+    today: "2026-11-25",
+    title: "x",
+    bodyHtml: '<p data-bid="b1">説明</p>' + card(),
+    siteName: "s",
+    siteUrl: "u",
+  })!;
+  assert.equal(
+    withBid.description,
+    "<p>説明</p>",
+    "data-bid を公開物に出さない",
+  );
+}
 assert.match(String(ld.description), /ガイドヘルパーの仕事です/);
 assert.equal(
   bodyWithoutJobCard(body),
