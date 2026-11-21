@@ -40,13 +40,13 @@ const ALLOWED_ATTRS = new Set([
 ]);
 
 /** 開始タグ（`<div …>`）だけを取り出す。無ければ空文字。 */
-function openingTag(html: string): string {
+export function openingTag(html: string): string {
   const m = /^\s*<[a-zA-Z][^\s/>]*(?:"[^"]*"|'[^']*'|[^>"'])*>/.exec(html);
   return m ? m[0] : "";
 }
 
 /** 開始タグの属性名を列挙する（引用符の中を読み飛ばす）。 */
-function attrNames(tag: string): string[] {
+export function attrNames(tag: string): string[] {
   const names: string[] = [];
   const re =
     /([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*(?:=\s*(?:"[^"]*"|'[^']*'|[^\s>]*))?/g;
@@ -58,7 +58,7 @@ function attrNames(tag: string): string[] {
 }
 
 /** 開始タグから 1 属性の値を読む（引用符必須。無ければ null）。 */
-function attrValue(tag: string, name: string): string | null {
+export function attrValue(tag: string, name: string): string | null {
   const re = new RegExp(`\\b${name}\\s*=\\s*"([^"]*)"`, "i");
   const m = re.exec(tag);
   return m ? m[1] : null;

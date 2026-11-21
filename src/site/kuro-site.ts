@@ -35,6 +35,9 @@
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;");
 
+  run("contact", () =>
+    all<HTMLFormElement>("form[data-kuro-contact]").forEach(contactForm),
+  );
   run("bluesky", () => all("[data-kuro-bsky]").forEach(bluesky));
   run("lang", () => all("[data-kuro-langsw]").forEach(languageSwitcher));
   run("carousel", () =>
@@ -908,5 +911,145 @@
         list.forEach((a) => io.observe(a));
       } else list.forEach(load);
     }
+  }
+  // ── 問い合わせフォーム(cms-contact)────────────────────────────────────────
+  // 送る前に、サイトの口から計算の課題を受け取り、SHA-256(salt:nonce) の先頭 bits ビットが 0 になる nonce を探す。
+  // 送り先は自分のサイトの口だけ(data-endpoint = 公開の根 + /_contact)。値は f0, f1 … の並びで送る。
+  function contactForm(form: HTMLFormElement) {
+    const endpoint = form.getAttribute("data-endpoint") || "";
+    const payload = form.getAttribute("data-form") || "";
+    const sig = form.getAttribute("data-sig") || "";
+    const status = form.querySelector<HTMLElement>(".kuro-contact__status");
+    const done = form.querySelector<HTMLElement>(".kuro-contact__done");
+    const submit = form.querySelector<HTMLButtonElement>(
+      ".kuro-contact__submit",
+    );
+    if (!endpoint || !payload || !sig || !submit) return;
+    const say = (t: string) => {
+      if (status) status.textContent = t;
+    };
+    const clearErrors = () => {
+      form.querySelectorAll(".kuro-contact__error").forEach((e) => e.remove());
+      form
+        .querySelectorAll("[aria-invalid]")
+        .forEach((e) => e.removeAttribute("aria-invalid"));
+    };
+    const showError = (name: string, text: string) => {
+      const el = form.querySelector<HTMLElement>(`[name="${name}"]`);
+      if (!el) return;
+      el.setAttribute("aria-invalid", "true");
+      const p = document.createElement("p");
+      p.className = "kuro-contact__error";
+      p.textContent = text;
+      el.insertAdjacentElement("afterend", p);
+    };
+    const post = (path: string, body: unknown) =>
+      fetch(endpoint + path, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify(body),
+      }).then(async (r) => ({
+        status: r.status,
+        data: await r.json().catch(() => ({})),
+      }));
+    const hex = (n: number) => n.toString(36);
+    const zeroBits = (b: Uint8Array, bits: number) => {
+      let left = bits;
+      for (let i = 0; i < b.length && left > 0; i++) {
+        if (left >= 8) {
+          if (b[i] !== 0) return false;
+          left -= 8;
+        } else return b[i] >> (8 - left) === 0;
+      }
+      return true;
+    };
+    const solve = async (salt: string, bits: number): Promise<string> => {
+      const enc = new TextEncoder();
+      // 256 件ずつ並べて解く(1 件ずつ待つより速い)
+      for (let base = 0; base < 1 << 26; base += 256) {
+        const tries: Promise<[number, ArrayBuffer]>[] = [];
+        for (let i = 0; i < 256; i++) {
+          const n = base + i;
+          tries.push(
+            crypto.subtle
+              .digest("SHA-256", enc.encode(salt + ":" + hex(n)))
+              .then((d) => [n, d]),
+          );
+        }
+        for (const [n, d] of await Promise.all(tries)) {
+          if (zeroBits(new Uint8Array(d), bits)) return hex(n);
+        }
+      }
+      throw new Error("unsolved");
+    };
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      clearErrors();
+      const values: Record<string, string> = {};
+      let missing = false;
+      form
+        .querySelectorAll<
+          HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
+        >("[name^='f']")
+        .forEach((el) => {
+          values[el.name] = el.value;
+          if (el.required && !el.value.trim()) {
+            missing = true;
+            showError(el.name, "入力してください。");
+          }
+        });
+      if (missing) {
+        say("入力していない項目があります。");
+        return;
+      }
+      const trap = form.querySelector<HTMLInputElement>(
+        "input[name='website']",
+      );
+      submit.disabled = true;
+      say("送信しています…");
+      try {
+        const ch = await post("/challenge", { form: payload, sig });
+        if (ch.status !== 200)
+          throw new Error(String(ch.data.error || ch.status));
+        const nonce = await solve(ch.data.salt, ch.data.bits);
+        const r = await post("/send", {
+          form: payload,
+          sig,
+          challenge: ch.data,
+          nonce,
+          values,
+          website: trap ? trap.value : "",
+        });
+        if (r.status === 200) {
+          form
+            .querySelectorAll(
+              ".kuro-contact__row, .kuro-contact__actions, .kuro-contact__note",
+            )
+            .forEach((el) => ((el as HTMLElement).hidden = true));
+          say("");
+          if (done) done.hidden = false;
+          return;
+        }
+        if (r.status === 400 && r.data.fields) {
+          Object.keys(r.data.fields).forEach((k) =>
+            showError(k, r.data.fields[k]),
+          );
+          say("入力を確かめてください。");
+        } else if (r.status === 429) {
+          say(
+            "送信が続いたため、しばらく受け付けられません。時間をおいてお試しください。",
+          );
+        } else if (r.status === 503) {
+          say("現在、このフォームではお問い合わせを受け付けていません。");
+        } else {
+          say("送信できませんでした。時間をおいてもう一度お試しください。");
+        }
+      } catch {
+        say("送信できませんでした。時間をおいてもう一度お試しください。");
+      } finally {
+        submit.disabled = false;
+      }
+    });
   }
 })();

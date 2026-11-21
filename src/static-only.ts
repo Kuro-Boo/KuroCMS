@@ -21,6 +21,15 @@ async function heldFlag(env: Env, id: CmsFlag, now: number): Promise<boolean> {
   return on;
 }
 
+/** 旗が効くか(この isolate で 10 分控える)。公開の頁の組み立て・公開の口から使う。 */
+export async function cmsFlagHeld(
+  env: Env,
+  id: CmsFlag,
+  now = Date.now(),
+): Promise<boolean> {
+  return heldFlag(env, id, now);
+}
+
 export async function staticOnlyOn(
   env: Env,
   now = Date.now(),

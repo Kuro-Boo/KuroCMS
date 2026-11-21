@@ -10,7 +10,9 @@ export function staticDynamicPath(publicPath: string): boolean {
     publicPath === "/_unfurl" ||
     publicPath === "/favicon.ico" ||
     publicPath === "/favicon.svg" ||
-    new RegExp("^/_reactions/[a-zA-Z0-9_-]+$").test(publicPath)
+    new RegExp("^/_reactions/[a-zA-Z0-9_-]+$").test(publicPath) ||
+    // 問い合わせフォームの口(cms-contact)
+    new RegExp("^/_contact/(challenge|send)$").test(publicPath)
   );
 }
 
@@ -58,7 +60,8 @@ export function assetRouting(
   }
   for (const b of publicBase ? ["", publicBase] : [""]) {
     // メディアは CDN の資産(media-cdn.ts)。置けない大きいファイル・SVG だけが /_media/ を指す。
-    for (const m of ["_media", "_reactions"]) first.add(`${b}/${m}/*`);
+    for (const m of ["_media", "_reactions", "_contact"])
+      first.add(`${b}/${m}/*`);
     for (const f of ["/_csp", "/_unfurl", "/favicon.ico", "/favicon.svg"])
       first.add(`${b}${f}`);
   }

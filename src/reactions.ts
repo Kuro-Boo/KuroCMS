@@ -165,7 +165,11 @@ async function digest(value: string): Promise<string> {
   ).join("");
 }
 
-async function readBody(request: Request): Promise<string | null> {
+/** 本文を上限まで読む(超えたら null)。公開の口(反応・問い合わせ)で共に使う。 */
+export async function readLimitedBody(
+  request: Request,
+  max: number,
+): Promise<string | null> {
   if (!request.body) return null;
   const reader = request.body.getReader();
   const chunks: Uint8Array[] = [];
@@ -174,19 +178,23 @@ async function readBody(request: Request): Promise<string | null> {
     const { done, value } = await reader.read();
     if (done) break;
     size += value.byteLength;
-    if (size > MAX_BODY) {
+    if (size > max) {
       await reader.cancel();
       return null;
     }
     chunks.push(value);
   }
-  const body = new Uint8Array(size);
-  let offset = 0;
-  for (const chunk of chunks) {
-    body.set(chunk, offset);
-    offset += chunk.byteLength;
+  const out = new Uint8Array(size);
+  let off = 0;
+  for (const c of chunks) {
+    out.set(c, off);
+    off += c.byteLength;
   }
-  return new TextDecoder().decode(body);
+  return new TextDecoder().decode(out);
+}
+
+async function readBody(request: Request): Promise<string | null> {
+  return readLimitedBody(request, MAX_BODY);
 }
 
 /** 接続元の回線。IPv6 は利用者ごとに /64 を渡されることが多いので、/64 で 1 つに数える。 */
@@ -253,6 +261,23 @@ async function withinRate(
   request: Request,
   now: number,
 ): Promise<boolean> {
+  return withinPublicRate(env, request, now, {
+    scope: "",
+    perNetwork: VOTES_PER_NETWORK_HOUR,
+    perSite: VOTES_PER_SITE_HOUR,
+  });
+}
+
+/**
+ * 公開の口の 1 時間の数え札(回線ごと・サイト全体)。scope で口ごとに分ける(反応は ""、問い合わせは "contact:")。
+ * 期限の過ぎた札は先に消す。超えた試みも数える(繰り返すほど開かない)。
+ */
+export async function withinPublicRate(
+  env: Env,
+  request: Request,
+  now: number,
+  limits: { scope: string; perNetwork: number; perSite: number },
+): Promise<boolean> {
   const window = Math.floor(now / HOUR_MS);
   const expires = new Date((window + 1) * HOUR_MS).toISOString();
   await env.DB.prepare("DELETE FROM reaction_rate WHERE expires_at <= ?")
@@ -267,10 +292,10 @@ async function withinRate(
       .first<{ n: number }>();
     return row?.n ?? 0;
   };
-  const byNetwork = await take(`net:${window}:${network}`);
-  if (byNetwork > VOTES_PER_NETWORK_HOUR) return false;
-  const bySite = await take(`site:${window}`);
-  return bySite <= VOTES_PER_SITE_HOUR;
+  const byNetwork = await take(`${limits.scope}net:${window}:${network}`);
+  if (byNetwork > limits.perNetwork) return false;
+  const bySite = await take(`${limits.scope}site:${window}`);
+  return bySite <= limits.perSite;
 }
 
 async function snapshot(

@@ -1840,6 +1840,9 @@ async function newArticle(editDid: Dynamic) {
       // あると鍋ボタンをロックする）。KE 既定が true なので実質は指定不要だが、
       // 意図を明示するために渡しておく。
       recipeUi: true,
+      // 求人カード・問い合わせフォーム(旗 job-card / contact-form が効くサイトだけ)
+      jobUi: Boolean(state.editorFeatures?.jobCard),
+      contactUi: Boolean(state.editorFeatures?.contactForm),
       urlResolver: function (slug: string) {
         if (slug.startsWith("http")) return slug;
         // メディア → 記事 → （どちらでもなければ）素の slug の順。

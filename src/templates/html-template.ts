@@ -293,6 +293,12 @@ function buildTemplateModel(ctx: RenderContext): TemplateObject {
         !ctx.params.category,
       isStatic: Boolean(staticPage),
       static: staticPage,
+      // いまの固定ページの見分け(`[[#if page.staticIs.recruit]]`)。パーサーに等値比較が無いので、
+      // slug をキーにした真偽値で渡す(cms-cms-template・2026-11-21。/recruit/ にだけ求人の一覧を出すため)。
+      staticIs:
+        staticPage && typeof staticPage.slug === "string"
+          ? { [staticPage.slug]: true }
+          : {},
       isPrivacy,
       isTerms,
       isArticle: Boolean(ctx.article),
@@ -301,6 +307,8 @@ function buildTemplateModel(ctx: RenderContext): TemplateObject {
       // レシピ記事（RecipeCard を読み出せた記事）。テンプレートは type 名の
       // 文字列比較をせず、これで分岐する（仕様「レシピ専用タイプ」§7）。
       isRecipe: Boolean(ctx.article?.recipe),
+      // 求人の記事(求人カードを読めた記事・cms-job)。募集中かは article.job.open。
+      isJob: Boolean(ctx.article?.job),
     },
     site: {
       name: ctx.content["_site-name"] || "",
@@ -316,6 +324,8 @@ function buildTemplateModel(ctx: RenderContext): TemplateObject {
     article: ctx.article
       ? {
           ...ctx.article,
+          // JobPosting の元は公開の構造化データだけが使う(テンプレートには渡さない)
+          jobSource: null,
           // TemplateValue は undefined を持てない。省略キー（未入力の時間）は
           // null へ寄せて、テンプレート側が [[#if]] で素直に判定できる形にする。
           recipe: ctx.article.recipe

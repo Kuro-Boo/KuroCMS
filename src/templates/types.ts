@@ -65,6 +65,16 @@ export interface ArticleData {
    */
   recipe?: RecipeData | null;
   /**
+   * 求人カードの内容(cms-job)。旗 job-card が効くサイトで、本文の求人カードを読めた記事だけ。
+   * テンプレートは page.isJob / article.job.open で分岐する。
+   */
+  job?: import("../job-public").JobData | null;
+  /** JobPosting を作る元(求人カードの正本と本文)。テンプレートのモデルには載せない。 */
+  jobSource?: {
+    job: import("../../../KuroEditor/src/job.js").Job;
+    bodyHtml: string;
+  } | null;
+  /**
    * 本文の見出し（h1〜h5）一覧。公開ビルドが見出しテキスト由来の安定 id を
    * 付けたうえで拾ったもの（headings.ts）。`href` はその id へのフラグメント。
    * テンプレートは [[#each article.headings]] で自前の目次を組める。
