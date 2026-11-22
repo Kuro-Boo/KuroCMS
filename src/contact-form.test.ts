@@ -102,21 +102,33 @@ const deps = (now = Date.now()) => ({
   },
 });
 
-// 送り先の値「表示名 アドレス」を読む(アドレスは 1 つだけ)
-assert.deepEqual(parseRecipientText("<p>本部 Info@Example.com</p>"), {
+// 送り先の値はメールの普通の書き方「名前 <アドレス>」だけを読む(エディタの段落・文字参照は外して読む)
+assert.deepEqual(parseRecipientText("<p>本部 &lt;Info@Example.com&gt;</p>"), {
   label: "本部",
   email: "info@example.com",
 });
 assert.deepEqual(
-  parseRecipientText("<p>A型事業所&nbsp;&lt;a@example.com&gt;</p>"),
-  { label: "A型事業所", email: "a@example.com" },
+  parseRecipientText('<p>"A型事業所"&nbsp;&lt;a@example.com&gt;</p>'),
+  {
+    label: "A型事業所",
+    email: "a@example.com",
+  },
+);
+assert.deepEqual(parseRecipientText("<p>&lt;a@example.com&gt;</p>"), {
+  label: "",
+  email: "a@example.com",
+});
+assert.equal(
+  parseRecipientText("<p>本部 a@example.com</p>"),
+  null,
+  "<> が無い",
 );
 assert.equal(
-  parseRecipientText("<p>本部 a@example.com b@example.com</p>"),
+  parseRecipientText("<p>本部 &lt;a@example.com&gt; &lt;b@example.com&gt;</p>"),
   null,
 );
 assert.equal(parseRecipientText("<p>本部</p>"), null);
-assert.equal(parseRecipientText("<p>本部 not@mail</p>"), null);
+assert.equal(parseRecipientText("<p>本部 &lt;not@mail&gt;</p>"), null);
 // 設定の口は持ち主の連絡先(/api/system/contact)と道を分ける(同じ道だと先にそちらが答え、一覧が出ない)
 assert.ok(
   readFileSync(new URL("./api.ts", import.meta.url), "utf8").includes(
@@ -146,19 +158,22 @@ assert.match(html, /受け付けていません/);
 assert.doesNotMatch(html, /<form/);
 
 // 外のアドレス(Gmail など)だけでは、確認が済むまで受け付けない
-siteText("mail-to-syurou-a", "<p>A型事業所はなみずき agata@gmail.example</p>");
+siteText(
+  "mail-to-syurou-a",
+  "<p>A型事業所はなみずき &lt;agata@gmail.example&gt;</p>",
+);
 html = await expandContactForms(page, env, "", "/syurou_a/", true);
 assert.match(html, /受け付けていません/);
 
 // サイトのドメインのアドレスは確認が要らない。形の読めない行・名前の形が違う行は落とす
-siteText("mail-to-honbu", "<p>本部 headoffice@hanamizuki.example</p>");
+siteText("mail-to-honbu", "<p>本部 &lt;headoffice@hanamizuki.example&gt;</p>");
 siteText(
   "mail-to-honbu",
-  "<p>Head office headoffice@hanamizuki.example</p>",
+  "<p>Head office &lt;headoffice@hanamizuki.example&gt;</p>",
   "en",
 );
 siteText("mail-to-broken", "<p>壊れた</p>");
-siteText("mail-to-Bad_Name", "<p>x a@hanamizuki.example</p>");
+siteText("mail-to-Bad_Name", "<p>x &lt;a@hanamizuki.example&gt;</p>");
 assert.deepEqual(
   (await contactRecipientList(env)).map((r) => [
     r.name,

@@ -3,7 +3,7 @@
  *
  * - 公開の頁: 本文の contact-form の正本から本物のフォームを作り、形を署名して載せる(expandContactForms)。
  * - 口: POST {公開の根}/_contact/challenge(計算の課題)・POST {公開の根}/_contact/send(送信)。
- * - 送り先: フォームが名前(to)で選び、アドレスはサイト文字 mail-to-<名前>(「表示名 アドレス」)から読む。
+ * - 送り先: フォームが名前(to)で選び、アドレスはサイト文字 mail-to-<名前>(「名前 <アドレス>」)から読む。
  *   サイト文字は管理者だけが書け、mail-to- は公開の頁へ出さない(fetchTemplateContent が外す)。
  *   サイトのドメインの外のアドレスは、確認のメールのボタンが押されるまで送らない(contact_verified)。
  * - 内容は保存しない。送り先ごとにメール 1 通(sendMail)。記録は数と誤りの種類だけ。
@@ -203,28 +203,18 @@ function plainText(html: string): string {
 }
 
 /**
- * mail-to- の値「表示名 アドレス」を読む(アドレスは 1 つだけ)。読めなければ null。
- * 表示名が無ければ名前を表示名にする。
+ * mail-to- の値を読む。形はメールの普通の書き方「名前 <アドレス>」だけ(アドレスは 1 つ)。読めなければ null。
+ * 値はエディタの HTML なので、段落(<p>)を外し、文字参照(&lt; &gt;)を戻してから読む。
+ * 名前が無い(「<アドレス>」だけ)ときは、サイト文字の名前を表示名にする。
  */
 export function parseRecipientText(
   html: string,
 ): { label: string; email: string } | null {
-  const text = plainText(html);
-  const found = text
-    .split(" ")
-    .map((w) => w.replace(/^[<(（「]+|[>)）」,、。]+$/g, ""))
-    .filter((w) => w.includes("@"));
-  if (found.length !== 1 || !isEmail(found[0])) return null;
-  const email = found[0].toLowerCase();
-  const label = text
-    .split(" ")
-    .filter((w) => !w.includes("@"))
-    .join(" ")
-    .replace(/[<>()（）「」:：]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 60);
-  return { label, email };
+  const m = /^(.*?)\s*<\s*([^<>\s]+)\s*>$/.exec(plainText(html));
+  if (!m || !isEmail(m[2])) return null;
+  const label = m[1].replace(/^"(.*)"$/, "$1").trim();
+  if (/[<>@]/.test(label) || label.length > 60) return null;
+  return { label, email: m[2].toLowerCase() };
 }
 
 /** サイトの公開ドメイン(www. は外す)。 */
