@@ -22,6 +22,7 @@ import {
   ContactRecipientError,
   recipientsNotice,
 } from "./contact-form.ts";
+import { markPagesBuilt, pagesBuiltFor } from "./version-since.ts";
 import type { Env } from "./types.ts";
 
 const sqlite = new DatabaseSync(":memory:");
@@ -74,6 +75,7 @@ const env = {
   PUBLIC_PAGES: {
     get: async (k: string) => kv.get(k) ?? null,
     put: async (k: string, v: string) => void kv.set(k, v),
+    delete: async (k: string) => void kv.delete(k),
   },
 } as unknown as Env;
 
@@ -383,8 +385,11 @@ const challengeAndSend = async (
     (await contactVerifyEndpoint(req("POST"), env, { flagOn: false })).status,
     404,
   );
+  await markPagesBuilt(env);
   const ok = await contactVerifyEndpoint(req("POST"), env, { flagOn: true });
   assert.equal(ok.status, 200);
+  // 確かめたら頁を作り直させる(閉じたフォームのまま残さない)
+  assert.equal(await pagesBuiltFor(env), null);
   assert.match(await ok.text(), /確認しました/);
   assert.equal(
     (await contactRecipientList(env)).find((r) => r.name === "mail-001")!

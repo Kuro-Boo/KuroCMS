@@ -23,6 +23,7 @@ import {
   type ContactForm,
 } from "../../KuroEditor/src/contact.js";
 import { randomToken } from "./crypto.ts";
+import { forgetPagesBuilt } from "./version-since.ts";
 import { readLimitedBody, withinPublicRate } from "./reactions.ts";
 import type { Env } from "./types.ts";
 
@@ -774,11 +775,14 @@ export async function contactVerifyEndpoint(
   if (request.method !== "POST")
     return reply({ error: "method_not_allowed" }, 405);
   if (!sameOrigin(request)) return reply({ error: "forbidden" }, 403);
-  await env.DB.prepare(
+  const ins = await env.DB.prepare(
     "INSERT INTO contact_verified (email, verified_at) VALUES (?, ?) ON CONFLICT(email) DO NOTHING",
   )
     .bind(email.toLowerCase(), new Date(now).toISOString())
     .run();
+  // フォームが開くように頁を作り直させる(毎分の作り直しに任せる・指紋は public.ts が送り先の状態も見る)
+  if (ins.meta?.changes && env.PUBLIC_PAGES)
+    await forgetPagesBuilt(env).catch(() => {});
   return verifyPage(
     "確認しました",
     "<p>これから、このアドレスへ問い合わせフォームの内容が届きます。この頁は閉じてかまいません。</p>",
