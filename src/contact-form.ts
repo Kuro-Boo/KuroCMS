@@ -15,6 +15,7 @@ import {
   decodeContactForm,
   normalizeContactForm,
   renderContactFormHtml,
+  renderContactPreview,
   validateContactForm,
   validateSubmission,
   isEmail,
@@ -344,7 +345,12 @@ export async function expandContactForms(
     if (!form || validateContactForm(form).length) {
       replacement = ""; // 壊れた形は出さない(保存の口で断っているので普通は起きない)
     } else if (!recipientsFor(form, all).some(deliverable)) {
-      replacement = `<div class="kuro-contact kuro-contact--closed"><p class="kuro-contact__status">現在、このフォームではお問い合わせを受け付けていません。</p></div>`;
+      // 押せない見本を出す(項目と見た目は頁で確かめられる・送らせない)。送り先の確認待ちの間もこの形。
+      replacement =
+        `<div class="kuro-contact kuro-contact--closed" role="group" aria-label="問い合わせフォーム">` +
+        `<p class="kuro-contact__closed-note">現在、このフォームではお問い合わせを受け付けていません。</p>` +
+        renderContactPreview(form) +
+        `</div>`;
     } else {
       const signed = await signForm(env, form, path);
       replacement = renderContactFormHtml(form, {

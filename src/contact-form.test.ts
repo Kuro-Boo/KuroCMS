@@ -156,6 +156,14 @@ const page = `<main><div class="kuro-content">${buildContactCardHtml(form)}</div
 let html = await expandContactForms(page, env, "", "/syurou_a/", true);
 assert.match(html, /受け付けていません/);
 assert.doesNotMatch(html, /<form/);
+// 受け付けていない間も、項目は押せない見本として見せる(頁で確かめられる・送れない)
+assert.match(html, /kuro-contact--closed/);
+assert.match(html, /お名前/);
+assert.match(
+  html,
+  /<button type="button" class="kuro-contact__submit" disabled/,
+);
+assert.doesNotMatch(html, /name="f0"|data-sig=/);
 
 // 外のアドレス(Gmail など)だけでは、確認が済むまで受け付けない
 siteText(
