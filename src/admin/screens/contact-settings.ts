@@ -21,12 +21,15 @@ function contactSettingsPanelHtml(): string {
     "<div id='contactFormTitle' class='fieldLabel' style='margin:0'>" +
     escapeHtml(t("contactAddTitle")) +
     "</div>" +
+    // 2 つの欄を横に並べる(狭い画面では折り返す)
+    "<div style='display:grid;grid-template-columns:repeat(auto-fit,minmax(16rem,1fr));gap:12px'>" +
     "<label class='stack' style='gap:4px'><span class='fieldLabel' style='margin:0'>" +
     escapeHtml(t("contactLabelField")) +
     "</span><input id='contactLabelInput' type='text' maxlength='40' autocomplete='off' /></label>" +
     "<label class='stack' style='gap:4px'><span class='fieldLabel' style='margin:0'>" +
     escapeHtml(t("contactEmailField")) +
     "</span><input id='contactEmailInput' type='email' autocomplete='off' /></label>" +
+    "</div>" +
     "<div style='display:flex;gap:8px;flex-wrap:wrap'>" +
     "<button type='button' id='contactSaveBtn'>" +
     escapeHtml(t("contactAdd")) +
@@ -84,52 +87,62 @@ async function loadContactSettings() {
   try {
     const data = await api("/api/system/contact-form");
     contactRows = data.recipients || [];
+    // 表にする。列のボタンは共通の .rowActions で小さく(2026-11-22 利用者「一覧を表形式に、列のボタンは小さく」)
+    const pending = "background:#fff3cd;color:#8a5a00;border-color:#f0d68a";
     list.innerHTML = contactRows.length
-      ? contactRows
+      ? "<div class='tableScroll'><table class='tableCompact'><thead><tr>" +
+        "<th>ID</th><th>" +
+        escapeHtml(t("contactColLabel")) +
+        "</th><th class='flexible'>" +
+        escapeHtml(t("contactColEmail")) +
+        "</th><th>" +
+        escapeHtml(t("contactColState")) +
+        "</th><th style='text-align:right'>" +
+        escapeHtml(t("actions")) +
+        "</th></tr></thead><tbody>" +
+        contactRows
           .map((r) => {
+            const ok = r.own || r.verified;
             const stateText = r.own
               ? t("contactStateOwn")
               : r.verified
                 ? t("contactStateVerified")
                 : t("contactStatePending");
-            const ok = r.own || r.verified;
+            const nameAttr = escapeHtml(r.name);
             return (
-              "<div style='display:flex;gap:8px;align-items:center;flex-wrap:wrap'>" +
-              "<span class='tokenMeta' style='min-width:5.5em'>" +
+              "<tr><td><code>" +
               escapeHtml(r.name) +
-              "</span>" +
-              "<span style='min-width:8em'>" +
+              "</code></td><td>" +
               escapeHtml(r.label) +
-              "</span>" +
-              "<span class='tokenMeta'>" +
+              "</td><td class='flexible'>" +
               escapeHtml(r.email) +
-              "</span>" +
-              "<span class='badge'" +
-              (ok ? "" : " style='background:#fff3cd;color:#8a5a00'") +
+              "</td><td><span class='badge'" +
+              (ok ? "" : " style='" + pending + "'") +
               ">" +
               escapeHtml(stateText) +
-              "</span>" +
+              "</span></td><td><div class='rowActions'>" +
               (ok
                 ? ""
-                : "<button type='button' class='secondary small contactVerifyBtn' data-name='" +
-                  escapeHtml(r.name) +
+                : "<button type='button' class='secondary contactVerifyBtn' data-name='" +
+                  nameAttr +
                   "'>" +
                   escapeHtml(t("contactVerifySend")) +
                   "</button>") +
-              "<button type='button' class='secondary small contactEditBtn' data-name='" +
-              escapeHtml(r.name) +
+              "<button type='button' class='secondary contactEditBtn' data-name='" +
+              nameAttr +
               "'>" +
               escapeHtml(t("contactEdit")) +
               "</button>" +
-              "<button type='button' class='danger-soft small contactDeleteBtn' data-name='" +
-              escapeHtml(r.name) +
+              "<button type='button' class='danger-soft contactDeleteBtn' data-name='" +
+              nameAttr +
               "'>" +
               escapeHtml(t("delete")) +
               "</button>" +
-              "</div>"
+              "</div></td></tr>"
             );
           })
-          .join("")
+          .join("") +
+        "</tbody></table></div>"
       : "<div class='tokenMeta'>" +
         escapeHtml(t("contactRecipientsNone")) +
         "</div>";
@@ -156,9 +169,12 @@ function bindContactSettings() {
       if (!confirm(t("contactDeleteConfirm").replace("{label}", row.label)))
         return;
       try {
-        await api(
-          "/api/system/contact-form/recipients/" + encodeURIComponent(row.name),
-          { method: "DELETE" },
+        await withButtonBusy(del, () =>
+          api(
+            "/api/system/contact-form/recipients/" +
+              encodeURIComponent(row.name),
+            { method: "DELETE" },
+          ),
         );
         if (contactEditing === row.name) contactSetEditing(null);
         if (msg) msg.textContent = t("contactDeleted");
@@ -170,26 +186,28 @@ function bindContactSettings() {
     }
     const btn = target.closest<HTMLButtonElement>(".contactVerifyBtn");
     if (!btn) return;
-    btn.disabled = true;
     try {
-      const r = await api("/api/system/contact-form/verify", {
-        method: "POST",
-        body: JSON.stringify({ name: btn.dataset.name }),
-      });
+      const r = await withButtonBusy(btn, () =>
+        api("/api/system/contact-form/verify", {
+          method: "POST",
+          body: JSON.stringify({ name: btn.dataset.name }),
+        }),
+      );
+      if (!r) return; // 回っている間の二度押し
       if (msg)
         msg.textContent = r.ok
           ? t("contactVerifySent")
           : t("contactVerifyFailed");
     } catch (err) {
       if (msg) msg.textContent = String((err as Error)?.message || err);
-    } finally {
-      btn.disabled = false;
     }
   });
   byId("contactCancelBtn")?.addEventListener("click", () =>
     contactSetEditing(null),
   );
   byId("contactSaveBtn")?.addEventListener("click", async () => {
+    const saveBtn = byId("contactSaveBtn");
+    if (saveBtn?.dataset.busy === "1") return;
     const msg = byId("contactMsg");
     const labelEl = byId("contactLabelInput") as HTMLInputElement | null;
     const emailEl = byId("contactEmailInput") as HTMLInputElement | null;
@@ -203,16 +221,20 @@ function bindContactSettings() {
     if (!emailEl?.checkValidity() || !email.includes("@"))
       return fieldError("contactEmailInput", t("contactEmailInvalid"));
     try {
-      const r = await api(
-        contactEditing
-          ? "/api/system/contact-form/recipients/" +
-              encodeURIComponent(contactEditing)
-          : "/api/system/contact-form/recipients",
-        {
-          method: contactEditing ? "PUT" : "POST",
-          body: JSON.stringify({ label, email }),
-        },
+      // 終わるまで押せなくしてスピンを回す(何度も押されて同じ送り先が並ぶのを防ぐ)
+      const r = await withButtonBusy(saveBtn, () =>
+        api(
+          contactEditing
+            ? "/api/system/contact-form/recipients/" +
+                encodeURIComponent(contactEditing)
+            : "/api/system/contact-form/recipients",
+          {
+            method: contactEditing ? "PUT" : "POST",
+            body: JSON.stringify({ label, email }),
+          },
+        ),
       );
+      if (!r) return;
       contactSetEditing(null);
       if (msg)
         msg.textContent = r.verify_mail_sent
@@ -231,7 +253,10 @@ function bindContactSettings() {
   byId("contactTestBtn")?.addEventListener("click", async () => {
     const msg = byId("contactMsg");
     try {
-      const r = await api("/api/system/contact-form/test", { method: "POST" });
+      const r = await withButtonBusy(byId("contactTestBtn"), () =>
+        api("/api/system/contact-form/test", { method: "POST" }),
+      );
+      if (!r) return;
       if (msg)
         msg.textContent = r.ok ? t("contactTestSent") : t("contactTestFailed");
     } catch (e) {

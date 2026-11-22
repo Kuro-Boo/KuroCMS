@@ -716,7 +716,9 @@ function verifyPage(title: string, body: string, status = 200): Response {
         "content-type": "text/html; charset=utf-8",
         "cache-control": "no-store",
         "x-content-type-options": "nosniff",
-        "referrer-policy": "no-referrer",
+        // no-referrer にすると、確認するのボタンの POST で Origin が null になり、同じサイトの確かめに落ちる
+        // (2026-11-22 利用者「メールの確認でエラー」)。same-origin なら外へは何も漏らさず、自分へは Origin が付く。
+        "referrer-policy": "same-origin",
         "content-security-policy":
           "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
       },

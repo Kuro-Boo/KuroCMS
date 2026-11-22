@@ -344,6 +344,8 @@ const challengeAndSend = async (
     new Request(url, { method, headers: { Origin: origin } });
   const get = await contactVerifyEndpoint(req("GET"), env, { flagOn: true });
   assert.equal(get.status, 200);
+  // no-referrer だとボタンの POST の Origin が null になり、本人が押しても断られる
+  assert.notEqual(get.headers.get("referrer-policy"), "no-referrer");
   assert.match(await get.text(), /確認する/);
   assert.equal(
     sqlite.prepare("SELECT COUNT(*) AS n FROM contact_verified").get()!.n,
