@@ -304,6 +304,21 @@ function buildTemplateModel(ctx: RenderContext): TemplateObject {
       isArticle: Boolean(ctx.article),
       isType: Boolean(ctx.params.type && !ctx.article),
       isCategory: Boolean(ctx.params.category),
+      // 記事のカテゴリーの見分け(`[[#if page.categoryIs.grouphome]]`)。staticIs と同じく slug をキーにした
+      // 真偽値(等値比較が無いため)。記事の頁だけ(cms-cms-template・2026-11-22。戻るリンク・タブの点灯を
+      // カテゴリーで出し分けるため)。
+      categoryIs: ctx.article
+        ? Object.fromEntries(
+            articleCategories
+              .map((c) =>
+                c && typeof c === "object" && !Array.isArray(c)
+                  ? (c as TemplateObject).slug
+                  : null,
+              )
+              .filter((v): v is string => typeof v === "string" && v !== "")
+              .map((v) => [v, true]),
+          )
+        : {},
       // レシピ記事（RecipeCard を読み出せた記事）。テンプレートは type 名の
       // 文字列比較をせず、これで分岐する（仕様「レシピ専用タイプ」§7）。
       isRecipe: Boolean(ctx.article?.recipe),

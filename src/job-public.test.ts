@@ -297,4 +297,41 @@ assert.equal(
   assert.equal(render("about", [{ title: "x", job: {} }]), "");
 }
 
+// テンプレート: 記事の頁はカテゴリーの slug で見分けられる(戻るリンク・タブの点灯)。記事でない頁では空
+{
+  const tpl =
+    "<!-- kurocms-template-api:1 -->[[#if page.categoryIs.grouphome]]G[[/if]][[#if page.categoryIs.syurou]]S[[/if]]";
+  const render = (article: unknown, cats: unknown[]) =>
+    renderTemplate(tpl, {
+      path: "/facility/x/",
+      params: {},
+      lang: "ja",
+      basePath: "",
+      article,
+      content: { "_article-categories": JSON.stringify(cats) },
+    } as never).replace("<!-- kurocms-template-api:1 -->", "");
+  const art = {
+    did: "d",
+    slug: "x",
+    type: "facility",
+    title: "x",
+    summary: "",
+    bodyHtml: "",
+    publishAt: "",
+    updatedAt: "",
+  };
+  assert.equal(
+    render(art, [
+      { id: "c1", name: "グループホーム", slug: "grouphome", count: 1 },
+    ]),
+    "G",
+  );
+  assert.equal(
+    render(null, [
+      { id: "c1", name: "グループホーム", slug: "grouphome", count: 1 },
+    ]),
+    "",
+  );
+}
+
 console.log("job-public: OK");
