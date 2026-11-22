@@ -117,6 +117,12 @@ assert.equal(
 );
 assert.equal(parseRecipientText("<p>本部</p>"), null);
 assert.equal(parseRecipientText("<p>本部 not@mail</p>"), null);
+// 設定の口は持ち主の連絡先(/api/system/contact)と道を分ける(同じ道だと先にそちらが答え、一覧が出ない)
+assert.ok(
+  readFileSync(new URL("./api.ts", import.meta.url), "utf8").includes(
+    String.raw`\/api\/system\/contact-form(?:`,
+  ),
+);
 // 頁へ渡すサイト文字から mail-to- を外す(テンプレートに書かれても出ない)
 assert.match(
   readFileSync(new URL("./public.ts", import.meta.url), "utf8"),

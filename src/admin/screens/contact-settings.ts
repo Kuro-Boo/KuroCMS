@@ -40,7 +40,7 @@ async function loadContactSettings() {
   if (!list) return;
   const msg = byId("contactMsg");
   try {
-    const data = await api("/api/system/contact");
+    const data = await api("/api/system/contact-form");
     const rows: ContactRecipientRow[] = data.recipients || [];
     list.innerHTML = rows.length
       ? rows
@@ -95,7 +95,7 @@ function bindContactSettings() {
     const msg = byId("contactMsg");
     btn.disabled = true;
     try {
-      const r = await api("/api/system/contact/verify", {
+      const r = await api("/api/system/contact-form/verify", {
         method: "POST",
         body: JSON.stringify({ name: btn.dataset.name }),
       });
@@ -112,7 +112,7 @@ function bindContactSettings() {
   byId("contactTestBtn")?.addEventListener("click", async () => {
     const msg = byId("contactMsg");
     try {
-      const r = await api("/api/system/contact/test", { method: "POST" });
+      const r = await api("/api/system/contact-form/test", { method: "POST" });
       if (msg)
         msg.textContent = r.ok ? t("contactTestSent") : t("contactTestFailed");
     } catch (e) {
