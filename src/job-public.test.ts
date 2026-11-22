@@ -163,6 +163,37 @@ assert.equal(
   assert.doesNotMatch(String(only.description), /募集中/);
 }
 
+// 概要(リード)は説明の頭に置く(頁で本文の上に出すので、説明から抜かない)。文字はエスケープする
+{
+  const withLead = jobPostingLd({
+    job: JOB,
+    today: "2026-11-25",
+    title: "x",
+    bodyHtml: body,
+    summary: "利用者の外出を\nお手伝いする<仕事>です",
+    siteName: "s",
+    siteUrl: "u",
+  })!;
+  assert.match(
+    String(withLead.description),
+    /^<p>利用者の外出を<br>お手伝いする&lt;仕事&gt;です<\/p><p>ガイドヘルパーの仕事です。<\/p>/,
+  );
+  const leadOnly = jobPostingLd({
+    job: JOB,
+    today: "2026-11-25",
+    title: "x",
+    bodyHtml: card(),
+    summary: "外出のお手伝い",
+    siteName: "s",
+    siteUrl: "u",
+  })!;
+  assert.match(
+    String(leadOnly.description),
+    /^<p>外出のお手伝い<\/p><table class="kuro-job__table">/,
+    "本文がカードだけなら、概要のあとにカードの表",
+  );
+}
+
 // 募集を止めた・期限を過ぎた求人は JobPosting を出さない
 assert.equal(
   jobPostingLd({

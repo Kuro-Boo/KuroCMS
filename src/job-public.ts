@@ -72,17 +72,31 @@ export function toJobData(job: Job, today: string): JobData {
 }
 
 /**
- * JobPosting の description。本文(求人カードを除く)が仕事の説明。本文がカードだけのとき(事業所の説明を
- * 一覧の頁に置くサイトなど)は、カードの表 —— 頁に見えている条件 —— を説明にする(説明の無い求人は載らないため)。
+ * JobPosting の description。仕事の説明 = **概要(リード)+ 本文(求人カードを除く)**。概要は頁で本文の上に
+ * 太く出す欄なので、説明から抜かない(2026-11-22 利用者「説明は本文の先頭より概要に」)。本文がカードだけの
+ * ときは、カードの表 —— 頁に見えている条件 —— を続ける(説明の無い求人は載らないため)。
  * 公開物に編集用の内部の印(data-bid)を出さない(cms-cms-build・stripInternalIds)。
  */
-export function jobDescription(job: Job, bodyHtml: string): string {
+export function jobDescription(
+  job: Job,
+  bodyHtml: string,
+  summary = "",
+): string {
+  const lead = summary.trim()
+    ? `<p>${escapeText(summary.trim()).replace(/\r?\n/g, "<br>")}</p>`
+    : "";
   const body = stripInternalIds(bodyWithoutJobCard(bodyHtml)).trim();
-  if (body.replace(/<[^>]*>/g, "").trim()) return body;
+  if (body.replace(/<[^>]*>/g, "").trim()) return lead + body;
   const table = /<table class="kuro-job__table">[\s\S]*<\/table>/.exec(
     renderJobPreview(job),
   );
-  return table ? table[0] : "";
+  return lead + (table ? table[0] : "");
+}
+
+function escapeText(v: string): string {
+  return v.replace(/[&<>"]/g, (c) =>
+    c === "&" ? "&amp;" : c === "<" ? "&lt;" : c === ">" ? "&gt;" : "&quot;",
+  );
 }
 
 /** 本文から求人カードを外した HTML(JobPosting の description は仕事の説明 = 本文だけ)。 */
@@ -104,6 +118,8 @@ export function jobPostingLd(args: {
   today: string;
   title: string;
   bodyHtml: string;
+  /** 記事の概要(頁で本文の上に出すリード)。説明の頭に置く。 */
+  summary?: string;
   siteName: string;
   siteUrl: string;
   logoUrl?: string | null;
@@ -135,7 +151,7 @@ export function jobPostingLd(args: {
     "@context": "https://schema.org",
     "@type": "JobPosting",
     title: args.title,
-    description: jobDescription(job, args.bodyHtml),
+    description: jobDescription(job, args.bodyHtml, args.summary ?? ""),
     ...(job.openedAt ? { datePosted: job.openedAt } : {}),
     ...(job.validThrough
       ? { validThrough: `${job.validThrough}T23:59:59` }
