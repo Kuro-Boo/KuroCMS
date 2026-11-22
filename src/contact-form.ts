@@ -3,7 +3,11 @@
  *
  * - 公開の頁: 本文の contact-form の正本から本物のフォームを作り、形を署名して載せる(expandContactForms)。
  * - 口: POST {公開の根}/_contact/challenge(計算の課題)・POST {公開の根}/_contact/send(送信)。
- * - 内容は保存しない。設定で選んだ管理者へメール 1 通(sendMail)。記録は数と誤りの種類だけ。
+ * - 送り先: フォームが名前(to)で選び、アドレスはサイト文字 mail-to-<名前>(「表示名 アドレス」)から読む。
+ *   サイト文字は管理者だけが書け、mail-to- は公開の頁へ出さない(fetchTemplateContent が外す)。
+ *   サイトのドメインの外のアドレスは、確認のメールのボタンが押されるまで送らない(contact_verified)。
+ * - 内容は保存しない。送り先ごとにメール 1 通(sendMail)。記録は数と誤りの種類だけ。
+ * - 口: POST {公開の根}/_contact/verify も(確認のメールのリンクの先。GET は押すボタンを出すだけ)。
  * - ロボット避けは自前の計算の課題(SHA-256 の先頭 bits ビットが 0)。salt は 1 回だけ使える(contact_spent)。
  */
 import {
@@ -14,6 +18,7 @@ import {
   validateContactForm,
   validateSubmission,
   isEmail,
+  RECIPIENT_NAME_RE,
   type ContactForm,
 } from "../../KuroEditor/src/contact.js";
 import { randomToken } from "./crypto.ts";
@@ -152,33 +157,169 @@ const BLOCK_OPEN = new RegExp(
   "gi",
 );
 
-/** 送り先が選ばれているか(選ばれていなければ、フォームは受け付けていないと出す)。 */
-async function recipientsOf(
-  env: Env,
-): Promise<{ uid: string; email: string }[]> {
+// ── 送り先(サイト文字 mail-to-<名前>)──────────────────────────────────────────
+
+/** 送り先を置くサイト文字の名前の頭。公開の頁へは出さない。 */
+export const MAIL_TO_PREFIX = "mail-to-";
+/** 確認のリンクの有効な間。 */
+export const CONTACT_VERIFY_MS = 7 * 24 * 60 * 60_000;
+
+export interface ContactRecipient {
+  /** mail-to- の後ろ(フォームの to が指す名前) */
+  name: string;
+  label: string;
+  email: string;
+  /** サイトのドメインのアドレス(確認は要らない) */
+  own: boolean;
+  verified: boolean;
+}
+
+const ENTITIES: Record<string, string> = {
+  amp: "&",
+  lt: "<",
+  gt: ">",
+  quot: '"',
+  apos: "'",
+  nbsp: " ",
+};
+
+/** サイト文字(KuroEditor の HTML)を平文へ。 */
+function plainText(html: string): string {
+  return String(html ?? "")
+    .replace(/<br\s*\/?>/gi, " ")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, e: string) => {
+      if (e[0] === "#") {
+        const n =
+          e[1] === "x" || e[1] === "X"
+            ? parseInt(e.slice(2), 16)
+            : parseInt(e.slice(1), 10);
+        return Number.isFinite(n) ? String.fromCodePoint(n) : m;
+      }
+      return ENTITIES[e.toLowerCase()] ?? m;
+    })
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * mail-to- の値「表示名 アドレス」を読む(アドレスは 1 つだけ)。読めなければ null。
+ * 表示名が無ければ名前を表示名にする。
+ */
+export function parseRecipientText(
+  html: string,
+): { label: string; email: string } | null {
+  const text = plainText(html);
+  const found = text
+    .split(" ")
+    .map((w) => w.replace(/^[<(（「]+|[>)）」,、。]+$/g, ""))
+    .filter((w) => w.includes("@"));
+  if (found.length !== 1 || !isEmail(found[0])) return null;
+  const email = found[0].toLowerCase();
+  const label = text
+    .split(" ")
+    .filter((w) => !w.includes("@"))
+    .join(" ")
+    .replace(/[<>()（）「」:：]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 60);
+  return { label, email };
+}
+
+/** サイトの公開ドメイン(www. は外す)。 */
+async function ownHost(env: Env): Promise<string> {
   const row = await env.DB.prepare(
-    "SELECT contact_recipients_json AS j FROM site_settings WHERE id = 1",
+    "SELECT public_domain FROM site_settings WHERE id = 1",
   )
-    .first<{ j: string | null }>()
+    .first<{ public_domain: string | null }>()
     .catch(() => null);
-  let uids: string[] = [];
   try {
-    const v: unknown = JSON.parse(row?.j || "[]");
-    if (Array.isArray(v))
-      uids = v.filter((x): x is string => typeof x === "string").slice(0, 10);
+    return new URL(row?.public_domain ?? "").hostname
+      .toLowerCase()
+      .replace(/^www\./, "");
   } catch {
-    /* 壊れていれば空 */
+    return "";
   }
-  if (!uids.length) return [];
-  // 管理者で、メールを確かめ済みで、止めていない人だけ(設定のあとで外れた人には送らない)
-  const rows = await env.DB.prepare(
-    `SELECT uid, email FROM users WHERE uid IN (${uids.map(() => "?").join(",")})
-       AND is_admin = 1 AND disabled_at IS NULL AND email_verified_at IS NOT NULL`,
+}
+
+export function isOwnAddress(email: string, host: string): boolean {
+  if (!host) return false;
+  const domain = email.split("@")[1]?.toLowerCase() ?? "";
+  return domain === host || domain.endsWith("." + host);
+}
+
+/** 登録された送り先の全部(基準の言語の値から)。形の読めない行は落とす。 */
+export async function contactRecipientList(
+  env: Env,
+): Promise<ContactRecipient[]> {
+  const dl = await env.DB.prepare(
+    "SELECT default_lang FROM site_settings WHERE id = 1",
   )
-    .bind(...uids)
-    .all<{ uid: string; email: string }>()
-    .catch(() => ({ results: [] as { uid: string; email: string }[] }));
-  return (rows.results ?? []).filter((r) => isEmail(r.email));
+    .first<{ default_lang: string | null }>()
+    .catch(() => null);
+  const defaultLang = dl?.default_lang || "";
+  const rows = await env.DB.prepare(
+    `SELECT id, name, lang FROM taxonomy_items WHERE kind = 'template' AND id LIKE '${MAIL_TO_PREFIX}%' ORDER BY id`,
+  )
+    .all<{ id: string; name: string; lang: string }>()
+    .catch(() => ({
+      results: [] as { id: string; name: string; lang: string }[],
+    }));
+  // 基準の言語の値 → 言語の無い値 → ほかの言語の最初の値(送り先は言語で変わらない)
+  const byId = new Map<string, string>();
+  const rank = (lang: string) =>
+    lang === defaultLang ? 0 : lang === "" ? 1 : 2;
+  const best = new Map<string, number>();
+  for (const r of rows.results ?? []) {
+    if (!r.name) continue;
+    const k = rank(r.lang);
+    if (!best.has(r.id) || k < best.get(r.id)!) {
+      best.set(r.id, k);
+      byId.set(r.id, r.name);
+    }
+  }
+  const host = await ownHost(env);
+  const list: ContactRecipient[] = [];
+  for (const [id, value] of byId) {
+    const name = id.slice(MAIL_TO_PREFIX.length);
+    if (!RECIPIENT_NAME_RE.test(name)) continue;
+    const parsed = parseRecipientText(value);
+    if (!parsed) continue;
+    list.push({
+      name,
+      label: parsed.label || name,
+      email: parsed.email,
+      own: isOwnAddress(parsed.email, host),
+      verified: false,
+    });
+  }
+  const outside = [...new Set(list.filter((r) => !r.own).map((r) => r.email))];
+  if (outside.length) {
+    const v = await env.DB.prepare(
+      `SELECT email FROM contact_verified WHERE email IN (${outside.map(() => "?").join(",")})`,
+    )
+      .bind(...outside)
+      .all<{ email: string }>()
+      .catch(() => ({ results: [] as { email: string }[] }));
+    const ok = new Set((v.results ?? []).map((r) => r.email));
+    for (const r of list) r.verified = ok.has(r.email);
+  }
+  return list;
+}
+
+export const deliverable = (r: ContactRecipient): boolean =>
+  r.own || r.verified;
+
+/** フォームの to を、登録の送り先へ(登録に無い名前は落とす)。 */
+function recipientsFor(
+  form: ContactForm,
+  all: ContactRecipient[],
+): ContactRecipient[] {
+  const map = new Map(all.map((r) => [r.name, r]));
+  return (form.to ?? [])
+    .map((n) => map.get(n))
+    .filter((r): r is ContactRecipient => Boolean(r));
 }
 
 /**
@@ -194,7 +335,7 @@ export async function expandContactForms(
 ): Promise<string> {
   if (!html.includes(`data-kuro-block="${CONTACT_BLOCK}"`)) return html;
   if (!(flagOn ?? (await contactFlagOn(env)))) return html;
-  const configured = (await recipientsOf(env)).length > 0;
+  const all = await contactRecipientList(env);
   let out = "";
   let pos = 0;
   BLOCK_OPEN.lastIndex = 0;
@@ -212,7 +353,7 @@ export async function expandContactForms(
     let replacement: string;
     if (!form || validateContactForm(form).length) {
       replacement = ""; // 壊れた形は出さない(保存の口で断っているので普通は起きない)
-    } else if (!configured) {
+    } else if (!recipientsFor(form, all).some(deliverable)) {
       replacement = `<div class="kuro-contact kuro-contact--closed"><p class="kuro-contact__status">現在、このフォームではお問い合わせを受け付けていません。</p></div>`;
     } else {
       const signed = await signForm(env, form, path);
@@ -423,16 +564,13 @@ export async function contactEndpoint(
   if (!checked.ok)
     return reply({ error: "invalid", fields: checked.errors }, 400);
 
-  const recipients = await recipientsOf(env);
-  if (!recipients.length) return reply({ error: "not_configured" }, 503);
+  const targets = recipientsFor(opened.form, await contactRecipientList(env));
+  const sendTo = targets.filter(deliverable);
+  const waiting = targets.filter((r) => !deliverable(r));
+  if (!sendTo.length) return reply({ error: "not_configured" }, 503);
 
   const sendMail = deps.sendMail ?? (await import("./api.ts")).sendMail;
-  const siteName = await env.DB.prepare(
-    "SELECT site_name FROM site_settings WHERE id = 1",
-  )
-    .first<{ site_name: string }>()
-    .then((r) => r?.site_name || "")
-    .catch(() => "");
+  const siteName = await siteNameOf(env);
   const pageUrl = new URL(opened.path, new URL(request.url).origin).toString();
   const at = new Date(now).toISOString();
   const lines = checked.clean.map(
@@ -446,21 +584,174 @@ export async function contactEndpoint(
       /[\r\n]+/g,
       " ",
     );
-  try {
-    const status = await sendMail(env, {
-      to: recipients.map((r) => r.email),
-      subject,
-      text: `${opened.form.subject}\n\n頁: ${pageUrl}\n日時: ${at}\n\n${lines.join("\n\n")}\n`,
-      lang: "ja",
-      ...(replyTo ? { replyTo } : {}),
-      idempotencyKey: `contact-${ch.salt}`,
-    });
-    if (!status?.path) return reply({ error: "mail_failed" }, 502);
-  } catch {
-    console.warn("contact mail failed");
-    return reply({ error: "mail_failed" }, 502);
+  const text =
+    `${opened.form.subject}\n\n${recipientsNotice(sendTo, waiting)}\n\n` +
+    `頁: ${pageUrl}\n日時: ${at}\n\n${lines.join("\n\n")}\n`;
+  // 送り先ごとに 1 通(同じメールに並べると、「全員に返信」で別の送り先のアドレスが送った人に見える)
+  let delivered = 0;
+  for (const r of sendTo) {
+    try {
+      const status = await sendMail(env, {
+        to: [r.email],
+        subject,
+        text,
+        lang: "ja",
+        ...(replyTo ? { replyTo } : {}),
+        idempotencyKey: `contact-${ch.salt}-${r.name}`,
+      });
+      if (status?.path) delivered++;
+    } catch {
+      console.warn("contact mail failed");
+    }
   }
+  if (!delivered) return reply({ error: "mail_failed" }, 502);
   return reply({ ok: true });
+}
+
+async function siteNameOf(env: Env): Promise<string> {
+  return env.DB.prepare("SELECT site_name FROM site_settings WHERE id = 1")
+    .first<{ site_name: string }>()
+    .then((r) => r?.site_name || "")
+    .catch(() => "");
+}
+
+/** メールの冒頭: どこへ届いているか(担当どうしで返事が重ならないように)。 */
+export function recipientsNotice(
+  sendTo: ContactRecipient[],
+  waiting: ContactRecipient[] = [],
+): string {
+  const row = (r: ContactRecipient) => `  ・${r.label}  ${r.email}`;
+  const head =
+    sendTo.length > 1
+      ? `このお問い合わせは、次の ${sendTo.length} か所へ同じ内容で届いています。`
+      : "このお問い合わせは、次の送り先へ届いています。";
+  const out = [head, ...sendTo.map(row)];
+  for (const r of waiting)
+    out.push(`${row(r)}(アドレスの確認が済んでいないため、送っていません)`);
+  out.push(
+    sendTo.length > 1
+      ? "このメールに返信すると、お問い合わせをくださった方へ直接届きます(ほかの送り先には届きません)。\n返事が重ならないよう、どこから返事をするかを確かめてから返信してください。"
+      : "このメールに返信すると、お問い合わせをくださった方へ直接届きます。",
+  );
+  return out.join("\n");
+}
+
+// ── 送り先の確認(サイトのドメインの外のアドレス)────────────────────────────────
+
+/** 確認のリンク。署名に期限とアドレスを含める(表を引かずに確かめる)。 */
+export async function contactVerifyLink(
+  env: Env,
+  publicBase: string,
+  email: string,
+  now = Date.now(),
+): Promise<string> {
+  const e = b64url(new TextEncoder().encode(email.toLowerCase()));
+  const x = now + CONTACT_VERIFY_MS;
+  const sig = await sign(env, `verify:${e}:${x}`);
+  return `${publicBase.replace(/\/+$/, "")}/_contact/verify?e=${e}&x=${x}&s=${sig}`;
+}
+
+/** 確認のメールを送る(押されるまで、このアドレスへは問い合わせを届けない)。 */
+export async function sendContactVerifyMail(
+  env: Env,
+  publicBase: string,
+  r: { label: string; email: string },
+  deps: Pick<ContactDeps, "sendMail" | "now"> = {},
+): Promise<boolean> {
+  const sendMail = deps.sendMail ?? (await import("./api.ts")).sendMail;
+  const siteName = (await siteNameOf(env)) || "ホームページ";
+  const link = await contactVerifyLink(env, publicBase, r.email, deps.now);
+  const status = await sendMail(env, {
+    to: [r.email],
+    subject: `[${siteName}] 問い合わせフォームの送り先の確認`,
+    text:
+      `${siteName} の問い合わせフォームの送り先に、このアドレス(${r.email})が登録されました(送り先の名前: ${r.label})。\n\n` +
+      `心当たりがあれば、次のリンクを開いて「確認する」を押してください。押すまでは、このアドレスへ問い合わせを届けません。\n` +
+      `${link}\n(7 日のあいだ使えます)\n\n` +
+      `心当たりが無ければ、このメールは捨ててください。何も届きません。\n`,
+    lang: "ja",
+    idempotencyKey: `contact-verify-${r.email}-${Math.floor((deps.now ?? Date.now()) / 60_000)}`,
+  });
+  return Boolean(status?.path);
+}
+
+function verifyPage(title: string, body: string, status = 200): Response {
+  const esc = (v: string) =>
+    v.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
+  return new Response(
+    `<!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${esc(title)}</title>` +
+      `<body style="font-family:sans-serif;max-width:32rem;margin:3rem auto;padding:0 1rem;line-height:1.7"><h1 style="font-size:1.25rem">${esc(title)}</h1>${body}</body></html>`,
+    {
+      status,
+      headers: {
+        "content-type": "text/html; charset=utf-8",
+        "cache-control": "no-store",
+        "x-content-type-options": "nosniff",
+        "referrer-policy": "no-referrer",
+        "content-security-policy":
+          "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
+      },
+    },
+  );
+}
+
+/**
+ * GET/POST {公開の根}/_contact/verify?e=&x=&s=
+ * GET は「確認する」のボタンを出すだけ(メールの安全確認の仕組みがリンクを先に開いても、確認にしない)。
+ * POST(同じサイトから)で控える。
+ */
+export async function contactVerifyEndpoint(
+  request: Request,
+  env: Env,
+  deps: Pick<ContactDeps, "now" | "flagOn"> = {},
+): Promise<Response> {
+  const now = deps.now ?? Date.now();
+  const flagOn = deps.flagOn ?? (await contactFlagOn(env));
+  if (!flagOn) return reply({ error: "not_found" }, 404);
+  const url = new URL(request.url);
+  const e = url.searchParams.get("e") ?? "";
+  const x = Number(url.searchParams.get("x") ?? "");
+  const s = url.searchParams.get("s") ?? "";
+  let email: string;
+  try {
+    email = new TextDecoder().decode(b64urlDecode(e));
+  } catch {
+    email = "";
+  }
+  const bad = () =>
+    verifyPage(
+      "リンクが使えません",
+      "<p>このリンクは期限が過ぎたか、正しくありません。サイトの管理者に、確認のメールを送り直してもらってください。</p>",
+      400,
+    );
+  if (
+    !email ||
+    !isEmail(email) ||
+    !Number.isFinite(x) ||
+    x < now ||
+    !(await verify(env, `verify:${e}:${x}`, s))
+  )
+    return bad();
+  if (request.method === "GET") {
+    const action = `${url.pathname}?e=${encodeURIComponent(e)}&x=${x}&s=${encodeURIComponent(s)}`;
+    return verifyPage(
+      "問い合わせフォームの送り先の確認",
+      `<p>${email.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`)} を、このサイトの問い合わせフォームの送り先にします。</p>` +
+        `<form method="post" action="${action.replace(/&/g, "&amp;")}"><button type="submit" style="font-size:1rem;padding:.5rem 1.5rem">確認する</button></form>`,
+    );
+  }
+  if (request.method !== "POST")
+    return reply({ error: "method_not_allowed" }, 405);
+  if (!sameOrigin(request)) return reply({ error: "forbidden" }, 403);
+  await env.DB.prepare(
+    "INSERT INTO contact_verified (email, verified_at) VALUES (?, ?) ON CONFLICT(email) DO NOTHING",
+  )
+    .bind(email.toLowerCase(), new Date(now).toISOString())
+    .run();
+  return verifyPage(
+    "確認しました",
+    "<p>これから、このアドレスへ問い合わせフォームの内容が届きます。この頁は閉じてかまいません。</p>",
+  );
 }
 
 /** 期限を過ぎた課題の札を消す(毎分の刻み)。 */
@@ -472,43 +763,4 @@ export async function sweepContactSpent(
     .bind(now)
     .run()
     .catch(() => {});
-}
-
-/** 設定の届け先(管理者のうちメールを確かめ済みの人から選ぶ)。 */
-export async function contactRecipientsSetting(env: Env): Promise<{
-  selected: string[];
-  candidates: { uid: string; email: string; name: string }[];
-}> {
-  const row = await env.DB.prepare(
-    "SELECT contact_recipients_json AS j FROM site_settings WHERE id = 1",
-  ).first<{ j: string | null }>();
-  let selected: string[] = [];
-  try {
-    const v: unknown = JSON.parse(row?.j || "[]");
-    if (Array.isArray(v))
-      selected = v.filter((x): x is string => typeof x === "string");
-  } catch {
-    /* 空 */
-  }
-  const rows = await env.DB.prepare(
-    "SELECT uid, email, COALESCE(display_name, '') AS name FROM users WHERE is_admin = 1 AND disabled_at IS NULL AND email_verified_at IS NOT NULL ORDER BY created_at",
-  ).all<{ uid: string; email: string; name: string }>();
-  return { selected, candidates: rows.results ?? [] };
-}
-
-export async function setContactRecipients(
-  env: Env,
-  uids: unknown,
-): Promise<string[]> {
-  const { candidates } = await contactRecipientsSetting(env);
-  const allowed = new Set(candidates.map((c) => c.uid));
-  const list = (Array.isArray(uids) ? uids : [])
-    .filter((u): u is string => typeof u === "string" && allowed.has(u))
-    .slice(0, 10);
-  await env.DB.prepare(
-    "UPDATE site_settings SET contact_recipients_json = ?, updated_at = ? WHERE id = 1",
-  )
-    .bind(JSON.stringify([...new Set(list)]), new Date().toISOString())
-    .run();
-  return list;
 }

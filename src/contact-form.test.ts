@@ -1,6 +1,7 @@
 // 契約テスト (node で直接実行)。問い合わせフォーム(cms-contact)。
 //
-// 固定したいのは ——「送り先は設定の管理者だけ・形は署名で確かめる・課題は 1 回だけ・回数に上限・内容は残さない」。
+// 固定したいのは ——「送り先はフォームが名前で選び、アドレスはサイト文字 mail-to- から・外のアドレスは確認が済むまで送らない・
+// 送り先ごとに 1 通で、冒頭にどこへ届いたかを書く・形は署名で確かめる・課題は 1 回だけ・回数に上限・内容は残さない」。
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -12,30 +13,40 @@ import {
 import {
   CONTACT_PER_NETWORK_HOUR,
   contactEndpoint,
+  contactRecipientList,
+  contactVerifyEndpoint,
+  contactVerifyLink,
   expandContactForms,
-  setContactRecipients,
+  parseRecipientText,
+  recipientsNotice,
 } from "./contact-form.ts";
 import type { Env } from "./types.ts";
 
 const sqlite = new DatabaseSync(":memory:");
 sqlite.exec(
-  "CREATE TABLE site_settings (id INTEGER PRIMARY KEY, site_name TEXT, updated_at TEXT)",
+  "CREATE TABLE site_settings (id INTEGER PRIMARY KEY, site_name TEXT, updated_at TEXT, public_domain TEXT, default_lang TEXT)",
 );
 sqlite.exec(
-  "CREATE TABLE users (uid TEXT PRIMARY KEY, email TEXT, display_name TEXT, is_admin INTEGER, disabled_at TEXT, email_verified_at TEXT, created_at TEXT)",
+  "CREATE TABLE taxonomy_items (id TEXT, kind TEXT, lang TEXT, name TEXT, PRIMARY KEY (id, kind, lang))",
 );
-for (const f of ["0091_reaction_rate.sql", "0093_contact_form.sql"]) {
+for (const f of [
+  "0091_reaction_rate.sql",
+  "0093_contact_form.sql",
+  "0094_contact_verified.sql",
+]) {
   sqlite.exec(
     readFileSync(new URL(`../migrations/${f}`, import.meta.url), "utf8"),
   );
 }
 sqlite.exec(
-  "INSERT INTO site_settings (id, site_name) VALUES (1, 'はなみずき')",
+  "INSERT INTO site_settings (id, site_name, public_domain, default_lang) VALUES (1, 'はなみずき', 'https://hanamizuki.example', 'ja')",
 );
-sqlite.exec(`INSERT INTO users VALUES
-  ('u1', 'staff@example.com', '担当', 1, NULL, '2026-01-01', '2026-01-01'),
-  ('u2', 'unverified@example.com', '', 1, NULL, NULL, '2026-01-02'),
-  ('u3', 'author@example.com', '', 0, NULL, '2026-01-01', '2026-01-03')`);
+const siteText = (id: string, name: string, lang = "ja") =>
+  sqlite
+    .prepare(
+      "INSERT INTO taxonomy_items (id, kind, lang, name) VALUES (?, 'template', ?, ?) ON CONFLICT(id, kind, lang) DO UPDATE SET name = excluded.name",
+    )
+    .run(id, lang, name);
 
 const db = {
   prepare(sql: string) {
@@ -71,21 +82,50 @@ const sent: {
   subject: string;
   text: string;
   replyTo?: string;
+  idempotencyKey?: string;
 }[] = [];
 const deps = (now = Date.now()) => ({
   now,
   flagOn: true,
   sendMail: async (
     _e: Env,
-    m: { to: string[]; subject: string; text: string; replyTo?: string },
+    m: {
+      to: string[];
+      subject: string;
+      text: string;
+      replyTo?: string;
+      idempotencyKey?: string;
+    },
   ) => {
     sent.push(m);
     return { path: "mailer" };
   },
 });
 
+// 送り先の値「表示名 アドレス」を読む(アドレスは 1 つだけ)
+assert.deepEqual(parseRecipientText("<p>本部 Info@Example.com</p>"), {
+  label: "本部",
+  email: "info@example.com",
+});
+assert.deepEqual(
+  parseRecipientText("<p>A型事業所&nbsp;&lt;a@example.com&gt;</p>"),
+  { label: "A型事業所", email: "a@example.com" },
+);
+assert.equal(
+  parseRecipientText("<p>本部 a@example.com b@example.com</p>"),
+  null,
+);
+assert.equal(parseRecipientText("<p>本部</p>"), null);
+assert.equal(parseRecipientText("<p>本部 not@mail</p>"), null);
+// 頁へ渡すサイト文字から mail-to- を外す(テンプレートに書かれても出ない)
+assert.match(
+  readFileSync(new URL("./public.ts", import.meta.url), "utf8"),
+  /AND id NOT LIKE 'mail-to-%'/,
+);
+
 const form = normalizeContactForm({
   subject: "A型のお申し込み",
+  to: ["honbu", "syurou-a"],
   fields: [
     { kind: "name", label: "お名前", required: true },
     { kind: "email", label: "メールアドレス", required: true },
@@ -94,21 +134,55 @@ const form = normalizeContactForm({
 });
 const page = `<main><div class="kuro-content">${buildContactCardHtml(form)}</div></main>`;
 
-// 送り先が選ばれていなければ、フォームの代わりに受け付けていないと出す
+// 送り先が登録されていなければ、フォームの代わりに受け付けていないと出す
 let html = await expandContactForms(page, env, "", "/syurou_a/", true);
 assert.match(html, /受け付けていません/);
 assert.doesNotMatch(html, /<form/);
 
-// 届け先に選べるのは、メールを確かめ済みの管理者だけ(他人のアドレス・筆者・未確認は入らない)
+// 外のアドレス(Gmail など)だけでは、確認が済むまで受け付けない
+siteText("mail-to-syurou-a", "<p>A型事業所はなみずき agata@gmail.example</p>");
+html = await expandContactForms(page, env, "", "/syurou_a/", true);
+assert.match(html, /受け付けていません/);
+
+// サイトのドメインのアドレスは確認が要らない。形の読めない行・名前の形が違う行は落とす
+siteText("mail-to-honbu", "<p>本部 headoffice@hanamizuki.example</p>");
+siteText(
+  "mail-to-honbu",
+  "<p>Head office headoffice@hanamizuki.example</p>",
+  "en",
+);
+siteText("mail-to-broken", "<p>壊れた</p>");
+siteText("mail-to-Bad_Name", "<p>x a@hanamizuki.example</p>");
 assert.deepEqual(
-  await setContactRecipients(env, ["u1", "u2", "u3", "x@example.com"]),
-  ["u1"],
+  (await contactRecipientList(env)).map((r) => [
+    r.name,
+    r.label,
+    r.own,
+    r.verified,
+  ]),
+  [
+    ["honbu", "本部", true, false],
+    ["syurou-a", "A型事業所はなみずき", false, false],
+  ],
+  "基準の言語の値を読む",
 );
 
 // 旗が効かないサイトでは何もしない
 assert.equal(
   await expandContactForms(page, env, "", "/syurou_a/", false),
   page,
+);
+
+// 登録に無い名前だけを選んだフォームは受け付けない
+assert.match(
+  await expandContactForms(
+    `<div>${buildContactCardHtml(normalizeContactForm({ ...form, to: ["nowhere"] }))}</div>`,
+    env,
+    "",
+    "/x/",
+    true,
+  ),
+  /受け付けていません/,
 );
 
 html = await expandContactForms(page, env, "", "/syurou_a/", true);
@@ -198,7 +272,7 @@ const challengeAndSend = async (
   };
 };
 
-// 正しい送信はメール 1 通。宛先は設定の管理者だけ。Reply-To は送った人。
+// 確認の済んでいない送り先には送らず、届いた側のメールにそのことを書く
 {
   const { res } = await challengeAndSend({
     f0: "山田 太郎",
@@ -207,18 +281,118 @@ const challengeAndSend = async (
   });
   assert.equal(res.status, 200);
   assert.equal(sent.length, 1);
-  assert.deepEqual(sent[0].to, ["staff@example.com"]);
+  assert.deepEqual(sent[0].to, ["headoffice@hanamizuki.example"]);
   assert.equal(sent[0].replyTo, "taro@example.com");
   assert.match(sent[0].subject, /^\[はなみずき\] A型のお申し込み$/);
   assert.match(sent[0].text, /見学したい/);
   assert.match(sent[0].text, /\/syurou_a\//);
+  assert.match(
+    sent[0].text,
+    /agata@gmail\.example\(アドレスの確認が済んでいないため、送っていません\)/,
+  );
 }
+
+// 確認のリンク: GET はボタンだけ(先に開かれても確認にしない)・別のサイトからの POST・書き換え・期限切れは断る
+{
+  const link = await contactVerifyLink(env, ORIGIN, "Agata@gmail.example");
+  const req = (method: string, url = link, origin = ORIGIN) =>
+    new Request(url, { method, headers: { Origin: origin } });
+  const get = await contactVerifyEndpoint(req("GET"), env, { flagOn: true });
+  assert.equal(get.status, 200);
+  assert.match(await get.text(), /確認する/);
+  assert.equal(
+    sqlite.prepare("SELECT COUNT(*) AS n FROM contact_verified").get()!.n,
+    0,
+  );
+  assert.equal(
+    (
+      await contactVerifyEndpoint(
+        req("POST", link, "https://evil.example"),
+        env,
+        { flagOn: true },
+      )
+    ).status,
+    403,
+  );
+  const forged = link.replace(
+    /e=[^&]+/,
+    "e=" + Buffer.from("x@evil.example").toString("base64url"),
+  );
+  assert.equal(
+    (await contactVerifyEndpoint(req("POST", forged), env, { flagOn: true }))
+      .status,
+    400,
+  );
+  assert.equal(
+    (
+      await contactVerifyEndpoint(req("POST"), env, {
+        flagOn: true,
+        now: Date.now() + 8 * 24 * 3600_000,
+      })
+    ).status,
+    400,
+  );
+  assert.equal(
+    (await contactVerifyEndpoint(req("POST"), env, { flagOn: false })).status,
+    404,
+  );
+  const ok = await contactVerifyEndpoint(req("POST"), env, { flagOn: true });
+  assert.equal(ok.status, 200);
+  assert.match(await ok.text(), /確認しました/);
+  assert.equal(
+    (await contactRecipientList(env)).find((r) => r.name === "syurou-a")!
+      .verified,
+    true,
+  );
+}
+
+// 確認が済めば、送り先ごとに 1 通(宛先は 1 つずつ)。冒頭に 2 か所のアドレスと説明
+{
+  sent.length = 0;
+  const { res } = await challengeAndSend({
+    f0: "山田 花子",
+    f1: "hanako@example.com",
+    f2: "見学したい",
+  });
+  assert.equal(res.status, 200);
+  assert.deepEqual(
+    sent.map((m) => m.to),
+    [["headoffice@hanamizuki.example"], ["agata@gmail.example"]],
+  );
+  assert.notEqual(sent[0].idempotencyKey, sent[1].idempotencyKey);
+  for (const m of sent) {
+    assert.match(m.text, /次の 2 か所へ同じ内容で届いています/);
+    assert.match(m.text, /・本部 {2}headoffice@hanamizuki\.example/);
+    assert.match(m.text, /・A型事業所はなみずき {2}agata@gmail\.example/);
+    assert.match(m.text, /どこから返事をするかを確かめてから/);
+    assert.doesNotMatch(m.text, /送っていません/);
+  }
+}
+assert.match(
+  recipientsNotice([
+    {
+      name: "a",
+      label: "本部",
+      email: "a@x.example",
+      own: true,
+      verified: false,
+    },
+  ]),
+  /^このお問い合わせは、次の送り先へ届いています。/,
+);
+
 // 内容をどこにも残さない(D1 の表に送った値が無い)
-for (const t of ["contact_spent", "reaction_rate", "site_settings", "users"]) {
+for (const t of [
+  "contact_spent",
+  "contact_verified",
+  "reaction_rate",
+  "site_settings",
+  "taxonomy_items",
+]) {
   const dump = JSON.stringify(sqlite.prepare(`SELECT * FROM ${t}`).all());
   assert.doesNotMatch(
     dump,
-    /見学したい|taro@example\.com/,
+    /見学したい|taro@example\.com|hanako@example\.com/,
     `${t} に内容が残っている`,
   );
 }

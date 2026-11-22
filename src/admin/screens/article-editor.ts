@@ -1843,6 +1843,7 @@ async function newArticle(editDid: Dynamic) {
       // 求人カード・問い合わせフォーム(旗 job-card / contact-form が効くサイトだけ)
       jobUi: Boolean(state.editorFeatures?.jobCard),
       contactUi: Boolean(state.editorFeatures?.contactForm),
+      contactRecipients: state.editorFeatures?.contactRecipients ?? [],
       urlResolver: function (slug: string) {
         if (slug.startsWith("http")) return slug;
         // メディア → 記事 → （どちらでもなければ）素の slug の順。
