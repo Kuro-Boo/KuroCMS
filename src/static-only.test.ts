@@ -12,6 +12,9 @@ for (const p of [
   "/favicon.ico",
   "/favicon.svg",
   "/_reactions/abc_1-2",
+  "/_contact/challenge",
+  "/_contact/send",
+  "/_contact/verify",
 ]) {
   assert.equal(staticDynamicPath(p), true, `${p} は Worker が答える`);
 }
@@ -26,6 +29,8 @@ for (const p of [
   "/_reactions/",
   "/_reactions/a/b",
   "/_reactions/../x",
+  "/_contact/",
+  "/_contact/other",
 ]) {
   assert.equal(staticDynamicPath(p), false, `${p} は資産だけ(Worker は 404)`);
 }

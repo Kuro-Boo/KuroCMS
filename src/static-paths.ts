@@ -11,8 +11,8 @@ export function staticDynamicPath(publicPath: string): boolean {
     publicPath === "/favicon.ico" ||
     publicPath === "/favicon.svg" ||
     new RegExp("^/_reactions/[a-zA-Z0-9_-]+$").test(publicPath) ||
-    // 問い合わせフォームの口(cms-contact)
-    new RegExp("^/_contact/(challenge|send)$").test(publicPath)
+    // 問い合わせフォームの口と、送り先の確認のリンクの先(cms-contact)
+    new RegExp("^/_contact/(challenge|send|verify)$").test(publicPath)
   );
 }
 
