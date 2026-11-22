@@ -3,8 +3,8 @@
  *
  * - 公開の頁: 本文の contact-form の正本から本物のフォームを作り、形を署名して載せる(expandContactForms)。
  * - 口: POST {公開の根}/_contact/challenge(計算の課題)・POST {公開の根}/_contact/send(送信)。
- * - 送り先: フォームが名前(to)で選び、アドレスはサイト文字 mail-to-<名前>(「名前 <アドレス>」)から読む。
- *   サイト文字は管理者だけが書け、mail-to- は公開の頁へ出さない(fetchTemplateContent が外す)。
+ * - 送り先: フォームが名前(to)で選び、アドレスは設定の「問い合わせ」で登録した表(contact_recipients)から読む。
+ *   登録できるのは管理者だけ。アドレスは公開の頁にも、エディタにも渡さない。
  *   サイトのドメインの外のアドレスは、確認のメールのボタンが押されるまで送らない(contact_verified)。
  * - 内容は保存しない。送り先ごとにメール 1 通(sendMail)。記録は数と誤りの種類だけ。
  * - 口: POST {公開の根}/_contact/verify も(確認のメールのリンクの先。GET は押すボタンを出すだけ)。
@@ -158,64 +158,23 @@ const BLOCK_OPEN = new RegExp(
   "gi",
 );
 
-// ── 送り先(サイト文字 mail-to-<名前>)──────────────────────────────────────────
+// ── 送り先(設定の「問い合わせ」で登録・表 contact_recipients)──────────────────────────────
 
-/** 送り先を置くサイト文字の名前の頭。公開の頁へは出さない。 */
-export const MAIL_TO_PREFIX = "mail-to-";
 /** 確認のリンクの有効な間。 */
 export const CONTACT_VERIFY_MS = 7 * 24 * 60 * 60_000;
+/** 登録できる送り先の数。 */
+export const CONTACT_RECIPIENTS_MAX = 20;
+/** 表示名の長さ。 */
+export const CONTACT_LABEL_MAX = 40;
 
 export interface ContactRecipient {
-  /** mail-to- の後ろ(フォームの to が指す名前) */
+  /** ID(フォームの to が指す名前・利用者が決める・登録した後は変えない) */
   name: string;
   label: string;
   email: string;
   /** サイトのドメインのアドレス(確認は要らない) */
   own: boolean;
   verified: boolean;
-}
-
-const ENTITIES: Record<string, string> = {
-  amp: "&",
-  lt: "<",
-  gt: ">",
-  quot: '"',
-  apos: "'",
-  nbsp: " ",
-};
-
-/** サイト文字(KuroEditor の HTML)を平文へ。 */
-function plainText(html: string): string {
-  return String(html ?? "")
-    .replace(/<br\s*\/?>/gi, " ")
-    .replace(/<[^>]*>/g, " ")
-    .replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, e: string) => {
-      if (e[0] === "#") {
-        const n =
-          e[1] === "x" || e[1] === "X"
-            ? parseInt(e.slice(2), 16)
-            : parseInt(e.slice(1), 10);
-        return Number.isFinite(n) ? String.fromCodePoint(n) : m;
-      }
-      return ENTITIES[e.toLowerCase()] ?? m;
-    })
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-/**
- * mail-to- の値を読む。形はメールの普通の書き方「名前 <アドレス>」だけ(アドレスは 1 つ)。読めなければ null。
- * 値はエディタの HTML なので、段落(<p>)を外し、文字参照(&lt; &gt;)を戻してから読む。
- * 名前が無い(「<アドレス>」だけ)ときは、サイト文字の名前を表示名にする。
- */
-export function parseRecipientText(
-  html: string,
-): { label: string; email: string } | null {
-  const m = /^(.*?)\s*<\s*([^<>\s]+)\s*>$/.exec(plainText(html));
-  if (!m || !isEmail(m[2])) return null;
-  const label = m[1].replace(/^"(.*)"$/, "$1").trim();
-  if (/[<>@]/.test(label) || label.length > 60) return null;
-  return { label, email: m[2].toLowerCase() };
 }
 
 /** サイトの公開ドメイン(www. は外す)。 */
@@ -240,51 +199,25 @@ export function isOwnAddress(email: string, host: string): boolean {
   return domain === host || domain.endsWith("." + host);
 }
 
-/** 登録された送り先の全部(基準の言語の値から)。形の読めない行は落とす。 */
+/** 登録された送り先の全部(登録した順)。 */
 export async function contactRecipientList(
   env: Env,
 ): Promise<ContactRecipient[]> {
-  const dl = await env.DB.prepare(
-    "SELECT default_lang FROM site_settings WHERE id = 1",
-  )
-    .first<{ default_lang: string | null }>()
-    .catch(() => null);
-  const defaultLang = dl?.default_lang || "";
   const rows = await env.DB.prepare(
-    `SELECT id, name, lang FROM taxonomy_items WHERE kind = 'template' AND id LIKE '${MAIL_TO_PREFIX}%' ORDER BY id`,
+    "SELECT name, label, email FROM contact_recipients ORDER BY created_at, name",
   )
-    .all<{ id: string; name: string; lang: string }>()
+    .all<{ name: string; label: string; email: string }>()
     .catch(() => ({
-      results: [] as { id: string; name: string; lang: string }[],
+      results: [] as { name: string; label: string; email: string }[],
     }));
-  // 基準の言語の値 → 言語の無い値 → ほかの言語の最初の値(送り先は言語で変わらない)
-  const byId = new Map<string, string>();
-  const rank = (lang: string) =>
-    lang === defaultLang ? 0 : lang === "" ? 1 : 2;
-  const best = new Map<string, number>();
-  for (const r of rows.results ?? []) {
-    if (!r.name) continue;
-    const k = rank(r.lang);
-    if (!best.has(r.id) || k < best.get(r.id)!) {
-      best.set(r.id, k);
-      byId.set(r.id, r.name);
-    }
-  }
   const host = await ownHost(env);
-  const list: ContactRecipient[] = [];
-  for (const [id, value] of byId) {
-    const name = id.slice(MAIL_TO_PREFIX.length);
-    if (!RECIPIENT_NAME_RE.test(name)) continue;
-    const parsed = parseRecipientText(value);
-    if (!parsed) continue;
-    list.push({
-      name,
-      label: parsed.label || name,
-      email: parsed.email,
-      own: isOwnAddress(parsed.email, host),
-      verified: false,
-    });
-  }
+  const list: ContactRecipient[] = (rows.results ?? []).map((r) => ({
+    name: r.name,
+    label: r.label,
+    email: r.email,
+    own: isOwnAddress(r.email, host),
+    verified: false,
+  }));
   const outside = [...new Set(list.filter((r) => !r.own).map((r) => r.email))];
   if (outside.length) {
     const v = await env.DB.prepare(
@@ -297,6 +230,106 @@ export async function contactRecipientList(
     for (const r of list) r.verified = ok.has(r.email);
   }
   return list;
+}
+
+/** 送り先の入力の誤り(欄ごと)。 */
+export class ContactRecipientError extends Error {
+  readonly field: "label" | "email" | "name" | "count";
+  constructor(field: "label" | "email" | "name" | "count", message: string) {
+    super(message);
+    this.field = field;
+  }
+}
+
+/** 送り先の ID の形(画像の img-023 と同じく、CMS が登録した順に付ける)。 */
+export const CONTACT_ID_RE = /^mail-\d{3,}$/;
+
+/** 次の ID(今ある最大の番号 + 1・3 桁)。消した番号は使い回さない(古いフォームが別の送り先を指さないように)。 */
+async function nextContactId(env: Env): Promise<string> {
+  const row = await env.DB.prepare(
+    "SELECT MAX(CAST(SUBSTR(name, 6) AS INTEGER)) AS n FROM contact_recipient_ids",
+  )
+    .first<{ n: number | null }>()
+    .catch(() => null);
+  const n = (row?.n ?? 0) + 1;
+  return `mail-${String(n).padStart(3, "0")}`;
+}
+
+/**
+ * 送り先を足す・直す。ID は CMS が付ける(mail-001…・画面では入力させない)。フォームはこの ID で送り先を指すので、
+ * 登録した後は ID を変えない(直すのは表示名とアドレスだけ)。アドレスが変わったか(= 確認のメールを送るか)を返す。
+ */
+export async function saveContactRecipient(
+  env: Env,
+  input: { name?: unknown; label?: unknown; email?: unknown },
+  now = new Date(),
+): Promise<{ recipient: ContactRecipient; emailChanged: boolean }> {
+  const editing = typeof input.name === "string" && input.name !== "";
+  const label = String(input.label ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const email = String(input.email ?? "")
+    .trim()
+    .toLowerCase();
+  if (!label)
+    throw new ContactRecipientError("label", "表示名を入力してください。");
+  if (label.length > CONTACT_LABEL_MAX)
+    throw new ContactRecipientError(
+      "label",
+      `表示名は ${CONTACT_LABEL_MAX} 文字以内で入力してください。`,
+    );
+  if (!isEmail(email))
+    throw new ContactRecipientError(
+      "email",
+      "メールアドレスの形が正しくありません。",
+    );
+  const all = await contactRecipientList(env);
+  const at = now.toISOString();
+  let name: string;
+  let before: ContactRecipient | undefined;
+  if (editing) {
+    name = String(input.name);
+    before = all.find((r) => r.name === name);
+    if (!before)
+      throw new ContactRecipientError("name", "この ID の送り先はありません。");
+    await env.DB.prepare(
+      "UPDATE contact_recipients SET label = ?, email = ?, updated_at = ? WHERE name = ?",
+    )
+      .bind(label, email, at, name)
+      .run();
+  } else {
+    if (all.length >= CONTACT_RECIPIENTS_MAX)
+      throw new ContactRecipientError(
+        "count",
+        `送り先は ${CONTACT_RECIPIENTS_MAX} 件までです。`,
+      );
+    name = await nextContactId(env);
+    await env.DB.batch([
+      env.DB.prepare(
+        "INSERT INTO contact_recipient_ids (name) VALUES (?)",
+      ).bind(name),
+      env.DB.prepare(
+        "INSERT INTO contact_recipients (name, label, email, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+      ).bind(name, label, email, at, at),
+    ]);
+  }
+  const recipient = (await contactRecipientList(env)).find(
+    (r) => r.name === name,
+  )!;
+  return { recipient, emailChanged: before?.email !== email };
+}
+
+/** 送り先を消す(フォームに残った名前は、送り先の無いものとして扱われる)。 */
+export async function deleteContactRecipient(
+  env: Env,
+  name: string,
+): Promise<boolean> {
+  const r = await env.DB.prepare(
+    "DELETE FROM contact_recipients WHERE name = ?",
+  )
+    .bind(name)
+    .run();
+  return Boolean(r.meta?.changes);
 }
 
 export const deliverable = (r: ContactRecipient): boolean =>

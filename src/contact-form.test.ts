@@ -1,6 +1,6 @@
 // 契約テスト (node で直接実行)。問い合わせフォーム(cms-contact)。
 //
-// 固定したいのは ——「送り先はフォームが名前で選び、アドレスはサイト文字 mail-to- から・外のアドレスは確認が済むまで送らない・
+// 固定したいのは ——「送り先はフォームが ID(mail-001…)で選び、アドレスは設定で登録した表から・外のアドレスは確認が済むまで送らない・
 // 送り先ごとに 1 通で、冒頭にどこへ届いたかを書く・形は署名で確かめる・課題は 1 回だけ・回数に上限・内容は残さない」。
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -17,7 +17,9 @@ import {
   contactVerifyEndpoint,
   contactVerifyLink,
   expandContactForms,
-  parseRecipientText,
+  saveContactRecipient,
+  deleteContactRecipient,
+  ContactRecipientError,
   recipientsNotice,
 } from "./contact-form.ts";
 import type { Env } from "./types.ts";
@@ -33,6 +35,7 @@ for (const f of [
   "0091_reaction_rate.sql",
   "0093_contact_form.sql",
   "0094_contact_verified.sql",
+  "0095_contact_recipients.sql",
 ]) {
   sqlite.exec(
     readFileSync(new URL(`../migrations/${f}`, import.meta.url), "utf8"),
@@ -41,12 +44,6 @@ for (const f of [
 sqlite.exec(
   "INSERT INTO site_settings (id, site_name, public_domain, default_lang) VALUES (1, 'はなみずき', 'https://hanamizuki.example', 'ja')",
 );
-const siteText = (id: string, name: string, lang = "ja") =>
-  sqlite
-    .prepare(
-      "INSERT INTO taxonomy_items (id, kind, lang, name) VALUES (?, 'template', ?, ?) ON CONFLICT(id, kind, lang) DO UPDATE SET name = excluded.name",
-    )
-    .run(id, lang, name);
 
 const db = {
   prepare(sql: string) {
@@ -66,6 +63,9 @@ const db = {
       };
     };
     return { bind: (...args: unknown[]) => make(args), ...make([]) };
+  },
+  async batch(stmts: { run: () => Promise<unknown> }[]) {
+    for (const st of stmts) await st.run();
   },
 };
 const kv = new Map<string, string>();
@@ -102,48 +102,9 @@ const deps = (now = Date.now()) => ({
   },
 });
 
-// 送り先の値はメールの普通の書き方「名前 <アドレス>」だけを読む(エディタの段落・文字参照は外して読む)
-assert.deepEqual(parseRecipientText("<p>本部 &lt;Info@Example.com&gt;</p>"), {
-  label: "本部",
-  email: "info@example.com",
-});
-assert.deepEqual(
-  parseRecipientText('<p>"A型事業所"&nbsp;&lt;a@example.com&gt;</p>'),
-  {
-    label: "A型事業所",
-    email: "a@example.com",
-  },
-);
-assert.deepEqual(parseRecipientText("<p>&lt;a@example.com&gt;</p>"), {
-  label: "",
-  email: "a@example.com",
-});
-assert.equal(
-  parseRecipientText("<p>本部 a@example.com</p>"),
-  null,
-  "<> が無い",
-);
-assert.equal(
-  parseRecipientText("<p>本部 &lt;a@example.com&gt; &lt;b@example.com&gt;</p>"),
-  null,
-);
-assert.equal(parseRecipientText("<p>本部</p>"), null);
-assert.equal(parseRecipientText("<p>本部 &lt;not@mail&gt;</p>"), null);
-// 設定の口は持ち主の連絡先(/api/system/contact)と道を分ける(同じ道だと先にそちらが答え、一覧が出ない)
-assert.ok(
-  readFileSync(new URL("./api.ts", import.meta.url), "utf8").includes(
-    String.raw`\/api\/system\/contact-form(?:`,
-  ),
-);
-// 頁へ渡すサイト文字から mail-to- を外す(テンプレートに書かれても出ない)
-assert.match(
-  readFileSync(new URL("./public.ts", import.meta.url), "utf8"),
-  /AND id NOT LIKE 'mail-to-%'/,
-);
-
 const form = normalizeContactForm({
   subject: "A型のお申し込み",
-  to: ["honbu", "syurou-a"],
+  to: ["mail-002", "mail-001"],
   fields: [
     { kind: "name", label: "お名前", required: true },
     { kind: "email", label: "メールアドレス", required: true },
@@ -165,23 +126,41 @@ assert.match(
 );
 assert.doesNotMatch(html, /name="f0"|data-sig=/);
 
-// 外のアドレス(Gmail など)だけでは、確認が済むまで受け付けない
-siteText(
-  "mail-to-syurou-a",
-  "<p>A型事業所はなみずき &lt;agata@gmail.example&gt;</p>",
-);
+// 送り先の登録: 表示名とアドレスの誤りは欄ごとに断る
+for (const [input, field] of [
+  [{ label: "", email: "a@example.com" }, "label"],
+  [{ label: "x".repeat(41), email: "a@example.com" }, "label"],
+  [{ label: "本部", email: "not-mail" }, "email"],
+] as const) {
+  await assert.rejects(
+    saveContactRecipient(env, input),
+    (e: unknown) => e instanceof ContactRecipientError && e.field === field,
+  );
+}
+
+// 外のアドレス(Gmail など)だけでは、確認が済むまで受け付けない。ID は登録した順に mail-001…
+{
+  const a = await saveContactRecipient(env, {
+    label: "A型事業所はなみずき",
+    email: "Agata@gmail.example",
+  });
+  assert.equal(a.recipient.name, "mail-001");
+  assert.equal(a.recipient.email, "agata@gmail.example");
+  assert.equal(a.emailChanged, true, "新しい送り先には確認のメールを送る");
+}
 html = await expandContactForms(page, env, "", "/syurou_a/", true);
 assert.match(html, /受け付けていません/);
 
-// サイトのドメインのアドレスは確認が要らない。形の読めない行・名前の形が違う行は落とす
-siteText("mail-to-honbu", "<p>本部 &lt;headoffice@hanamizuki.example&gt;</p>");
-siteText(
-  "mail-to-honbu",
-  "<p>Head office &lt;headoffice@hanamizuki.example&gt;</p>",
-  "en",
+// サイトのドメインのアドレスは確認が要らない
+assert.equal(
+  (
+    await saveContactRecipient(env, {
+      label: "本部",
+      email: "headoffice@hanamizuki.example",
+    })
+  ).recipient.name,
+  "mail-002",
 );
-siteText("mail-to-broken", "<p>壊れた</p>");
-siteText("mail-to-Bad_Name", "<p>x &lt;a@hanamizuki.example&gt;</p>");
 assert.deepEqual(
   (await contactRecipientList(env)).map((r) => [
     r.name,
@@ -190,11 +169,48 @@ assert.deepEqual(
     r.verified,
   ]),
   [
-    ["honbu", "本部", true, false],
-    ["syurou-a", "A型事業所はなみずき", false, false],
+    ["mail-001", "A型事業所はなみずき", false, false],
+    ["mail-002", "本部", true, false],
   ],
-  "基準の言語の値を読む",
 );
+// 直すのは表示名とアドレスだけ(ID は変わらない)。アドレスを変えないなら確認のメールは送らない
+{
+  const e = await saveContactRecipient(env, {
+    name: "mail-002",
+    label: "本部(代表)",
+    email: "headoffice@hanamizuki.example",
+  });
+  assert.equal(e.recipient.name, "mail-002");
+  assert.equal(e.emailChanged, false);
+  await saveContactRecipient(env, {
+    name: "mail-002",
+    label: "本部",
+    email: "headoffice@hanamizuki.example",
+  });
+}
+// 消した番号は使い回さない(古いフォームが別の送り先を指さない)
+{
+  const t = await saveContactRecipient(env, {
+    label: "消す",
+    email: "x@example.com",
+  });
+  assert.equal(t.recipient.name, "mail-003");
+  assert.equal(await deleteContactRecipient(env, "mail-003"), true);
+  const u = await saveContactRecipient(env, {
+    label: "次",
+    email: "y@example.com",
+  });
+  assert.equal(u.recipient.name, "mail-004");
+  await deleteContactRecipient(env, "mail-004");
+  await assert.rejects(
+    saveContactRecipient(env, {
+      name: "mail-003",
+      label: "x",
+      email: "x@example.com",
+    }),
+    (e: unknown) => e instanceof ContactRecipientError && e.field === "name",
+  );
+}
 
 // 旗が効かないサイトでは何もしない
 assert.equal(
@@ -369,7 +385,7 @@ const challengeAndSend = async (
   assert.equal(ok.status, 200);
   assert.match(await ok.text(), /確認しました/);
   assert.equal(
-    (await contactRecipientList(env)).find((r) => r.name === "syurou-a")!
+    (await contactRecipientList(env)).find((r) => r.name === "mail-001")!
       .verified,
     true,
   );
@@ -416,7 +432,7 @@ for (const t of [
   "contact_verified",
   "reaction_rate",
   "site_settings",
-  "taxonomy_items",
+  "contact_recipients",
 ]) {
   const dump = JSON.stringify(sqlite.prepare(`SELECT * FROM ${t}`).all());
   assert.doesNotMatch(
