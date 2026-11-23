@@ -15,6 +15,15 @@ function contactSettingsPanelHtml(): string {
     "<div class='tokenMeta' style='white-space:normal'>" +
     escapeHtml(t("contactRecipientsLead")) +
     "</div>" +
+    // 使い方(2026-11-23 利用者「問い合わせのタブにも簡単な説明があると丁寧」)。詳しくはヘルプの「問い合わせ」
+    "<details open class='tokenMeta' style='white-space:normal'><summary style='cursor:pointer;font-weight:700'>" +
+    escapeHtml(t("contactStepsTitle")) +
+    "</summary><ol style='margin:6px 0 0;padding-left:1.4em;line-height:1.7'>" +
+    t("contactSteps")
+      .split("|")
+      .map((s) => "<li>" + escapeHtml(s) + "</li>")
+      .join("") +
+    "</ol></details>" +
     "<div id='contactRecipientList' class='stack' style='gap:8px'></div>" +
     // 足す・直す
     "<div class='stack' style='gap:8px;border-top:1px solid var(--line);padding-top:12px'>" +

@@ -100,6 +100,8 @@ function showHelpDialog(key: Dynamic) {
 }
 
 async function help() {
+  // 「問い合わせ」の項は旗で決まる。届く前に組まない
+  await editorFeaturesReady;
   const sections = [
     { key: "basic", label: t("helpBasic"), divider: false },
     { key: "dashboard", label: t("dashboard"), divider: true },
@@ -116,6 +118,9 @@ async function help() {
     { key: "domain", label: t("settingsTabDomain"), divider: false },
     { key: "hosting", label: t("siteMoveTitle"), divider: false },
     { key: "mail", label: t("settingsTabMail"), divider: false },
+    ...(state.editorFeatures?.contactForm
+      ? [{ key: "contact", label: t("settingsTabContact"), divider: false }]
+      : []),
     { key: "ipGate", label: t("settingsTabIpGate"), divider: false },
     { key: "users", label: t("userManager"), divider: false },
     { key: "backup", label: t("backup"), divider: false },
