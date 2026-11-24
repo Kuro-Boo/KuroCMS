@@ -8,4 +8,4 @@ export const SITE_HEAD_FILE = "kuro-head.69851950c0.js";
 /** 公開ページの部品を動かす(src/site/kuro-site.ts)。 */
 export const SITE_SCRIPT_FILE = "kuro-site.4c09aef87c.js";
 /** 公開ページを組み立てるコードの指紋(src/render-sources.ts)。 */
-export const RENDER_FINGERPRINT = "4f4739139a0091f7";
+export const RENDER_FINGERPRINT = "4219d731c71ec745";
