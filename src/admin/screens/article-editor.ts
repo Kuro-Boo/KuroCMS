@@ -1847,7 +1847,8 @@ async function newArticle(editDid: Dynamic) {
       // 求人カード・問い合わせフォーム(旗 job-card / contact-form が効くサイトだけ)
       jobUi: Boolean(state.editorFeatures?.jobCard),
       // 求人カードの入力画面は管理画面の言語、カードの表示(公開ページにも出る)は本文の言語
-      uiLang: state.uiLang,
+      // 旗 editor-i18n が効かないサイトは今までどおり日本語
+      uiLang: state.editorFeatures?.editorI18n ? state.uiLang : "ja",
       contentLang: art.lang || null,
       contactUi: Boolean(state.editorFeatures?.contactForm),
       contactRecipients: state.editorFeatures?.contactRecipients ?? [],
