@@ -724,9 +724,13 @@ export function adminHtml(
       /* KuroEditor floating popups are appended to <body> at a low z-index (z-40),
          so inside the site-text dialog they fall BEHIND the backdrop (z-2200) and
          become invisible (image-settings menu, roundbox menu, media/emoji/table…).
-         Lift them above the dialog. */
+         Lift them above the dialog. ⚠ 新しい浮遊部品が増えたらここにも足す —— 2026-11-24 に、
+         リンクのボタン(.kuro-link-edit)・文字選択のメニュー(.kuro-popm)・リンクを開く確認・
+         レシピ/求人/問い合わせの編集(.kuro-recipe-dialog)が漏れていて、サイト文字では押しても何も出なかった。 */
       .kuro-image-menu, .kuro-roundbox-menu, .kuro-table-menu, .kuro-table-inserter,
-      .kuro-line-popm, .kuro-emoji-panel, .kuro-media-dialog, .kuro-mmenu { z-index: 2300 !important; }
+      .kuro-table-row-indicator, .kuro-line-popm, .kuro-emoji-panel, .kuro-media-dialog,
+      .kuro-popm, .kuro-link-edit, .kuro-link-open, .kuro-recipe-dialog,
+      .kuro-mmenu { z-index: 2300 !important; }
       .panelHead { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
       .panelHead h3 { margin: 0; }
       .panelHead .toolbar { margin: 0; }

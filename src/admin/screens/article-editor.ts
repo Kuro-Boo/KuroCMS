@@ -737,7 +737,11 @@ async function newArticle(editDid: Dynamic) {
       art.title = rev.title || "";
       art.summary = rev.summary || "";
       art.body = rev.bodyHtml || "";
-      if (state.articleEditor) state.articleEditor.setContent(art.body);
+      if (state.articleEditor) {
+        state.articleEditor.setContent(art.body);
+        // 求人カードの表示は本文の言語で(KuroEditor・cms-job)
+        state.articleEditor.setContentLang?.(art.lang);
+      }
       updateHistoryBadge();
       setSaveStatus(
         t("revisionPreviewStatus").replace("{n}", String(rev.revisionNo)),
@@ -1842,6 +1846,9 @@ async function newArticle(editDid: Dynamic) {
       recipeUi: true,
       // 求人カード・問い合わせフォーム(旗 job-card / contact-form が効くサイトだけ)
       jobUi: Boolean(state.editorFeatures?.jobCard),
+      // 求人カードの入力画面は管理画面の言語、カードの表示(公開ページにも出る)は本文の言語
+      uiLang: state.uiLang,
+      contentLang: art.lang || null,
       contactUi: Boolean(state.editorFeatures?.contactForm),
       contactRecipients: state.editorFeatures?.contactRecipients ?? [],
       urlResolver: function (slug: string) {
@@ -1972,6 +1979,7 @@ async function newArticle(editDid: Dynamic) {
     // re-mounts the cache is already warm, so render immediately.
     if (bodyMediaLoaded) {
       ke.setContent(art.body);
+      ke.setContentLang?.(art.lang);
       markReady();
     } else {
       Promise.all([
@@ -2018,10 +2026,12 @@ async function newArticle(editDid: Dynamic) {
           });
           bodyMediaLoaded = true;
           ke.setContent(art.body);
+          ke.setContentLang?.(art.lang);
           markReady();
         })
         .catch(function () {
           ke.setContent(art.body);
+          ke.setContentLang?.(art.lang);
           markReady();
         });
     }

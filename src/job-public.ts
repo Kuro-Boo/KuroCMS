@@ -54,15 +54,16 @@ export function jobOfBody(bodyHtml: string): Job | null {
   return checkJobCards(bodyHtml ?? "").job;
 }
 
-export function toJobData(job: Job, today: string): JobData {
+/** lang = 頁の言語。雇用形態・給与・勤務地の書き方が従う(日本語なら日本語・それ以外は英語)。 */
+export function toJobData(job: Job, today: string, lang = ""): JobData {
   return {
     open: jobIsOpen(job, today),
     openedAt: job.openedAt ?? null,
     validThrough: job.validThrough ?? null,
-    employmentLabels: employmentLabels(job),
-    salaryText: formatSalary(job),
+    employmentLabels: employmentLabels(job, lang),
+    salaryText: formatSalary(job, lang),
     salaryNote: job.salaryNote ?? "",
-    locationText: formatLocation(job),
+    locationText: formatLocation(job, lang),
     hours: job.hours ?? "",
     requirements: job.requirements ?? "",
     benefits: job.benefits ?? "",
@@ -81,6 +82,7 @@ export function jobDescription(
   job: Job,
   bodyHtml: string,
   summary = "",
+  lang = "",
 ): string {
   const lead = summary.trim()
     ? `<p>${escapeText(summary.trim()).replace(/\r?\n/g, "<br>")}</p>`
@@ -88,7 +90,7 @@ export function jobDescription(
   const body = stripInternalIds(bodyWithoutJobCard(bodyHtml)).trim();
   if (body.replace(/<[^>]*>/g, "").trim()) return lead + body;
   const table = /<table class="kuro-job__table">[\s\S]*<\/table>/.exec(
-    renderJobPreview(job),
+    renderJobPreview(job, { lang }),
   );
   return lead + (table ? table[0] : "");
 }
@@ -124,6 +126,8 @@ export function jobPostingLd(args: {
   siteUrl: string;
   logoUrl?: string | null;
   canonical?: string | null;
+  /** 頁の言語(説明に続けるカードの表の言葉)。 */
+  lang?: string;
 }): Record<string, unknown> | null {
   const { job } = args;
   if (!jobIsOpen(job, args.today)) return null;
@@ -151,7 +155,12 @@ export function jobPostingLd(args: {
     "@context": "https://schema.org",
     "@type": "JobPosting",
     title: args.title,
-    description: jobDescription(job, args.bodyHtml, args.summary ?? ""),
+    description: jobDescription(
+      job,
+      args.bodyHtml,
+      args.summary ?? "",
+      args.lang ?? "",
+    ),
     ...(job.openedAt ? { datePosted: job.openedAt } : {}),
     ...(job.validThrough
       ? { validThrough: `${job.validThrough}T23:59:59` }
@@ -203,12 +212,13 @@ export function jobPostingLd(args: {
 export function openJobItems<C extends object>(
   rows: { body_html?: string | null; card: C }[],
   today: string,
+  lang = "",
 ): (C & { job: JobData })[] {
   const items: (C & { job: JobData })[] = [];
   for (const r of rows) {
     const job = jobOfBody(r.body_html ?? "");
     if (!job || !jobIsOpen(job, today)) continue;
-    items.push({ ...r.card, job: toJobData(job, today) });
+    items.push({ ...r.card, job: toJobData(job, today, lang) });
   }
   return items.sort((a, b) =>
     String(b.job.openedAt ?? "").localeCompare(String(a.job.openedAt ?? "")),
