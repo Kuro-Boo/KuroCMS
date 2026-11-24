@@ -10,10 +10,12 @@
  * - 口: POST {公開の根}/_contact/verify も(確認のメールのリンクの先。GET は押すボタンを出すだけ)。
  * - ロボット避けは自前の計算の課題(SHA-256 の先頭 bits ビットが 0)。salt は 1 回だけ使える(contact_spent)。
  */
+import { divEnd, tagEnd } from "./card-lang.ts";
 import {
   CONTACT_BLOCK,
   decodeContactForm,
   normalizeContactForm,
+  contactText,
   renderContactFormHtml,
   renderContactPreview,
   validateContactForm,
@@ -116,44 +118,7 @@ async function signForm(
 
 // ── 公開の頁: 本文の contact-form をフォームへ ─────────────────────────────────
 
-/** 開始タグの終わり(引用符の中の > を読み飛ばす)。 */
-function tagEnd(html: string, from: number): number {
-  let q = "";
-  for (let i = from; i < html.length; i++) {
-    const c = html[i];
-    if (q) {
-      if (c === q) q = "";
-    } else if (c === '"' || c === "'") q = c;
-    else if (c === ">") return i;
-  }
-  return -1;
-}
-
-/** html[start] の <div …> に対応する </div> の後ろの位置(見つからなければ -1)。 */
-function divEnd(html: string, start: number): number {
-  let depth = 0;
-  let i = start;
-  while (i < html.length) {
-    const lt = html.indexOf("<", i);
-    if (lt < 0) return -1;
-    if (/^<div[\s>]/i.test(html.slice(lt, lt + 5))) {
-      const e = tagEnd(html, lt);
-      if (e < 0) return -1;
-      depth++;
-      i = e + 1;
-    } else if (/^<\/div\s*>/i.test(html.slice(lt, lt + 7))) {
-      const e = html.indexOf(">", lt);
-      depth--;
-      i = e + 1;
-      if (depth === 0) return i;
-    } else {
-      const e = tagEnd(html, lt + 1);
-      i = e < 0 ? lt + 1 : e + 1;
-    }
-  }
-  return -1;
-}
-
+// 開始タグの終わり・</div> の位置は本文のカードの言語の作り直しと共有(card-lang.ts)
 const BLOCK_OPEN = new RegExp(
   `<div\\b[^>]*\\bdata-kuro-block="${CONTACT_BLOCK}"`,
   "gi",
@@ -357,8 +322,17 @@ export async function expandContactForms(
   publicBase: string,
   path: string,
   flagOn?: boolean,
+  /** 頁の言語(フォームの文・受け付けていない旨・ブラウザの案内)。 */
+  lang = "",
 ): Promise<string> {
   if (!html.includes(`data-kuro-block="${CONTACT_BLOCK}"`)) return html;
+  const text = contactText(lang);
+  const escText = (v: string) =>
+    v
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
   if (!(flagOn ?? (await contactFlagOn(env)))) return html;
   const all = await contactRecipientList(env);
   let out = "";
@@ -381,15 +355,16 @@ export async function expandContactForms(
     } else if (!recipientsFor(form, all).some(deliverable)) {
       // 押せない見本を出す(項目と見た目は頁で確かめられる・送らせない)。送り先の確認待ちの間もこの形。
       replacement =
-        `<div class="kuro-contact kuro-contact--closed" role="group" aria-label="問い合わせフォーム">` +
-        `<p class="kuro-contact__closed-note">現在、このフォームではお問い合わせを受け付けていません。</p>` +
-        renderContactPreview(form) +
+        `<div class="kuro-contact kuro-contact--closed" role="group" aria-label="${escText(text.card)}">` +
+        `<p class="kuro-contact__closed-note">${escText(text.closed)}</p>` +
+        renderContactPreview(form, { lang }) +
         `</div>`;
     } else {
       const signed = await signForm(env, form, path);
       replacement = renderContactFormHtml(form, {
         ...signed,
         endpoint: `${publicBase}/_contact`,
+        lang,
       });
     }
     out += html.slice(pos, start) + replacement;
@@ -590,7 +565,12 @@ export async function contactEndpoint(
     body.values && typeof body.values === "object"
       ? (body.values as Record<string, unknown>)
       : {};
-  const checked = validateSubmission(opened.form, values);
+  // 誤りの文は頁の言語(フォームが data-lang を添えて送る・言語の名前でしかないので信用しても害は無い)
+  const checked = validateSubmission(
+    opened.form,
+    values,
+    typeof body.lang === "string" ? body.lang.slice(0, 16) : "",
+  );
   if (!checked.ok)
     return reply({ error: "invalid", fields: checked.errors }, 400);
 
