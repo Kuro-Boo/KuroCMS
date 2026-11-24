@@ -100,13 +100,16 @@ function showHelpDialog(key: Dynamic) {
 }
 
 async function help() {
-  // 「問い合わせ」の項は旗で決まる。届く前に組まない
+  // 「求人カード」「問い合わせ」の項は旗で決まる。届く前に組まない
   await editorFeaturesReady;
   const sections = [
     { key: "basic", label: t("helpBasic"), divider: false },
     { key: "dashboard", label: t("dashboard"), divider: true },
     { key: "newArticle", label: t("newArticle"), divider: false },
     { key: "articles", label: t("articles"), divider: false },
+    ...(state.editorFeatures?.jobCard
+      ? [{ key: "jobs", label: t("helpJobs"), divider: false }]
+      : []),
     { key: "images", label: t("images"), divider: true },
     { key: "videos", label: t("videos"), divider: false },
     { key: "audios", label: t("audios"), divider: false },
