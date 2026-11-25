@@ -1,14 +1,25 @@
-import type { ApiErrorBody, JsonValue } from "./types";
+import type { ApiErrorBody, ErrorValues, JsonValue } from "./types";
 
 export class HttpError extends Error {
   // 引数での宣言(public readonly status)は使わない —— 契約テストは Node の
   // 型を落とすだけの実行で動かすので、その書き方を読めない。
   readonly status: number;
   readonly code: string;
-  constructor(status: number, code: string, message: string) {
+  /**
+   * 画面の文に差し込む値(仕様 cms-cms-i18n「API の誤り」: サーバーは符号と値だけを返し、文は画面の辞書で引く)。
+   * message は REST・MCP から叩く人のための英語の説明で、管理画面は使わない。
+   */
+  readonly values?: ErrorValues;
+  constructor(
+    status: number,
+    code: string,
+    message: string,
+    values?: ErrorValues,
+  ) {
     super(message);
     this.status = status;
     this.code = code;
+    if (values) this.values = values;
   }
 }
 
@@ -196,9 +207,10 @@ export function jsonError(
   status: number,
   code: string,
   message: string,
+  values?: ErrorValues,
 ): Response {
   const body: ApiErrorBody = {
-    error: { code, message },
+    error: values ? { code, message, values } : { code, message },
   };
   return json(body as unknown as JsonValue, { status });
 }
@@ -242,6 +254,7 @@ export function requireSlug(value: string, label: string): string {
       400,
       "invalid_slug",
       `${label} must use lowercase letters, numbers, and hyphens.`,
+      { field: label },
     );
   }
   return value;

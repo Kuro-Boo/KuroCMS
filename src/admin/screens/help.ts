@@ -9,7 +9,7 @@ function showHelpDialog(key: Dynamic) {
     }
     existing.remove();
   }
-  const _hc = state.uiLang === "ja" ? helpContent : helpContentEn;
+  const _hc = helpFor(state.uiLang);
   const c = _hc[key] || _hc.basic;
   const dlg = document.createElement("div");
   dlg.id = "helpFloatDlg";
@@ -134,7 +134,7 @@ async function help() {
   ];
 
   function renderHelpContent(key: Dynamic) {
-    const _hc = state.uiLang === "ja" ? helpContent : helpContentEn;
+    const _hc = helpFor(state.uiLang);
     const c = _hc[key] || _hc.basic;
     if (c.faqs) {
       return (
@@ -265,4 +265,13 @@ async function help() {
       const content = byId("helpContent");
       if (content) content.innerHTML = renderHelpContent(btn.dataset.hkey);
     });
+}
+
+/** 画面の言語のヘルプ。無い言語は英語(辞書の補いと同じ・仕様 cms-cms-i18n)。 */
+function helpFor(lang: string): Record<string, Dynamic> {
+  const byLang: Record<string, Record<string, Dynamic>> = {
+    en: HELP_EN,
+    ja: HELP_JA,
+  };
+  return byLang[lang] ?? HELP_EN;
 }
